@@ -1,0 +1,686 @@
+#! /bin/sh
+# agvtool - This tool helps out with common operations for apple-generic versioned Xcode projects.
+# Author: Mike Ferris
+# Last mod: Scott Tooker (12/8/2005)
+print_usage () {
+    COMMAND_BASENAME=`basename $0`
+    echo
+    echo "${COMMAND_BASENAME} - Apple-generic versioning tool for Xcode projects"
+    echo "  usage:"
+    echo "    ${COMMAND_BASENAME} help"
+    echo "    ${COMMAND_BASENAME} what-version | vers [-terse]"
+    echo "    ${COMMAND_BASENAME} [-noscm | -usecvs | -usesvn] next-version | bump [-all]"
+# Internal: version comes from build environment
+#    echo "    ${COMMAND_BASENAME} [-noscm | -usecvs | -usesvn] apple-built [-all]"
+    echo "    ${COMMAND_BASENAME} [-noscm | -usecvs | -usesvn] new-version [-all] <versNum>"
+    echo "    ${COMMAND_BASENAME} [-noscm | -usecvs | -usesvn] tag [-force | -F] [-noupdatecheck | -Q] [-baseurlfortag]"
+    echo "    ${COMMAND_BASENAME} what-marketing-version | mvers [-terse | -terse1]"
+    echo "    ${COMMAND_BASENAME} [-noscm | -usecvs | -usesvn] new-marketing-version <versString>"
+    echo
+print_help () {
+    print_usage
+    echo
+    echo "For more information type \"man agvtool\"."
+# Field separator is newline only.
+IFS="
+find_oldproject () {
+    PROJECT=""
+    ALL_PROJECTS=`/bin/ls -1 -d *.pb*proj *.xcode 2>/dev/null`
+    if [ z"${ALL_PROJECTS}" != z ] ; then
+for i in ${ALL_PROJECTS} ; do
+    if [ z"${PROJECT}" = z ] ; then
+PROJECT=${i}
+    else
+echo "There are multiple projects in this directory.  agvtool does not work with multiple projects in the same directory."
+print_usage
+exit 3
+    fi
+done
+if [ z"${PROJECT}" != z ] ; then
+        PROJECT_BASENAME=`basename "${PROJECT}" .xcode`
+    PROJECT_BASENAME=`basename "${PROJECT_BASENAME}" .pbproj`
+    PROJECT_BASENAME=`basename "${PROJECT_BASENAME}" .pbxproj`
+    PROJECT=${PROJECT}/project.pbxproj
+    fi
+find_project () {
+    PROJECT=""
+    ALL_PROJECTS=`/bin/ls -1 -d *.xcodeproj 2>/dev/null`
+    if [ z"${ALL_PROJECTS}" != z ] ; then
+for i in ${ALL_PROJECTS} ; do
+    if [ z"${PROJECT}" = z ] ; then
+PROJECT=${i}
+    else
+echo "There are multiple projects in this directory.  agvtool does not work with multiple projects in the same directory."
+print_usage
+exit 3
+    fi
+done
+if [ z"${PROJECT}" != z ] ; then
+        PROJECT_BASENAME=`basename "${PROJECT}" .xcodeproj`
+    PROJECT=${PROJECT}/project.pbxproj
+    fi
+get_version () {
+    VERSION_NUM=$(sed -n 's/^[ 
+]*CURRENT_PROJECT_VERSION =[ 
+]*\(.*\);.*$/\1/p' "${PROJECT}" | sort -u)
+    if [ z"${VERSION_NUM}" = z ] ; then
+        if [ z"$1" != z"TERSE" ] ; then
+            echo "There does not seem to be a CURRENT_PROJECT_VERSION key set for this project.  Add this key to your target's expert build settings."
+            echo
+        fi
+exit 6
+    fi
+    num_lines=$(echo ${VERSION_NUM} | wc -l | sed 's/[ ]*\([0-9]*\).*/\1/')
+    if [ z"${num_lines}" != z"1" ] ; then
+        if [ z"$1" != z"TERSE" ] ; then
+            echo "There's more than one value for CURRENT_PROJECT_VERSION in this project.  agvtool can only deal with projects where all targets are versioned together."
+            echo
+        fi
+exit 6
+    fi
+get_rc_project_name () {
+    RC_PROJECT_NAME=$(sed -n 's/^[ 
+]*RC_PROJECT_NAME =[ 
+]*\(.*\);.*$/\1/p' "${PROJECT}" | sort -u)
+    if [ z"${RC_PROJECT_NAME}" = z ] ; then
+RC_PROJECT_NAME=$PROJECT_BASENAME
+    fi
+    if [ z"${RC_PROJECT_NAME}" = z ] ; then
+echo "Cannot figure out a project name for RC submission."
+exit 8
+    fi
+    num_lines=$(echo ${RC_PROJECT_NAME} | wc -l | sed 's/[ ]*\([a-zA-Z0-9_]*\).*/\1/')
+    if [ z"${num_lines}" != z"1" ] ; then
+        if [ z"$1" != z"TERSE" ] ; then
+            echo "There's more than one value for RC_PROJECT_NAME in this project.  agvtool can only deal with projects where all targets are versioned together."
+            echo
+        fi
+exit 6
+    fi
+what_version () {
+    get_version $1
+    
+    if [ z"$1" != z"TERSE" ] ; then
+        echo "Current version of project ${PROJECT_BASENAME} is: "
+        echo "    ${VERSION_NUM}"
+        echo
+    else
+        echo "${VERSION_NUM}"
+    fi
+new_version () {
+    NEW_VERSION_NUM=$1
+    UPDATEALL=$2
+    if [ z"${NEW_VERSION_NUM}" = z ] ; then
+echo "No new version number specified."
+exit 7
+    fi
+    echo "Setting version of project ${PROJECT_BASENAME} to: "
+    echo "    ${NEW_VERSION_NUM}."
+    echo
+    sed "s/\(^[ 
+]*CURRENT_PROJECT_VERSION =[ 
+]*\)\(.*\)\(;.*$\)/\1${NEW_VERSION_NUM}\3/" "${PROJECT}" > "${PROJECT}.new1"
+    sed "s/\(^[ 
+]*DYLIB_CURRENT_VERSION =[ 
+]*\)\(.*\)\(;.*$\)/\1${NEW_VERSION_NUM}\3/" "${PROJECT}.new1" > "${PROJECT}.new2"
+sed "s/\(^[ 
+]*MODULE_VERSION =[ 
+]*\)\(.*\)\(;.*$\)/\1${NEW_VERSION_NUM}\3/" "${PROJECT}.new2" > "${PROJECT}.new3"
+    if [ z"${UPDATEALL}" = z"YES" ] ; then
+echo "Also setting CFBundleVersion key (assuming it exists)"
+echo
+sed "/^[ 
+]*<key>CFBundleVersion.*$/,/.*$/s/\(^[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\1${NEW_VERSION_NUM}\3/" "${PROJECT}.new3" > "${PROJECT}.new4"
+    else
+cp "${PROJECT}.new3" "${PROJECT}.new4"
+    fi
+    mv "${PROJECT}.new4" "${PROJECT}"
+    rm "${PROJECT}.new1"
+    rm "${PROJECT}.new2"
+rm "${PROJECT}.new3"
+# Now, if we have a new-style project version, let's update those too...
+    if [ z"${UPDATEALL}" = z"YES" ] ; then
+        if grep INFOPLIST_FILE "${PROJECT}" >/dev/null 2>&1
+        then
+        echo "Updating CFBundleVersion in Info.plist(s)..."
+        echo
+          grep INFOPLIST_FILE "${PROJECT}" | 
+   sed -e 's,.*INFOPLIST_FILE[^=]*=[ 
+]*,,g' \
+                 -e 's,;[ 
+]*$,,' -e 's,^",,' -e 's,"$,,' | sort -u |
+          while read info_plist_fn ; do
+            [ -z "$info_plist_fn" ] && continue
+            project_dirname=`dirname "${PROJECT}"`
+            [ -z "$project_dirname" ] && project_dirname="."
+# Is it an absolute path or a relative one?
+            if echo "$info_plist_fn" | egrep '^/|^~|^[$]' 2>/dev/null 2>&1
+            then
+              canonical_plist_name="${info_plist_fn}"
+            else
+              canonical_plist_name="$project_dirname/../${info_plist_fn}"
+            fi
+            if [ -z "$canonical_plist_name" -o ! -f "$canonical_plist_name" ] ; then
+# ERROR: The info.plist cannot be found where we think it should be....
+  echo "Cannot find \"${canonical_plist_name}\""
+              continue
+            fi
+    sed "/^[ 
+]*<key>CFBundleVersion.*$/,/.*$/s/\(^[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\1${NEW_VERSION_NUM}\3/" \
+                  "${canonical_plist_name}" > "${canonical_plist_name}.new1"
+            if [ -s "${canonical_plist_name}.new1" ] ; then
+              cp "${canonical_plist_name}.new1" "$canonical_plist_name"
+  rm "${canonical_plist_name}.new1"
+            fi
+echo "Updated CFBundleVersion in \"${canonical_plist_name}\" to ${NEW_VERSION_NUM}"
+          done
+        fi
+        echo "${changedPlistFiles}"
+    fi
+    echo "${changedPlistFiles}"
+    if [ z"${USE_CVS}" = z"YES" ] ; then
+        echo "${CVS_TOOL_PATH} commit -m \"Change version to ${NEW_VERSION_NUM}\""
+        "${CVS_TOOL_PATH}" commit -m "Change version to ${NEW_VERSION_NUM}"
+    elif [ z"${USE_SVN}" = z"YES" ] ; then
+echo "${SVN_TOOL_PATH} commit -m \"Change version to ${NEW_VERSION_NUM}\""
+        "${SVN_TOOL_PATH}" commit -m "Change version to ${NEW_VERSION_NUM}"
+    fi
+next_version () {
+    UPDATEALL=$1
+    INCREMENT_MINOR_VERSION=$2
+    get_version NORMAL
+        
+    if [ z"$INCREMENT_MINOR_VERSION" = z"YES" ] ; then
+        NEW_VERSION_NUM=`echo ${VERSION_NUM} | awk -F . '{$NF = $NF + 1; OFS="."; print $0}'`
+    else
+        NEW_VERSION_NUM=`echo ${VERSION_NUM} | sed 's%\..*$%%' | awk '{print $1 + 1}'`
+    fi
+    
+    new_version ${NEW_VERSION_NUM} ${UPDATEALL}
+what_marketing_version () {
+ARG=$1;
+ONE_ONLY="";
+if [ z"$ARG" = z"TERSE_ONE" ] ; then
+ARG="TERSE";
+ONE_ONLY="YES";
+    MVERS=`sed "/<key>CFBundleShortVersionString<\/key>/ { N ; s/\(^[ 
+]*<key>CFBundleShortVersionString<\/key>[ 
+]*\n[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\2/ ; p ; } 
+    /<key>CFBundleShortVersionString<\/key>/!{ D ; }" "${PROJECT}" | sort -u`
+    if [ z"$MVERS" = z"" ] ; then
+        if [ z"$ARG" != z"TERSE" ] ; then
+            echo "No marketing version number (CFBundleShortVersionString) found for Jambase targets."
+            echo
+        fi
+    else
+        num_lines=$(echo ${MVERS} | wc -l | sed 's/[ ]*\([0-9]*\).*/\1/')
+        if [ z"${num_lines}" != z"1" ] ; then
+            if [ z"$ARG" != z"TERSE" ] ; then
+                echo "There is more than one marketing version number (with different values) for jambase targets in this project."
+                echo
+            fi
+        fi
+        if [ z"$ARG" != z"TERSE" ] ; then
+            echo "Current marketing version (CFBundleShortVersionString) for Jambase targets: "
+            echo "    $MVERS"
+            echo
+        else
+            echo "$MVERS"
+        fi
+    fi
+    
+    # Now look for marketing version info in the Info.plist(s)
+    # Now, if we have a new-style project version, let's update those too...
+if [ z"$ARG" != z"TERSE" ] ; then
+echo "Looking for marketing version in native targets..."
+    if grep INFOPLIST_FILE "${PROJECT}" >/dev/null 2>&1
+    then
+if [ z"$ARG" != z"TERSE" ] ; then
+echo "Looking for marketing version (CFBundleShortVersionString) in native targets..."
+echo
+        
+        grep INFOPLIST_FILE "${PROJECT}" | sed -e 's,.*INFOPLIST_FILE[^=]*=[ 
+]*,,g' \
+            -e 's,;[ 
+]*$,,' -e 's,^",,' -e 's,"$,,' | sort -u | while read info_plist_fn
+        do
+            [ -z "$info_plist_fn" ] && continue
+            project_dirname=`dirname "${PROJECT}"`
+            [ -z "$project_dirname" ] && project_dirname="."
+            # Is it an absolute path or a relative one?
+            if echo "$info_plist_fn" | egrep '^/|^~|^[$]' 2>/dev/null 2>&1
+            then
+              canonical_plist_name="${info_plist_fn}"
+            else
+              canonical_plist_name="$project_dirname/../${info_plist_fn}"
+            fi
+            if [ -z "$canonical_plist_name" -o ! -f "$canonical_plist_name" ] ; then
+if [ z"$ARG" != z"TERSE" ] ; then
+# ERROR: The info.plist cannot be found where we think it should be....
+echo "Cannot find \"${canonical_plist_name}\""
+              continue
+            fi
+            MVERS=`sed "/<key>CFBundleShortVersionString<\/key>/ { N ; s/\(^[ 
+]*<key>CFBundleShortVersionString<\/key>[ 
+]*\n[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\2/ ; p ; } 
+    /<key>CFBundleShortVersionString<\/key>/!{ D ; }" "${canonical_plist_name}" | sort -u`
+if [ z"$ARG" != z"TERSE" ] ; then
+echo "Found CFBundleShortVersionString of \"$MVERS\" in \"${canonical_plist_name}\" "
+else
+if [ z"$ONE_ONLY" = z"YES" ] ; then
+echo "$MVERS"
+exit 0;
+echo "\"${canonical_plist_name}\"=$MVERS"
+        done
+    else
+        if [ z"$ARG" != z"TERSE" ] ; then
+            echo "No native targets with Info.plist files found."
+            echo
+        fi
+        exit 6
+    fi
+new_marketing_version () {
+    NEW_VERSION_NUM=$1
+    if [ z"${NEW_VERSION_NUM}" = z ] ; then
+echo "No new marketing version number specified."
+exit 7
+    fi
+    echo "Setting CFBundleShortVersionString of project ${PROJECT_BASENAME} to: "
+    echo "    ${NEW_VERSION_NUM}."
+    echo
+    sed "/<key>CFBundleShortVersionString<\/key>/ { N ; s/\(^[ 
+]*<key>CFBundleShortVersionString<\/key>[ 
+]*\n[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\1${NEW_VERSION_NUM}\3/ ; }" "${PROJECT}" > "${PROJECT}.new1"
+    mv "${PROJECT}.new1" "${PROJECT}"
+    
+    # Now, if we have a new-style project version, let's update those too...
+    if grep INFOPLIST_FILE "${PROJECT}" >/dev/null 2>&1
+    then
+        echo "Updating CFBundleShortVersionString in Info.plist(s)..."
+        echo
+        
+        grep INFOPLIST_FILE "${PROJECT}" | sed -e 's,.*INFOPLIST_FILE[^=]*=[ 
+]*,,g' \
+            -e 's,;[ 
+]*$,,' -e 's,^",,' -e 's,"$,,' | sort -u | while read info_plist_fn
+        do
+            [ -z "$info_plist_fn" ] && continue
+            project_dirname=`dirname "${PROJECT}"`
+            [ -z "$project_dirname" ] && project_dirname="."
+            # Is it an absolute path or a relative one?
+            if echo "$info_plist_fn" | egrep '^/|^~|^[$]' 2>/dev/null 2>&1
+            then
+              canonical_plist_name="${info_plist_fn}"
+            else
+              canonical_plist_name="$project_dirname/../${info_plist_fn}"
+            fi
+            if [ -z "$canonical_plist_name" -o ! -f "$canonical_plist_name" ] ; then
+            # ERROR: The info.plist cannot be found where we think it should be....
+  echo "Cannot find \"${canonical_plist_name}\""
+              continue
+            fi
+            sed "/^[ 
+]*<key>CFBundleShortVersionString.*$/,/.*$/s/\(^[ 
+]*<string>\)\(.*\)\(<\/string>.*$\)/\1${NEW_VERSION_NUM}\3/" \
+                  "${canonical_plist_name}" > "${canonical_plist_name}.new1"
+            if [ -s "${canonical_plist_name}.new1" ] ; then
+              cp "${canonical_plist_name}.new1" "${canonical_plist_name}"
+  rm "${canonical_plist_name}.new1"
+            fi
+            echo "Updated CFBundleShortVersionString in \"${canonical_plist_name}\" to ${NEW_VERSION_NUM}"
+        done
+    fi
+    
+    if [ z"${USE_CVS}" = z"YES" ] ; then
+        echo "${CVS_TOOL_PATH} commit -m \"Change marketing version to ${NEW_VERSION_NUM}\""
+        "${CVS_TOOL_PATH}" commit -m "Change marketing version to ${NEW_VERSION_NUM}" 
+    elif [ z"${USE_SVN}" = z"YES" ] ; then
+        echo "${SVN_TOOL_PATH} commit -m \"Change marketing version to ${NEW_VERSION_NUM}\""
+        "${SVN_TOOL_PATH}" commit -m "Change marketing version to ${NEW_VERSION_NUM}"
+    fi
+tag () {
+    if [ z"${USE_CVS}" = z"YES" ] ; then
+        get_version NORMAL
+        if [ z"$2" = z"UPDATECHECK" ] ; then
+            echo "Checking for uncommitted changes..."
+            "${CVS_TOOL_PATH}" -nq update -d -P | awk '$1 == "C" || $1 == "M" {exit 1}'
+        else
+            true
+        fi
+        
+        if [ z$? = z0 ] ; then
+            if [ z"$1" = z"FORCE" ] ; then
+                echo "${CVS_TOOL_PATH} tag -F \"${PROJECT_BASENAME}-`echo ${VERSION_NUM} | sed 's%\.%~%g'`\"" ;
+                "${CVS_TOOL_PATH}" tag -F "${PROJECT_BASENAME}-`echo ${VERSION_NUM} | sed 's%\.%~%g'`" ;
+                echo
+                echo "Tagged ${PROJECT_BASENAME}-${VERSION_NUM} with force option."
+            else
+                echo "${CVS_TOOL_PATH} tag \"${PROJECT_BASENAME}-`echo ${VERSION_NUM} | sed 's%\.%~%g'`\"" ;
+                "${CVS_TOOL_PATH}" tag "${PROJECT_BASENAME}-`echo ${VERSION_NUM} | sed 's%\.%~%g'`" ;
+                echo
+                echo "Tagged ${PROJECT_BASENAME}-${VERSION_NUM}."
+            fi
+        else
+            echo "*** Uncommitted files found during update check." ;
+            echo "*** Commit all files or update by hand and try again." ;
+            exit 5
+        fi
+    elif [ z"${USE_SVN}" = z"YES" ] ; then
+        get_version NORMAL
+        if [ z"$2" = z"UPDATECHECK" ] ; then
+            echo "Checking for uncommitted changes..."
+            echo "\"${SVN_TOOL_PATH}\" status | awk '$1 == \"C\" || $1 == \"M\" {exit 1}'"
+            "${SVN_TOOL_PATH}" status | awk '$1 == "C" || $1 == "M" {exit 1}'
+        else
+            true
+        fi
+        
+        baseTagURL=${SVN_BASE_TAG_URL}
+        if [ z"$3" != z"" ] ; then
+            baseTagURL=$3
+        fi
+        
+        if [ z$? = z0 ] ; then
+            svnOriginalURL=`"${SVN_TOOL_PATH}" info | grep "URL" | awk '{ print $2 }'`
+            tagName=${PROJECT_BASENAME}-`echo ${VERSION_NUM} | sed 's%\.%~%g'`
+            echo "Original URL is ${svnOriginalURL}"
+            svnCopyURL="${baseTagURL}/${tagName}"
+            echo "${SVN_TOOL_PATH} copy ${svnOriginalURL} ${svnCopyURL} -m \"Creating copy for ${tagName}\"" ;
+            "${SVN_TOOL_PATH}" copy "${svnOriginalURL}" "${svnCopyURL}" -m "Creating tag for ${tagName}" ;
+            echo
+            echo "Created copy for ${PROJECT_BASENAME}-${VERSION_NUM} at ${svnCopyURL}."
+        else
+            echo "*** Uncommitted files found during update check." ;
+            echo "*** Commit all files or update by hand and try again." ;
+            exit 5
+        fi
+    else
+        echo "The tag operation is supported only if CVS or SVN support is enabled."
+        print_usage
+        exit 4
+    fi
+submit () {
+    get_version NORMAL
+    get_rc_project_name
+    
+    ARG1=$1
+    shift
+    
+    if [ z"${ARG1}" = z"BYTAG" ] ; then
+        if [ z"${USE_CVS}" = z"YES" ] ; then
+            echo "~rc/bin/submitproject -version \"${RC_PROJECT_NAME}-${VERSION_NUM}\" -tag \"${RC_PROJECT_NAME}-${VERSION_NUM}\" \"${RC_PROJECT_NAME}\" $*"
+            ~rc/bin/submitproject -version "${RC_PROJECT_NAME}-${VERSION_NUM}" -tag "${RC_PROJECT_NAME}-${VERSION_NUM}" "${RC_PROJECT_NAME}" $*
+        elif [ z"${USE_SVN}" = z"YES" ] ; then
+            baseTagURL=${SVN_BASE_TAG_URL}
+            if [ z"$1" != z"" ] ; then
+                baseTagURL=$1
+                shift
+            fi
+            svnTagURL="${baseTagURL}/${RC_PROJECT_NAME}-"`echo ${VERSION_NUM} | sed 's%\.%~%g'`
+            
+            echo "~rc/bin/submitproject -url \"${svnTagURL}\" -version \"${RC_PROJECT_NAME}-${VERSION_NUM}\" $*"
+            ~rc/bin/submitproject -url "${svnTagURL}" -version "${RC_PROJECT_NAME}-${VERSION_NUM}" $*
+        fi
+    else
+        echo "~rc/bin/submitproject -version \"${RC_PROJECT_NAME}-${VERSION_NUM}\" . $*"
+        ~rc/bin/submitproject -version "${RC_PROJECT_NAME}-${VERSION_NUM}" . $*
+    fi
+##################### Main script starts here #####################
+# Make sure there is at least one argument.
+if [ z"$#" = z"0" ] ; then
+    echo "Operation specifier required."
+    print_usage
+    exit 1
+if [ z"$1" = z"-noscm" ] ; then
+    USE_CVS="NO"
+    USE_SVN="NO"
+    shift
+elif [ z"$1" = z"-usecvs" ] ; then
+    USE_CVS="YES"
+    USE_SVN="NO"
+    shift
+elif [ z"$1" = z"-usesvn" ] ; then
+    USE_CVS="NO"
+    USE_SVN="YES"
+    shift
+# Get the operation name and shift all the args down.
+OPERATION=$1
+shift
+if [ z"${OPERATION}" = z"help" ] ; then
+    print_help
+    exit 0
+# Locate a suitable Xcode project to act on.
+find_project
+if [ z"${PROJECT}" = z ] ; then
+find_oldproject
+if [ z"${PROJECT}" = z ] ; then
+echo "There are no Xcode project files in this directory.  agvtool needs a project to operate."
+exit 3
+# Check to see what path should be used for the cvs tool
+CVS_TOOL_PATH=`defaults read agvtool CVSToolPath 2> /dev/null`
+if [ z"${CVS_TOOL_PATH}" = z ] ; then
+if [ -f "/usr/local/bin/ocvs" ] ; then
+CVS_TOOL_PATH="/usr/local/bin/ocvs"
+else
+if [ -f "/usr/bin/ocvs" ] ; then
+CVS_TOOL_PATH="/usr/bin/ocvs"
+else
+CVS_TOOL_PATH="/usr/bin/cvs"
+# Check to see what path should be used for the svn tool
+SVN_TOOL_PATH=`defaults read agvtool SVNToolPath 2> /dev/null`
+if [ z"${SVN_TOOL_PATH}" = z ] ; then
+    if [ -f "/usr/bin/svn" ] ; then
+        SVN_TOOL_PATH="/usr/bin/svn"
+    else
+        SVN_TOOL_PATH="/usr/local/bin/svn"
+    fi
+# Check to see what URL points to the tags directory for SVN
+SVN_BASE_TAG_URL=`defaults read agvtool SVNBaseTagURL 2> /dev/null`
+if [ z"${USE_CVS}" = z ] ; then
+    # Check to see if CVS should be used
+    CVS_ENABLED_DEFAULT=`defaults read agvtool CVSEnabled 2> /dev/null`
+    
+    if [ z"${CVS_ENABLED_DEFAULT}" = z"YES" -o z"${CVS_ENABLED_DEFAULT}" = z"1" ] ; then
+        USE_CVS="YES"
+        USE_SVN="NO"
+    else
+        USE_CVS="NO"
+    fi
+if [ z"${USE_SVN}" = z ] ; then
+    # Check to see if SVN should be used
+    SVN_ENABLED_DEFAULT=`defaults read agvtool SVNEnabled 2> /dev/null`
+    if [ z"${SVN_ENABLED_DEFAULT}" = z"YES" -o z"${SVN_ENABLED_DEFAULT}" = z"1" ] ; then
+        USE_CVS="NO"
+        USE_SVN="YES"
+    else
+        USE_SVN="NO"
+    fi
+# Check to see if submitting when using CVS should be done via a tag
+SUBMIT_VIA_CVS_TAG_DEFAULT=`defaults read agvtool CVSSubmitByTag 2> /dev/null`
+if [ z"${SUBMIT_VIA_CVS_TAG_DEFAULT}" = z"YES" -o z"${SUBMIT_VIA_CVS_TAG_DEFAULT}" = z"1" ] ; then
+SUBMIT_VIA_CVS_TAG=$USE_CVS
+else
+SUBMIT_VIA_CVS_TAG="NO"
+# Check to see if submitting when using SVN should be done via SVN tag
+SUBMIT_VIA_SVN_TAG_DEFAULT=`defaults read agvtool SVNSubmitByTag 2> /dev/null`
+if [ z"${SUBMIT_VIA_SVN_TAG_DEFAULT}" = z"YES" -o z"${SUBMIT_VIA_SVN_TAG_DEFAULT}" = z"1" ] ; then
+SUBMIT_VIA_SVN_TAG=$USE_SVN
+else
+SUBMIT_VIA_SVN_TAG="NO"
+# Do operation arg checking and then call the functions for the specific operations.
+if [ z"${OPERATION}" = z"what-version" -o z"${OPERATION}" = z"vers" ] ; then
+    ARG1=NORMAL
+    if [ z"$#" = z"1" ] ; then
+        if [ z"$1" = z"-terse" ] ; then
+            ARG1=TERSE
+            shift
+        else
+            echo "The what-version operation supports only the optional -terse argument."
+            print_usage
+            exit 2
+        fi
+    fi
+    
+    if [ z"$#" != z"0" ] ; then
+echo "The what-version operation supports only the optional -terse argument."
+print_usage
+exit 2
+    fi
+    
+    what_version $ARG1
+elif [ z"${OPERATION}" = z"new-version" ] ; then
+    if [ z"$1" = z"-all" ] ; then
+        UPDATEALL="YES"
+        shift
+    else
+        UPDATEALL="NO"
+    fi
+    if [ z"$#" != z"1" ] ; then
+echo "The new-version operation takes optional -all argument followed by a version number (required)."
+print_usage
+exit 2
+    fi
+    new_version $1 $UPDATEALL
+elif [ z"${OPERATION}" = z"apple-built"  ] ; then
+    UPDATEALL="NO"
+    while [ "$#" -gt 0 ] ; do
+        if [ z"$1" = z"-all" ] ; then
+            UPDATEALL="YES"
+        else
+            echo "The apple-built operation only accepts -all as an optional argument. No other arguments are supported."
+            print_usage
+            exit 2
+        fi
+        shift
+    done
+    
+    new_version '"$(RC_ProjectSourceVersion)"' $UPDATEALL
+elif [ z"${OPERATION}" = z"next-version" -o z"${OPERATION}" = z"bump" ] ; then
+    UPDATEALL="NO"
+    INCREMENT_MINOR_VERSION="NO"
+    while [ "$#" -gt 0 ] ; do
+        if [ z"$1" = z"-all" ] ; then
+            UPDATEALL="YES"
+        elif [ z"$1" = z"-increment-minor-version" ] ; then
+            INCREMENT_MINOR_VERSION="YES"
+        else
+            echo "The next-version operation only accepts -all and -increment-minor-version as optional arguments. No other arguments are supported."
+            print_usage
+            exit 2
+        fi
+        shift
+    done
+    
+    next_version $UPDATEALL $INCREMENT_MINOR_VERSION
+elif [ z"${OPERATION}" = z"tag" ] ; then
+    ARG1=NOFORCE
+    ARG2=UPDATECHECK
+    ARG3=""
+    while [ "$#" -gt 0 ] ; do
+        if [ z"$1" = z"-force" -o z"$1" = z"-F" ] ; then
+            ARG1=FORCE
+        elif [ z"$1" = z"-noupdatecheck" -o z"$1" = z"-Q" ] ; then
+            ARG2=NOUPDATECHECK
+        elif [ z"$1" = z"-baseurlfortag" ] ; then
+            shift
+            if [ z"${USE_SVN}" = z"YES" ] ; then
+                ARG3=$1
+            else
+                echo "The -baseurlfortag optional argument is not valid when using CVS. Ignoring option."
+            fi
+        else
+            echo "The tag operation takes accepts -force|-F and -noupdatecheck|-Q as optional arguments.  -baseurlfortag is also accepted when using SVN. No other arguments are supported."
+            print_usage
+            exit 2
+        fi
+        shift
+    done
+    
+    tag ${ARG1} ${ARG2} ${ARG3}
+elif [ z"${OPERATION}" = z"submit" ] ; then
+    if [ z"$#" = z"0" ] ; then
+echo "At least one release name argument is required for the submit operation."
+print_usage
+exit 2
+    fi
+    
+    ARG1=NOTBYTAG
+    ARG2=""
+    ARG3=""
+    
+    while [ "$#" -gt 0 ] ; do
+    if [ z"$1" = z"-bytag" ] ; then
+        ARG1=BYTAG
+        shift
+    elif [ z"$1" = z"-notbytag" ] ; then
+        ARG1=NOTBYTAG
+        shift
+    elif [ z"$1" = z"-baseurlfortag" ] ; then
+        shift
+        if [ z"${USE_SVN}" = z"YES" ] ; then
+            ARG2=$1
+        else
+            echo "The -baseurlfortag optional argument is not valid when using CVS. Ignoring option."
+        fi
+        shift 
+    else
+        if [ z"${ARG3}" = z ] ; then
+            ARG3=$1
+        else 
+            ARG3="${ARG3} $1"
+        fi
+        shift
+    fi
+    done
+     
+    if [ z"${ARG3}" = z ] ; then
+        echo "At least one release name argument is required for the submit operation."
+        print_usage
+        exit 2
+    fi
+     
+    if [ z"${SUBMIT_VIA_CVS_TAG}" = z"YES" ] ; then
+        ARG1=BYTAG
+    elif [ z"${SUBMIT_VIA_SVN_TAG}" = z"YES" ] ; then
+        ARG1=BYTAG   
+    fi
+    
+    submit ${ARG1} ${ARG2} ${ARG3}
+elif [ z"${OPERATION}" = z"new-marketing-version" ] ; then
+    if [ z"$#" != z"1" ] ; then
+echo "The new-marketing-version command requires a single argument to specify the new version."
+print_usage
+exit 2
+    fi
+    new_marketing_version $*
+elif [ z"${OPERATION}" = z"what-marketing-version" -o z"${OPERATION}" = z"mvers" ] ; then
+    ARG1=NORMAL
+    if [ z"$#" = z"1" ] ; then
+        if [ z"$1" = z"-terse" ] ; then
+            ARG1=TERSE
+            shift
+        elif [ z"$1" = z"-terse1" ] ; then
+            ARG1=TERSE_ONE
+            shift
+        else
+            echo "The what-marketing-version operation supports only the optional -terse or -terse1 argument."
+            print_usage
+            exit 2
+        fi
+    fi
+    
+    if [ z"$#" != z"0" ] ; then
+        echo "The what-marketing-version operation supports only the optional -terse or -terse1 argument."
+print_usage
+exit 2
+    fi
+    what_marketing_version $ARG1
+else
+    echo "Unrecognized operation specifier \"${OPERATION}\"."
+    print_usage
+    exit 2

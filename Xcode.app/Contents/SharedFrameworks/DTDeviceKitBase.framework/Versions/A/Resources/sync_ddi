@@ -1,0 +1,41 @@
+#!/usr/bin/perl -w
+use strict;
+use warnings;
+use File::Path qw(make_path remove_tree);
+use File::Temp qw(tempdir);
+#parse out the arguments
+#Source DDI:
+my $ddi_path        = shift @ARGV;
+defined($ddi_path) or die "No DDI specified";
+(-f $ddi_path) or die "DDI specified does not exist";
+(-r $ddi_path) or die "DDI specified cannot be read";
+#Destination symbols directory
+my $symbols_dir     = shift @ARGV;
+defined($symbols_dir) or die "No destination symbols directory specified";
+(-d $symbols_dir) or die "Symbols directory specified does not exist";
+#Developer directory within symbols directory
+my $sync_dest       = $symbols_dir.'/Developer/';
+make_path($sync_dest);
+-d $sync_dest or die "Couldn't create \"$sync_dest\"";
+my $signature_path  = $ddi_path.'.signature';
+my $signature_dst   = $symbols_dir.'/DeveloperDiskImage.dmg.signature';
+if(-r $signature_path && -f $signature_dst) {
+    #Compare the files at $signature_path and $signature_dst
+    `cmp '$signature_path' '$signature_dst'`;
+    if($? == 0) {
+        #If they are identical, we're done
+        exit 0;
+    }
+my $mountpoint      = tempdir().'/';
+my $output          = `/usr/bin/hdiutil attach '$ddi_path' -readonly -mount required -nobrowse -mountpoint $mountpoint`;
+$output             =~ m|.*(/dev/disk[^[:space:]]+).*|;
+my $device          = $1;
+if($device) {
+    `find '$mountpoint' | xargs /usr/bin/file | awk -F: \'\$2 ~ /Mach-O universal binary/ { print \$1 }\' | sed 's|$mountpoint/||'  | rsync --files-from=- '$mountpoint' '$sync_dest'`;
+    `/usr/bin/hdiutil detach '$device'`;
+    
+    if(-r $signature_path) {
+        #Copy $signature_path to $signature_dst
+        `/usr/bin/rsync -a '$signature_path' '$signature_dst'`;
+    }
+remove_tree($mountpoint);

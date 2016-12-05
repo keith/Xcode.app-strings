@@ -1,0 +1,53 @@
+#!/bin/sh
+#  GenerateSymbolSwizzles.sh
+#  StoreBookkeeper
+#  Created by Chuck Pisula on 2/13/12.
+#  Copyright (c) 2012 Apple Inc. All rights reserved.
+BINARY_FILE="$1";
+OUTPUT_DIR="/tmp/gss/";
+OUTPUT_FILE="$OUTPUT_DIR/GenerateSymbolSwizzles.output.txt";
+NM_USED="$OUTPUT_DIR/nm-used.txt";
+NM_ALL="$OUTPUT_DIR/nm-all.txt";
+NM_SRC="$OUTPUT_DIR/nm-src.txt"
+nm_used_changed() {
+  # update nm_src to contain things in nm_all that aren't in nm_used.
+  cat "$NM_ALL" "$NM_USED" | sort | uniq -u > "$NM_SRC";
+generate() {
+  ## basic nm operation is something like: nm "$BINARY_FILE" | grep '_OBJC_CLASS_$_SBK' | sed 's|.*_OBJC_METACLASS_$_SBK\(.*\)|#define SBK\1 IM\1|g'
+  LABEL="$1";
+  WHOLE_SYMBOL=$2;
+  MATCH="$3";
+  DEFINE_PREFIX1="$4";
+  DEFINE_PREFIX2="$5";
+  GREP_RESULTS=`grep "$MATCH" "$NM_SRC"`;
+  has_results=$?;
+  echo "$GREP_RESULTS" | tee "$NM_USED.tmp" >> "$NM_USED";
+  nm_used_changed;
+  if [ $has_results -eq 1 ]; then
+    echo "NO Matches for $LABEL";
+    return; # no matches
+  fi
+  echo "/* $LABEL */" >> "$OUTPUT_FILE";
+  echo "" >> "$OUTPUT_FILE";
+  if [ $WHOLE_SYMBOL -eq 0 ]; then
+    sed "s/.*$MATCH\(.*\)/#define $DEFINE_PREFIX1\1 $DEFINE_PREFIX2\1/g" "$NM_USED.tmp" | sort >> "$OUTPUT_FILE";
+  else
+    sed "s/_\(.*\)$MATCH\(.*\)/#define \1$DEFINE_PREFIX1\2 \1$DEFINE_PREFIX2\2/g" "$NM_USED.tmp" | sort >> "$OUTPUT_FILE";
+  fi
+  echo "" >> "$OUTPUT_FILE";
+  echo "" >> "$OUTPUT_FILE";
+# === MAIN ===
+# Prepare output folders / working space
+rm -Rf "$OUTPUT_DIR";
+mkdir -p "$OUTPUT_DIR";
+touch "$OUTPUT_FILE";
+# initialize nm data files
+nm -j "$BINARY_FILE" > "$NM_ALL";
+egrep "(___block|___copy_helper_|_objc_|\[|_OBJC_IVAR_|_OBJC_CLASS_)" "$NM_ALL" > "$NM_USED"
+nm_used_changed;
+# generate #define statements.  note that order is important.  perform specific items first, and general last.
+generate "Classes"   0 '_OBJC_METACLASS_$_SBK' "SBK" "IM";
+generate "Constants" 0 '_kSBK' "SBK" "kIM"
+generate "Functions" 0 '_SBK' "SBK" "IM"
+generate "Misc"      1 'SBK' "SBK" "IM"
+cat "$OUTPUT_FILE";

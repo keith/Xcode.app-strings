@@ -1,0 +1,219 @@
+#!/usr/bin/perl -w -CSDA
+use strict;
+use utf8;
+use Getopt::Long;
+use Foundation;
+use File::Glob ':glob';
+use File::Basename;
+#use Carp;
+my $NIBTOOL = '/usr/bin/ibtool --bundle /System/Library/Frameworks/Automator.framework/Resources/Automator.ibplugin --export /System/Library/Frameworks/Automator.framework/Resources/Automator.ibplugin/Contents/Resources/AMLintIBToolExports.plist';
+my $NIBCLEAN = 'cat';
+# Experimental workaround for <rdar://problem/3891840>.
+#my $NIBCLEAN = 'sed -e \'s/"($/(/\' -e \'s/^ *)";/);/\' -e \'s/"{$/{/\' -e \'s/^ *}";/};/\'';
+#my $NIBCLEAN = 'sed -e \'/frameRect = /d\' -e \'s/"(/(/\' -e \'s/)";/);/\' -e \'s/"{/{/\' -e \'s/}";/};/\' -e \'s/= \\([^"][^ ]* [^;]*\\);/= "\\1";/g\'';
+#print "$NIBCLEAN\n";
+my $STATUS = 0;
+my $line_header;
+my $F;
+my $FIRST = 1;
+my %EXCEPTIONS;
+my ($M, $E, $W);
+my %WARNINGS = (
+"mismatched-name" => 1,
+our $opt_h;
+our $opt_H;
+our $opt_s;
+our $opt_S;
+our $opt_x;
+our @opt_d;
+our @opt_W;
+sub W($)
+my $w = shift;
+foreach (@opt_W) {
+my ($opt, $val);
+if (/no-(.*)/) {
+$opt = $1;
+$val = 0;
+else {
+$opt = $_;
+$val = 1;
+$WARNINGS{$opt} = $val;
+return (exists $WARNINGS{$w}) ? $WARNINGS{$w} : 1;
+sub plist($)
+if ($_[0] =~ /(.*)\s*\|$/)
+# a command to execute.
+my $dict = NSString->stringWithCString_(scalar(`$1`))->propertyList();
+warn "$1 exited with status $?" if $?;
+return $dict ? Foundation::perlRefFromObjectRef($dict) : undef;
+elsif (-f $_[0])
+# a file.
+my $dict = NSDictionary->dictionaryWithContentsOfFile_($_[0]);
+return Foundation::perlRefFromObjectRef($dict);
+else
+warn "undefined $_[0]";
+return undef;
+sub pitem
+my $d = shift;
+my $p = "";
+$p .= $$d{'Class'};
+if ($$d{'stringValue'})
+{ $p .= " \"$$d{'stringValue'}\""; }
+elsif ($$d{'iBTitle'})
+{ $p .= " \"$$d{'iBTitle'}\""; }
+elsif ($$d{'title'})
+{ $p .= " \"$$d{'title'}\""; }
+elsif ($$d{'frameRect'} && $$d{'frameRect'} =~ /{{(\d+), (\d+)}/)
+{ $p .= " \@ {$1, $2}"; }
+return $p;
+sub messagei
+my $t = shift;
+my ($d, $message) = $#_ ? @_ : (undef, $_[0]);
+my $m = defined($d) ? "$t: " . pitem($d) . " $message" : "$t: $message";
+if (!$EXCEPTIONS{basename($F) . ": $m"}) {
+$M .= "$F: " if $line_header;
+$M .= "$m\n";
+return 1;
+else {
+return 0;
+sub errori($;$)
+if (messagei("error", @_)) {
+$STATUS = 1;
+$E++;
+sub warni($;$)
+if (messagei("warning", @_)) {
+$W++;
+sub notei($;$)
+if (messagei("warning", @_)) {
+$W++;
+sub nib_messagei
+my $t = shift;
+my $m = $t =~ /^warning: / ? "$t" : "";
+if ($m ne "" && !$EXCEPTIONS{basename($F) . ": $m"}) {
+$M .= "$F: " if $line_header;
+$M .= "$m\n";
+return 1;
+else {
+return 0;
+sub kosher_category($$)
+my @defined_categories = (
+"AMCategoryCalendar",
+"AMCategoryChat",
+"AMCategoryContacts",
+"AMCategoryDeveloper",
+"AMCategoryDocuments",
+"AMCategoryFilesAndFolders",
+"AMCategoryFonts",
+"AMCategoryInternet",
+"AMCategoryMail",
+"AMCategoryMovies",
+"AMCategoryMusic",
+"AMCategoryPDFs",
+"AMCategoryPhotos",
+"AMCategoryPresentations",
+"AMCategorySystem",
+"AMCategoryText",
+"AMCategoryUtilities"
+my $prop = shift;
+my $type = shift;
+warni "undefined $prop category $type" if !grep $_ eq $type, @defined_categories;
+my @defined_types;
+my @obsolete_types = ("com.apple.applescript.data-object");
+sub kosher_type($$)
+my $prop = shift;
+my $type = shift;
+if (!@defined_types) {
+# Get types from Automator's UTI declarations.
+my $AI = plist("/Applications/Automator.app/Contents/Info.plist");
+my $utis = $$AI{'UTExportedTypeDeclarations'};
+push @defined_types, $$_{'UTTypeIdentifier'} foreach @{$utis};
+# Get types from (now-obsolete) .definition files and bundles.
+foreach ( glob("/System/Library/Automator/*.definition"),
+  glob("/Network/Library/Automator/*.definition"),
+  glob("/Library/Automator/*.definition"),
+  glob("$ENV{'HOME'}/Library/Automator/*.definition"),
+  @opt_d )
+# XXX: doesn't handle app-embedded .definitions...
+my $d = plist(-f $_ ? $_ : "$_/Contents/Resources/definition.plist");
+# XXX: handles the now-obsolete file-based definitions.
+push @defined_types, keys %{$$d{'defined_types'}};
+notei "$prop probably shouldn't be using type $_." foreach grep $_ eq $type, @obsolete_types;
+warni "undefined $prop type $type" if !grep $_ eq $type, @defined_types;
+sub lint($)
+$F = shift; $F =~ s{/+$}{}; # trim trailing slashes; it messes up our name checks.
+$E = $W = 0;
+$M = "";
+if (! -d $F) { warn "Couldn't read $F: $!"; $STATUS = 1; return; }
+# Nib checks.
+my $nib = "$F/Contents/Resources/English.lproj/main.nib";
+if (-d $nib && (my $H = plist("$NIBTOOL \"$nib\" 2> /dev/null | $NIBCLEAN |")))
+my $objs = $$H{'com.apple.ibtool.document.export'};
+foreach (values %$objs) {
+foreach (values %$_) {
+my $warning = $_;
+if  (not ref $warning) { $warning = [ $warning ]; }
+nib_messagei($_) foreach @{$warning};
+# Info.plist checks.
+if (my $I = plist("$F/Contents/Info.plist"))
+# AMName matches folder name.
+(my $basename, undef, my $ext) = fileparse($F, qr{\.[^.]*});
+my $amname = $$I{'AMName'};
+notei("Folder name ($basename) does not match AMName ($amname)")
+if ($amname ne $basename && W("mismatched-name"));
+errori("Unrecognized extension \"$ext\"; should be either \".action\" or \".caction\".")
+if ($ext ne ".action" && $ext ne ".caction");
+# CFBundleExecutable should have a matching executable, and vice versa.
+my $executable = $$I{'CFBundleExecutable'};
+if ($executable) {
+if (! -d "$F/Contents/MacOS")
+{ notei("CFBundleExecutable key is pointless with no executable."); }
+elsif (! -f "$F/Contents/MacOS/$executable")
+{ errori("CFBundleExecutable ($executable) does not match executable file name (" . join(", ", map basename($_), glob("$F/Contents/MacOS/*")) . ")"); }
+else {
+my @executables = map basename($_), glob("$F/Contents/MacOS/*");
+if (@executables) {
+my $exs = (scalar(@executables) == 1)
+? "an executable ($executables[0])"
+: "executables (" . join(', ', @executables) . ")";
+warni("Bundle has $exs but no CFBundleExecutable key.");
+# AMAccepts and AMProvides types are kosher.
+my $accepts = $$I{'AMAccepts'};
+my $provides = $$I{'AMProvides'};
+kosher_type("AMAccepts", $_) foreach @{$$accepts{'Types'}};
+kosher_type("AMProvides", $_) foreach @{$$provides{'Types'}};
+# AMCategory values are in defined list.
+my $categories = $$I{'AMCategory'};
+if  (not ref $categories) { $categories = [ $categories ]; }
+kosher_category("AMCategory", $_) foreach @{$categories};
+else
+errori("Info.plist is not a valid plist.");
+system('/usr/bin/plutil', '-lint', "$F/Contents/Info.plist");
+if ($opt_S || ($opt_s && ($E || $W)))
+print "\n" if !$FIRST;
+$FIRST = 0;
+printf("# %s: %d error%s, %d warning%s.\n", $F,
+$E, $E == 1 ? "" : "s",
+$W, $W == 1 ? "" : "s");
+print $M;
+#### main.
+PerlObjCBridge::setDieOnExceptions(0);
+Getopt::Long::Configure("bundling");
+if ($#ARGV == -1) {
+print STDERR "usage: $0 [-hHsS] [-x exception-file] [-d definition-file ...] action...\n";
+exit 1;
+GetOptions(
+"h" => \$opt_h,
+"H" => \$opt_H,
+"s" => \$opt_s,
+"S" => \$opt_S,
+"x=s" => \$opt_x,
+"d=s" => \@opt_d,
+"W=s" => \@opt_W);
+$line_header = $#ARGV > 0;
+$line_header = 1 if $opt_H;
+$line_header = 0 if $opt_h;
+if ($opt_x) {
+open(FH, $opt_x) or die "Couldn't read $opt_x: $!";
+while (<FH>) { chomp; $EXCEPTIONS{$_} = 1; }
+close FH;
+lint($_) foreach (@ARGV);
+exit $STATUS;

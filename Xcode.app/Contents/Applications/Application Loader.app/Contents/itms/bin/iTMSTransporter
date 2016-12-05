@@ -1,0 +1,194 @@
+#!/bin/sh
+export PATH
+PATH=/usr/xpg4/bin:${PATH}:/bin:/usr/bin
+# if the user has the run script in their PATH
+# then we can get the path to the script from
+# 'which'.  otherwise, we have to get the path
+# from $0
+if [ "$0" = "iTMSTransporter" ] ; then
+  SCRIPT_PATH=$(which iTMSTransporter)
+else
+  SCRIPT_PATH=$0
+# get the script's directory
+SCRIPT_DIR=$(echo "$SCRIPT_PATH" | awk -F"/" '{print substr($0,1,length($0)-length($NF))}')
+# Declare variables.
+export APPLICATION_CLASS
+export COMMAND_LINE_ARGS
+export CURRDIR
+export DEFAULT_JVM_OPTIONS
+export JAVA_EXECUTABLE
+export JAVA_EXECUTABLE_ARGS
+export JVM_EXECUTABLE
+export JVM_OPTIONS
+export LC_CTYPE
+export LD_LIBRARY_PATH
+export PLATFORM_DESCRIPTOR
+export PLATFORM_NAME
+export PLATFORM_TYPE
+export RELATIVE_WOADIR
+export SCRIPT_NAME
+export WOA_TOP_LEVEL
+export RELATIVE_JVM_HOME
+export RELATIVE_JVM_BIN
+export RELATIVE_JVM
+# Initialize variables.
+# the actual working directory
+CURRDIR="$(pwd)"
+SCRIPT_NAME=$(basename "$0" .sh)
+# Our working directory is the top-level directory of the bundle, so cd to
+# there.
+RELATIVE_WOADIR="${SCRIPT_DIR}/.."
+WOA_TOP_LEVEL=$(cd "${RELATIVE_WOADIR}" || exit; pwd)
+RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java"
+RELATIVE_JVM_BIN="${RELATIVE_JVM_HOME}/bin"
+RELATIVE_JVM_LIB="${RELATIVE_JVM_HOME}/lib"
+RELATIVE_JVM_LIB_EXT="${RELATIVE_JVM_LIB}/ext"
+RELATIVE_JVM="${RELATIVE_JVM_BIN}/java"
+# We need to be in the .woa when we invoke the JVM (so that the "user.dir"
+# Java system property is equal to the path to the .woa).
+cd "${WOA_TOP_LEVEL}" || exit
+# Configure the launch environment based on the platform information.
+# Expected uname values:
+#   Darwin
+#   Mac OS
+#   *Windows* (this prints out an error message)
+#   *winnt*   (ditto)
+# Everything else is treated as "UNIX", the default.
+PLATFORM_NAME="$(uname -s)"
+if [ "${PLATFORM_NAME}" = "" ]
+then
+    echo "${SCRIPT_NAME}: Unable to access \"uname\" executable!  Terminating." 1>&2
+    echo "If running on Windows, use \"$0.cmd\" to launch your application!" 1>&2
+    exit 1
+case "${PLATFORM_NAME}" in
+    "Darwin")   PLATFORM_DESCRIPTOR=MacOS
+                PLATFORM_TYPE=Darwin
+                ;;
+    "Mac OS")   PLATFORM_DESCRIPTOR=MacOS
+                PLATFORM_TYPE=Darwin
+                ;;
+    *Windows*)  echo "Use \"$0.cmd\" to launch your application!  Terminating." 1>&2
+                exit 1
+                ;;
+    *winnt*)    echo "Use \"$0.cmd\" to launch your application!  Terminating." 1>&2
+                exit 1
+                ;;
+    *)          PLATFORM_DESCRIPTOR=UNIX
+                PLATFORM_TYPE=Other
+                ;;
+esac
+# Define some arguments that we always want to pass to the JVM.  These can be
+# overridden on the command line.
+DEFAULT_JVM_OPTIONS="-DWORootDirectory=\"${WOROOT}\" -DWOLocalRootDirectory=\"${LOCALROOT}\" -DWOUserDirectory=\"${CURRDIR}\" -DWOEnvClassPath=\"${CLASSPATH}\" -DWOApplicationClass=${APPLICATION_CLASS} -DWOPlatform=${PLATFORM_DESCRIPTOR} -Dcom.webobjects.pid=$$"
+JVM_OPTIONS="-Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.1,TLSv1.2"
+JVM_EXECUTABLE=java
+APPLICATION_CLASS=com.apple.transporter.Application
+if [ "${PLATFORM_DESCRIPTOR}" = "MacOS" ]
+then
+    JVM_EXECUTABLE="${RELATIVE_JVM}"
+    JAVA_EXT_OVERRIDE="${RELATIVE_JVM_LIB_EXT}"
+    DEFAULT_JVM_OPTIONS="-XX:NewSize=2m${DEFAULT_JVM_OPTIONS:+ $DEFAULT_JVM_OPTIONS}"
+    # use UTF-8 locale
+    [ "${LC_CTYPE}" ] || [ "$(locale 2> /dev/null | grep ^LC_CTYPE 2> /dev/null | sed -e 's/.*\(UTF-8\).*//' )" = "UTF-8" ] || LC_CTYPE="UTF-8"
+    [ "${LC_CTYPE}" = "*UTF-8" ] || [ "$(locale 2> /dev/null | grep ^LC_CTYPE 2> /dev/null | sed -e 's/.*\(UTF-8\).*//' )" = "UTF-8" ]  || LC_CTYPE="UTF-8"
+    # Initial heap size is 32M
+    DEFAULT_JVM_OPTIONS="-Xms32m${DEFAULT_JVM_OPTIONS:+ $DEFAULT_JVM_OPTIONS}"
+    # Default size of new generation is 2M
+    DEFAULT_JVM_OPTIONS="-XX:NewSize=2m${DEFAULT_JVM_OPTIONS:+ $DEFAULT_JVM_OPTIONS}"
+    if [ -e "${JAVA_EXT_OVERRIDE}" ]
+    then
+        # Override the ext directory
+        DEFAULT_JVM_OPTIONS="-Djava.ext.dirs=\"${JAVA_EXT_OVERRIDE}\"${DEFAULT_JVM_OPTIONS:+ $DEFAULT_JVM_OPTIONS}"
+    fi
+JAVA_EXECUTABLE=${JVM_EXECUTABLE}
+JAVA_EXECUTABLE_ARGS="${DEFAULT_JVM_OPTIONS:+$DEFAULT_JVM_OPTIONS }${JVM_OPTIONS:+$JVM_OPTIONS }"
+# We need to make sure they are running the correct version of java
+# get the version
+RAW_VERSION_NUM=$("${JAVA_EXECUTABLE}" -version 2>&1)
+VERSION_NUM=$(echo "${RAW_VERSION_NUM}" | awk '/^java|openjdk version/ {ver=$NF;gsub("\"","",ver); print ver}')
+if [ "${VERSION_NUM}" = "" ]
+then
+    # java -version either didn't return anything, or it returned something that we didn't expect
+    echo Java 1.7 or higher is required. Please install Java. 1>&2
+    if [ -f "{JAVA_EXECUTABLE}" ]
+    then
+        echo "output of: \"${JAVA_EXECUTABLE}\" -version" 1>&2
+        echo "  [${RAW_VERSION_NUM}]" 1>&2
+    else
+        echo "unable to find ${JAVA_EXECUTABLE}" 1>&2
+    fi
+    exit 1
+# see if they are using 1.7 or higher
+JAVA_VERSION_MINOR=$(echo "${VERSION_NUM}" | sed -e 's/^1\.\([0-9][0-9]*\).*$/\1/')
+#if they aren't using 1.7 or higher, display an error and exit
+if [ "${JAVA_VERSION_MINOR}" = "" ]
+then
+    # java -version returned something, but didn't match our sed expression.
+    echo "Java 1.7 or higher is required. Currently, java ${VERSION_NUM} is the default java version. Please upgrade." 1>&2
+    exit 1
+#this is separate from the previous "if" to avoid a shell script error when the env variable is empty
+if [ "${JAVA_VERSION_MINOR}" -lt 7 ]
+then
+    # java -version returned 1.x, where x < 7
+    echo "Java 1.7 or higher is required. Currently, java ${VERSION_NUM} is the default java version. Please upgrade." 1>&2
+    exit 1
+# All -D flags need to be passed to the JVM before the application class is
+# specified on the command line, so process $@ to copy such arguments to
+# JAVA_EXECUTABLE_ARGS.  -X flags are moved into JAVA_EXECUTABLE_ARGS.
+# Quote some args, too, to preserve tokenization of arguments.
+# COMMAND_LINE_ARGS is given the value of all args the user passes in on the
+# command line (with the exception -X flags).  This will result in duplication
+# of arguments starting with "-D" used in the JVM launch invocation below, but
+# this is done to avoid possible errors.
+COMMAND_LINE_ARGS=
+for arg in "$@"
+    case ${arg} in
+        [\"]-D*=*[\"] | [\']-D*=*[\'] | -D*=[\"]*[\"] | -D*=[\']*[\'])
+                  # These args are already quoted.
+                  JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }${arg}"
+                  COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }${arg}"
+                  ;;
+        -D*=*)
+                  # All args need to be quoted properly.
+                  if echo "${arg}" | grep -e '"' >/dev/null
+                  then
+                      JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }"$(echo "${arg}" | sed -e "s/=\(.*\)$/=\'\1\'/")
+                      COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }"$(echo "${arg}" | sed -e "s/=\(.*\)$/=\'\1\'/")
+                  else
+                      JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }"$(echo "${arg}" | sed -e "s/=\(.*\)$/=\"\1\"/")
+                      COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }"$(echo "${arg}" | sed -e "s/=\(.*\)$/=\"\1\"/")
+                  fi
+                  ;;
+        -XX:*PrintVMOptions)
+                  # Always give this argument precedence.
+                  JAVA_EXECUTABLE_ARGS="${arg}${JAVA_EXECUTABLE_ARGS:+ $JAVA_EXECUTABLE_ARGS}"
+                  ;;
+        [\"]-X*[\"] | [\']-X*[\'])
+                  # These args are already quoted, add to the JVM arg list.
+                  JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }${arg}"
+                  ;;
+        -X*)      # All args need to be quoted properly.
+                  if echo "${arg}" | grep -e '"' >/dev/null
+                  then
+                      JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }"$(echo "${arg}" | sed -e "s/^\(.*\)$/\'\1\'/")
+                  else
+                      JAVA_EXECUTABLE_ARGS="${JAVA_EXECUTABLE_ARGS:+$JAVA_EXECUTABLE_ARGS }"$(echo "${arg}" | sed -e "s/^\(.*\)$/\"\1\"/")
+                  fi
+                  ;;
+        [\"]*[\"] | [\']*[\'])
+                  # These args are already quoted.
+                  COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }${arg}"
+                  ;;
+        *)
+                  # All args need to be quoted properly.
+                  if echo "${arg}" | grep -e '"' >/dev/null
+                  then
+                      COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }"\'${arg}\'
+                  else
+                      COMMAND_LINE_ARGS="${COMMAND_LINE_ARGS:+$COMMAND_LINE_ARGS }"\"${arg}\"
+                  fi
+                  ;;
+    esac
+done
+# Launch the application.
+eval exec "\"${JAVA_EXECUTABLE}\" ${JAVA_EXECUTABLE_ARGS} -classpath ./lib/itmstransporter-launcher.jar ${APPLICATION_CLASS} ${COMMAND_LINE_ARGS}"

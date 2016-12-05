@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+use warnings;
+use strict;
+use File::Find;
+use File::Spec::Functions qw(rel2abs);
+use File::Basename;
+use Cwd;
+my $dir = dirname(rel2abs($0));
+my $SCRIPT_NAME = "iphoneos-optimize";
+my $PNGCRUSH_NAME="pngcrush";
+my $PNGCRUSH = "$dir/$PNGCRUSH_NAME";
+if ($#ARGV + 1 < 1 or $#ARGV + 1 > 2) {
+print STDERR "usage: $SCRIPT_NAME path [-skip-PNGs] [-strip-PNG-text]\n";
+exit 1;
+my $dstroot = Cwd::realpath(shift);
+my $options = shift;
+print "$SCRIPT_NAME: Converting plists to binary in $dstroot\n";
+find( { wanted => \&optimizePlists }, $dstroot );
+exit(0) if defined $options and $options =~ /-skip-PNGs/;
+my $stripPNGText = 0;
+$stripPNGText = 1 if defined $options and $options =~ /-strip-PNG-text/;
+printf "$SCRIPT_NAME: Optimizing PNGs in $dstroot%s\n", ($stripPNGText ? " and removing text chunks" : "");
+find( { wanted => \&optimizePNGs }, $dstroot );
+sub optimizePlists {
+my $name = $File::Find::name;
+if ( -f $name && ($name =~ /\.plist$/i || ($name =~ /\.strings$/i && -s $name > 2))) {
+my @args = ( "plutil", "-convert", "binary1", $name );
+if (system(@args) != 0) {
+print STDERR "$SCRIPT_NAME: Unable to convert $name to a binary plist!\n";
+return;
+print "$SCRIPT_NAME: Converted to binary plist: $name\n";
+sub optimizePNGs {
+my $name = $File::Find::name;
+if ( -f $name && $name =~ /^(.*)\.png$/i) {
+my $crushedname = "$1-pngcrush.png";
+my @args = ( $PNGCRUSH, "-q", "-iphone", "-f", "0" );
+if ( $stripPNGText ) {
+ push ( @args, "-rem", "text" );
+        push ( @args, $name, $crushedname );
+        
+if (system(@args) != 0) {
+print STDERR "$SCRIPT_NAME: Unable to convert $name to an optimized png!\n";
+return;
+unlink $name or die "Unable to delete original file: $name";
+rename($crushedname, $name) or die "Unable to rename $crushedname to $name";
+print "$SCRIPT_NAME: Optimized PNG: $name\n";

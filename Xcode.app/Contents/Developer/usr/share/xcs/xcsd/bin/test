@@ -1,0 +1,58 @@
+#!/bin/bash
+pkill -9 -u `whoami` redis-server
+pkill -9 -u `whoami` beam.smp
+DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+cd $DIR/..
+# Paths
+xcode_path=`xcode-select -p`
+xcs_path="${xcode_path}/usr/share/xcs"
+node_path="${xcs_path}/Node/bin/node"
+couchdb_path="${xcs_path}/CouchDB"
+redis_path="${xcs_path}/Redis/bin/redis-server"
+# Test directory paths
+testdir_path="/tmp/XCSTest"
+redis_pidfile_path="${testdir_path}/redis.pid"
+redis_db_path="${testdir_path}/redis.db"
+couchdb_pidfile_path="${testdir_path}/couch.pid"
+couchdb_db_path="${testdir_path}/couch.db"
+couchdb_conf_path="${testdir_path}/couch.ini"
+couchdb_secret_path="${testdir_path}/XCSDCouchDBSecret"
+# Set the stage
+rm -rf "${testdir_path}"
+mkdir -p "$redis_db_path"
+mkdir -p "$couchdb_db_path"
+mkdir -p "$testdir_path/CodeCoverageCache"
+cat >"$couchdb_conf_path" <<COUCHDB_CONF
+[couchdb]
+database_dir = ${couchdb_db_path}
+view_index_dir = ${couchdb_db_path}
+uri_file = ${testdir_path}/couch.uri
+[httpd]
+bind_address = 127.0.0.1
+port = 3355
+authentication_handlers = {couch_httpd_auth, cookie_authentication_handler}, {couch_httpd_auth, default_authentication_handler}
+[log]
+file = ${testdir_path}/couch.log
+[admins]
+xcscouchadmin = test_password
+[couch_httpd_auth]
+timeout = 20
+COUCHDB_CONF
+echo "test_password" > "$couchdb_secret_path"
+# Start Redis
+"$redis_path" --port 3356 --pidfile "$redis_pidfile_path" --daemonize yes --dir "$redis_db_path" --logfile "$testdir_path/redis.log"
+# Start CouchDB
+pushd "$couchdb_path" >/dev/null
+env HOME="$testdir_path" bin/couchdb -b -p "$couchdb_pidfile_path" -a "$couchdb_conf_path" -o "$testdir_path/couch.out.log" -e "$testdir_path/couch.err.log" 1>&2
+popd >/dev/null
+sleep 2
+curl -XPUT http://xcscouchadmin:test_password@localhost:3355/xcs >/dev/null
+node $DIR/install_design_documents 1>&2
+bash $DIR/create_keychains 1>&2
+NODE_ENV=test node_modules/.bin/mocha "$@" 2>&1
+# Stop CouchDB
+pushd "$couchdb_path" >/dev/null
+env HOME="$testdir_path" bin/couchdb -p "$couchdb_pidfile_path" -d 1>&2
+popd >/dev/null
+# Stop Redis
+pkill -u `whoami` redis-server

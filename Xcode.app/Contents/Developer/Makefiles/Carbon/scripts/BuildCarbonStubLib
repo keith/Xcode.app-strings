@@ -1,0 +1,129 @@
+#!/bin/sh
+$Log: BuildCarbonStubLib,v $
+Revision 1.18  1999/11/16 19:12:23  voas
+Dump static symbols as well.
+Revision 1.17  1999/11/13 06:08:40  voas
+Add some frameworks, factor.
+Revision 1.16  1999/09/13 18:18:58  carbon
+Remove references to lltb
+Revision 1.15  1999/09/10 22:33:24  jacklin
+Use "sh" syntax that zsh doesn't mind (and is still compatible with sh),
+and explicitly name the shell as /bin/sh at the top of the file
+Revision 1.14  1999/09/09 16:43:02  jiarocci
+Make shell explicit for native builds.
+Revision 1.13  1999/09/01 16:58:26  carbon
+(jji) Add parameter variable to Quickdraw rules.
+Revision 1.12  1999/08/31 19:48:02  rmikawa
+Integrate the changes to ATS Unicode, Font Manager, and Quickdraw Text from
+Sonata(b7) and update the Carbon projects to link against Quickdraw.framework
+instead of libqd.dylib.
+Revision 1.11  1999/08/25 21:02:16  carbon
+CarbonPrinting --> Printing
+Revision 1.10  1999/08/13 15:23:25  danp
+Oops. Had the wrong pathname for Nav. Fixing.
+Revision 1.9  1999/08/13 15:13:54  danp
+Modified so that it knows that colorpicker, nav services and commonpanels have moved.
+Revision 1.8  1999/07/30 23:31:26  gpuckett
+a few more comments and some cleanup
+Revision 1.7  1999/07/30 23:06:34  gpuckett
+script now also creates individual exp files for each library containing its exported symbols
+Revision 1.6  1999/07/22 22:33:40  carbon
+Add AppleEvents framework and CommonPanels
+# This script automates the process of building a stub library to use when compiling carbon
+# applications for the mach-o environment.  This script takes three parameters, the path name 
+# of the carbon symbols export file, the path to the destination directory of the build output that
+# the symbols are to be extracted from, and the path to the object directory where all output
+# from the script will be written.  It is executed from the make file as follows:  
+buildstublib $(OBJROOT)/CarbonCore.exp $(DSTROOT) $(OBJROOT)
+# The script takes all exported symbols from the specified libraries, sorts them, then 
+# produces the following files:
+# CarbonLib
+The stub library representing all symbols currently implemented on X
+# CarbonLib.exp  
+contains all symbols exported by the libraries that are part of the 
+actual target export set specified in CarbonLib_410.exp
+# CarbonLibExtras.exp
+contains all symbols exported by the libraries that are not 
+listed in CarbonLib_410.exp
+# CarbonLibUnimplemented  Contains all symbols listed in CarbonLib_410.exp that are not 
+yet implemented in (exported by) the libraries
+# CarbonLibDuplicates.exp  contains all symbols exported by the libraries that are not 
+listed in CarbonLib_410.exp
+# CarbonStubLib.c 
+C stub file from which CarbonLib had been created
+# "libname".exp
+There is a exp file containing all symbols for that particular library
+# ------------------------------------------------------------------------------------------------
+# this section of does setup and parameter verification
+#echo " "
+#echo "======  starting build of carbon stub library  ======"
+# make sure the user passed in a valid file name
+if ! (test -f $1)
+then 
+echo -n $1
+echo " is not a valid export file"
+exit 1
+# test to see if the stub library directory exists
+# if it is not already there, create it.
+if ! (test -d $3/StubLib)
+then 
+mkdir $3/StubLib
+# remove comments from specified exp file and make sure that the symbols are in alphabetical order
+sed '/^#/d' $1 | sort -u  > $3/StubLib/carbonexports
+# ------------------------------------------------------------------------------------------------
+# this section of code creates separate exp files for each individual dylib
+process_framework()
+#echo $1
+# collect all exported symbols from the framework into a file for a .exp and for our stub .exp
+nm -g /System/Library/Frameworks/$1.framework/$1 | awk '/ T _| D _| S _/ {print $NF}' > $2/StubLib/exptemp1
+nm -g /System/Library/Frameworks/$1.framework/$1 | awk '/ T _| D _| S _/ {print $NF}' >> $2/StubLib/expsymlisttemp
+# remove the extraneous "_" preceding each symbol name and sort into alphabetical order 
+sed 's/^_//' $2/StubLib/exptemp1 | sort > $2/StubLib/exptemp2
+# create a file containing exported symbols that are in CarbonLib Exports
+#echo "creating exp file"
+comm -12 $2/StubLib/exptemp2 $2/StubLib/carbonexports > $2/StubLib/exptemp1
+# reinsert leading _ 
+sed 's/^/_/' $2/StubLib/exptemp1 > $2/StubLib/$1.exp
+rm -f $3/StubLib/expsymlisttemp
+touch $3/StubLib/expsymlisttemp
+process_framework CarbonCore $3
+process_framework Quickdraw $3
+process_framework AppleEvents $3
+process_framework HIToolbox $3
+process_framework CommonPanels $3
+process_framework NavigationServices $3
+process_framework OpenTransport $3
+process_framework CoreFoundation $3
+process_framework Printing $3
+process_framework ColorSync $3
+# remove temp files used in exp file creation in this section
+rm $3/StubLib/exptemp1
+rm $3/StubLib/exptemp2
+#echo "sorting symbols"
+# remove the extraneous "_" preceding each symbol name and sort into alphabetical order 
+sed 's/^_//' $3/StubLib/expsymlisttemp | sort > $3/StubLib/expsymlisttemp2
+rm $3/StubLib/expsymlisttemp
+# scan the symbol list and write any duplicate symbols to CarbonLibDuplicates.exp
+uniq -d $3/StubLib/expsymlisttemp2 > $3/StubLib/CarbonLibDuplicates.exp
+# remove all duplicate symbols from export symbol list
+sort -u $3/StubLib/expsymlisttemp2  > $3/StubLib/expsymlist
+rm $3/StubLib/expsymlisttemp2
+# create a file containing exported symbols that are in CarbonLib Exports
+#echo "creating exp file"
+comm -12 $3/StubLib/expsymlist $3/StubLib/carbonexports > $3/StubLib/CarbonStubLib.exp
+# create a file containing symbols that are exported in the Carbon libraries that are not CarbonLib Exports
+comm -23 $3/StubLib/expsymlist $3/StubLib/carbonexports > $3/StubLib/CarbonLibExtras.exp
+# create a file containing symbols in CarbonLib_410.exp but are not yet implemented in (exported by) the libraries
+comm -13 $3/StubLib/expsymlist $3/StubLib/carbonexports > $3/StubLib/CarbonLibUnimplemented
+# remove remaining temp files
+rm $3/StubLib/expsymlist
+rm $3/StubLib/carbonexports
+#echo "creating CarbonStubLib.c"
+awk '{printf( "void %s(){};\n", $1)}' $3/StubLib/CarbonStubLib.exp > $3/StubLib/CarbonStubLib.c
+#echo "compiling CarbonStubLib.c"
+cc -c $3/StubLib/CarbonStubLib.c -o $3/StubLib/CarbonStubLib.o
+#echo "running libtool"
+libtool -noall_load -dynamic $3/StubLib/CarbonStubLib.o -o $3/StubLib/Carbon -install_name /System/Library/Frameworks/Carbon.framework/Versions/A/Carbon -lcc_dynamic -framework Printing -framework OpenTransport
+rm $3/StubLib/CarbonStubLib.o
+#echo "======   carbon stub library build complete    ======"
+#echo " "
