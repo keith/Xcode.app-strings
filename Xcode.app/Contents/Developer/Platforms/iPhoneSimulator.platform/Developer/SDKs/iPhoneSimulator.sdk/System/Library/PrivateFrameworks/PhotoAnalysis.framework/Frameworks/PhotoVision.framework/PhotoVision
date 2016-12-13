@@ -305,7 +305,8 @@ clusterAndWait
 requestClusteringWithCompletion:
 performClusteringWithCompletion:
 cancelClustering
-requestSuggestionsForFaceClusterSequenceNumbers:updateHandler:error:
+status
+requestSuggestionsForFaceClusterSequenceNumbers:withClusteringFlags:updateHandler:error:
 cancelSuggestionRequest:
 cancelAllSuggestionRequests
 suggestedFaceClusterSequenceNumbersForFaceClusterSequenceNumbersRepresentingClusters:error:
@@ -320,6 +321,7 @@ performFaceClusteringAndWait
 requestFaceClusteringWithCompletion:
 performFaceClusteringWithCompletion:
 cancelFaceClustering
+clusteringStatus
 suggestionsForFaceClusterSequenceNumbers:error:
 suggestedPersonLocalIdentifierForFaceLocalIdentifier:error:
 _notificationListener
@@ -512,12 +514,13 @@ _timeToPersistClusters
 _timeToAutoname
 _timeToUpdateKeyFaces
 _totalTime
-initWithFaceCSNs:updateHandler:
+initWithFaceCSNs:withFlags:updateHandler:
 UUID
 UUIDString
-requestWithFaceCSNs:updateHandler:
+requestWithFaceCSNs:withFlags:updateHandler:
 requestId
 csns
+cflags
 updateHandler
 setUpdateHandler:
 cvmlRequest
@@ -525,6 +528,7 @@ setCvmlRequest:
 canceller
 _requestId
 _csns
+_cflags
 _updateHandler
 _cvmlRequest
 _canceller
@@ -533,8 +537,10 @@ persistenceDelegate
 logPVInfoMessage:
 _appendToClusterLog:
 countOfFaces
+_recordAdditionalPendingFacesCount:
 unionSet:
 _processingQueueDetermineNextClusterTriggeringAccumulatedChangesCountIfNecessary
+_recordClusteringState:
 allObjects
 _faceObservationsFromFaceCSNs:
 removeAllObjects
@@ -545,15 +551,20 @@ setWithCapacity:
 minusSet:
 _faceObservationsFromFaceIdStrs:assignClusterSeqNumberIfNeeded:sortFacesByClusterSequenceNumber:updatedFaces:excludeClustered:
 logPVDebugMessage:
+_recordPendingFacesCount:
 _transitionToReadyState
 _processingQueuePerformForcedFaceClustering:withCanceler:
 cancelAllRequests
+lock
+unlock
 state
 setState:
 resetClusterSequenceNumberOfAllFaces:
 deleteFaceGroupsOfType:error:
 unclusteredFaceLocalIdentifiersWithFaceprintVersion:error:
 removeExistingFacesFromCSNs:
+countOfClusteringEligibleFaces
+_recordCurrentStatus:
 setObject:forKey:
 path
 arrayWithObjects:count:
@@ -561,7 +572,7 @@ clusters
 clusterId
 objects
 allAlgorithmicFaceGroupsAsClusterSequenceNumbers:
-_updatePersistedAlgorithmicClusters:andFaces:returnFaceGroupsWithoutKeyFace:deletedFaceCSNs:toBeReclusteredFaceIds:error:
+_updatePersistedAlgorithmicClusters:andFaces:withCanceler:returningPersistedClusters:faceGroupsWithoutKeyFace:csnsToBeRemovedFromClusterState:toBeReclusteredFaceIds:error:
 resetClusterSequenceNumberOfFacesWithLocalIdentifiers:error:
 logPVErrorMessage:
 allValues
@@ -571,6 +582,8 @@ intersectSet:
 containsObject:
 anyObject
 autonameFaceClusters:faceComparer:recallThreshold:
+indexesOfObjectsPassingTest:
+objectsAtIndexes:
 _updateRepresentativeFacesForClusters:csnByGroupWithoutKeyFace:error:
 _compareLocalClusters:withPersistedClusters:
 _noteThatWeSawBadPersistedClusters
@@ -586,7 +599,7 @@ faceprintData
 initForReadingWithData:
 decodeObjectForKey:
 finishDecoding
-persistChangesToAlgorithmicFaceGroups:andFaces:returnFaceGroupsWithoutKeyFace:deletedFaceCSNs:toBeReclusteredFaceIds:error:
+persistChangesToAlgorithmicFaceGroups:andFaces:withCanceler:returningPersistedClusters:faceGroupsWithoutKeyFace:csnsToBeRemovedFromClusterState:toBeReclusteredFaceIds:error:
 _removeEmptyGroups
 intersectsSet:
 setShouldUpdateRepresentative:
@@ -607,9 +620,8 @@ clusteredFaceIds
 setWithSet:
 _syncClustererWithPhotoLibrary:
 _processingQueueRestoreState:
+_recordClusterRebuildRequired:
 suggestionsForCluster
-lock
-unlock
 removeObjectAtIndex:
 domain
 code
@@ -663,6 +675,9 @@ _performanceStats
 _outstandingSuggestionRequests
 _currentSuggestionRequest
 _suggestionLock
+_currentStatusSnapshotLock
+_currentStatusSnapshot
+_currentStatusSnapshotIsValid
 _state
 faceprintVersion
 faceModelId
@@ -720,6 +735,7 @@ _floatValueForKey:defaultValue:
 _boolValueForKey:defaultValue:
 initialize
 _doubleValueForKey:defaultValue:
+suggestionsLogEnabled
 notificationWithName:details:
 stringByAppendingFormat:
 notificationWithName:
@@ -908,6 +924,10 @@ PVSuggestionUpdateStarted
 PVSuggestionUpdateFinished
 PVSuggestionUpdateProgress
 PVSuggestionUpdateCancelled
+PVClusteringStatusIsClustering
+PVClusteringStatusClusterRebuildRequired
+PVClusteringStatusEligibleFacesCount
+PVClusteringStatusPendingFacesCount
 PVFacesToDelete
 PVFacesToPersist
 v12@?0B8
@@ -1032,7 +1052,9 @@ Td,V_totalTime
 requestId
 T@"NSString",R,V_requestId
 csns
-T@"NSSet",R,V_csns
+T@"NSArray",R,V_csns
+cflags
+T@"NSArray",R,V_cflags
 T@?,C,V_updateHandler
 cvmlRequest
 T@"CVMLRequest",&,V_cvmlRequest
@@ -1062,14 +1084,23 @@ Clustering performance
 com.apple.photoanalysisd.PhotoVision.optional_clustering
 com.apple.photoanalysisd.PhotoVision.forced_clustering
 com.apple.photoanalysisd.PhotoVision.requested_clustering
+Scheduled to remove %lu faces from the cluster state.
 faceId
 Faces with clusterSequenceNumbers added to clusterer: %@
 Faces with clusterSequenceNumbers removed from clusterer: %@
+begin CVML clustering
+end CVML clustering
 persisted clusters before update: %@
 cluster update: %@
+clustering will update database models
+clustering did %supdate database models
+NOT 
 ERROR: Failed to reset clusterSequenceNumber for faces with localIdentifiers: %@. Error: %@
 ERROR: Failed to persist updates to algorithmic face groups [Error: %@]. Faces will be clustered during next clustering run.
+begin clustering autonaming
 v32@?0@"NSNumber"8@"NSSet"16^B24
+end clustering autonaming
+B32@?0@"CVMLCluster"8Q16^B24
 ERROR: Failed to update representative face for algorithmic face groups. Error: %@
 SUCCESS: Persisted clusters
 ERROR: Failed to persist with error: %@
@@ -1081,9 +1112,11 @@ ERROR: local and persisted clusters are not the same.
 SUCCESS: local and persisted clusters are identical
 CVML clustering failure: %@
 q24@?0@"PVFace"8@"PVFace"16
+will update representative faces for %lu clustering results
 CVML error getting representative face: cluster count is zero
 CVML error getting representative faces: %@
 CVML updateClusterRepresentatives - error updating cluster/face with csn %@: %@
+did update representative faces for %lu clustering results
 Error occurred while removing empty groups: %@
 Failed to get CVML cluster state, error: %@
 Failed to get CVML cluster state
@@ -1186,6 +1219,7 @@ PVDefaultFaceCountToEnableNaming
 PVDefaultFaceGroupCountToEnableNaming
 PVDefaultFaceClusteringLogEnabled
 PVDefaultFaceClusteringPerfLogEnabled
+PVDefaultSuggestionsLogEnabled
 %@: %@
  - %@
 Failed to create image from bitmap context
@@ -1275,7 +1309,7 @@ v32@0:8Q16@?24
 ^{CGImage=}
 @"CIImage"
 @"NSData"
-@40@0:8@16@?24^@32
+@48@0:8@16@24@?32^@40
 B24@0:8@16
 @32@0:8@16^@24
 @"<PVNotificationListener>"
@@ -1306,9 +1340,8 @@ v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 f16@0:8
 v20@0:8f16
-@32@0:8@16@?24
+@40@0:8@16@24@?32
 @?16@0:8
-@"NSSet"
 @"CVMLRequest"
 B24@0:8@"PVFace"16
 f24@0:8@"PVFace"16
@@ -1327,11 +1360,12 @@ Vv16@0:8
 @48@0:8@16@24@32@40
 v32@0:8@16@24
 B28@0:8B16@20
+v40@0:8{?=QQBB}16
 Q32@0:8@16@24
 B56@0:8@16@24@32@40^@48
 @44@0:8@16B24B28@32B40
 @40@0:8@16B24B28@32
-B64@0:8@16@24^@32@40@48^@56
+B80@0:8@16@24@32^@40^@48@56@64^@72
 B24@0:8^@16
 B32@0:8@16@24
 v40@0:8^@16^d24^B32
@@ -1342,6 +1376,7 @@ v40@0:8^@16^d24^B32
 @"NSMutableArray"
 @"PVSuggestionRequest"
 @"NSLock"
+{?="eligibleFacesCount"Q"pendingFacesCount"Q"isClustering"B"rebuildRequired"B}
 B40@0:8^f16@24^@32
 ^{CGPath=}40@0:8@16{CGSize=dd}24
 @28@0:8I16^@20

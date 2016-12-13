@@ -160,6 +160,116 @@ Q16@0:8
 @"NSString"16@0:8
 v64@0:8@16^@24^@32^@40^@48^@56
 @24@0:8@16
+(version 1)
+(deny default (with partial-symbolication))
+;; Access to ipc-posix-shm and file-read-metadata are only necessary on Mountain Lion.
+(allow ipc-posix-shm-read-data
+    (ipc-posix-name "com.apple.AppleDatabaseChanged")
+    (ipc-posix-name "FNetwork.defaultStorageSession"))
+(allow ipc-posix-shm-write-data
+    (ipc-posix-name "com.apple.AppleDatabaseChanged"))
+(allow system-audit file-read-metadata)
+(import "system.sb")
+;; Utility functions for home directory relative path filters
+(define (home-regex home-relative-regex)
+  (regex (string-append "^" (regex-quote (param "HOME_DIR")) home-relative-regex)))
+(define (home-subpath home-relative-subpath)
+    (subpath (string-append (param "HOME_DIR") home-relative-subpath)))
+(define (home-literal home-relative-literal)
+    (literal (string-append (param "HOME_DIR") home-relative-literal)))
+(define (read-write-directory-contents path-filter)
+    (allow file-read* path-filter)
+    (allow file-write* (require-all
+            (require-any (vnode-type DIRECTORY) (vnode-type REGULAR-FILE))
+            path-filter)))
+(define (allow-read-directory-and-issue-read-extensions path)
+    (if path
+        (begin
+            (allow file-read* (subpath path))
+            (allow file-issue-extension (require-all (extension-class "com.apple.app-sandbox.read") (subpath path))))))
+;; Read-only preferences and data
+(allow file-read*
+    ;; Basic system paths
+    (subpath "/Library/Frameworks")
+    (subpath "/Library/Managed Preferences")
+    ;; System and user preferences
+    (literal "/Library/Preferences/.GlobalPreferences.plist")
+    (regex #"^/Library/Managed Preferences/[^/]+/com\.apple\.networkConnect\.plist$")
+    (home-literal "/Library/Preferences/.GlobalPreferences.plist")
+    (home-regex #"/Library/Preferences/ByHost/\.GlobalPreferences\.")
+    (home-regex #"/Library/Preferences/ByHost/com\.apple\.networkConnect\.")
+    (home-literal "/Library/Preferences/com.apple.WebFoundation.plist"))
+;; IOKit user clients
+(allow iokit-open
+    (iokit-user-client-class "RootDomainUserClient"))
+;; Various services required by CFNetwork and other frameworks
+(allow mach-lookup
+    (global-name "com.apple.SystemConfiguration.configd")
+    (global-name "com.apple.cookied")
+    (global-name "com.apple.cfnetwork.AuthBrokerAgent"))
+;; Security framework
+(allow mach-lookup
+       (global-name "com.apple.ocspd")
+       (global-name "com.apple.SecurityServer"))
+(allow file-read* file-write* (home-subpath "/Library/Keychains")) ;; FIXME: This should be removed when <rdar://problem/10479685> is fixed.
+(allow file-read* file-write* (subpath "/private/var/db/mds/system")) ;; FIXME: This should be removed when <rdar://problem/9538414> is fixed.
+(allow file-read*
+       (subpath "/Library/Keychains")
+       (subpath "/private/var/db/mds")
+       (literal "/private/var/db/DetachedSignatures")
+       (literal "/Library/Preferences/com.apple.crypto.plist")
+       (literal "/Library/Preferences/com.apple.security.plist")
+       (literal "/Library/Preferences/com.apple.security.common.plist")
+       (literal "/Library/Preferences/com.apple.security.revocation.plist")
+       (home-literal "/Library/Application Support/SyncServices/Local/ClientsWithChanges/com.apple.Keychain")
+       (home-literal "/Library/Preferences/com.apple.security.plist")
+       (home-literal "/Library/Preferences/com.apple.security.revocation.plist"))
+(system-network)
+(allow network-outbound
+    ;; Local mDNSResponder for DNS, arbitrary outbound TCP
+    (literal "/private/var/run/mDNSResponder")
+    (remote tcp))
+;; FIXME should be removed when <rdar://problem/9347205> + related radar in Safari is fixed
+(allow mach-lookup
+    (global-name "org.h5l.kcm")
+    (global-name "com.apple.GSSCred")
+    (global-name "com.apple.system.logger")
+    (global-name "com.apple.system.notification_center"))
+(allow network-outbound
+    (remote udp))
+(allow file-read*
+    (home-subpath "/Library/Preferences/com.apple.Kerberos.plist")
+    (home-subpath "/Library/Preferences/com.apple.GSS.plist")
+    (home-subpath "/Library/Preferences/edu.mit.Kerberos")
+    (literal "/Library/Preferences/com.apple.Kerberos.plist")
+    (literal "/Library/Preferences/com.apple.GSS.plist")
+    (literal "/Library/Preferences/edu.mit.Kerberos")
+    (literal "/private/etc/krb5.conf")
+    (literal "/private/etc/services")
+    (literal "/private/etc/host"))
+(allow mach-lookup
+    (global-name "com.apple.accountsd.accountmanager")
+    (global-name "com.apple.accountsd.oauthsigner")
+    (global-name "com.apple.CoreServices.coreservicesd"))
+(allow file-read-data
+    (home-subpath "/Library/Preferences/com.apple.accountsd.plist"))
+;; On-disk location of the folder containing frameworks needed by Safari, to account for debug 
+;; installations outside of /System/Library/Frameworks, and to allow issuing extensions.
+(allow-read-directory-and-issue-read-extensions (param "FRAMEWORKS_DIR"))
+;; FIXME 13486234: This could fail on systems where ~/Library is a symlink.
+(read-write-directory-contents (home-subpath "/Library/Caches/com.apple.Safari.SocialHelper"))
+(read-write-directory-contents (subpath (param "DARWIN_USER_CACHE_DIR")))
+(read-write-directory-contents (subpath (param "DARWIN_USER_TEMP_DIR")))
+(deny file-write-create (vnode-type SYMLINK))
+;; FIXME: Should be removed once <rdar://problem/16329087> is fixed.
+(deny file-write-xattr (xattr "com.apple.quarantine") (with no-log))
+;; Reserve a namespace for additional protected extended attributes.
+(if (defined? 'xattr-regex)
+    (deny file-read-xattr file-write-xattr (xattr-regex #"^com\.apple\.security\.private\."))
+    (deny file-read-xattr file-write-xattr (xattr #"^com\.apple\.security\.private\.")))
+;; This is only necessary on Mountain Lion (see <rdar://problem/9422957>)
+(deny file-read* file-write* (with no-log)
+    (home-literal "/Library/Caches/Cache.db"))
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
