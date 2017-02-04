@@ -1,4 +1,4 @@
-@(#)PROGRAM:XCSBuilderService  PROJECT:XCSBuildService-11751
+@(#)PROGRAM:XCSBuilderService  PROJECT:XCSBuildService-12085.2
 XCSErrorFixItType
 XCSBuildServiceDomain
 com.apple.xcs.LastActivityTimer
@@ -334,6 +334,8 @@ buildWatcher
 T@"XCSBuildWatcher",&,N,V_buildWatcher
 nextIntegrationBlock
 T@?,C,N,V_nextIntegrationBlock
+listener
+T@"<XCSBuilderServiceListenerProtocol>",&,N,V_listener
 Build Service Socket Messages
 Build Watcher Queue
 Introducing builder.
@@ -344,13 +346,13 @@ PortalKeychainSharedSecret
 Could not load Portal keychain shared secret: %@
 Could not unlock and add Portal keychain to search list: %@
 We have not received any pending integrations for 10 minutes. Exiting in case our socket connection is bad.
+Error retrieving pending integrations: %@
+Currently available pending integration IDs: %@
 There is no integration to request (either no candidates or listening is suspended).
 Requesting integration %@
 Another build service got integration %@. Requesting another integration if possible.
 Error requesting integration: %@. Aborting.
 Integration %@ was assigned to this builder, starting integration.
-Error retrieving pending integrations: %@
-Currently available pending integration IDs: %@
 /integrations/clear_orphans
 /integrations?currentStep=pending
 Error in request %@: %@. Retrying in 10 seconds.
@@ -360,6 +362,8 @@ workQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_workQueue
 exitTimer
 T@"NSObject<OS_dispatch_source>",&,N,V_exitTimer
+pendingIntegrationsTimer
+T@"NSObject<OS_dispatch_source>",&,N,V_pendingIntegrationsTimer
 T@"XCSService",R,N,V_service
 T@"<XCSBuildWatcherDelegate>",W,V_delegate
 XCSFixItTypeKey
@@ -401,6 +405,7 @@ Integration will enable code coverage
 -enableCodeCoverage
 Integration will disable code coverage
 Integration use scheme-level code coverage enabled setting
+-run-skipped-tests-only
 -DVTSuppressExternalDeviceLocation=NO
 -resultBundlePath
 Integrate arguments list is %@
@@ -480,6 +485,8 @@ shouldTest
 Tc,R,N,V_shouldTest
 codeCoveragePreference
 TQ,R,N,V_codeCoveragePreference
+runOnlyDisabledTests
+Tc,R,N,V_runOnlyDisabledTests
 shouldArchive
 Tc,R,N,V_shouldArchive
 shouldExportProductFromArchive
@@ -572,7 +579,6 @@ finishWithBuildServiceErrorString:result:fixItType:
 finishWithTriggerError:result:fixItType:
 integrationStep:didFinishWithTriggerError:result:
 finishWithTriggerErrorString:result:fixItType:
-getCFRunLoop
 port
 addPort:forMode:
 result
@@ -687,6 +693,10 @@ description
 debugDescription
 interfaceWithProtocol:
 setExportedInterface:
+builderWasRegistered
+setRemoteObjectInterface:
+remoteObjectProxy
+initWithListener:
 setExportedObject:
 resume
 listener:shouldAcceptNewConnection:
@@ -717,6 +727,7 @@ overrideToolchain
 performsAnalyzeAction
 performsTestAction
 codeCoveragePreference
+runOnlyDisabledTests
 performsArchiveAction
 exportsProductFromArchive
 outputPath
@@ -730,7 +741,7 @@ testingDeviceIDs
 deviceSpecification
 currentServerDevices
 currentServerPlatforms
-initWithProjectPath:workspacePath:schemeName:buildConfiguration:overrideToolchain:shouldAnalyze:shouldTest:codeCoveragePreference:shouldArchive:shouldExportProductFromArchive:outputPath:archivePath:exportPath:derivedDataPath:assetPackURLPrefix:baselineDescription:additionalArguments:testingDestinationType:testingDeviceIDs:deviceSpecification:currentServerDevices:currentServerPlatforms:
+initWithProjectPath:workspacePath:schemeName:buildConfiguration:overrideToolchain:shouldAnalyze:shouldTest:codeCoveragePreference:runOnlyDisabledTests:shouldArchive:shouldExportProductFromArchive:outputPath:archivePath:exportPath:derivedDataPath:assetPackURLPrefix:baselineDescription:additionalArguments:testingDestinationType:testingDeviceIDs:deviceSpecification:currentServerDevices:currentServerPlatforms:
 resultBundlePath
 filePathForPathString:
 invocationRecordWithLocalActionResultFilePath:completionBlock:
@@ -939,6 +950,7 @@ _cacheDirectory
 _userDefaults
 _screenSaverDefaults
 setDefaultFacilityName:
+setListener:
 initForClientSSL
 setService:
 initWithService:
@@ -949,6 +961,7 @@ deleteOldIntegrations
 nextIntegrationBlock
 setNextIntegrationBlock:
 serviceEnabled
+listener
 clearOrphanedBotIntegrationCache
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 fileURLWithPath:isDirectory:
@@ -960,8 +973,10 @@ allBotsWithCompletionHandler:
 deleteExistingIdentitiesAndRestart:error:
 accessForImportedIdentitiesWithError:
 initialize
+buildWatcherDidRegisterSuccessfully
 buildWatcherWillResumeWithWorkQueue:
 buildWatcherAcceptedIntegrationWithID:
+_listener
 _service
 _buildWatcher
 _nextIntegrationBlock
@@ -980,18 +995,24 @@ setListening:
 suspended
 requestNextIntegration
 requestIntegrationIfNeeded
+watchForRegistration
 unlockPortalKeychain
 startExitTimer
+startPendingIntegrationsTimer
+listenOnceForAgentRegistration:
 initWithContentsOfFile:options:error:
 setExitTimer:
 exitTimer
+setPendingIntegrationsTimer:
+pendingIntegrationsTimer
+fetchPendingIntegrations
+setCandidates:
+candidates
+allPendingIntegrationsWithCompletionHandler:
 requestingIntegration
 rejectedIntegration
 acceptedIntegration
 requestToBuildIntegration:completionHandler:
-setCandidates:
-candidates
-allPendingIntegrationsWithCompletionHandler:
 base
 service:didReceiveError:
 serviceDidUpdatePendingIntegrations:
@@ -1001,6 +1022,7 @@ service:didEncounterError:withRequest:proceed:
 _integrations
 _workQueue
 _exitTimer
+_pendingIntegrationsTimer
 additionalArguments
 addObjectsFromArray:
 codeSigningArguments
@@ -1055,6 +1077,7 @@ argumentsListToExport
 baselineDescription
 _shouldAnalyze
 _shouldTest
+_runOnlyDisabledTests
 _shouldArchive
 _shouldExportProductFromArchive
 _projectPath
@@ -1117,6 +1140,7 @@ XCSConfig
 XCSBuilderServiceProtocol
 XCSServiceProtocol
 NSObject
+XCSBuilderServiceListenerProtocol
 ServiceDelegate
 NSXPCListenerDelegate
 XCSBuildingIntegration
@@ -1200,6 +1224,7 @@ v24@0:8@"NSString"16
 ^{OpaqueSecAccessRef=}24@0:8^@16
 c32@0:8^c16^@24
 @?16@0:8
+@"<XCSBuilderServiceListenerProtocol>"
 @"XCSService"
 @"XCSBuildWatcher"
 v32@0:8@"XCSService"16@"NSError"24
@@ -1211,7 +1236,7 @@ v48@0:8@"XCSService"16@"NSError"24@"XCSHTTPRequest"32@?<v@?Q@"NSError">40
 @"XCSIntegrationCandidates"
 @"NSObject<OS_dispatch_queue>"
 @"NSObject<OS_dispatch_source>"
-@176@0:8@16@24@32@40@48c56c60Q64c72c76@80@88@96@104@112@120@128Q136@144@152^{NSArray=#}160@168
+@180@0:8@16@24@32@40@48c56c60Q64c72c76c80@84@92@100@108@116@124@132Q140@148@156^{NSArray=#}164@172
 @32@0:8^@16^@24
 @40@0:8@?16^@24^@32
 @40@0:8@16@24@32

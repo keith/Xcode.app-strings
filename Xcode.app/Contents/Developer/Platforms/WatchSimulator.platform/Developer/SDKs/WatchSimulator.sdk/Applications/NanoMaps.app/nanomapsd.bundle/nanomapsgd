@@ -1,10 +1,10 @@
-A@(#)PROGRAM:nanomapsgd  PROJECT:Maps-
+@(#)PROGRAM:nanomapsgd  PROJECT:Maps-
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 <key>application-identifier</key>
-<string>com.apple.Maps</string>
+<string>FAKETEAMID.com.apple.Maps</string>
 <key>com.apple.backboardd.launchapplications</key>
 <true/>
 <key>com.apple.geoservices.navigation_info</key>
@@ -29,6 +29,11 @@ A@(#)PROGRAM:nanomapsgd  PROJECT:Maps-
 </array>
 <key>com.apple.private.ids.remoteurlconnection</key>
 <true/>
+<key>com.apple.security.exception.files.absolute-path.read-write</key>
+<array>
+<string>/private/var/mobile/Library/Caches/com.apple.navd/</string>
+<string>/private/var/mobile/Library/Caches/com.apple.navd/NavTraces/</string>
+</array>
 <key>com.apple.security.exception.mach-lookup.global-name</key>
 <array>
 <string>com.apple.navigationService</string>
@@ -48,6 +53,7 @@ A@(#)PROGRAM:nanomapsgd  PROJECT:Maps-
 </plist>
 NanoDaemonExtras
 NMGPowerAssertion
+NavExtras
 NMGNavServer
 GEORouteManagerDelegate
 NSObject
@@ -104,6 +110,9 @@ dealloc
 description
 stringWithFormat:
 copy
+navDisplayName
+stringByReplacingOccurrencesOfString:withString:
+traceName
 _geoListener
 _mapsListener
 _geoPeerConnections
@@ -123,16 +132,20 @@ _nanoMapsIsActiveAndExpectingAllNavStatusUpdates
 _deadRoutes
 _originalRouteIDs
 _isRunningNavFromLocalRequest
+_requestCompanionRouteDetailsWhenLocalNavStopped
+_lastLocalRouteID
 _lastHapticFiredStep
 _nearbyTimer
 _nearbyAssertion
-_prolongNearbyAssertion
 _routePlanningDetails
+_routePlanningRouteID
+_routePlanningWasActivated
 _routeManager
 _navAssertion
 _inUseAssertion
 _arrivalTimer
 _routingCompletionHandler
+_traceRecorder
 _isAwaitingPreview
 _isSuppressingPreview
 _isAwaitingStart
@@ -195,7 +208,9 @@ _invalidateNavAssertion
 _updatePreviewSuppressionWhileLocked
 _processRouteStatus:forRouteDetails:routeUpdated:
 _wakeNanoMaps
+_takeNearbyAssertion
 _waitForNearbyDisconnect
+_performNearbyDisconnect
 _nearbyDisconnectTimerFired:
 _interruptNearbyDisconnection
 _invalidateNearbyAssertion
@@ -207,8 +222,11 @@ setWantsAllNavigationStatusUpdates:forRoute:
 launchNanoMapsAppWithCompletion:
 _releaseNanoMapsProcessAssertion
 openTrace:
+_markCurrentRouteDead
 stopDirections
 _forciblyRemindCompanionThatWeAreTotallyDoneWithItsActiveRoute
+_forciblyRemindCompanionThatWeAreTotallyDoneWithItsPreviewRoute
+_forciblyRemindCompanionThatWeAreTotallyDoneWithItsRouteBySendingMessageType:
 _createLocationInUseAssertionForTransportType:withReason:
 _createLocationInUseAssertionWithReason:
 _invalidateLocationInUseAssertion
@@ -227,6 +245,8 @@ _invalidateNavWatchdog
 locallyLoadDirectionsFromSource:toDestination:clientLocation:transportType:startTime:endTime:routeContext:completionHandler:
 locallyStartNavigation
 locallyClearNavigation
+_prepareTraceRecordingForRouteDetails
+_allowTraceRecording
 isRunningNavFromLocalRequest
 .cxx_destruct
 data
@@ -242,6 +262,19 @@ initWithRoute:destinationName:stringFormatter:
 sharedFormatter
 alloc
 preferredRoute
+supportsNavigation
+isInternalInstall
+sharedPlatform
+boolForKey:
+standardUserDefaults
+setCopyTracesToCrashReporterDirectory:
+setIsTraceRecording:
+setTraceFileName:
+tracePath
+saveTraceWithHandler:
+trace
+startWritingTraceToFile
+initWithPath:clMapMatching:errorHandler:
 startNavigationForRouteDetails:
 composedWaypointForMapItem:traits:clientAttributes:completionHandler:networkActivityHandler:
 composedWaypointForCurrentLocation:traits:completionHandler:networkActivityHandler:
@@ -250,9 +283,12 @@ defaultTraits
 sharedService
 invalidate
 scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+isNavigating
+feedbackType
+isEqualToData:
+routeID
 initWithData:
 length
-routeID
 count
 isMainThread
 resume
@@ -267,12 +303,9 @@ newAssertionForBundleIdentifier:withReason:
 sharedInstance
 stopNavigation
 removeAllObjects
-isNavigating
-setIsTraceRecording:
 setTransportType:
 setResponse:
 setRequest:
-setTraceFileName:
 setNavigationType:
 setDestination:
 setOrigin:
@@ -280,7 +313,6 @@ lastObject
 objectForKey:
 firstObject
 directions
-trace
 initWithPath:
 openApplication:options:withResult:
 dictionaryWithObjects:forKeys:count:
@@ -289,9 +321,9 @@ pidForApplication:
 currentConnection
 navigationTransportType
 addBarrierBlock:
-isEqualToData:
 numberWithDouble:
-initWithBundleIdentifier:flags:reason:name:withHandler:
+acquire
+initWithBundleIdentifier:flags:reason:name:
 guidancePromptsEnabled
 addTimer:forMode:
 mainRunLoop
@@ -304,11 +336,16 @@ stepAtIndex:
 stepsCount
 hasStepID
 effectiveStepID
-feedbackType
 isPreviewingNavigation
 route
 setLocation:
 dataWithBytes:length:
+setRouteIndex:
+routes
+originalRouteID
+indexOfObject:
+suggestedRoutes
+originalSuggestedRoute
 response
 request
 setRouteAttributes:
@@ -319,8 +356,6 @@ containsObject:
 removeObserver:
 initWithMachServiceName:
 addObserver:
-supportsNavigation
-sharedPlatform
 _doubleValue
 _intValue
 _dataValue
@@ -383,7 +418,6 @@ fileExistsAtPath:
 stringByAppendingPathComponent:
 objectAtIndex:
 navdCacheDirectoryPath
-stringByReplacingOccurrencesOfString:withString:
 hasSuffix:
 lastPathComponent
 stringFromDate:
@@ -522,7 +556,6 @@ timeIntervalSinceReferenceDate
 generateLocations
 setHorizontalAccuracy:
 doubleForKey:
-standardUserDefaults
 setWalkingEnd:
 coordinate
 latLng
@@ -538,7 +571,6 @@ initWithRoute:
 saveTraceSynchronously
 resetLocationsForSimulation
 startWritingTraceToFileAtPath:
-tracePath
 _maximumPendingMessagesCount
 _maximumInFlightMessagesCount
 _maximumInFlightMessagesSize
@@ -637,6 +669,8 @@ service:didSwitchActivePairedDevice:acknowledgementBlock:
 _updateReceiverProcessUUID:
 _messageQueueForType:
 setMessageQueue:forType:
+_priorityForMessageType:
+_priorityForReplyType:
 _dequeueNextMessageIfNecessaryForType:
 shouldSendMessage:
 sendMessage:options:
@@ -650,6 +684,7 @@ addConnectionObserver:
 removeConnectionObserver:
 _updateConnectionStatus
 isConnected
+isNearby
 errorWithDomain:code:userInfo:
 dictionaryWithObject:forKey:
 setTimeoutTimer:
@@ -785,7 +820,6 @@ destinationInfo
 setDestinationInfo:
 setAvoidHighways:
 setAvoidTolls:
-boolForKey:
 userPreferences
 setUserPreferences:
 setTrafficType:
@@ -921,6 +955,7 @@ v8@0:4
 @"MNRoutePlanningDetails"
 @"NanoRouteManager"
 @"CLInUseAssertion"
+@"MNTraceRecorder"
 v12@0:4@"GEORouteManager"8
 v16@0:4@"GEORouteManager"8@"GEORouteSet"12
 v16@0:4@"GEORouteManager"8@"NSError"12
@@ -957,6 +992,7 @@ v16@0:4@8@?12
 v20@0:4B8@12@16
 v16@0:4B8@12
 v12@0:4@?8
+v12@0:4i8
 v16@0:4i8@12
 B16@0:4@8@12
 v16@0:4@8B12
@@ -980,7 +1016,6 @@ B16@0:4@8^@12
 B16@0:4@8i12
 {?="compressionType"b1}
 i8@0:4
-v12@0:4i8
 {?="_altitude"d"_course"d"_courseAccuracy"d"_horizontalAccuracy"d"_latitude"d"_lifespan"d"_longitude"d"_rawCourse"d"_rawLatitude"d"_rawLongitude"d"_speed"d"_speedAccuracy"d"_timestamp"d"_verticalAccuracy"d"_confidence"i"_type"i"_has"{?="altitude"b1"course"b1"courseAccuracy"b1"horizontalAccuracy"b1"latitude"b1"lifespan"b1"longitude"b1"rawCourse"b1"rawLatitude"b1"rawLongitude"b1"speed"b1"speedAccuracy"b1"timestamp"b1"verticalAccuracy"b1"confidence"b1"type"b1}}
 {?="list"^Q"count"I"size"I}
 {?="locationValue"b1"doubleValue"b1"intValue"b1"tag"b1"boolValue"b1}
@@ -1026,6 +1061,7 @@ v32@0:4@8@12@16@20@24@28
 v28@0:4@8@12@16B20@24
 v32@0:4@8@12@16B20@24@28
 v24@0:4@8@12@16@20
+i12@0:4i8
 v32@0:4@8@12B16d20@?28
 v32@0:4@8@12@16B20d24
 @16@0:4i8@?12
@@ -1086,6 +1122,7 @@ Failed to create power assertion for "%@" (%d)
 TimeoutActionTurnOff
 PreventUserIdleSystemSleep
 Creating power assertion for "%@" (timeout = %f)
+Unknown
 isRunningNavFromLocalRequest
 TB,R,N
 isAwaitingPreview
@@ -1104,6 +1141,8 @@ debugDescription
 Setting _isRunningNavFromLocalRequest to YES in response to local route loaded
 Destination
 Locally loaded route
+__EnableTraceRecording
+Failed to create the trace recorder
 Locally clearing navigation
 Locally starting navigation
 Starting navigation
@@ -1119,55 +1158,67 @@ Pinging companion
 Nav watchdog timer fired
 Setting _companionIsSendingAllNavStatusUpdates to 0 (in connectionNeedsStateSynchronization:)
 NMDeviceConnection didChangeDeviceNearby: %i
-NMDeviceConnection didChangeDeviceConnectivity: %i
 Releasing location assertion
 com.apple.NanoMaps
 Creating location assertion: %@
 Not creating location assertion: %@
 Stopping directions
+Marking dead original route ID %@
+Marking dead route ID %@
 Setting _isRunningNavFromLocalRequest to YES for trace playback
 MNTraceLocationActiveTransportType
 MNTraceDirectionsWaypoints
 MNTraceDirectionsResponse
 MNTraceDirectionsRequest
-Releasing wake assertion for NanoMaps after significant update reply
+Releasing wake assertion for NanoMaps after significant update reply: %@
 Setting _companionIsSendingAllNavStatusUpdates to %i (wants: %i) (error: %@)
 Short-circuiting all-status-updates request for route %@; running nav locally
+Not short-circuiting all-status-updates request for route %@; _requestCompanionRouteDetailsWhenLocalNavStopped is YES
 Transit wants all updates
 Explicitly invalidating wait for nearby.disconnect assertion
 Interrupting wait for nearby.disconnect
 Performing nearby.disconnect
+Starting local navigation in response to nearby status change
+Switching to local navigation
+NOT starting local navigation in response to nearby status change (isNearby:%i service isNavigating:%i status isNavigating:%i
 Failed to acquire assertion for nearby.disconnect
 com.apple.Maps.nearby.disconnect
-Will wait for nearby.disconnect
-Not creating wake assertion for NanoMaps; already exists
-com.apple.Maps.navigation
+Taking power assertion for nearby.disconnect
+Not creating wake assertion for NanoMaps; already exists: %@
 v8@?0B4
-Releasing wake assertion for NanoMaps after timeout
-Created wake assertion for NanoMaps
 Failed to launch NanoMaps; will not retry creating wake assertion
 Launched NanoMaps; will retry creating wake assertion
 Failed to acquire wake assertion; launching NanoMaps
+Releasing wake assertion for NanoMaps after timeout: %@
+Created wake assertion for NanoMaps: %@
+com.apple.Maps.navigation
 Creating wake assertion for NanoMaps
 AudioServicesPlaySystemSound
 /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
 /AppleInternal/Library/Frameworks/AudioToolbox.framework/AudioToolbox
 ### Failed to Soft Linked: /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
 v8@?0@"NSTimer"4
+Route updated: Not changing shouldPlayHaptic from %i (routeID:%@ planningID:%@ oldStep:%i newStep:%i)
+Navigation service failed: %@
+navigationService:didChangeFromState:, setting _requestCompanionRouteDetailsWhenLocalNavStopped to NO
+Checking in with companion: local nav stopped after connection status change
 Setting _isRunningNavFromLocalRequest to NO in response to navigation service state change
 Navigation service state did change from %lu to %lu
 Navigation service state will change from %lu to %lu
+Failed to acquire nav state assertion: com.apple.NanoMaps.navigation
 com.apple.NanoMaps.navigation
 Navigation service did update matched location: %@
 Processing route data cached while awaiting preview
 Clearing navigation state in response to connection status change
+Checking in with companion in response to connection status change
+updateCompanionConnectionStatus:, setting _requestCompanionRouteDetailsWhenLocalNavStopped to YES
 Stopping local navigation in response to connection status change
-Starting local navigation in response to connection status change
-Switching to local navigation
+Preparing for nearby.disconnect
 Setting _companionIsSendingAllNavStatusUpdates to 0 (in updateCompanionConnectionStatus:)
 Companion connection status: %i
 Setting _isRunningNavFromLocalRequest to NO
-Configuring route planning details for companion route ID %@
+route planning details using route index %lu
+Configuring route planning details for route ID %@
 Ignoring details and status (%@) for dead route %@
 Ignoring details and status (%@) for AwaitingStart route %@
 (unknown: %i)
@@ -1182,11 +1233,13 @@ ANNOUNCE
 PROCEED_TO_ROUTE
 PREVIEW
 NOT_NAVIGATING
+_processReceivedRouteDetails: (route ID: %@), setting _requestCompanionRouteDetailsWhenLocalNavStopped to NO
 Forcing route details request; received status (%@) for route ID (%@) while expecting route ID (%@)
 Processing status (%@) received from companion
 Got %@ message for dead route %@. Telling the companion to kill it.
 Ignoring status (%@) for AwaitingStart route %@
 Ignoring %@ message; running nav from local request
+Ignoring %@ message; %@
 DEBUG_FETCH_DIAGNOSTICS_STRING
 DEBUG_FETCH_CONFIGURATION_INFO
 PING
@@ -1219,8 +1272,11 @@ FETCHED_TILE
 REPORT_CORRUPT_TILE
 CANCEL_TILES
 FETCH_TILES
+waiting for local nav to stop
+companion is not nearby
 Processing route data (length: %lu) received from companion
 Caching route data (length: %lu) while awaiting preview
+Ignoring %@ message; companion is not nearby
 com.apple.nanomaps.xpc.GeoServices.Navigation
 com.apple.nanomaps.xpc.Navigation
 hasKey
@@ -1374,6 +1430,8 @@ NMSendMessageOptionMapTile
 NMSendMessageOptionFireAndForget
 connected
 TB,R,N,GisConnected,V_connected
+nearby
+TB,R,N,GisNearby,V_nearby
 Sending reply to callback block
 Error sending message: %@ (GUID = %@)
 Finished sending message for type: %@ (GUID = %@)

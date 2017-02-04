@@ -4,23 +4,137 @@ require 'open3'
 require 'optparse'
 require 'ostruct'
 require 'timeout'
-$runningLogLines = []
+require 'net/http'
+require 'json'
+require 'uri'
+require 'fileutils'
+$running_log_lines = []
 def colorize(text, color_code)
   "\e[#{color_code}m#{text}\e[0m"
-def stripWhitespace(text)
+def strip_whitespace(text)
   return text.gsub(/\s/,'')
 def log(msg)
-  $runningLogLines << msg
+  $running_log_lines << msg
   puts msg
-def logGrey(msg)
-  $runningLogLines << msg
+def log_grey(msg)
+  $running_log_lines << msg
   puts colorize(msg, 90)
-def logRed(msg)
-  $runningLogLines << msg
+def log_red(msg)
+  $running_log_lines << msg
   puts colorize(msg, 31)
-def logGreen(msg)
-  $runningLogLines << msg
+def log_green(msg)
+  $running_log_lines << msg
   puts colorize(msg, 32)
+module Couch
+  class Server
+    def initialize(host, port, login, password)
+      @host = host
+      @port = port
+      @login = login
+      @password = password
+    end
+    def get(uri)
+      req = Net::HTTP::Get.new(uri)
+      request(req)
+    end
+    def request(req)
+      begin
+        http = Net::HTTP.new(@host, @port)
+        req.basic_auth(@login, @password)
+        res = http.request(req)
+        unless res.kind_of?(Net::HTTPSuccess)
+          handle_error(req, res)
+        end
+        return JSON.parse(res.body)
+      rescue Exception => e
+        log_exception(e, "Error connecting to couchDB")
+      end
+    end
+    private
+    def handle_error(req, res)
+      log_red "#{res.code}:#{res.message}\nMETHOD:#{req.method}\nURI:#{req.path}\n#{res.body}"
+    end
+  end
+class XCSCouch
+  def initialize(password)
+    @server = Couch::Server.new("127.0.0.1", "10355", "xcscouchadmin", password)
+  end
+  def bot_ids
+    res = @server.get("/xcs/_design/bot/_view/all-bots")
+    bot_ids = []
+    if res
+      res["rows"].each do |row|
+          bot_ids.push(row["id"])
+      end
+    end
+    bot_ids
+  end
+  def last_integration_for_bot(bot_id)
+    startkey= "[\"#{bot_id}\",1]"
+    endkey = "[\"#{bot_id}\",2]"
+    url = "/xcs/_design/integration/_view/last-integration?startkey=#{startkey}&endkey=#{endkey}&include_docs=true&reduce=false"
+    url = URI::escape(url)
+    res = @server.get(url)
+    
+    integrations = []
+    if res
+      if res["rows"]
+        integrations = res["rows"]
+      end
+    end
+    integrations
+  end
+  def settings
+    res = @server.get("/xcs/_design/settings/_view/all-settings?include_docs=true")
+    settings = ""
+    if res && res["rows"].any?
+      settings = res["rows"].first['doc']
+    end
+    settings
+  end
+  def versions
+    res = @server.get("/xcs/_design/version/_view/all-versions?include_docs=true")
+    versions = ""
+    if res && res["rows"].any?
+      versions = res["rows"].first['doc']
+    end
+    versions
+  end
+# one day in seconds
+ONE_DAY = 86400
+# build user logs time limit in days
+BUILD_USER_LOGS_TIME_LIMIT = 30
+def copy_build_user_logs(path, source_root, destination_root)
+  if !Dir.exists?(path)
+    log_red("** Error No folder found at path #{path} **")
+    return
+  end
+  if !Dir.exists?(destination_root)
+    log_red("** Error No folder found at path #{destination_root} **")
+    return
+  end
+  folder_at_path = Dir.entries("#{path}")
+  folder_at_path.each do |entry|
+    if !(entry == '.' || entry == '..' || entry == '.DS_Store')
+      entry_path = "#{path}/#{entry}"
+      type = File.directory?("#{entry_path}") ? "Folder" : "File"
+      
+      if type == "Folder"
+        copy_build_user_logs(entry_path, source_root, destination_root)
+      elsif type == "File"
+        inspect_and_copy_file(entry_path, source_root, destination_root)
+      end
+    end
+  end
+rescue Exception => e
+  log_exception(e)
+def inspect_and_copy_file(path, source_root, destination_root)
+  if ((Time.now - File.stat(path).mtime).to_i / ONE_DAY) <= BUILD_USER_LOGS_TIME_LIMIT
+    destination = path.sub source_root, destination_root
+    run "/usr/bin/ditto \"#{path}\" \"#{destination}\""
+  end
+rescue Exception => e
+  log_exception(e)
 def run(cmd)
   # The two nested timeout blocks are on purpose:
   # https://redmine.ruby-lang.org/issues/4681
@@ -28,120 +142,142 @@ def run(cmd)
     Timeout.timeout(120) do
       stdout, stderr, exit_status = Open3.capture3(ENV, cmd)
       unless exit_status.success?
-        logRed("** Error running command (#{cmd}) **")
-        logRed(stderr)
+        log_red("** Error running command (#{cmd}) **")
+        log_red(stderr)
       end
       return [stdout, stderr, exit_status]
     end
   end
 rescue Timeout::Error
-  logRed "** Command timed out: #{cmd}"
+  log_red "** Command timed out: #{cmd}"
   return ['', '', -1]
+def log_exception(error, custom_message=nil)
+  exception_file = "#{TEMP_DIR}/xcsdiagnose_fatal_errors.log"
+  error_message = ""
+  if custom_message
+    error_message += "** #{custom_message} (#{error.inspect}) **\n"
+  else
+    error_message += "** Got an exception running xcsdiagnose (#{error.inspect}) **\n"
+  end
+  error_with_backtrace = "#{error_message} #{error.backtrace.join('\n')}\n"
+  log_red(error_message)
+  File.open(exception_file, "a") { |f|
+      f.puts("#{error_with_backtrace}\n")
+def create_archive()
+  log "=== Creating tar archive of results =="
+  system "/usr/bin/tar zcvf #{FILENAME} -C #{TEMP_DIR} ." or raise "Could not create xcsdiagnose archive!"
+  run "/bin/chmod 644 #{FILENAME}"
+  run "/usr/bin/open -R #{FILENAME}"
+  log "  | Done"
 %w[ SIGHUP SIGINT SIGQUIT SIGTERM ].each { |sig| trap(sig) { Kernel.exit! } }
 log "** Welcome to xcsdiagnose **"
 if Process.euid != 0
-  logRed("** xcsdiagnose must run as root, exiting **")
+  log_red("** xcsdiagnose must run as root, exiting **")
   Kernel.exit!
 SERVICE_DATA_DIR = "/Library/Developer/XcodeServer"
 CURRENT_DEVELOPER_DIR = "#{SERVICE_DATA_DIR}/CurrentXcodeSymlink/Contents/Developer"
 OS_VERSION = `sw_vers -productVersion`.chomp.to_f
+TEMP_DIR = Dir.mktmpdir
+FILENAME = "/tmp/#{File.basename(TEMP_DIR)}.xcsdiagnose.tgz"
 begin
   options = {
-    assetsToKeep: 10,
-    allIntegrations: false
+    assets_to_keep: 10,
+    all_integrations: false
   OptionParser.new do |opts|
     opts.banner = "Usage: xcsdiagnose [options]"
     opts.on("-n", "--number-of-integrations N", Integer, "Capture assets for N integrations back per bot (defaults to 10)") do |n|
-      options[:assetsToKeep] = n
+      options[:assets_to_keep] = n
     end
     
-    opts.on("-a", "--all-integarions", "Capture assets for all integrations on each bot") do |a|
-      options[:allIntegrations] = a
+    opts.on("-a", "--all-integrations", "Capture assets for all integrations on each bot") do |a|
+      options[:all_integrations] = a
     end
   end.parse!
   log "== Preparing =="
-  tempDir = Dir.mktmpdir
-  log "-- Created temporary directory #{tempDir}"
-  logsDir = "#{tempDir}/Logs"
-  log "-- Creating logs directory #{logsDir}"
-  Dir.mkdir(logsDir)
-  integrationAssetsDir = "#{tempDir}/IntegrationAssets"
-  log "-- Creating integration assets directory #{integrationAssetsDir}"
-  Dir.mkdir(integrationAssetsDir)
-  keychainsDir = "#{tempDir}/Keychains"
-  log "-- Creating keychains directory #{keychainsDir}"
-  Dir.mkdir(keychainsDir)
-  sharedSecretsDir = "#{tempDir}/SharedSecrets"
-  log "-- Creating shared secrets directory #{sharedSecretsDir}"
-  Dir.mkdir(sharedSecretsDir)
-  portalDir = "#{tempDir}/Portal"
-  log "-- Creating portal directory #{portalDir}"
-  Dir.mkdir(portalDir)
-  diagnosticsDir = "#{tempDir}/Diagnostics"
-  log "-- Creating diagnostics directory #{diagnosticsDir}"
-  Dir.mkdir(diagnosticsDir)
+  log "-- Created temporary directory #{TEMP_DIR}"
+  logs_dir = "#{TEMP_DIR}/Logs"
+  log "-- Creating logs directory #{logs_dir}"
+  Dir.mkdir(logs_dir)
+  integration_assets_dir = "#{TEMP_DIR}/IntegrationAssets"
+  log "-- Creating integration assets directory #{integration_assets_dir}"
+  Dir.mkdir(integration_assets_dir)
+  keychains_dir = "#{TEMP_DIR}/Keychains"
+  log "-- Creating keychains directory #{keychains_dir}"
+  Dir.mkdir(keychains_dir)
+  shared_secrets_dir = "#{TEMP_DIR}/SharedSecrets"
+  log "-- Creating shared secrets directory #{shared_secrets_dir}"
+  Dir.mkdir(shared_secrets_dir)
+  portal_dir = "#{TEMP_DIR}/Portal"
+  log "-- Creating portal directory #{portal_dir}"
+  Dir.mkdir(portal_dir)
+  diagnostics_dir = "#{TEMP_DIR}/Diagnostics"
+  log "-- Creating diagnostics directory #{diagnostics_dir}"
+  Dir.mkdir(diagnostics_dir)
+  couch_documents_dir = "#{TEMP_DIR}/CouchDocuments"
+  log "-- Creating integration documents directory #{couch_documents_dir}"
+  Dir.mkdir(couch_documents_dir)
   log "  | Done"
   log "== Getting product versions =="
-  versionStringOutput = run("/usr/bin/xcrun xcscontrol --version")
-  versionOutputPath = "#{diagnosticsDir}/Version.txt"
-  File.open(versionOutputPath, "w") { |f|
-      f.write(versionStringOutput[0])
-      f.write(versionStringOutput[1])
-  serverAppOutput = run("/usr/bin/xcrun xcscontrol --serverapp-check-compatibility")
-  versionOutputPath = "#{diagnosticsDir}/ServerApp.txt"
-  File.open(versionOutputPath, "w") { |f|
-      f.write(serverAppOutput[0])
-      f.write(serverAppOutput[1])
+  version_string_output = run("/usr/bin/xcrun xcscontrol --version")
+  version_output_path = "#{diagnostics_dir}/Version.txt"
+  File.open(version_output_path, "w") { |f|
+      f.write(version_string_output[0])
+      f.write(version_string_output[1])
+  server_app_output = run("/usr/bin/xcrun xcscontrol --serverapp-check-compatibility")
+  version_output_path = "#{diagnostics_dir}/ServerApp.txt"
+  File.open(version_output_path, "w") { |f|
+      f.write(server_app_output[0])
+      f.write(server_app_output[1])
   log "  | Done"
   log "== Preflighting service =="
-  preflightString = run("/usr/bin/xcrun xcscontrol --preflight")[0]
-  preflightOutputPath = "#{diagnosticsDir}/Preflight.output"
-  File.open(preflightOutputPath, "w") { |f|
-      f.write(preflightString)
+  preflight_string = run("/usr/bin/xcrun xcscontrol --preflight")[0]
+  preflight_output_path = "#{diagnostics_dir}/Preflight.output"
+  File.open(preflight_output_path, "w") { |f|
+      f.write(preflight_string)
   log "  | Done"
   log "== Getting builder status =="
-  builderStatusString = run("/usr/bin/xcrun xcscontrol --build-session-status")[0]
-  builderStatusOutputPath = "#{diagnosticsDir}/BuildSessionStatus.txt"
-  File.write(builderStatusOutputPath, builderStatusString)
+  builder_status_string = run("/usr/bin/xcrun xcscontrol --build-session-status")[0]
+  builder_status_output_path = "#{diagnostics_dir}/BuildSessionStatus.txt"
+  File.write(builder_status_output_path, builder_status_string)
   log "  | Done"
   log "== Getting 'serveradmin settings xcode' =="
   if File.exists?("/Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin")
-    serveradminTuple = run("/Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings xcode")
-    File.open("#{diagnosticsDir}/serveradmin_xcode_settings.output", "w") { |f|
-      f.write(serveradminTuple[0])
+    serveradmin_tuple = run("/Applications/Server.app/Contents/ServerRoot/usr/sbin/serveradmin settings xcode")
+    File.open("#{diagnostics_dir}/serveradmin_xcode_settings.output", "w") { |f|
+      f.write(serveradmin_tuple[0])
     }
     log "  | Done"
   else
     log "  | Skipping, serveradmin not found"
   end
   log "== Gathering platform information =="
-  platformsString = run("/usr/bin/xcrun xcscontrol --list-platforms")[0]
-  platformsOutputPath = "#{diagnosticsDir}/ListPlatforms.output"
-  File.open(platformsOutputPath, "w") { |f|
-      f.write(platformsString)
+  platforms_string = run("/usr/bin/xcrun xcscontrol --list-platforms")[0]
+  platforms_output_path = "#{diagnostics_dir}/ListPlatforms.output"
+  File.open(platforms_output_path, "w") { |f|
+      f.write(platforms_string)
   log "  | Done"
   log "== Gathering device information =="
   puts run("/usr/bin/xcrun xcscontrol --list-devices")
-  devicesString = run("/usr/bin/xcrun xcscontrol --list-devices")[0]
-  devicesOutputPath = "#{diagnosticsDir}/ListDevices.output"
-  File.open(devicesOutputPath, "w") { |f|
-      f.write(devicesString)
+  devices_string = run("/usr/bin/xcrun xcscontrol --list-devices")[0]
+  devices_output_path = "#{diagnostics_dir}/ListDevices.output"
+  File.open(devices_output_path, "w") { |f|
+      f.write(devices_string)
   log "  | Done"
   log "== Gathering simulator information =="
-  devicesString = run("/usr/bin/xcrun xcscontrol --list-simulators")[0]
-  devicesOutputPath = "#{diagnosticsDir}/ListSimulators.output"
-  File.open(devicesOutputPath, "w") { |f|
-      f.write(devicesString)
+  devices_string = run("/usr/bin/xcrun xcscontrol --list-simulators")[0]
+  devices_output_path = "#{diagnostics_dir}/ListSimulators.output"
+  File.open(devices_output_path, "w") { |f|
+      f.write(devices_string)
   log "  | Done"
   log "== Gathering health information =="
-  healthString = run("/usr/bin/xcrun xcscontrol --health")[0]
-  healthOutputPath = "#{diagnosticsDir}/Health.output"
-  File.open(healthOutputPath, "w") { |f|
-      f.write(healthString)
+  health_string = run("/usr/bin/xcrun xcscontrol --health")[0]
+  health_output_path = "#{diagnostics_dir}/Health.output"
+  File.open(health_output_path, "w") { |f|
+      f.write(health_string)
   log "  | Done"
   log "== Gathering code signature information =="
-  signatureOutputPath = "#{diagnosticsDir}/CodeSignatures.output"
-  codeSignedTools = [
+  signature_output_path = "#{diagnostics_dir}/CodeSignatures.output"
+  code_signed_tools = [
     "#{CURRENT_DEVELOPER_DIR}/usr/bin/make",  # as a "control" sample
     "#{CURRENT_DEVELOPER_DIR}/usr/bin/xcsbridge",
     "#{CURRENT_DEVELOPER_DIR}/usr/bin/xcscontrol",
@@ -150,17 +286,17 @@ begin
     "#{CURRENT_DEVELOPER_DIR}/Applications/Xcode Server Builder.app/Contents/XPCServices/XCSBuilderService.xpc/Contents/MacOS/XCSBuilderService",
     "#{CURRENT_DEVELOPER_DIR}/Applications/Xcode Server Builder.app/Contents/XPCServices/XCSDeviceService.xpc/Contents/MacOS/XCSDeviceService",
     "#{CURRENT_DEVELOPER_DIR}/Applications/Xcode Server Builder.app/Contents/XPCServices/XCSIntegrationService.xpc/Contents/MacOS/XCSIntegrationService"
-  signatureOutput = []
-  codeSignedTools.each do |toolPath|
-    sigInfo = run("/usr/sbin/spctl --assess -vv '#{toolPath}'")[0]
-    signatureOutput.push(sigInfo)
+  signature_output = []
+  code_signed_tools.each do |toolPath|
+    sig_info = run("/usr/sbin/spctl --assess -vv '#{toolPath}'")[0]
+    signature_output.push(sig_info)
   end
-  File.open(signatureOutputPath, "w") { |f|
-    f.write(signatureOutput.join("----------\n"))
+  File.open(signature_output_path, "w") { |f|
+    f.write(signature_output.join("----------\n"))
   log "  | Done"
   log "== Gathering logs =="
   log "-- Gathering system logs"
-  systemLogsToGather = [
+  system_logs_to_gather = [
     "#{SERVICE_DATA_DIR}/Logs/*",
     "/Library/Logs/CrashReporter",
     "/Library/Logs/DiagnosticReports",
@@ -169,176 +305,177 @@ begin
     "/Library/Logs/servermgr_xcode.log",
     "/Library/Logs/Server.log",
     "/Library/Logs/xcscontrol.log"
-  systemLogsDir = "#{logsDir}/System"
-  run "/bin/mkdir -p #{systemLogsDir}"
-  systemLogsToGather.each do |sourcePath|
-    log "-- Copying #{sourcePath} to #{systemLogsDir}"
-    run "/bin/cp -R #{sourcePath} #{systemLogsDir}"
+  systemlogs_dir = "#{logs_dir}/System"
+  run "/bin/mkdir -p #{systemlogs_dir}"
+  system_logs_to_gather.each do |source_path|
+    log "-- Copying #{source_path} to #{systemlogs_dir}"
+    run "/bin/cp -R #{source_path} #{systemlogs_dir}"
   end
   if OS_VERSION >= 10.12
     log "-- Gathering system log database"
-    run "/usr/bin/log collect --output #{systemLogsDir}"
+    run "/usr/bin/log collect --output #{systemlogs_dir} --size 512m"
   end
-  userName = File.read("#{SERVICE_DATA_DIR}/Configuration/BuildServiceUserName") rescue '_xcsbuildd'
-  homeDirectory = `dscl . -read /Users/#{userName} NFSHomeDirectory | awk '{print $2}'`.chomp rescue nil
-  if homeDirectory
+  user_name = File.read("#{SERVICE_DATA_DIR}/Configuration/BuildServiceUserName") rescue '_xcsbuildd'
+  home_directory = `dscl . -read /Users/#{user_name} NFSHomeDirectory | awk '{print $2}'`.chomp rescue nil
+  if home_directory
     log "-- Gathering build user logs"
-    buildUserLogsToGather = [
-      "#{homeDirectory}/Library/Logs/DiagnosticReports",
-      "#{homeDirectory}/Library/Logs/CrashReporter",
-      "#{homeDirectory}/Library/Logs/CoreSimulator"
+    build_user_logs_to_gather = [
+      "#{home_directory}/Library/Logs/DiagnosticReports",
+      "#{home_directory}/Library/Logs/CrashReporter",
+      "#{home_directory}/Library/Logs/CoreSimulator"
     ]
-    buildUserLogs = "#{logsDir}/BuildUser"
-    run "/bin/mkdir -p #{buildUserLogs}"
-    buildUserLogsToGather.each do |sourcePath|
-      log "-- Copying #{sourcePath} to #{buildUserLogs}"
-      run "/bin/cp -R #{sourcePath} #{buildUserLogs}"
+    build_user_logs = "#{logs_dir}/BuildUser"
+    source_path_mask = "#{home_directory}/Library/Logs"
+    run "/bin/mkdir -p #{build_user_logs}"
+    build_user_logs_to_gather.each do |source_path|
+      log "-- Copying #{source_path} to #{build_user_logs}"
+      copy_build_user_logs(source_path, source_path_mask, build_user_logs)
     end
     log "  | Done"
   end
   log "== Gathering non-personal keychains =="
-  keychainsWeCareAbout = {
+  keychains_we_care_about = {
     'Portal.keychain' => 'PortalKeychainSharedSecret'
-  keychainsWeCareAbout.each do |keychainName, keychainSharedSecret|
-    keychainPath = "#{SERVICE_DATA_DIR}/Keychains/#{keychainName}"
-    keychainSharedSecretPath = "#{SERVICE_DATA_DIR}/SharedSecrets/#{keychainSharedSecret}"
-    if File.exists?(keychainPath)
-      log "-- Copying #{keychainName} to #{keychainsDir}"
-      run "/bin/cp #{keychainPath} #{keychainsDir}"
+  keychains_we_care_about.each do |keychain_name, keychain_shared_secret|
+    keychain_path = "#{SERVICE_DATA_DIR}/Keychains/#{keychain_name}"
+    keychain_shared_secret_path = "#{SERVICE_DATA_DIR}/SharedSecrets/#{keychain_shared_secret}"
+    if File.exists?(keychain_path)
+      log "-- Copying #{keychain_name} to #{keychains_dir}"
+      run "/bin/cp #{keychain_path} #{keychains_dir}"
     end
-    if File.exists?(keychainSharedSecretPath)
-      log "-- Copying #{keychainSharedSecret} to #{keychainsDir}"
-      run "/bin/cp #{keychainSharedSecretPath} #{keychainsDir}"
+    if File.exists?(keychain_shared_secret_path)
+      log "-- Copying #{keychain_shared_secret} to #{keychains_dir}"
+      run "/bin/cp #{keychain_shared_secret_path} #{keychains_dir}"
     end
   end
   log "  | Done"
     
   log "== Gathering diagnostics =="
-  processesWeCareAbout = {
+  processes_we_care_about = {
     'node' => '_xcsd',
     'beam.smp' => '_xcscouch',
-    'XCSBuilderService' => userName,
-    'XCSDeviceService' => userName,
-    'XCSIntegrationService' => userName,
+    'XCSBuilderService' => user_name,
+    'XCSDeviceService' => user_name,
+    'XCSIntegrationService' => user_name,
     'xcscontrol' => 'root',
-    'xcodebuild' => userName,
-    'ibtool' => userName,
-    'xctest' => userName,
-    'com.apple.dt.Xcode.sourcecontrol.Git' => userName,
-    'com.apple.dt.Xcode.sourcecontrol.Subversion' => userName,
-    'com.apple.dt.Xcode.sourcecontrol.WorkingCopyScanner' => userName,
-    'com.apple.dt.Xcode.sourcecontrol.SSHKeyGenerator' => userName
+    'xcodebuild' => user_name,
+    'ibtool' => user_name,
+    'xctest' => user_name,
+    'com.apple.dt.Xcode.sourcecontrol.Git' => user_name,
+    'com.apple.dt.Xcode.sourcecontrol.Subversion' => user_name,
+    'com.apple.dt.Xcode.sourcecontrol.WorkingCopyScanner' => user_name,
+    'com.apple.dt.Xcode.sourcecontrol.SSHKeyGenerator' => user_name
   log "-- Getting memory usage for processes"
-  processesWeCareAbout.each_key do |processName|
+  processes_we_care_about.each_key do |process_name|
     begin
-      `/usr/bin/pgrep #{processName}$`.split("\n").each do |pid|
-        memoryKb = `/bin/ps -o rss= -p #{pid}`.to_f
-        memoryMb = (memoryKb / 1024).round(2)
-        log("---- #{processName}-#{pid} is using #{memoryKb}KB / #{memoryMb}MB")
+      `/usr/bin/pgrep #{process_name}$`.split("\n").each do |pid|
+        memory_kb = `/bin/ps -o rss= -p #{pid}`.to_f
+        memory_mb = (memory_kb / 1024).round(2)
+        log("---- #{process_name}-#{pid} is using #{memory_kb}KB / #{memory_mb}MB")
         end
     rescue Exception => e
     end
   end
   log "  | Done"
   log "-- Sampling processes"
-  processesWeCareAbout.each do |processName, processUser|
-    `/usr/bin/pgrep -u #{processUser} #{processName}$`.split("\n").each do |pid|
-      log "---- Sampling #{processName}-#{pid} for #{processUser}"
-      sampleOutput = run("/usr/bin/sample #{pid}")[0]
-      sampleOutputPath = "#{diagnosticsDir}/#{processName}-#{pid}.sample"
-      File.open(sampleOutputPath, "w") { |f|
-        f.write(sampleOutput)
+  processes_we_care_about.each do |process_name, process_user|
+    `/usr/bin/pgrep -u #{process_user} #{process_name}$`.split("\n").each do |pid|
+      log "---- Sampling #{process_name}-#{pid} for #{process_user}"
+      sample_output = run("/usr/bin/sample #{pid}")[0]
+      sample_output_path = "#{diagnostics_dir}/#{process_name}-#{pid}.sample"
+      File.open(sample_output_path, "w") { |f|
+        f.write(sample_output)
       }
-      log "    | Done sampling #{processName} to #{sampleOutputPath}"
+      log "    | Done sampling #{process_name} to #{sample_output_path}"
     end
   end
   log "  | Done"
   log "-- Running lsof to diagnose file descriptors"
-  lsofOutput = run("/usr/sbin/lsof")[0]
-  File.open("#{diagnosticsDir}/lsof.output", "w") { |f|
-    f.write(lsofOutput)
-  processesWeCareAbout.each_key do |processName|
-    IO.popen("/usr/bin/grep #{processName} | /usr/bin/wc -l", mode='r+') do |io|
-      io.write lsofOutput
+  lsof_output = run("/usr/sbin/lsof")[0]
+  File.open("#{diagnostics_dir}/lsof.output", "w") { |f|
+    f.write(lsof_output)
+  processes_we_care_about.each_key do |process_name|
+    IO.popen("/usr/bin/grep #{process_name} | /usr/bin/wc -l", mode='r+') do |io|
+      io.write lsof_output
       io.close_write
-      fileDescriptorsPerProcess = io.read.gsub(/\s/,'')
-      log "---- #{processName} name has #{fileDescriptorsPerProcess} file descriptors open"
+      file_descriptors_per_process = io.read.gsub(/\s/,'')
+      log "---- #{process_name} name has #{file_descriptors_per_process} file descriptors open"
     end
   end
   log "  | Done"
   log "== Gathering directory permissions =="
   log "-- Gathering permissions on /Library/Developer/XcodeServer"
-  xcodeServerPath = "/Library/Developer/XcodeServer"
-  xcodeServerPermsFilePath = "/tmp/XcodeServer_perms.txt"
-  run "/bin/ls -al #{xcodeServerPath} > #{xcodeServerPermsFilePath}"
-  log "-- Copying #{xcodeServerPermsFilePath} to #{diagnosticsDir}"
-  run "/bin/cp -R #{xcodeServerPermsFilePath} #{diagnosticsDir}"
+  xcode_server_path = "/Library/Developer/XcodeServer"
+  xcode_server_perms_file_path = "/tmp/XcodeServer_perms.txt"
+  run "/bin/ls -al #{xcode_server_path} > #{xcode_server_perms_file_path}"
+  log "-- Copying #{xcode_server_perms_file_path} to #{diagnostics_dir}"
+  run "/bin/cp -R #{xcode_server_perms_file_path} #{diagnostics_dir}"
   log "  | Done"
   log "== Gathering Database directory permissions =="
   log "-- Gathering permissions on /Library/Developer/XcodeServer/Database"
-  DatabaseDirPath = "/Library/Developer/XcodeServer/Database"
-  DatabaseDirPermsFilePath = "/tmp/Database_perms.txt"
-  run "/bin/ls -al #{DatabaseDirPath} > #{DatabaseDirPermsFilePath}"
-  log "-- Copying #{DatabaseDirPermsFilePath} to #{diagnosticsDir}"
-  run "/bin/cp -R #{DatabaseDirPermsFilePath} #{diagnosticsDir}"
+  database_dir_path = "/Library/Developer/XcodeServer/Database"
+  database_dir_perms_file_path = "/tmp/Database_perms.txt"
+  run "/bin/ls -al #{database_dir_path} > #{database_dir_perms_file_path}"
+  log "-- Copying #{database_dir_perms_file_path} to #{diagnostics_dir}"
+  run "/bin/cp -R #{database_dir_perms_file_path} #{diagnostics_dir}"
   log "  | Done"
-  log "-- Getting disk usage"
+  log "== Getting disk usage"
   log "---- Calculating disk usage for all volumes"
-  diskUsage = run("/bin/df -h")[0]
-  log "---- Disk usage for /: \n#{diskUsage}"
+  disk_usage = run("/bin/df -h")[0]
+  log "---- Disk usage for /: \n#{disk_usage}"
   log "---- Calculating disk usage for #{SERVICE_DATA_DIR}"
-  libraryServerDiskUsage = run("/usr/bin/du -sh #{SERVICE_DATA_DIR}")[0]
-  log "---- Disk usage for #{SERVICE_DATA_DIR}: #{stripWhitespace(libraryServerDiskUsage.gsub(SERVICE_DATA_DIR, ''))}"
+  library_server_disk_usage = run("/usr/bin/du -sh #{SERVICE_DATA_DIR}")[0]
+  log "---- Disk usage for #{SERVICE_DATA_DIR}: #{strip_whitespace(library_server_disk_usage.gsub(SERVICE_DATA_DIR, ''))}"
   log "---- Generating disk usage breakdown for #{SERVICE_DATA_DIR}"
-  libraryServerDiskUsageBreakdown = run("/usr/bin/du -ah #{SERVICE_DATA_DIR}")[0]
-  File.open("#{diagnosticsDir}/ServiceDataDirectoryDiskUsage.output", "w") { |f|
-    f.write(libraryServerDiskUsageBreakdown)
+  library_server_disk_usage_breakdown = run("/usr/bin/du -ah #{SERVICE_DATA_DIR}")[0]
+  File.open("#{diagnostics_dir}/ServiceDataDirectoryDiskUsage.output", "w") { |f|
+    f.write(library_server_disk_usage_breakdown)
   log "  | Done"
   log "== Gathering portal information"
   if File.exists?("#{SERVICE_DATA_DIR}/Portal.plist")
-  log "-- Copying Portal.plist from #{SERVICE_DATA_DIR}/Portal.plist to #{portalDir}"
-  run("/bin/cp #{SERVICE_DATA_DIR}/Portal.plist #{portalDir}/Portal.plist")
+  log "-- Copying Portal.plist from #{SERVICE_DATA_DIR}/Portal.plist to #{portal_dir}"
+  run("/bin/cp #{SERVICE_DATA_DIR}/Portal.plist #{portal_dir}/Portal.plist")
   end
-  provisioningProfilesPath = "#{SERVICE_DATA_DIR}/ProvisioningProfiles"
-  log "-- Copying provisioning profiles from #{provisioningProfilesPath} to #{portalDir}"
-  run("/bin/mkdir -p #{portalDir}/ProvisioningProfiles")
-  run("/bin/cp -R #{provisioningProfilesPath}/* #{portalDir}/ProvisioningProfiles/")
+  provisioning_profiles_path = "#{SERVICE_DATA_DIR}/ProvisioningProfiles"
+  log "-- Copying provisioning profiles from #{provisioning_profiles_path} to #{portal_dir}"
+  run("/bin/mkdir -p #{portal_dir}/ProvisioningProfiles")
+  run("/bin/cp -R #{provisioning_profiles_path}/* #{portal_dir}/ProvisioningProfiles/")
   log "-- Dumping certificates matching \"developer\" from keychain"
-  findCertificateDeveloperOutput = run("/usr/bin/security find-certificate -a -c \"developer\"")[0]
-  File.open("#{portalDir}/FindCertificateDeveloper.output", "w") { |f|
-    f.write(findCertificateDeveloperOutput)
+  find_certificate_developer_output = run("/usr/bin/security find-certificate -a -c \"developer\"")[0]
+  File.open("#{portal_dir}/FindCertificateDeveloper.output", "w") { |f|
+    f.write(find_certificate_developer_output)
   log "-- Dumping certificates matching \"xcode\" from system keychain"
-  findCertificateXcodeOutput = run("/usr/bin/security find-certificate -a -c \"xcode\"")[0]
-  File.open("#{portalDir}/FindCertificateXcodeSystemKeychain.output", "w") { |f|
-    f.write(findCertificateXcodeOutput)
+  find_certificate_xcode_output = run("/usr/bin/security find-certificate -a -c \"xcode\"")[0]
+  File.open("#{portal_dir}/FindCertificateXcodeSystemKeychain.output", "w") { |f|
+    f.write(find_certificate_xcode_output)
   log "-- Dumping identities (certificates and matching private keys) matching \"developer\" from system keychain"
-  findIdentityDeveloperOutput = run("/usr/bin/security find-identity| grep -i \"developer\"")[0]
-  File.open("#{portalDir}/FindIdentityDeveloperSystemKeychain.output", "w") { |f|
-    f.write(findIdentityDeveloperOutput)
+  find_identity_developer_output = run("/usr/bin/security find-identity| grep -i \"developer\"")[0]
+  File.open("#{portal_dir}/FindIdentityDeveloperSystemKeychain.output", "w") { |f|
+    f.write(find_identity_developer_output)
   log "-- Dumping identities (certificates and matching private keys) matching \"xcode\" from system keychain"
-  findIdentityXcodeOutput = run("/usr/bin/security find-identity | grep -i \"xcode\"")[0]
-  File.open("#{portalDir}/FindIdentityXcodeSystemKeychain.output", "w") { |f|
-    f.write(findIdentityXcodeOutput)
+  find_identity_xcode_output = run("/usr/bin/security find-identity | grep -i \"xcode\"")[0]
+  File.open("#{portal_dir}/FindIdentityXcodeSystemKeychain.output", "w") { |f|
+    f.write(find_identity_xcode_output)
   log "  | Done"
   log "== Copying integration assets =="
   if File.exists?("#{SERVICE_DATA_DIR}/IntegrationAssets")
     log "-- Copying log files from integration assets directory"
     
     Dir.chdir("#{SERVICE_DATA_DIR}/IntegrationAssets") {
-      if options[:allIntegrations]
-        `find -E . -regex '.*(log|sample|crash)' | rsync --files-from=- ./ #{integrationAssetsDir}`
+      if options[:all_integrations]
+        `find -E . -regex '.*(log|sample|crash)' | rsync --files-from=- ./ #{integration_assets_dir}`
       else
-        Dir.foreach("#{SERVICE_DATA_DIR}/IntegrationAssets") do |botFolder|
-          fullDir = "#{SERVICE_DATA_DIR}/IntegrationAssets/#{botFolder}"
-          if !(botFolder == "." || botFolder == "..") and Dir.exist?(fullDir)
+        Dir.foreach("#{SERVICE_DATA_DIR}/IntegrationAssets") do |bot_folder|
+          fullDir = "#{SERVICE_DATA_DIR}/IntegrationAssets/#{bot_folder}"
+          if !(bot_folder == "." || bot_folder == "..") and Dir.exist?(fullDir)
             integrations = Dir.entries(fullDir).sort! { |a,b| a.to_i <=> b.to_i }
             integrations.delete(".")
             integrations.delete("..")
             
             i = 0
-            while i < options[:assetsToKeep] && integrations.count > 0 do
-              integrationFolder = integrations.pop
-              `find -E "./#{botFolder}/#{integrationFolder}" -regex '.*(log|sample|crash)' | rsync --files-from=- ./ #{integrationAssetsDir}`
+            while i < options[:assets_to_keep] && integrations.count > 0 do
+              integration_folder = integrations.pop
+              `find -E "./#{bot_folder}/#{integration_folder}" -regex '.*(log|sample|crash)' | rsync --files-from=- ./ #{integration_assets_dir}`
               i=i+1
             end
           end
@@ -349,18 +486,56 @@ begin
     log "-- Skipping copying log files from integration assets directory because the assets directory does not exist"
   end
   log "  | Done"
+  log "== Copying couchDB documents =="
+  if File.exists?("#{SERVICE_DATA_DIR}/SharedSecrets/XCSDCouchDBSecret")
+    xcscouch_password = ""
+    File.open("#{SERVICE_DATA_DIR}/SharedSecrets/XCSDCouchDBSecret", "r") do |f|
+      f.each_line do |line|
+        xcscouch_password = line
+      end
+    end
+    couch_server = XCSCouch.new(xcscouch_password)
+    log "-- Copying last two integrations for each bot"
+    bot_ids = couch_server.bot_ids
+    bot_ids.each do |bot_id|
+      integrations = couch_server.last_integration_for_bot(bot_id)
+      integrations.each do |integration|
+        integration_name = integration['doc']['bot']['name']
+        integration_number = integration['doc']['number']
+        Dir.chdir("#{couch_documents_dir}") {
+          FileUtils.mkdir_p("#{couch_documents_dir}/#{integration_name}")
+          Dir.chdir("#{couch_documents_dir}/#{integration_name}") {
+            File.open("#{couch_documents_dir}/#{integration_name}/#{integration_number}.json", "w") { |f|
+              f.write(integration['doc'].to_json)
+            }
+          }
+        }
+      end
+    end
+    log "-- Copying couch settings"
+    settings = couch_server.settings
+    if settings
+      File.open("#{couch_documents_dir}/settings.json", "w") { |f|
+        f.write(settings.to_json)
+      }
+    end
+    log "-- Copying couch versions"
+    versions = couch_server.versions
+    if versions
+      File.open("#{couch_documents_dir}/versions.json", "w") { |f|
+        f.write(versions.to_json)
+      }
+    end
+  end
+  log "  | Done"
   log "== Writing xcsdiagnose log to disk =="
-  xcsdiagnoseOutputPath = "#{tempDir}/xcsdiagnose.output"
-  File.open("#{xcsdiagnoseOutputPath}", "w") { |f|
-    f.write($runningLogLines.join("\n"))
+  xcsdiagnose_output_path = "#{TEMP_DIR}/xcsdiagnose.output"
+  File.open("#{xcsdiagnose_output_path}", "w") { |f|
+    f.write($running_log_lines.join("\n"))
   log "  | Done"
-  filename = "/tmp/#{File.basename(tempDir)}.xcsdiagnose.tgz"
-  log "=== Creating tar archive of results =="
-  run "/usr/bin/tar zcvf #{filename} -C #{tempDir} ."
-  run "/bin/chmod 644 #{filename}"
-  run "/usr/bin/open -R #{filename}"
-  log "  | Done"
+  create_archive
 rescue Exception => e
-  logRed("** Got an exception running xcsdiagnose (#{e.inspect}) **")
+  log_exception(e)
+  create_archive
   Kernel.exit!
-logGreen("** xcsdiagnose complete, please attach the tar file at #{filename} to a bug report **")
+log_green("** xcsdiagnose complete, please attach the tar file at #{FILENAME} to a bug report **")

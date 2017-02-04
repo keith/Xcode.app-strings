@@ -49,6 +49,7 @@ NMCBluetoothAudioDeviceTypeCarStereo
 NMCBluetoothAudioDeviceTypeHiFiStereo
 NMCBluetoothAudioDeviceTypeA2DP
 NMCPlaybackSourceDidChangeNotification
+NMCLocalPlaybackIdleTimerDidTimeoutNotification
 com.apple.NanoMusicCore.NMCPlaybackSourceManager
 playbackSource
 Ti,N
@@ -192,6 +193,57 @@ mediaRemotePlaybackState
 TI,R,N
 repeatType
 shuffleType
+NMCDefaults initialized.
+InsertIntoPlaybackQueue failed. Could not create playback context.
+InsertIntoPlaybackQueue failed. Inserting context: %@ is not supported.
+InsertIntoPlaybackQueue failed. Inserting a nil playback queue.
+NanoMusic is now responding to MediaRemote commands
+Could not set audio session category due to error: %@.
+Could not set using long form audio on audio session: %@.
+Playback is paused because not able to play this item %@ in state %ld with route %@.
+Playback was interrupted by %@ (%@).
+Playback interruption by %@ (%@) ended with interruption status %@.
+Playback source is the same (%@), skipping.
+Changing playback source from %@ to %@
+[SourceWatchdog] Pushing out local audio source idle timer until %@.
+[SourceWatchdog] Local playback source idle timer fired.
+[SourceWatchdog] Starting local playback source watchdog with current source of NMCPlaybackSourceLocal and existing deadline %@.
+[SourceWatchdog] Starting local playback source watchdog with current source of NMCPlaybackSourceRemote.
+[SourceWatchdog] Stopping watchdog.
+Failed to acquire task assertion for task with name %@.
+Task assertion with name %@ was invalidated.
+Timed out while waiting to acquire task assertion with name %@.
+Connectivity state changed from %@ to %@.
+Could not find media query for queue: %@
+Activating audio session, enabling CM to pick W1 route.
+CM failed to pick W1 route in 3 seconds. De-activating audio session.
+Attempting to pick system route %@.
+Attempting to connect to a Bluetooth device that doesn't currently have a system route %@.
+Skipped picking route %@.
+Creating an audio route for Bluetooth audio device %@.
+Failed to pick system audio route with error: %@
+NMCAudioRoutingManager updating system audio routes with routes with category (%@): %@.
+Pending picking route %@ now has system, trying to pick it.
+NMCAudioRoutingManager posting picked routes did change notification. Picked routes state is changed to: %@
+Current virtual routes: %@
+Bluetooth audio device %@ discovered; adding the the list.
+Bluetooth device %@ removed but is still either paired or connected; ignoring.
+Bluetooth device %@ removed.
+Bluetooth device %@ unpaired.
+Bluetooth audio device %@ connected.
+Bluetooth device %@ (%@) failed to connect (%@), but we're ignoring the error per <rdar://problem/19657430>.
+Bluetooth device %@ (%@) failed to connect (%@).
+Bluetooth device %@ disconnected (currently %@).
+Failed to disconnect from Bluetooth device %@ (%@).
+Bluetooth connection status changed to %@.
+Bluetooth device paired status changed.
+Bluetooth became %@ and %@.
+NMCAudioRoutingManager refreshing bluetooth devices
+NMCAudioRoutingManager adding bluetooth device: %@
+NMCAudioRoutingManager removing bluetooth device: %@
+A picked route became available; invoking deferred playback action.
+A picked route didn't become available in time; dropping the playback action to the floor.
+There's no picked route; waiting for 5s for a picked route to appear.
 countByEnumeratingWithState:objects:count:
 objectForKey:
 boolValue
@@ -396,7 +448,7 @@ setRepeatType:
 applyRepeatSettings
 sharedAVController
 contentItemForOffset:
-contentItemIdentifierForOffset:
+childContentItemAtIndex:ofItem:
 isEqual:
 self
 performSelector:
@@ -415,6 +467,7 @@ hash
 superclass
 description
 debugDescription
+contentItemIdentifierForOffset:
 _expectedAssetTypesForPlaybackMode:
 _postMPAVControllerItemReadyToPlayNotificationWithItem:
 _postMPAVControllerSizeDidChangeNotificationWithItem:
@@ -450,9 +503,11 @@ watchdog
 start
 stop
 isStarted
+isTimerActive
 setPlaybackSource:
 setLocalPlaybackIdleTimeoutTimerEnabled:
 isLocalPlaybackIdleTimeoutTimerEnabled
+isLocalPlaybackIdleTimeoutTimerExpired
 _accessQueue
 _playbackSource
 _mediaLibraryDidChangeNotification:
@@ -676,7 +731,9 @@ _updateSystemAudioRoutesWithRoutes:
 fetchAvailableRoutesWithCompletionHandler:
 allValues
 w1Route
+_cancelPickRouteTimeout
 pickRoute:
+_beginPickRouteTimeoutWithRoute:
 setCategory:
 category
 setName:
@@ -692,12 +749,12 @@ removeObjectAtIndex:
 _existingVirtualAudioRouteForMPAVRoute:
 _addVirtualAudioRoute:
 _existingVirtualAudioRouteForBluetoothAudioDevice:
+audioCategory
 initWithCapacity:
 _createOrUpdateVirtualAudioRouteForMPAVRoute:
 _removeVirtualAudioRoute:
 enumerateObjectsUsingBlock:
 _postSystemAudioRoutesChangedNotification
-audioCategory
 _bluetoothAvailabilityChangedNotification:
 _bluetoothPowerChangedNotification:
 _bluetoothDeviceDiscoveredNotification:
@@ -742,6 +799,8 @@ _pendingVirtualRouteChangeNotification
 _pendingPairedBluetoothAudioDeviceChangeNotification
 _pendingSystemAudioRoutesChangedNotification
 _pendingPickedRoutesStateDidChangeNotification
+_pickRouteTimer
+_pendingPickingRoute
 _isCMPickingW1Route
 _bluetoothAvailableAndEnabled
 _speakerRouteEnabled
@@ -843,7 +902,8 @@ v12@0:4i8
 @"NMCPlaybackController"
 @12@0:4i8
 @"MPNowPlayingContentItem"12@0:4i8
-@"NSString"12@0:4i8
+@16@0:4i8@12
+@"MPNowPlayingContentItem"16@0:4i8@"MPNowPlayingContentItem"12
 B12@0:4@8
 #8@0:4
 @12@0:4:8
@@ -910,6 +970,8 @@ v12@0:4I8
 @"MPAVRoutingController"
 @"NSArray"
 @"NSMutableArray"
+@"NSObject<OS_dispatch_source>"
+@"NMCVirtualAudioRoute"
 d8@0:4
 v16@0:4i8i12
 v20@0:4i8i12B16
@@ -917,55 +979,6 @@ v20@0:4i8i12B16
 @"NMCNowPlayingObserver"
 @"MPUReportingPlaybackObserver"
 @"NMCTaskAssertion"
-InsertIntoPlaybackQueue failed. Could not create playback context.
-InsertIntoPlaybackQueue failed. Inserting context: %@ is not supported.
-InsertIntoPlaybackQueue failed. Inserting a nil playback queue.
-NanoMusic is now responding to MediaRemote commands
-Could not set audio session category due to error: %@.
-Could not set using long form audio on audio session: %@.
-Playback is paused because not able to play this item %@ in state %ld with route %@.
-Playback was interrupted by %@ (%@).
-Playback interruption by %@ (%@) ended with interruption status %@.
-Playback source is the same (%@), skipping.
-Changing playback source from %@ to %@
-[SourceWatchdog] Pushing out local audio source idle timer until %@.
-[SourceWatchdog] Local playback source idle timer fired, switching back to remote audio source.
-[SourceWatchdog] Starting local playback source watchdog with current source of NMCPlaybackSourceLocal and existing deadline %@.
-[SourceWatchdog] Starting local playback source watchdog with current source of NMCPlaybackSourceRemote.
-[SourceWatchdog] Stopping watchdog.
-Failed to acquire task assertion for task with name %@.
-Task assertion with name %@ was invalidated.
-Timed out while waiting to acquire task assertion with name %@.
-Connectivity state changed from %@ to %@.
-Could not find media query for queue: %@
-Activating audio session, enabling CM to pick W1 route.
-CM failed to pick W1 route in 3 seconds. De-activating audio session.
-Attempting to pick system route %@.
-Attempting to connect to a Bluetooth device that doesn't currently have a system route %@.
-Skipped picking route %@.
-Creating an audio route for Bluetooth audio device %@.
-Failed to pick system audio route with error: %@
-NMCAudioRoutingManager updating system audio routes with routes with category (%@): %@
-NMCAudioRoutingManager posting picked routes did change notification. Picked routes state is changed to: %@
-Current virtual routes: %@
-Bluetooth audio device %@ discovered; adding the the list.
-Bluetooth device %@ removed but is still either paired or connected; ignoring.
-Bluetooth device %@ removed.
-Bluetooth device %@ unpaired.
-Bluetooth audio device %@ connected.
-Bluetooth device %@ (%@) failed to connect (%@), but we're ignoring the error per <rdar://problem/19657430>.
-Bluetooth device %@ (%@) failed to connect (%@).
-Bluetooth device %@ disconnected (currently %@).
-Failed to disconnect from Bluetooth device %@ (%@).
-Bluetooth connection status changed to %@.
-Bluetooth device paired status changed.
-Bluetooth became %@ and %@.
-NMCAudioRoutingManager refreshing bluetooth devices
-NMCAudioRoutingManager adding bluetooth device: %@
-NMCAudioRoutingManager removing bluetooth device: %@
-A picked route became available; invoking deferred playback action.
-A picked route didn't become available in time; dropping the playback action to the floor.
-There's no picked route; waiting for 5s for a picked route to appear.
 zPLR
 zPLR
 zPLR
