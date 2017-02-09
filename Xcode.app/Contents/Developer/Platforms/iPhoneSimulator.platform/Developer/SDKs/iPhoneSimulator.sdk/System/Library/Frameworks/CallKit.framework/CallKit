@@ -241,7 +241,6 @@ Error copying database template from URL %@ to URL %@
 Error querying schema version, possibly because the schema is too old. Error: %@
 SELECT MAX(version) FROM SchemaVersion
 v16@?0@"NSArray"8
-UPDATE SchemaVersion SET version = ?
 SELECT EXISTS (SELECT 1 FROM Extension WHERE bundle_id = ?)
 SELECT id, bundle_id, priority, state, state_last_modified FROM Extension WHERE bundle_id = ?
 INSERT INTO Extension (bundle_id, priority, state_last_modified) VALUES (?, (SELECT IFNULL(MAX(priority), 0) + 1 FROM Extension), ((julianday('now') - 2440587.5)*86400.0))
@@ -290,7 +289,8 @@ SELECT Extension.bundle_id, Label.localized_label, PhoneNumber.number FROM Label
 v16@?0@"CXCallDirectoryStoreIdentificationEntry"8
 v24@?0@"NSString"8@"CXCallDirectoryStoreIdentificationEntry"16
 (%@)
-ALTER TABLE %@ ADD COLUMN %@
+databaseTemplateURL
+T@"NSURL",R,N
 database
 T@"CXDatabase",&,N,V_database
 temporary
@@ -309,7 +309,6 @@ lastAddPhoneNumbersCount
 Tq,N,V_lastAddPhoneNumbersCount
 addPhoneNumbersSQL
 T@"NSString",C,N,V_addPhoneNumbersSQL
-T@"NSURL",R,N
 schemaVersion
 Tq,R,N
 corrupt
@@ -346,16 +345,27 @@ Received %s with action: %@
 -[CXProviderExtensionVendorContext handleAudioSessionActivationStateChangedTo:]
 Received %s with active: %d
 T@"<CXProviderExtensionVendorContextDelegate>",W,N,V_delegate
+@"CXCallDirectoryStore"16@?0^@8
+@"<CXCallDirectoryStoreMigratorExtension>"24@?0@"NSString"8^@16
 CXCallDirectoryStoreMigrator
 Successfully removed DB at URL %@
-state INTEGER NOT NULL DEFAULT %ld
 Extension
+ALTER TABLE Extension ADD COLUMN state INTEGER NOT NULL DEFAULT %ld
+UPDATE Extension SET state = ? WHERE (id = ?)
 Error setting state to Enabled for extension with identifier '%@' (ID %lld): %@
 Error retrieving NSExtension with identifier '%@': %@. Not migrating enabled status
-state_last_modified REAL NOT NULL DEFAULT 0.0
+SELECT id, bundle_id FROM Extension
+UPDATE SchemaVersion SET version = ?
+state_last_modified
+ALTER TABLE Extension ADD COLUMN state_last_modified REAL NOT NULL DEFAULT 0.0
+UPDATE Extension SET state_last_modified = ((julianday('now') - 2440587.5)*86400.0)
 Successfully migrated to schema version %ld
 store
 T@"CXCallDirectoryStore",&,N,V_store
+storeCreationBlock
+T@?,C,N,V_storeCreationBlock
+retrieveExtensionBlock
+T@?,C,N,V_retrieveExtensionBlock
 startingSchemaVersion
 Tq,N,V_startingSchemaVersion
 endingSchemaVersion
@@ -364,6 +374,8 @@ requiresExtensionDisablement
 TB,N,V_requiresExtensionDisablement
 requiresExtensionSynchronization
 TB,N,V_requiresExtensionSynchronization
+enabledViaPlugInKit
+TB,R,N,GisEnabledViaPlugInKit
  callUUIDToGroupWith=%@
 callUUIDToGroupWith
 T@"NSUUID",&,N,V_callUUIDToGroupWith
@@ -460,6 +472,7 @@ sqlite3_busy_timeout for %@ with ms=%d returned %d
 BEGIN TRANSACTION
 COMMIT TRANSACTION
 ROLLBACK TRANSACTION
+PRAGMA table_info(%@)
 B16@?0^@8
 T@"NSURL",&,N,V_url
 T^{sqlite3=},N,V_database
@@ -770,8 +783,6 @@ localizedContainingAppName
 containingAppURL
 plugInKitProxy
 T@"LSPlugInKitProxy",R,N
-enabledViaPlugInKit
-TB,R,N,GisEnabledViaPlugInKit
  videoPresentationSize=%@
 videoPresentationSize
 T{CGSize=dd},N,V_videoPresentationSize
@@ -1254,8 +1265,10 @@ _mutablePhoneNumberData
 _mutableLabelData
 _labelToLabelDataOffset
 initReadOnly:temporary:error:
+databaseTemplateURL
+initWithTemplateURL:readOnly:temporary:error:
 databaseURLUsingTemporaryDirectory:error:
-initializeDatabaseIfNecessaryWithURL:error:
+initializeDatabaseIfNecessaryAtURL:usingTemplateAtURL:error:
 initWithURL:readOnly:error:
 enableForeignKeysWithError:
 setBusyTimeout:error:
@@ -1275,15 +1288,12 @@ createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 URLByAppendingPathComponent:
 bundleForClass:
 URLForResource:withExtension:
-databaseTemplateURL
 copyItemAtURL:toURL:error:
 cx_callDirectoryStoreErrorWithCode:
 schemaVersionWithError:
 objectAtIndexedSubscript:
 longLongValue
 selectSQL:withBindings:expectedColumnCount:resultRowHandler:error:
-numberWithLongLong:
-executeSQL:withBindings:error:
 domain
 boolValue
 setPrimaryKey:
@@ -1292,7 +1302,9 @@ setPriority:
 doubleValue
 dateWithTimeIntervalSince1970:
 setStateLastModified:
+executeSQL:withBindings:error:
 lastInsertedRowID
+numberWithLongLong:
 executeSQL:withBindings:transient:error:
 countOfRecordsModifiedByLastQuery
 numberWithInteger:
@@ -1345,7 +1357,6 @@ vacuumWithError:
 initForReadingWithError:
 initForReadingAndWritingWithError:
 schemaVersion
-setSchemaVersion:error:
 isCorrupt
 containsExtensionWithIdentifier:error:
 addExtensionWithIdentifier:error:
@@ -1373,7 +1384,6 @@ firstIdentificationEntryForPhoneNumber:error:
 firstIdentificationEntriesForPhoneNumbers:error:
 firstIdentificationEntryForEnabledExtensionWithPhoneNumber:error:
 firstIdentificationEntriesForEnabledExtensionsWithPhoneNumbers:error:
-addColumnToTable:withDefinition:error:
 setDatabase:
 setTemporary:
 _temporary
@@ -1396,6 +1406,7 @@ reportNewIncomingCallWithUUID:update:completion:
 providerExtensionVendorContext:receivedCommittedTransaction:
 providerExtensionVendorContext:handledActionTimeout:
 providerExtensionVendorContext:handledAudioSessionActivationStateChangedTo:
+storeCreationBlock
 setStore:
 store
 _performMigrationsStartingAtSchemaVersion:error:
@@ -1403,12 +1414,18 @@ setStartingSchemaVersion:
 setEndingSchemaVersion:
 setRequiresExtensionDisablement:
 setRequiresExtensionSynchronization:
+namesOfColumnsInTableWithName:error:
+retrieveExtensionBlock
 isEnabledViaPlugInKit
-primaryKey
+numberWithInt:
 startingSchemaVersion
 endingSchemaVersion
 performMigrationsWithError:
+setStoreCreationBlock:
+setRetrieveExtensionBlock:
 _store
+_storeCreationBlock
+_retrieveExtensionBlock
 requiresExtensionDisablement
 requiresExtensionSynchronization
 _requiresExtensionDisablement
@@ -1590,6 +1607,7 @@ _audioInterruptionProvider
 _audioInterruptionOperationMode
 _crossDeviceIdentifier
 _videoStreamToken
+primaryKey
 priority
 stateLastModified
 decodeInt64ForKey:
@@ -2112,6 +2130,7 @@ CXCallDirectoryProviderHostProtocol
 CXProviderExtensionVendorContext
 CXCallDirectoryStoreMigrator
 CXCallDirectoryStoreMigrationResult
+CXCallDirectoryStoreMigratorExtension
 CXSetGroupCallAction
 CXPlayDTMFCallAction
 CXHandoffContext
@@ -2288,16 +2307,18 @@ r*32@0:8Q16o^S24
 B32@0:8q16@24
 @"NSMutableData"
 @28@0:8B16^@20
-B32@0:8@16^@24
+B40@0:8@16@24^@32
 @24@0:8^@16
 @32@0:8B16B20^@24
+@40@0:8@16B24B28^@32
 q24@0:8^@16
-B32@0:8q16^@24
+B32@0:8@16^@24
 @32@0:8@16^@24
 q32@0:8@16^@24
 q40@0:8@16q24^@32
 B40@0:8q16@24^@32
 B40@0:8q16q24^@32
+B32@0:8q16^@24
 B24@0:8^@16
 @40@0:8@16@24Q32
 @32@0:8@16q24
@@ -2307,7 +2328,6 @@ B48@0:8q16q24q32^@40
 q32@0:8q16^@24
 B48@0:8@16Q24Q32^@40
 B32@0:8@?16^@24
-B40@0:8@16@24^@32
 @40@0:8@16@24^@32
 B48@0:8@16@24@?32^@40
 @"CXDatabase"
@@ -2317,6 +2337,7 @@ Vv24@0:8@?<v@?>16
 @"<CXCallDirectoryProviderHostProtocol>"
 @"<CXProviderExtensionVendorContextDelegate>"
 @32@0:8q16^@24
+@?16@0:8
 @"CXCallDirectoryStore"
 @40@0:8@16@24q32
 @"CXHandle"
