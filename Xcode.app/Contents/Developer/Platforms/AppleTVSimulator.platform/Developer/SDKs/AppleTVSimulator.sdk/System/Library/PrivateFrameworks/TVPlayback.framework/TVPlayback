@@ -17,6 +17,8 @@ Key data type error
 Received non-zero status
 Too many devices in use
 Content not owned or rented
+Too many devices playing this rental
+Rental expired
 TVPMediaRemoteNowPlayingInfoArtworkURLString
 TVPMediaRemoteNowPlayingInfoCannonicalID
 TVPMediaRemoteNowPlayingInfoDescription
@@ -233,6 +235,8 @@ com.apple.AppleTV.playback
 TVPMPPlaybackQueueManager
 playlist.upcomingItems
 B24@?0@"NSObject<TVPPlayback>"8@"TVPPlaylist"16
+TVPMPPlaybackQueueManager thread exception
+MPMediaItemArtwork must be requested on a non-main queue since it performs blocking image loading.
 @"UIImage"24@?0{CGSize=dd}8
 B8@?0
 T@"NSObject<TVPPlayback>",W,N,V_player
@@ -1054,7 +1058,6 @@ currentMediaItemPreparedForLoading
 currentMediaItemBufferedTimeRange
 secondsUntilItemReadyForPlayback
 currentMediaItemDuration
-currentInterstitial
 currentChapterCollection
 Test
 v16@?0@"UIImage"8
@@ -1717,6 +1720,7 @@ chapterCollections
 T@"TVPChapterCollection",&,N
 currentChapter
 T@"TVPChapter",R,N
+currentInterstitial
 T@"TVPInterstitial",R,N
 T@"TVPTimeRange",R,N
 seekableTimeRange
@@ -2278,6 +2282,8 @@ sendsPlayerReports
 TB,N,V_sendsPlayerReports
 lastTimeSentToAVKitImageHandler
 T{?=qiIq},N,V_lastTimeSentToAVKitImageHandler
+pausesOnHDCPProtectionDown
+TB,N,V_pausesOnHDCPProtectionDown
 loadingInitialItemInPlaylist
 TB,N,V_loadingInitialItemInPlaylist
 T@"TVPPlayerItem",&,N,V_currentPlayerItem
@@ -3398,7 +3404,7 @@ playlist
 mediaItemMetadataForProperty:
 initWithIdentifier:
 setMediaItem:
-_populateContentItem:withMetadataFromMediaItem:loadArtwork:loadLyrics:
+_populateContentItem:withMetadataFromMediaItem:updateArtwork:loadLyrics:
 setMediaItemMetadata:forProperty:
 mediaItem
 changeToMediaAtIndex:reason:
@@ -3423,16 +3429,16 @@ setLyricsDataSource:
 tvp_description
 setTvp_description:
 setDescriptionDataSource:
-URLWithString:
-tvs_flatImageURLString
-initWithURL:headers:identifier:decrypter:
+_imageProxyForMediaItem:
 initWithCGImage:
-size
 initWithBoundsSize:requestHandler:
 setArtwork:
 object
 initWithObjects:
 intersectsSet:
+URLWithString:
+tvs_flatImageURLString
+initWithURL:headers:identifier:decrypter:
 contentItemForOffset:
 childContentItemAtIndex:ofItem:
 nowPlayingInfoCenter:playItemAtOffset:
@@ -4253,7 +4259,6 @@ mediaItems
 item
 _setBackdropForMediaItem:
 showAnimatedBackground
-_imageProxyForMediaItem:
 setBackgroundImageProxy:
 settingsForPrivateStyle:
 setBlurRadius:
@@ -4283,10 +4288,10 @@ _fingerRestRecognized:
 arrayByAddingObject:
 backwardAccessoryType
 forwardAccessoryType
-_saveJumpDestinationChapterWithElapsedTime:
-_updateOffsetWithElapsedTime:
 _setPlayerElapsedTimeFromScrubberPosition
 cancelPreviousPerformRequestsWithTarget:selector:object:
+_saveJumpDestinationChapterWithElapsedTime:
+_updateOffsetWithElapsedTime:
 scrubPercentage
 _elapsedTimeForScrubPercentage:
 lastObserverFireDate
@@ -4796,8 +4801,6 @@ _normalizedBufferedRangeFromPlayer
 _normalizedBufferedRangeFromCacheManager
 currentMediaItemDuration
 avPlayer
-currentInterstitial
-setRequiresLinearPlayback:
 setDynamicChapterArtwork:
 _updateAVChapterNavigationMarkers
 initialMediaItemHasCompletedInitialLoading
@@ -4900,6 +4903,7 @@ dynamicChapterArtwork
 numberWithUnsignedInteger:
 initWithItems:startDate:endDate:
 initWithTitle:dateRangeNavigationMarkers:
+setRequiresLinearPlayback:
 setElapsedTime:orPlaybackDate:withAVKitCompletion:
 playWithAVKitCompletion:
 pauseWithAVKitCompletion:
@@ -5302,6 +5306,7 @@ setEdgeAntialiasingMask:
 setImageLoaded:
 _flatImageWithColor:
 setHighlightedImage:
+size
 _imageView
 _setTintColor:
 _setFocusedColor:
@@ -5821,6 +5826,7 @@ muted
 chapterCollections
 setCurrentChapterCollection:
 currentChapter
+currentInterstitial
 seekableTimeRange
 forwardPlaybackEndTime
 mediaItemEndAction
@@ -6092,6 +6098,7 @@ _blurredImageWithImage:targetSize:
 _noiseImage
 colorWithPatternImage:
 _resizeImage:targetSize:shouldDither:
+initWithCGImage:scale:orientation:
 didMoveToSuperview
 _artworkImage
 _animatedView1
@@ -6686,6 +6693,7 @@ numConsecutivePlaybackFailures
 currentDirectionOfPlaylistChange
 mediaItemDidStall:player:
 _HDCPStatusPollTimerFired:
+pausesOnHDCPProtectionDown
 playerDidHitBeginningOrEnd
 setHighFrequencyElapsedTimeObserverBlock:
 setPlaybackHUDString:
@@ -6698,6 +6706,7 @@ setMediaItemLoaders:
 setHandleRemoteCommandsWithoutUpdatingMediaRemote:
 updatesBookmarks
 sendsPlayerReports
+setPausesOnHDCPProtectionDown:
 setAsyncDelegateOperations:
 asyncDelegateInProgress
 setUsesLegacyDelegateBehavior:
@@ -6719,6 +6728,7 @@ _handleRemoteCommandsWithoutUpdatingMediaRemote
 _pausesOnRouteChange
 _updatesBookmarks
 _sendsPlayerReports
+_pausesOnHDCPProtectionDown
 _loadingInitialItemInPlaylist
 _currentPlayerItemContainsDates
 _currentPlayerItemContainsRealDates
@@ -8163,10 +8173,15 @@ Creating content item for %@
 Populating content item for %@
 Setting lyricsDataSource for %@
 Setting descriptionDataSource for %@
-Loading artwork image URL for %@
-Loading artwork image proxy for %@
-Successfully loaded artwork for %@
-Artwork loading failed/cancelled for %@.  Finished? %d, image = %@
+Artwork loading requested [%d] %@
+Media item no longer exists, not loading artwork [%d] %@
+Image proxy is nil (this shouldn't happen), not loading artwork [%d] %@
+Ignoring image proxy completion handler since it was already called [%d], %@
+Successfully loaded artwork [%d] %@
+Artwork loading failed/cancelled/unavailable [%d] %@.  Finished? %d, image = %@
+Timed out waiting for artwork to load [%d] %@
+Returning image [%d] %@: %@
+Setting artwork for %@
 Re-populating content item since the media item's metadata has changed: %@
 %@%@ using AVKit for playback
 Received %@ with proposed time %f
@@ -8384,3 +8399,4 @@ Returning newly fetched cert data
 Rental expiration date: %@
 Adding FPS key response to pending responses for id %lu
 Received FPS response error status of %ld
+$@`L

@@ -70,9 +70,7 @@ class XCSCouch
     bot_ids
   end
   def last_integration_for_bot(bot_id)
-    startkey= "[\"#{bot_id}\",1]"
-    endkey = "[\"#{bot_id}\",2]"
-    url = "/xcs/_design/integration/_view/last-integration?startkey=#{startkey}&endkey=#{endkey}&include_docs=true&reduce=false"
+    url = "/xcs/_design/integration/_view/last-integration?descending=true&limit=2&include_docs=true&reduce=false"
     url = URI::escape(url)
     res = @server.get(url)
     
@@ -83,6 +81,14 @@ class XCSCouch
       end
     end
     integrations
+  end
+  def bots
+    res = @server.get("/xcs/_design/bot/_view/all-bots?include_docs=true")
+    bots = []
+    if res && res["rows"].any?
+      bots = res["rows"]
+    end
+    bots
   end
   def settings
     res = @server.get("/xcs/_design/settings/_view/all-settings?include_docs=true")
@@ -495,12 +501,29 @@ begin
       end
     end
     couch_server = XCSCouch.new(xcscouch_password)
+    log "-- Copying bots"
+    bots = couch_server.bots
+    bots.each do |bot|
+      bot_name = bot['doc']['name']
+      bot_name.gsub!(/[^0-9A-Z]/i, '_')
+      Dir.chdir("#{couch_documents_dir}") {
+        FileUtils.mkdir_p("#{couch_documents_dir}/#{bot_name}")
+        Dir.chdir("#{couch_documents_dir}/#{bot_name}") {
+          File.open("#{couch_documents_dir}/#{bot_name}/bot.json", "w") { |f|
+            f.write(bot['doc'].to_json)
+          }
+        }
+      }
+    end 
+    log "  | Done"
+    
     log "-- Copying last two integrations for each bot"
     bot_ids = couch_server.bot_ids
     bot_ids.each do |bot_id|
       integrations = couch_server.last_integration_for_bot(bot_id)
       integrations.each do |integration|
         integration_name = integration['doc']['bot']['name']
+        integration_name.gsub!(/[^0-9A-Z]/i, '_')
         integration_number = integration['doc']['number']
         Dir.chdir("#{couch_documents_dir}") {
           FileUtils.mkdir_p("#{couch_documents_dir}/#{integration_name}")

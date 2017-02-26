@@ -55,7 +55,9 @@ v8@?0@"NSError"4
 Failed to complete pair-verify - error: %@
 invalidating HTTP client for %@
 [IP Accessory %@] Queuing multiple read until pair-verify completes
+[IP Accessory %@] Queueing multiple read at the start until pair-verify completes
 [IP Accessory %@] Queuing multiple characteristic write until pair-verify completes
+[IP Accessory %@] Queuing multiple characteristic write at the start until pair-verify completes
 [IP Accessory %@] Error in establishing secure session, failing add pairing block with %@
 [IP Accessory %@] Queuing add-pairing until pair-verify completes
 [IP Accessory %@] Error in establishing secure session, failing enableEvents block with %@
@@ -69,6 +71,8 @@ v12@?0@"NSArray"4@"NSError"8
 [IP Accessory Server '%@' '%@'] Failed to create the read request URL because of a nil parameter
 %@?%@
 [IP Accessory Server %@ %@] Sending GET request to '%@'
+Attempting to re-establish secure session for read on ECONNRESET
+Already establishing secure session - not attempting a re-establishment
 v20@?0@4I8i12@"NSError"16
 [IP Accessory Server %@ %@] Received response to a read characteristics request
 %s ### Failed to read characteristics %@, received response object: %@, MIME type: %@, error: %@
@@ -80,6 +84,7 @@ interpreting error as unreachable
 [IP Accessory Server %@ %@] Failed to write values because the characteristicWriteRequestTuples was %@ and the completion handler was %@
 [IP Accessory Server %@ %@] Secure session not established, establishing lazily and queuing write
 [IP Accessory Server %@ %@] Sending PUT request to '%@' with body %@
+Attempting to re-establish secure session for write on ECONNRESET
 [IP Accessory Server %@ %@] Received write response with %@ overall error and '%d %s' HTTP status code
 [CoreHAP] Failed to write characteristic because the HTTP request returned the following error: %@
 [IP Accessory Server %@ %@] Characteristic write request responded with '%d %s' HTTP status code %@
@@ -248,6 +253,8 @@ establishingSecureConnection
 TB,V_establishingSecureConnection
 hasTunnelService
 TB,N,V_hasTunnelService
+econnresetRetryInProgress
+TB,N,V_econnresetRetryInProgress
 pairOperation
 T@"HMFBlockOperation",&,N,V_pairOperation
 wacDeviceInfo
@@ -775,6 +782,7 @@ Connection timed out.
 Skipping Tunnel Service
 [HAP Tunneled BTLE Accessory '%@' (%@)] Reading %lu characteristics on state number update
 [HAP Tunneled BTLE Accessory '%@' (%@)] ### State number updated by no characteristics to read
+[HAP Tunneled BTLE Accessory '%@' (%@)] ### Error reading characteristic '%@'
 [HAP Tunneled BTLE Accessory '%@' (%@)] Received Read reponse for characteristics %@
 [HAP Tunneled BTLE Accessory '%@' (%@)] ### Error reading characteristic values on state change
 [%@] No matching request for control output stream: %@
@@ -4570,9 +4578,12 @@ addObject:
 characteristic
 _error:forReadCharacteristicValues:queue:completionHandler:
 _readCharacteristicValues:timeout:queue:completionHandler:
+_queuedReadOperationBlock:timeout:queue:completionHandler:
 queuedOperations
+insertObject:atIndex:
 _error:forWriteCharacteristicValues:queue:completionHandler:
 _writeCharacteristicValues:timeout:queue:completionHandler:
+_queuedWriteOperationBlock:timeout:queue:completionHandler:
 _startAddPairingWithIdentifier:publicKey:admin:queue:completion:
 _enableEvents:forCharacteristics:withCompletionHandler:queue:
 removeObject:
@@ -4582,6 +4593,12 @@ value
 _queueReadCharacteristicValues:timeout:queue:completionHandler:
 stringByAppendingPathComponent:
 count
+userInfo
+errorForKey:
+domain
+econnresetRetryInProgress
+setEconnresetRetryInProgress:
+_insertReadCharacteristicValues:timeout:queue:completionHandler:
 _handleReadResponseObject:type:httpStatus:error:characteristics:queue:completion:
 sendGETRequestToURL:timeout:completionHandler:
 _handleHTTPClientErrors
@@ -4589,6 +4606,7 @@ _queueWriteCharacteristicValues:timeout:queue:withCompletionHandler:
 arrayWithObjects:count:
 setWithArray:
 secureDescriptionWithBlacklistKeys:
+_insertWriteCharacteristicValues:timeout:queue:withCompletionHandler:
 _handleWriteResponseObject:type:httpStatus:error:requestTuples:queue:completion:
 sendPUTRequestToURL:withRequestObject:serializationType:timeout:completionHandler:
 setValue:
@@ -4697,9 +4715,10 @@ accessoryServer:didUpdateHasPairings:
 accessoryServerDidUpdateStateNumber:
 accessoryServer:didUpdateCategory:
 accessoryServer:didUpdateName:
+pairVerifyCompletionBlock
+_invokePairVerifyCompletionBlock:
 _pairVerifyStart
 _ensureHTTPClientSetUp
-pairVerifyCompletionBlock
 processPendingBonjourRemoveEvents:
 stringWithUTF8String:
 initWithDNSName:queue:
@@ -4712,6 +4731,7 @@ _handlePairSetupCompletionWithData:
 _ensurePairingSessionIsInitializedWithType:
 sendPOSTRequestToURL:withRequestObject:serializationType:completionHandler:
 _handlePairVerifyCompletionWithData:
+invokePairVerifyCompletionBlock:
 enableUAPSessionSecurityWithReadKey:writeKey:error:
 initWithPairingKeyData:
 initWithIdentifier:publicKey:privateKey:permissions:
@@ -4773,6 +4793,7 @@ _wacComplete
 _wacLegacy
 _establishingSecureConnection
 _hasTunnelService
+_econnresetRetryInProgress
 _continuingLegacyWACpairing
 _wacStarted
 _hasStartedPairing
@@ -5097,7 +5118,6 @@ isHMError
 hmErrorWithCode:userInfo:
 hmErrorWithCode:description:reason:suggestion:underlyingError:
 hmInternalErrorWithCode:underlyingError:
-domain
 hmErrorWithCode:description:reason:suggestion:
 hmInternalErrorWithCode:
 serviceUTIFromType:
@@ -5719,7 +5739,6 @@ pendingPackets
 predicateWithFormat:
 filteredOrderedSetUsingPredicate:
 enumerateObjectsUsingBlock:
-insertObject:atIndex:
 removeObjectsInArray:
 _pendingPackets
 _currentPacketTransactionIdentifier
@@ -6426,6 +6445,8 @@ _error
 %{public}@%{public}@
 HAPBTLEControlPacket
 HAPDataValueTransformer
+0"1P
+0"2P
 HAPAccessoryServerInternalDelegate
 NSObject
 HAPAccessoryServerIPDelegatePrivate
@@ -6589,6 +6610,7 @@ v16@0:4^B8^B12
 B16@0:4@8^@12
 B12@0:4^@8
 v24@0:4@8@12@16@?20
+@?28@0:4@8d12@20@?24
 v28@0:4@8d12@20@?24
 v28@0:4@8@12B16@20@?24
 v24@0:4B8@12@?16@20

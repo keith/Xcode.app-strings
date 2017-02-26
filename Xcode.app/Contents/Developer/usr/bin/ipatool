@@ -185,7 +185,7 @@ class LinkageGraph
   #   machOsByRealPath : { Pathname : FSMachOFileNode } -- Maps MachO files by real path so that we can resolve linkage paths to objects.
   #   executablePath : Pathname -- Current substitution for @executable_path.
   #   level : Int -- Log indentation level. This accumulates as we chase further down the dependency tree.
-  def resolveLoadedDylibs(image, rpathStack = [], machOsByRealPath = {}, executablePath = nil, level = 0)
+  def resolveLoadedDylibs(image, rpathFallbackStack, rpathStack = [], machOsByRealPath = {}, executablePath = nil, level = 0)
     # Did we already process this image?
     return if self[image]
     # If this is an executable, it becomes the new @executable_path
@@ -197,7 +197,7 @@ class LinkageGraph
     rpathStack = rpaths.map{|rpath|
       result = nil
       begin
-        result = _expandPath(rpath, image, executablePath, [])
+        result = _expandPath(rpath, image, executablePath, [], rpathFallbackStack)
       rescue RuntimeError => e
         EmitWarning(__LINE__, "Failed to resolve rpath for #{image.machoFile.path.basename}: #{e}")
         result = nil
@@ -214,7 +214,7 @@ class LinkageGraph
       resolvedImage = nil
       begin
         # Find a matching rpath to resolve against
-        expandedPath = _expandPath(dylibName, image, executablePath, rpathStack).realpath
+        expandedPath = _expandPath(dylibName, image, executablePath, rpathStack, rpathFallbackStack).realpath
         # Find a model object
         resolvedMachO = machOsByRealPath[expandedPath] || (raise "Could not find MachO for #{expandedPath}")
         # Pick the best image/slice to link against
@@ -230,14 +230,14 @@ class LinkageGraph
     self[image] = resolvedDylibs
     $stderr.puts("LinkageGraph << #{image} ->\n#{resolvedDylibs.join("\n").indent}".indent(level))
     # Follow each dependency
-    resolvedDylibs.each{|img| resolveLoadedDylibs(img, rpathStack, machOsByRealPath, executablePath, level + 1) }
+    resolvedDylibs.each{|img| resolveLoadedDylibs(img, rpathFallbackStack, rpathStack, machOsByRealPath, executablePath, level + 1) }
   end
   # Expand @rpath/path -> /absolute/path.
   #   path : String - The linkage path to expand.
   #   image : MachOImage - The substitution for @loader_path.
   #   executablePath : Pathname - The substitution for @executable_path.
   #   rpathStack : [Pathname] - Stack of @rpath substitutions.
-  def _expandPath(path, image, executablePath, rpathStack)
+  def _expandPath(path, image, executablePath, rpathStack, rpathFallbackStack)
     s = path.dup
     if s =~ /^@executable_path/
       raise "Could not resolve @executable_path for #{path} from #{image.machoFile.path.basename}" unless executablePath
@@ -245,7 +245,8 @@ class LinkageGraph
     end
     s.gsub!(/^@loader_path/, image.machoFile.path.parent.to_s)
     if s =~ /^@rpath/
-      s = rpathStack.map{|rp|
+      all_rpaths = rpathStack + [LinkageGraph.parent_path_for_macho_binary_or_framework(image.machoFile.path)] + rpathFallbackStack
+      s = all_rpaths.map{|rp|
         rp.assert_kind_of(Pathname)
         s.gsub(/^@rpath/, rp.to_s)
       }.find{|p|
@@ -254,6 +255,11 @@ class LinkageGraph
       raise "Could not resolve @rpath in #{path} from #{image.machoFile.path.basename}" if !s
     end
     return Pathname(s)
+  end
+  def self.parent_path_for_macho_binary_or_framework(binaryPath)
+      parent = binaryPath.parent.realpath
+      parent = parent.parent if parent.extname.downcase == ".framework"
+      return parent
   end
 CPUArchitecture = Struct.new(
                              # Name, e.g. arm64
@@ -1010,11 +1016,7 @@ class IPA
     # Cache [real path -> MachO] for use below
     machOsByRealPath = Hash[machOs.map{|m| [m.path.realpath, m] }]
     # Setup fallback rpaths for otherwise unresolved linkage. This ensures that we maintain previous behavior (link by name) if we can't resolve @rpaths. This can happen if the app includes a dylib that the executable does not link (maybe it's dlopen'ed instead).
-    rpathFallbackStack = machOs.map{|m|
-      parent = m.path.parent.realpath
-      parent = parent.parent if parent.extname.downcase == ".framework"
-      parent
-    }.uniq
+    rpathFallbackStack = machOs.map{|m| LinkageGraph.parent_path_for_macho_binary_or_framework(m.path) }.uniq
     @linkageGraph = LinkageGraph.new
     # Resolve dylibs, starting with executables so that we can get a concrete @executable_path.
     machOs.
@@ -1022,7 +1024,7 @@ class IPA
       partition{|m| m.type == "MH_EXECUTE" }.flatten.
       each{|m|
       m.machoImages.each {|img|
-        self.linkageGraph.resolveLoadedDylibs(img, rpathFallbackStack, machOsByRealPath)
+        self.linkageGraph.resolveLoadedDylibs(img, rpathFallbackStack, [], machOsByRealPath)
       }
     }
     $stderr.puts "Complete LinkageGraph:\n#{self.linkageGraph.to_s(mainBundle.path.parent).indent}"
@@ -1093,7 +1095,8 @@ def GetMachOImagesFromOToolInfoForFile (path)
   machoImages = []
   for arch in [ *archs ]
     # Use otool(1) to get the load commands for the architecture, and strip off the first line.
-    output = %x[ otool -l -v -m -arch #{arch.shellescape} #{path.to_s.shellescape} 2>&1 ].sub(/.*?\n/, "")
+    output = CmdSpec.new(locate_tool("otool"), ["-l", "-v", "-m", "-arch", arch, path]).run()
+    output = output.lines.drop(1).join('')
     # Collect load commands.
     loadCommands = nil
     output.split(/Load command \d+\s*\n/).each { |substr|
@@ -1122,7 +1125,7 @@ def GetMachOImagesFromOToolInfoForFile (path)
     versionMinLoadCommandName,minVersion,sdkVersion, = loadCommands.select{ |lc| lc.cmd =~ /LC_VERSION_MIN_(.+)/ }.collect{ |lc|
       [lc.cmd, lc.version, lc.sdk]
     }.first
-    platformIdentifier = Platform.platformIdentifierForVersionMinLoadCommand(versionMinLoadCommandName)
+    platformIdentifier = if versionMinLoadCommandName then Platform.platformIdentifierForVersionMinLoadCommand(versionMinLoadCommandName) else nil end
     # p versionMinLoadCommandName
     # p minVersion
     # p sdkVersion
@@ -1608,9 +1611,12 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
           end
           # If bitcode-build-tool(1) created a .dSYM file, we need to look in it to determine its UUID. Then we rename to it have that UUID.
           if dsymFile
-            # Use otool(1) to determine the new UUID.
-            uuid = %x[ otool -l -m -arch #{machoImage.arch.shellescape} #{dsymFile.to_s.shellescape}/Contents/Resources/DWARF/#{machoName.to_s.shellescape} | awk '/uuid/ { print $2 }' 2>&1 ].strip
-            if $?.exitstatus != 0 or uuid == ""
+            dsymBinaryPath = dsymFile + "Contents" + "Resources" + "DWARF" + machoName
+            dsymImages = GetMachOImagesFromOToolInfoForFile(dsymBinaryPath)
+            dsymImageForArch = dsymImages.detect{|i| i.arch == machoImage.arch }
+            assert(dsymImageForArch, "Couldn't find image for arch '#{machoImage.arch}' in '#{dsymImages.map{|i|i.arch}}'")
+            uuid = dsymImageForArch.uuid
+            if uuid.nil? || uuid.empty?
               FatalError(__LINE__, "failed to determine UUID of dSYM file #{dsymFile.to_s.shellescape}")
             else
               # We were able to figure out the path of the dSYM, so we can rename the output file to it.  We annotate it with the architecture.
