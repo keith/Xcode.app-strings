@@ -816,10 +816,11 @@ iPhoneSimulatorLogLevel
 iPhoneConnectLogLevel
 DVTDeviceLogLevel
 DVTDeviceSearchLogLevel
-com.apple.xcsdeviceservice.persistAvailableDevices
+XCSDeviceManager: Persist Devices Queue
+Error attempting to persist devices: %@
+Scheduling retry of device sync in 5 minutes.
 Observing available devices
-Timed out observing/persisting available devices
-Got an error persisting devices: %@
+Not enqueuing new device sync operation because already have one pending.
 v16@?0@"NSError"8
 @"XCSDevice"24@?0@"XCSDevice"8@"XCSDevice"16
 Got an error when fetching existing devices from server: %@
@@ -846,9 +847,9 @@ Could not persist update to device: %@
 Development bit unexpectedly not configured on device after attempting to set it
 developmentFlag on DTDKRemoteDeviceToken is false
 persistDevicesQueue
-T@"NSObject<OS_dispatch_queue>",&,N,V_persistDevicesQueue
-persistDevicesError
-T@"NSError",&,N,V_persistDevicesError
+T@"NSOperationQueue",&,N,V_persistDevicesQueue
+retryTimer
+T@"NSTimer",&,N,V_retryTimer
 delegate
 T@"<XCSDeviceManagerDelegate>",W,V_delegate
 Configuring SSH repository access
@@ -1544,6 +1545,7 @@ xcode
 platforms
 device observations lock
 Marking any devices we haven't located as disconnected.
+Some time has passed. Updating available devices.
 Starting to observe available devices.
 availableDevices
 Available devices changed. Current device count: %lu
@@ -1554,9 +1556,12 @@ Device connection removed notification received. Current device count: %lu
 Device added notification received. Current device count: %lu
 Device removed removed notification received. Current device count: %lu
 No longer observing available devices.
+Not reloading devices yet because we haven't been watching long enough.
 Device changed name: %@. Reloading devices.
-timer
-T@"NSTimer",&,N,V_timer
+disconnectTimer
+T@"NSTimer",&,N,V_disconnectTimer
+initialTimer
+T@"NSTimer",&,N,V_initialTimer
 deviceManager
 T@"DVTDeviceManager",&,N,V_deviceManager
 observingToken
@@ -1624,19 +1629,21 @@ deviceAttached
 macosx
 i386
 x86_64
-Dealing with a non-simulator device: %@
+Found physical device '%@'
+'%@' details: %@
 token.deviceSerialNumber
 token.deviceECID.stringValue
 Device is supported hardware? %hhd
 Device is supported OS? %hhd
 Device is activated? %hhd
 Device is trusted? %hhd
-Dealing with a proxied iOS device: %@
-Dealing with a simulator device: %@
+Found proxied iOS device '%@'
+Found simulator '%@'
 device.runtime.available
 Ignoring device because we don't know how to handle it: %@
 Failed to create an XCSDevice instance for a given device (name=%@ identifier=%@ uuid=%@ ecid=%@ type=%@ model=%@ modelCode=%@ modelUTI=%@ platform=%@ architecture=%@ osVersion=%@ processor=%@ simulator=%hhd connected=%hhd supported=%hhd enabled=%hhd). Reason(s): %@
-Dealing with a mac device: %@
+Found a macOS device.
+macOS device details: %@
 Got an error getting the computer name for this mac: %@
 Got an error getting the hardware serial number for this mac: %@
 IOPlatformExpertDevice
@@ -2280,20 +2287,25 @@ createDefaultSharedDataPathDirectoriesIfMissing:
 initializeReceiptFileShortVersionString
 registerDefaults:
 setPersistDevicesQueue:
+persistDevicesQueue
+setName:
+setMaxConcurrentOperationCount:
+retryTimer
+invalidate
+setRetryTimer:
 persistAvailableDevicesWithError:
-setPersistDevicesError:
+reloadTimerFired:
 reloadDevices
 deviceManagerWillBeginObservingDevices:
-reloadTimerFired:
-persistDevicesError
-deviceManagerDidEndObservingDevices:
-persistDevicesQueue
+shouldEnqueueNewSyncOperation
 availableDevicesForDeviceManager:
 localComputerDeviceForDeviceManager:
 deviceManagerShouldMarkMissingDevicesAsDisconnected:
 mapDVTDeviceArrayToXCSDeviceArray:localDevice:withError:
 snapshotDevicesToServer:disconnectingMissingDevices:withCompletionHandler:
-setName:
+blockOperationWithBlock:
+addOperation:
+waitUntilFinished
 setIdentifier:
 setDeviceUDID:
 setDeviceECID:
@@ -2330,11 +2342,11 @@ valueForKey:
 syncSetDevelopmentFlag:error:
 developmentFlag
 sharedDeviceManager
-startObservingDevicesWithTimeout:error:
+startObservingDevices
 setDelegate:
 _delegate
 _persistDevicesQueue
-_persistDevicesError
+_retryTimer
 hostedRepositoriesSymlinkPath
 platform
 setPlatform:
@@ -2472,7 +2484,6 @@ addOperationOfClass:dependencies:
 runWithOperations:
 buildAgentConfigurationForServer:
 initWithPreviousOperations:
-addOperation:
 createUndoOperations
 setPerformUndo:
 initiatedOperations
@@ -2511,10 +2522,8 @@ isDeveloperModeEnabled
 requestGracefulShutdownWithCompletionHandler:
 checkIfDaemonIsRunning:
 isValid
-invalidate
 _setEnabledClientAccess:error:
 runCallbackBlock:whenXcodeApplicationModifiedAtPath:
-setMaxConcurrentOperationCount:
 initPerformingUndo
 addOperations:waitUntilFinished:
 verifyConnectionWithCompletionHandler:
@@ -2651,7 +2660,6 @@ _database
 _buildAgentServer
 _sharedDataPath
 allPlatformsWithCompletionHandler:
-observeAndPersistAvailableDevicesScheduleRunLoop:timeout:error:
 isOperatingSystemAtLeastVersion:
 uninstallNewsyslogdConfigWithError:
 useTraceLogging
@@ -2696,10 +2704,12 @@ defaultDeviceManager
 setDeviceManager:
 deviceManager
 startLocating
-timerDidFire:
-setTimer:
+disconnectTimerDidFire:
+setDisconnectTimer:
+initialTimerDidFire:
+setInitialTimer:
 setObservationsLock:
-timer
+disconnectTimer
 availableDevices
 localComputer
 setXcsDeviceManager:
@@ -2719,12 +2729,15 @@ deviceAddedToken
 deviceRemovedToken
 devicePairedToken
 setDevicePairedToken:
+initialTimer
 observePropertiesOfDevices:
 xcsDeviceManager
 observationsLock
 deviceObservations
 removeAllObjects
-_timer
+deviceManagerDidEndObservingDevices:
+_disconnectTimer
+_initialTimer
 _deviceManager
 _observingToken
 _deviceAddedToken
@@ -2910,10 +2923,10 @@ Q24@0:8@16
 @"NSNetService"
 @"NSMutableArray"
 @"NSObject<OS_dispatch_queue>"
-c32@0:8d16^@24
 v36@0:8@16c24@?28
 @"<XCSDeviceManagerDelegate>"
-@"NSError"
+@"NSOperationQueue"
+@"NSTimer"
 @"DVTPlatform"16@0:8
 @"DVTPlatform"
 c48@0:8@16@24@32^@40
@@ -2938,7 +2951,7 @@ c24@0:8@?16
 @32@0:8#16@24
 v20@0:8c16
 v24@0:8Q16
-@"NSOperationQueue"
+@"NSError"
 @"XCSInitializationRecorder"
 @24@0:8q16
 Q24@0:8^@16
@@ -2955,7 +2968,6 @@ c40@0:8@16q24^@32
 @128@0:8@16@24@32@40@48@56@64@72@80@88@96@104@112@120
 @"XCSServiceUser"
 @"XCSDatabase"
-c36@0:8c16d20^@28
 c32@0:8^@16^c24
 c80@0:8@16@24@32@40@48@56^@64^c72
 c20@0:8c16
@@ -2966,7 +2978,6 @@ c24@0:8@"XCSDeviceManager"16
 v24@0:8@"XCSDeviceManager"16
 ^{_AMDeviceNotificationContext=}16@0:8
 v24@0:8^{_AMDeviceNotificationContext=}16
-@"NSTimer"
 @"DVTDeviceManager"
 @"DVTObservingToken"
 @"<DVTCancellable>"
@@ -2980,4 +2991,4 @@ d16@0:8
 @"XCSInitialization"
 c32@0:8@16@24
 ^{NSArray=#}40@0:8@16@24^@32
-@(#)PROGRAM:xcscontrol  PROJECT:XCSTools-12098
+@@(#)PROGRAM:xcscontrol  PROJECT:XCSTools-12099
