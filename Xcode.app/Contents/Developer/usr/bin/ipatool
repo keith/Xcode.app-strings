@@ -20,6 +20,7 @@ require 'digest'
 require 'sqlite3'
 require 'pp'
 require 'open3'
+require 'set'
 $stderr.puts "OS X #{`sw_vers -productVersion`.strip} #{`sw_vers -buildVersion`.strip}"
 $stderr.puts "ENV: #{ENV.inspect}"
 $stderr.puts "ARGV: #{ARGV.inspect}"
@@ -98,6 +99,11 @@ class String
     return self.lines.
       map{|l| prefix + l}.
       join('') #lines retains \n
+  end
+  def ipatool_normalize_hfs_unicode
+    stdout_str, stderr_str, status = Open3.capture3("/usr/bin/iconv", "-f", "UTF-8-MAC", "-t", "UTF-8", :stdin_data => self)
+    raise "iconv failed: #{stderr_str}" if !status.success?
+    return stdout_str
   end
 class Exception
   def to_log_s
@@ -308,6 +314,7 @@ OPTIONS = OpenStruct.new()
 OPTIONS.skipThinDevices = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
+OPTIONS.validateOutput = false
 Encoding.default_external = "UTF-8"
 USAGE_BANNER = "usage: #{File.basename(__FILE__).shellescape} <ipa-or-dir> [options] [--output=<ipa-or-dir>]"
 OptionParser.new do |opts|
@@ -399,6 +406,9 @@ OptionParser.new do |opts|
   opts.on("--use-assetutil-eql=BOOL") do |v|
     OPTIONS.useAssetutilEql = ['y', 'yes', 'true', '1'].include?(v.downcase)
   end
+  opts.on("--[no-]validate-output") do |v|
+    OPTIONS.validateOutput = v
+  end
   opts.on_tail("--json=OUTPUT",
                "Provide output in JSON format. Other programs invoking #{File.basename(__FILE__).shellescape} are expected to use this option instead",
                "of trying to parse the default format. The output is a sequence of JSON dictionaries representing operations and issues.") \
@@ -463,6 +473,9 @@ def EmitIPAStructureValidationError (desc)
 # Calls EmitError with a type of "malformed-payload" without exiting.
 def EmitIPAPayloadValidationError (desc)
   EmitError(0, desc, "malformed-payload")
+# Calls EmitError with a type of "malformed-payload" without exiting.
+def EmitIPAOutputValidationError (desc)
+  EmitError(0, desc, "malformed-output")
 def LoadPlist(path, parentPathForDisplay = nil)
   relPath = path
   opts = {}
@@ -753,6 +766,9 @@ class FSMachOFileNode < FSFileNode
   def isDylib
     return machoImages.first.isDylib
   end
+  def isSwiftRuntimeDylib
+    return isDylib && self.name =~ /libswift.*\.dylib/
+  end
   # After we've recompiled each image, where do we store the universal reassembled MachO?
   def universalReassemblyPath(ipa, options)
     return self.path.reparent(ipa.path, options.tmpDir + "universal-MachOs")
@@ -955,7 +971,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningTraits and thinningTraits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      thinningTraits = DeviceTraits.new(thinningTraits.platform, thinningTraits.preferredArch, "phone", thinningTraits.artworkHostedIdioms, 2, 0, thinningTraits.artworkDisplayGamut, thinningTraits.devPerfMemoryClass,thinningTraits.gfxFeatureSetClass, thinningTraits.gfxFeatureSetFallbacks, thinningTraits.featuresToRemove)
+      thinningTraits = DeviceTraits.new(thinningTraits.platform, thinningTraits.preferredArch, "phone", thinningTraits.artworkHostedIdioms, 2, 0, thinningTraits.artworkDisplayGamut, thinningTraits.artworkDynamicDisplayMode, thinningTraits.devPerfMemoryClass,thinningTraits.gfxFeatureSetClass, thinningTraits.gfxFeatureSetFallbacks, thinningTraits.featuresToRemove)
       puts "#{"  "*level}  (adjusting thinning traits to #{thinningTraits} for an iPhone-only app on an iPad)" if OPTIONS.verbosity >= 2
     end
     # If we are a Spotlight extension and the thinning traits say that we should strip it out, we skip the copying.
@@ -1065,6 +1081,52 @@ class IPA
     mainBundleAssetCatalogs = self.mainBundle.thinnableAssetCatalogs
     assetPackAssetCatalogs = (self.assetPacks||[]).map{|ap| ap.thinnableAssetCatalogs }.flatten
     return mainBundleAssetCatalogs + assetPackAssetCatalogs
+  end
+  def appThinningInfoBasename
+    return "AppThinning.plist"
+  end
+  def appThinningInfoPath
+    return path + appThinningInfoBasename
+  end
+  def appThinningInfoDisplayPath
+    return appThinningInfoPath.relative_path_from(path)
+  end
+  def appThinningInfo
+    if not defined? @appThinningInfo
+      @appThinningInfo = lambda {
+        return Hash.new unless appThinningInfoPath.exist?
+        result = CFPropertyList::native_types(LoadUserPlist(appThinningInfoPath, path).value)
+        
+        unless result.kind_of?(Hash)
+          EmitIPAPayloadValidationError("Expected dictionary in: #{appThinningInfoDisplayPath.to_s.shellescape}")
+          exit(1)
+        end
+        
+        return result
+      }.call
+    end
+    
+    return @appThinningInfo
+  end
+  def stripSwiftSymbols
+    if not defined? @stripSwiftSymbols
+      @stripSwiftSymbols = lambda {
+        keyName = "StripSwiftSymbols"
+        value = appThinningInfo[keyName]
+        
+        case value
+        when nil, "1", "YES", 1, true
+          return true
+        when "0", "NO", 0, false
+          return false
+        else
+          EmitIPAPayloadValidationError("Unexpected value for key #{keyName} in #{appThinningInfoDisplayPath.to_s.shellescape}: #{value}")
+          exit(1)
+        end
+      }.call
+    end
+    
+    return @stripSwiftSymbols
   end
 #  Examines the file system entity at the path, and returns either a [MachOImage] (if the path refers to
 #  a Mach-O file or a symlink to a Mach-O file) or nil (if it doesn't).  The returned MachOImage objects have a path
@@ -1220,7 +1282,8 @@ reserved
       mainExecName = node.infoDict['CFBundleExecutable']
       # If there is a value, we find it in the list of Mach-Os, and set it as the bundle's main Mach-O.
       if mainExecName
-        bundle.mainMachoFile = node.subnodes.select{ |node| node.name == mainExecName }.first
+        normalizedMainExecName = mainExecName.ipatool_normalize_hfs_unicode
+        bundle.mainMachoFile = node.subnodes.detect{ |node| node.name.ipatool_normalize_hfs_unicode == normalizedMainExecName }
       end
     end
     # Return the directory node (or specialization of directory node, e.g. bundle node).
@@ -1308,6 +1371,34 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
   # Recurse through any nested bundles (including, possibly, those of other platforms).
   for subbundle in bundle.nestedBundles
     ValidatePayloadBundle(subbundle, ipa, level + 1)
+  end
+def ValidateOutputIPA (srcIPA, outputPath, options)
+  outputIPA = IPA.new(outputPath)
+  # There should be no AppThinning plist
+  if outputIPA.appThinningInfoPath.exist?
+    EmitIPAOutputValidationError("Should have been removed: #{outputIPA.appThinningInfoPath.to_s.shellescape}")
+  end
+  # We should have no remaining bitcode
+  for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) && n.machoImages.any?{|i| i.hasBitcode } }
+    EmitIPAOutputValidationError("Found bitcode in #{machO.path}")
+  end
+  # If we compiled bitcode, we should have symbols
+  if options.compileBitcode
+    inputHadBitcode = lambda { |outputSubPath|
+      relOutputPath = outputSubPath.relative_path_from(outputPath)
+      correspondingInputPath = srcIPA.path + relOutputPath
+      node = MakeFileSystemNode(correspondingInputPath, nil, nil, srcIPA.path)
+      return node.machoImages.any?{|i| i.hasBitcode }
+    }
+    
+    dSYMs = Set.new(Dir.entries(outputPath + "dSYMs"))
+    symbols = Set.new(Dir.entries(outputPath + "Symbols"))
+    for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) && inputHadBitcode.call(n.path) }
+      for image in machO.machoImages
+        EmitIPAOutputValidationError("Could not find dSYM for: #{machO.path} : #{image.arch}") unless dSYMs.include?(image.uuid + ".dSYM")
+        EmitIPAOutputValidationError("Could not find symbols for: #{machO.path} : #{image.arch}") unless symbols.include?(image.uuid + ".symbols")
+      end
+    end
   end
 def CreateAssetPackManifest (assetPackDirPath, assetPackManifestFilePath, urlPrefix, parentPathForDisplay = nil)
   # Given a directory full of asset packs, go through them and create a manifest from them.
@@ -1450,6 +1541,9 @@ def CreateOutputIPA (srcIPA, dstPath, thinningTraits = nil, supportedDevices = n
     # Record the placeholder bundle's path in the output info descriptor.
     outputInfo.placeholderAppPath = placeholderAppPath
   end
+  if OPTIONS.validateOutput
+    ValidateOutputIPA(srcIPA, dstPath, OPTIONS)
+  end
   return outputInfo
 # We need to compile the bitcode once for each architecture that contains bitcode, and we need to do so in reverse
 # dependency order.  This is because a Mach-O can only be compiled when any dynamic library on which it depends has
@@ -1524,10 +1618,22 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
           # But we can strip bitcode from the binary right away (no need to defer).  We do so in-place.
           puts "  #{"|  " * level}.#{machoImage.arch} (strip)" if options.verbosity >= 2
           CmdSpec.new(locate_tool("bitcode_strip", [machoImage.platform.toolsPath]), [ "-r", "-o", machoImage.thinnedPath(ipa, options), machoImage.thinnedPath(ipa, options) ]).run(level)
+          # Strip Swift symbols from Swift dylibs
+          if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
+            CmdSpec.new(locate_tool("strip", [machoImage.platform.toolsPath]), [ "-ST", machoImage.thinnedPath(ipa, options) ]).run(level)
+          end
         end
       else
-        # Otherwise, the Mach-O image doesn't have bitcode, so we just leave the copy we already have alone.
-        puts "  #{"|  " * level}.#{machoImage.arch} (copy)" if options.verbosity >= 2
+        # Otherwise, the Mach-O image doesn't have bitcode, so we strip swift symbols and leave the copy we already have alone.
+        verb = "copy"
+        
+        # Strip Swift symbols from Swift dylibs
+        if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
+          CmdSpec.new(locate_tool("strip", [machoImage.platform.toolsPath]), [ "-ST", machoImage.thinnedPath(ipa, options) ]).run(level)
+          verb = "strip-swift-dylib"
+        end
+        
+        puts "  #{"|  " * level}.#{machoImage.arch} (#{verb})" if options.verbosity >= 2
       end
       # Add the Mach-O image as one that will appear in the universal Mach-O.
       adjustedMachoImages << machoImage
@@ -1584,6 +1690,9 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
             cmdln += [ "--generate-dsym", dsymFile ] if dsymFile
             cmdln += [ "--symbol-map", bitcodeSymbolMap ] if bitcodeSymbolMap
             cmdln += [ "-j", options.bitcodeCompilationJFactor ] if options.bitcodeCompilationJFactor and options.bitcodeCompilationJFactor > 0
+            if ipa.stripSwiftSymbols
+              cmdln += [ "--strip-swift-symbols" ]
+            end
             cmdln += [ machoImage.thinnedPath(ipa, options) ]
             CmdSpec.new(locate_tool("bitcode-build-tool", [machoImage.platform.toolsPath]), cmdln).run(level)
           end
@@ -1720,8 +1829,9 @@ def ProcessIPA (ipaDir, options)
     # payload will be the same for both, and can be used for both devices (at least as far as architectures go).
     # Same thing for the other traits.
     traitSetsToDeviceTypes = mainBundle.makeDeviceTraitsToDeviceTypesMapForDeviceIdentifiers(OPTIONS.thinDevices, OPTIONS.skipThinDevices, ipa)
-    # Emit a warning if the list of devices to thin for turns out to be empty.
-    EmitWarning(__LINE__, "None of the specified thinning devices match the payload; creating only the universal variant") if traitSetsToDeviceTypes.empty?
+    if options.validateOutput && traitSetsToDeviceTypes.empty?
+      EmitIPAOutputValidationError("None of the specified thinning devices match the payload; creating only the universal variant")
+    end
     # Now iterate over the chosen traits sets and create thinned IPAs.  For each trait set, we also know the list of
     # model identifiers to which that thinned version applies.
     for traitSet, deviceTypes in traitSetsToDeviceTypes
@@ -1746,6 +1856,7 @@ def ProcessIPA (ipaDir, options)
           artworkScaleFactor: traitSet.artworkScaleFactor,
           artworkDevSubtype: traitSet.artworkDevSubtype,
           artworkDisplayGamut: traitSet.artworkDisplayGamut,
+          artworkDynamicDisplayMode: traitSet.artworkDynamicDisplayMode,
           devPerfMemoryClass: traitSet.devPerfMemoryClass,
           gfxFeatureSetClass: traitSet.gfxFeatureSetClass,
           gfxFeatureSetFallbacks: traitSet.gfxFeatureSetFallbacks,
@@ -1764,6 +1875,7 @@ def ProcessIPA (ipaDir, options)
             artworkScaleFactor: traitSet.artworkScaleFactor,
             artworkDevSubtype: traitSet.artworkDevSubtype,
             artworkDisplayGamut: traitSet.artworkDisplayGamut,
+            artworkDynamicDisplayMode: traitSet.artworkDynamicDisplayMode,
             devPerfMemoryClass: traitSet.devPerfMemoryClass,
             gfxFeatureSetClass: traitSet.gfxFeatureSetClass,
             gfxFeatureSetFallbacks: traitSet.gfxFeatureSetFallbacks,
@@ -1885,19 +1997,23 @@ def ProcessIPA (ipaDir, options)
       end
     end
   end
+  if $EMITTED_ERRORS
+    exit(1)
+  end
 class DeviceTraits
-  attr :platform
-  attr :preferredArch
-  attr :artworkDevIdiom
-  attr :artworkHostedIdioms
-  attr :artworkScaleFactor
-  attr :artworkDevSubtype
-  attr :artworkDisplayGamut
-  attr :devPerfMemoryClass
-  attr :gfxFeatureSetClass
-  attr :gfxFeatureSetFallbacks
-  attr :featuresToRemove
-  def initialize (platform, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove)
+  attr_accessor :platform
+  attr_accessor :preferredArch
+  attr_accessor :artworkDevIdiom
+  attr_accessor :artworkHostedIdioms
+  attr_accessor :artworkScaleFactor
+  attr_accessor :artworkDevSubtype
+  attr_accessor :artworkDisplayGamut
+  attr_accessor :artworkDynamicDisplayMode
+  attr_accessor :devPerfMemoryClass
+  attr_accessor :gfxFeatureSetClass
+  attr_accessor :gfxFeatureSetFallbacks
+  attr_accessor :featuresToRemove
+  def initialize (platform, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove)
     @platform = platform
     @preferredArch = preferredArch
     @artworkDevIdiom = artworkDevIdiom
@@ -1905,10 +2021,14 @@ class DeviceTraits
     @artworkScaleFactor = artworkScaleFactor
     @artworkDevSubtype = artworkDevSubtype
     @artworkDisplayGamut = artworkDisplayGamut
+    @artworkDynamicDisplayMode = artworkDynamicDisplayMode
     @devPerfMemoryClass = devPerfMemoryClass
     @gfxFeatureSetClass = gfxFeatureSetClass
     @gfxFeatureSetFallbacks = gfxFeatureSetFallbacks
     @featuresToRemove = featuresToRemove
+  end
+  def artworkDynamicDisplayMode_1080pSDR
+    return "1080pSDR"
   end
   def preferredArchitectureAmongCandidates (availableArchs)
     # Given an array of available architectures, this method returns the one that's preferred.  If none are supported, we return nil.
@@ -1930,7 +2050,7 @@ class DeviceTraits
     return to_s.hash
   end
   def to_s
-    return "#{platform}|#{preferredArch}|#{artworkDevIdiom}|#{artworkHostedIdioms.join("+")}|#{artworkScaleFactor}x|#{artworkDevSubtype}s|gamut:#{artworkDisplayGamut}|#{devPerfMemoryClass}m|#{gfxFeatureSetClass}g|#{gfxFeatureSetFallbacks.join("+")}f|#{featuresToRemove.join("+")}"
+    return "#{platform}|#{preferredArch}|#{artworkDevIdiom}|#{artworkHostedIdioms.join("+")}|#{artworkScaleFactor}x|#{artworkDevSubtype}s|gamut:#{artworkDisplayGamut}|dynamicDisplayMode:#{artworkDynamicDisplayMode}|#{devPerfMemoryClass}m|#{gfxFeatureSetClass}g|#{gfxFeatureSetFallbacks.join("+")}f|#{featuresToRemove.join("+")}"
   end
   def to_dict
     return {
@@ -1941,6 +2061,7 @@ class DeviceTraits
       artworkScaleFactor: artworkScaleFactor,
       artworkDevSubtype: artworkDevSubtype,
       artworkDisplayGamut: artworkDisplayGamut,
+      artworkDynamicDisplayMode: artworkDynamicDisplayMode,
       devPerfMemoryClass: devPerfMemoryClass,
       gfxFeatureSetClass: gfxFeatureSetClass,
       gfxFeatureSetFallbacks: gfxFeatureSetFallbacks,
@@ -2007,13 +2128,42 @@ class DeviceTraits
   # Array representation appropriate for assetutil parameters.
   # E.g. ["--idiom", "pad", "--scale", "1"]
   def to_assetutil_args_array
-    return self.to_assetutil_dict.to_a.map{|flag, value| ["--" + flag, value] }.flatten
+    if self.artworkDynamicDisplayMode == self.artworkDynamicDisplayMode_1080pSDR
+      # We need two sets of args, one with 'scale:1 gamut:srgb' and one with 'scale:2 gamut:p3'
+      a = self.dup
+      a.artworkDynamicDisplayMode = nil
+      a.artworkScaleFactor = 1
+      a.artworkDisplayGamut = 'sRGB'
+      
+      b = self.dup
+      b.artworkDynamicDisplayMode = nil
+      b.artworkScaleFactor = 2
+      b.artworkDisplayGamut = 'P3'
+      
+      return a.to_assetutil_args_array + b.to_assetutil_args_array
+    else
+      return self.to_assetutil_dict.to_a.map{|flag, value| ["--" + flag, value] }.flatten
+    end
   end
   # String representation appropriate for assetutil -T.
   # E.g.: scale=1:idiom=pad:subtype=0:display-gamut=P3:memory=3:graphicsClass=MTL1,2:deployment=2016
   def to_assetutil_T_string
     skip = ["graphicsclassfallbacks", "hostedidioms"]
-    return self.to_assetutil_dict.delete_if{|k,v| skip.include?(k) }.to_a.map{|tuple| tuple.join('=') }.join(':')
+    if self.artworkDynamicDisplayMode == self.artworkDynamicDisplayMode_1080pSDR
+      # We need two sets of args, one with 'scale:1 gamut:srgb' and one with 'scale:2 gamut:p3'
+      a = self.dup
+      a.artworkDynamicDisplayMode = nil
+      a.artworkScaleFactor = 1
+      a.artworkDisplayGamut = 'sRGB'
+      
+      b = self.dup
+      b.artworkDynamicDisplayMode = nil
+      b.artworkScaleFactor = 2
+      b.artworkDisplayGamut = 'P3'
+      return a.to_assetutil_T_string + ":" + b.to_assetutil_T_string
+    else
+      return self.to_assetutil_dict.delete_if{|k,v| skip.include?(k) }.to_a.map{|tuple| tuple.join('=') }.join(':')
+    end
   end
 class DeviceType
   attr  :platform           # e.g. iphoneos
@@ -2056,7 +2206,7 @@ class DeviceType
     end
     # If we get this far, we create a (possibly downshifted)
     return DeviceTraits.new(deviceTraits.platform, bestArch, deviceTraits.artworkDevIdiom, deviceTraits.artworkHostedIdioms,
-                            deviceTraits.artworkScaleFactor, deviceTraits.artworkDevSubtype, bestArtworkDisplayGamut, deviceTraits.devPerfMemoryClass,
+                            deviceTraits.artworkScaleFactor, deviceTraits.artworkDevSubtype, bestArtworkDisplayGamut, deviceTraits.artworkDynamicDisplayMode, deviceTraits.devPerfMemoryClass,
                             deviceTraits.gfxFeatureSetClass, deviceTraits.gfxFeatureSetFallbacks,
                             deviceTraits.featuresToRemove),nil
   end
@@ -2147,12 +2297,13 @@ class Platform
           artworkScaleFactor = row['ArtworkScaleFactor']
           artworkDevSubtype = row['ArtworkDeviceSubtype']
           artworkDisplayGamut = row['ArtworkDisplayGamut']
+          artworkDynamicDisplayMode = row['ArtworkDynamicDisplayMode']
           devPerfMemoryClass = row['DevicePerformanceMemoryClass']
           gfxFeatureSetClass = row['GraphicsFeatureSetClass']
           gfxFeatureSetFallbacks = (row['GraphicsFeatureSetFallbacks'] or "").split(":")
           featuresToRemove = (row['FeaturesToRemove'] or "").split(":")
           
-          deviceTraitsByID[id] = DeviceTraits.new(self, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove)
+          deviceTraitsByID[id] = DeviceTraits.new(self, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove)
         end
         # Load the DeviceTypes.  We create a map from model identifier strings to the DeviceType objects.
         deviceTypes = []

@@ -703,6 +703,7 @@ __gitcomp "
 --apply --no-add --exclude=
 --ignore-whitespace --ignore-space-change
 --whitespace= --inaccurate-eof --verbose
+--recount --directory=
 return
 esac
 _git_add ()
@@ -710,11 +711,14 @@ case "$cur" in
 --*)
 __gitcomp "
 --interactive --refresh --patch --update --dry-run
---ignore-errors --intent-to-add
+--ignore-errors --intent-to-add --force --edit --chmod=
 return
 esac
-# XXX should we check for --update and --all options ?
-__git_complete_index_file "--others --modified --directory --no-empty-directory"
+local complete_opt="--others --modified --directory --no-empty-directory"
+if test -n "$(__git_find_on_cmdline "-u --update")"
+then
+complete_opt="--modified"
+__git_complete_index_file "$complete_opt"
 _git_archive ()
 case "$cur" in
 --format=*)
@@ -726,7 +730,7 @@ return
 --*)
 __gitcomp "
 --format= --list --verbose
---prefix= --remote= --exec=
+--prefix= --remote= --exec= --output
 return
 esac
 __git_complete_file
@@ -765,6 +769,7 @@ __gitcomp "
 --track --no-track --contains --merged --no-merged
 --set-upstream-to= --edit-description --list
 --unset-upstream --delete --move --remotes
+--column --no-column --sort= --points-at
 if [ $only_local_ref = "y" -a $has_r = "n" ]; then
 __gitcomp_nl "$(__git_heads)"
 else
@@ -835,6 +840,8 @@ __gitcomp "
 --single-branch
 --branch
 --recurse-submodules
+--no-single-branch
+--shallow-submodules
 return
 esac
 __git_untracked_file_modes="all no normal"
@@ -865,6 +872,7 @@ __gitcomp "
 --reset-author --file= --message= --template=
 --cleanup= --untracked-files --untracked-files=
 --verbose --quiet --fixup= --squash=
+--patch --short --date --allow-empty
 return
 esac
 if git rev-parse --verify --quiet HEAD >/dev/null; then
@@ -877,12 +885,12 @@ case "$cur" in
 --*)
 __gitcomp "
 --all --tags --contains --abbrev= --candidates=
---exact-match --debug --long --match --always
+--exact-match --debug --long --match --always --first-parent
 return
 esac
 __gitcomp_nl "$(__git_refs)"
 __git_diff_algorithms="myers minimal patience histogram"
-__git_diff_submodule_formats="log short"
+__git_diff_submodule_formats="diff log short"
 __git_diff_common_options="--stat --numstat --shortstat --summary
 --patch-with-stat --name-only --name-status --color
 --no-color --color-words --no-renames --check
@@ -936,6 +944,7 @@ __git_fetch_recurse_submodules="yes on-demand no"
 __git_fetch_options="
 --quiet --verbose --append --upload-pack --force --keep --depth=
 --tags --no-tags --all --prune --dry-run --recurse-submodules=
+--unshallow --update-shallow
 _git_fetch ()
 case "$cur" in
 --recurse-submodules=*)
@@ -970,7 +979,7 @@ case "$cur" in
 --*)
 __gitcomp "
 --tags --root --unreachable --cache --no-reflogs --full
---strict --verbose --lost-found
+--strict --verbose --lost-found --name-objects
 return
 esac
 _git_gc ()
@@ -999,6 +1008,8 @@ __gitcomp "
 --max-depth
 --count
 --and --or --not --all-match
+--break --heading --show-function --function-context
+--untracked --no-index
 return
 esac
 case "$cword,$prev" in
@@ -1046,6 +1057,11 @@ esac
 # files.
 __git_complete_index_file "--cached"
 _git_ls_remote ()
+case "$cur" in
+--*)
+__gitcomp "--heads --tags --refs --get-url --symref"
+return
+esac
 __gitcomp_nl "$(__git_remotes)"
 _git_ls_tree ()
 __git_complete_file
@@ -1127,7 +1143,7 @@ __git_complete_strategy && return
 case "$cur" in
 --*)
 __gitcomp "$__git_merge_options
---rerere-autoupdate --no-rerere-autoupdate --abort"
+--rerere-autoupdate --no-rerere-autoupdate --abort --continue"
 return
 esac
 __gitcomp_nl "$(__git_refs)"
@@ -1137,7 +1153,7 @@ case "$cur" in
 __gitcomp "$__git_mergetools_common tortoisemerge" "" "${cur##--tool=}"
 return
 --*)
-__gitcomp "--tool="
+__gitcomp "--tool= --prompt --no-prompt"
 return
 esac
 _git_merge_base ()
@@ -1202,7 +1218,7 @@ $__git_fetch_options
 return
 esac
 __git_complete_remote_or_refspec
-__git_push_recurse_submodules="check on-demand"
+__git_push_recurse_submodules="check on-demand only"
 __git_complete_force_with_lease ()
 local cur_=$1
 case "$cur_" in
@@ -1242,10 +1258,10 @@ __git_complete_remote_or_refspec
 _git_rebase ()
 local dir="$(__gitdir)"
 if [ -f "$dir"/rebase-merge/interactive ]; then
-__gitcomp "--continue --skip --abort --edit-todo"
+__gitcomp "--continue --skip --abort --quit --edit-todo"
 return
 elif [ -d "$dir"/rebase-apply ] || [ -d "$dir"/rebase-merge ]; then
-__gitcomp "--continue --skip --abort"
+__gitcomp "--continue --skip --abort --quit"
 return
 __git_complete_strategy && return
 case "$cur" in
@@ -1792,26 +1808,58 @@ user.signingkey
 web.browser
 branch. remote.
 _git_remote ()
-local subcommands="add rename remove set-head set-branches set-url show prune update"
+local subcommands="
+add rename remove set-head set-branches
+get-url set-url show prune update
 local subcommand="$(__git_find_on_cmdline "$subcommands")"
 if [ -z "$subcommand" ]; then
+case "$cur" in
+--*)
+__gitcomp "--verbose"
 __gitcomp "$subcommands"
+esac
 return
-case "$subcommand" in
-rename|remove|set-url|show|prune)
-__gitcomp_nl "$(__git_remotes)"
-set-head|set-branches)
+case "$subcommand,$cur" in
+add,--*)
+__gitcomp "--track --master --fetch --tags --no-tags --mirror="
+add,*)
+set-head,--*)
+__gitcomp "--auto --delete"
+set-branches,--*)
+__gitcomp "--add"
+set-head,*|set-branches,*)
 __git_complete_remote_or_refspec
-update)
+update,--*)
+__gitcomp "--prune"
+update,*)
 __gitcomp "$(__git_get_config_variables "remotes")"
+set-url,--*)
+__gitcomp "--push --add --delete"
+get-url,--*)
+__gitcomp "--push --all"
+prune,--*)
+__gitcomp "--dry-run"
+__gitcomp_nl "$(__git_remotes)"
 esac
 _git_replace ()
+case "$cur" in
+--*)
+__gitcomp "--edit --graft --format= --list --delete"
+return
+esac
 __gitcomp_nl "$(__git_refs)"
+_git_rerere ()
+local subcommands="clear forget diff remaining status gc"
+local subcommand="$(__git_find_on_cmdline "$subcommands")"
+if test -z "$subcommand"
+then
+__gitcomp "$subcommands"
+return
 _git_reset ()
 __git_has_doubledash && return
 case "$cur" in
 --*)
-__gitcomp "--merge --mixed --hard --soft --patch"
+__gitcomp "--merge --mixed --hard --soft --patch --keep"
 return
 esac
 __gitcomp_nl "$(__git_refs)"
@@ -1822,7 +1870,9 @@ __gitcomp "--continue --quit --abort"
 return
 case "$cur" in
 --*)
-__gitcomp "--edit --mainline --no-edit --no-commit --signoff"
+__gitcomp "
+--edit --mainline --no-edit --no-commit --signoff
+--strategy= --strategy-option=
 return
 esac
 __gitcomp_nl "$(__git_refs)"
@@ -1840,7 +1890,7 @@ case "$cur" in
 __gitcomp "
 $__git_log_common_options
 $__git_log_shortlog_options
---numbered --summary
+--numbered --summary --email
 return
 esac
 __git_complete_revlist
@@ -1908,13 +1958,31 @@ esac
 _git_submodule ()
 __git_has_doubledash && return
 local subcommands="add status init deinit update summary foreach sync"
-if [ -z "$(__git_find_on_cmdline "$subcommands")" ]; then
+local subcommand="$(__git_find_on_cmdline "$subcommands")"
+if [ -z "$subcommand" ]; then
 case "$cur" in
 --*)
-__gitcomp "--quiet --cached"
+__gitcomp "--quiet"
 __gitcomp "$subcommands"
 esac
 return
+case "$subcommand,$cur" in
+add,--*)
+__gitcomp "--branch --force --name --reference --depth"
+status,--*)
+__gitcomp "--cached --recursive"
+deinit,--*)
+__gitcomp "--force --all"
+update,--*)
+__gitcomp "
+--init --remote --no-fetch
+--recommend-shallow --no-recommend-shallow
+--force --rebase --merge --reference --depth --recursive --jobs
+summary,--*)
+__gitcomp "--cached --files --summary-limit"
+foreach,--*|sync,--*)
+__gitcomp "--recursive"
+esac
 _git_svn ()
 local subcommands="
 init fetch clone rebase dcommit log find-rev
@@ -1931,13 +1999,13 @@ local fc_opts="
 --no-metadata --use-svm-props --use-svnsync-props
 --log-window-size= --no-checkout --quiet
 --repack-flags --use-log-author --localtime
+--add-author-from
 --ignore-paths= --include-paths= $remote_opts
 local init_opts="
 --template= --shared= --trunk= --tags=
 --branches= --stdlayout --minimize-url
 --no-metadata --use-svm-props --use-svnsync-props
---rewrite-root= --prefix= --use-log-author
---add-author-from $remote_opts
+--rewrite-root= --prefix= $remote_opts
 local cmt_opts="
 --edit --rmdir --find-copies-harder --copy-similarity=
 case "$subcommand,$cur" in
@@ -2005,8 +2073,8 @@ case "$cur" in
 --*)
 __gitcomp "
 --list --delete --verify --annotate --message --file
---sign --cleanup --local-user --force --column --sort
---contains --points-at
+--sign --cleanup --local-user --force --column --sort=
+--contains --points-at --merged --no-merged --create-reflog
 esac
 _git_whatchanged ()
 _git_log

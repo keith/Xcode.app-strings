@@ -709,12 +709,18 @@ sub parse_backtrace {
         
         for my $line (@lines) {
             if( $line =~ m{
-                ^\d+ \s+     # stack frame number
-                (\S.*?) \s+    # bundle id (1)
-                ((0x\w+) \s+   # address (3)
-                .*) \s* $    # current description, to be replaced (2)
+                ^\d+ \s+                   # stack frame number
+                (\S.*?) \s+                # bundle [1]
+                (                          # description to replace [2]
+                    (0x\w+) \s+            # address [3]
+                    0x\w+ \s+              # library address
+                    (?: \+ \s+ (\d+))?     # offset [4], optional
+                    .*                     # remainder of description
+                )                          # end of capture
+                \s*                        # new line
+                $                          # end of line
             }x ) {
-                my($bundle,$replace,$address) = ($1,$2,$3);
+                my($bundle,$replace,$address,$offset) = ($1,$2,$3,$4);
                 #print STDERR "Parse_bt: $bundle,$replace,$address\n" if ($opt_verbose);
                 
                 # disambiguate within our hash of binaries
@@ -735,6 +741,10 @@ sub parse_backtrace {
                     'raw_address' => $raw_address,
                     'bundle'  => $bundle,
                 };
+                
+                if (defined $offset) {
+                    $frames{$replace}{offset} = $offset
+                }
                 
                 $is_first   = 0;
             }
@@ -1117,9 +1127,11 @@ sub symbolize_frames {
             
             if ( $symbolled_frame !~ /^\d/ ) {
                 # only symbolicate if we fetched something other than an address
-                #re-increment any offset that we had to artifically decrement
-                if($$frame{raw_address} ne $$frame{address}) {
-                    $symbolled_frame =~ s|(.+ \+) (\d+)|$1." ".($2 + 1)|e;
+                
+                my $offset = $$frame{offset};
+                if (defined $offset) {
+                    # add offset from unsymbolicated frame after symbolicated name
+                    $symbolled_frame =~ s|(.+)\(|$1."+ ".$offset." ("|e;
                 }
                 
                 if ($is_spindump_report) {
