@@ -1438,8 +1438,8 @@ performReadTransaction:
 mergeWithLibrary:
 attributesOfItemAtPath:error:
 _processJournalFile:db:
-createFileAtPath:contents:attributes:
 performWriteTransaction:
+createFileAtPath:contents:attributes:
 defaultInstance
 append:mergeUpdateStatement:
 commit:isProtectedDataAvailable:
@@ -2299,12 +2299,15 @@ outboxMessageStore:
 accountThatMessageIsFrom:
 deleteAccount:
 _deleteHook
+deleteDeliveryAccountIfNeeded
 _invalidateAndDeleteAccountData:
 _asynchronouslyInvalidateAndDeleteAccountData:
 _mailboxPathPrefix
 emptyTrash
 _synchronizeMailboxListWithFileSystem
 invocationWithSelector:target:taskName:priority:canBeCancelled:
+deliveryAccountInUseByOtherAccounts:
+deliveryAccountAlternates
 isStandardizedMailboxUid
 _cachedSpecialMailboxOfType:
 exchangeObjectAtIndex:withObjectAtIndex:
@@ -2402,7 +2405,6 @@ setLastKnownHostname:
 setFullUserName:
 isPrimaryDeliveryAccountDisabled
 setPrimaryDeliveryAccountDisabled:
-deliveryAccountAlternates
 setDeliveryAccountAlternates:
 canUseDeliveryAccount:
 setCanUseCarrierDeliveryFallback:
@@ -2794,7 +2796,7 @@ dataPathForMessage:type:
 attachmentsDirectoryForMessage:
 fileURLWithPath:
 attachmentsDirectoryURLForMessage:
-mf_sizeForDirectoryAtURL:
+mf_sizeForDirectoryAtURL:error:
 initWithLibrary:message:part:partial:incomplete:compressionQueue:
 mf_copyHexString
 cStringUsingEncoding:
@@ -2844,11 +2846,11 @@ messagesDeleted
 messageDataDeleted
 mailboxesNeedingReconcilication
 _logStatistics
+_handleJournalMergeFailure
+_deleteJournaledEntries
 _activeConnectionWithDB:
 isProtectedDatabaseAttached
-interruptConnectionsAfterDelay:
 _canAccessProtectedData
-cancelTerminationTimer
 _reconcileAfterKeybagUnlock
 _reconcileJournal
 minusSet:
@@ -2993,7 +2995,6 @@ protectedDataAvailability
 checkDatabaseConsistency
 reconcileJournalOnStartup
 migrate
-_handleJournalMergeFailure
 _handleProtectedDataInconsistencies
 renameOrRemoveDatabase
 pruneConversationTables:
@@ -3003,6 +3004,7 @@ _libraryMessageCache
 setSearchableIndex:
 _connectionPool
 _mailboxCache
+_statsQueue
 _mailboxPathProvider
 _migrator
 _threadLocalHandleKey
@@ -3013,7 +3015,6 @@ _protectedDataAvailability
 _keyBagQueue
 _messagesToThreadAtUnlock
 _suspendTimer
-_repairLibraryOnNextUnlock
 _lastStats
 _compressionQueue
 _searchableIndex
@@ -3234,6 +3235,7 @@ criteriaFromDefaultsArray:
 defaultsArrayFromCriteria:
 _updateAddressComments:
 criterionExcludingMailboxes:
+messageIsJournaledCriterion:
 criterionForNotDeletedConversationID:
 criterionForLibraryID:
 VIPSenderMessageCriterion
@@ -3252,8 +3254,6 @@ isVIPCriterion
 setPreferFullTextSearch:
 setIncludeRelatedMessages:
 setIncludeRemoteBodyContent:
-includeUnreconciledData
-setIncludeUnreconciledData:
 _criterionIdentifier
 _qualifier
 _name
@@ -3269,7 +3269,6 @@ _preferFullTextSearch
 _useFlaggedForUnreadCount
 _expressionIsSanitized
 _includeRemoteBodyContent
-_includeUnreconciledData
 _libraryIdentifiers
 stringWithCapacity:
 decodeValueOfObjCType:at:
@@ -4140,17 +4139,10 @@ uniqueMessageInfos
 allMessageInfos
 messageCollectionHash
 addMessageInfo:
-setStickyPlaceholder:
 indexOfMessageInfo:
-messageInfoAtIndex:
 removeMessageInfo:
-stickyPlaceholder
-comparator
-sortDateReceivedInterval
-sortUid
-setSortUid:
-setSortDateReceivedInterval:
 indexWhereMessageInfoWouldBeInserted:
+messageInfoAtIndex:
 messageInfoEquivalentToMessageInfo:
 duplicatesOfMessageInfo:
 stateForMessages:
@@ -4163,7 +4155,6 @@ mergeWithCollection:
 state
 _messageInfoSet
 _messageCollectionHash
-_stickyPlaceholder
 _shouldConvertEqualsToContainsForKey:
 messageCriterionConverter:predicateKeysForCriterionType:
 messageCriterionConverter:willUsePredicateOperatorType:forKey:
@@ -4200,6 +4191,10 @@ isVIP
 uidIsLibraryID
 newGenerationNumber
 generationCompare:
+sortUid
+setSortUid:
+sortDateReceivedInterval
+setSortDateReceivedInterval:
 _flagged
 _read
 _uidIsLibraryID
@@ -4213,6 +4208,7 @@ _sortDateReceivedInterval
 _conversationHash
 _messageIDHash
 _invalidate
+comparator
 mf_insertObject:usingComparator:allowDuplicates:
 setObject:atIndexedSubscript:
 _addMessageInfoToDuplicates:
@@ -4228,6 +4224,7 @@ _duplicateMessageInfosForMessageInfo:
 enumerateObjectsWithOptions:usingBlock:
 removeMessageInfosAtIndexes:
 removeAllMessageInfos
+replaceMessageInfo:withReplacement:inPlace:
 enumerateUniqueMessageInfosWithOptions:usingBlock:
 _knownMessageIDs
 _mutableMessageInfos
@@ -4525,11 +4522,13 @@ _basePath
 protectedDatabaseName
 protectedDatabaseFileSystemPath
 _protectedDatabaseName
+cancelTerminationTimer
 _connectionWithType:
 _semaphoreForConnectionType:waitCounter:
 initWithConnection:generation:
 generation
 _interruptActiveConnections
+interruptConnectionsAfterDelay:
 cacheSize
 maxConcurrentReaders
 maxConcurrentWriters
@@ -5388,7 +5387,6 @@ B32@0:8r*16r*24
 i28@0:8^{sqlite3=}16B24
 i32@0:8@16^{sqlite3=}24
 B24@0:8^{sqlite3=}16
-B32@0:8@16^{sqlite3=}24
 B28@0:8B16^{sqlite3=}20
 {_opaque_pthread_mutex_t="__sig"q"__opaque"[56c]}
 v24@0:8^v16
@@ -5560,7 +5558,8 @@ v36@0:8@16q24I32
 i32@0:8^{sqlite3=}16q24
 i40@0:8^{sqlite3=}16q24@32
 i24@0:8^{sqlite3=}16
-v28@0:8@?16B24
+i24@0:8@?16
+i28@0:8@?16B24
 ^{sqlite3=}16@0:8
 v24@0:8^{sqlite3=}16
 @24@0:8^{sqlite3=}16
@@ -5833,7 +5832,7 @@ T@"NSString",&,N,V_debugOutput
 modelInfo
 T@"NSDictionary",&,N,V_modelInfo
 <_MFMeasuredObject: %lf: %@>
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/MailboxPrediction/_MFMeasuredObject.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/MailboxPrediction/_MFMeasuredObject.m
 <Unknown File>
 Invalid parameter not satisfying: %@
 [otherObject isKindOfClass:[_MFMeasuredObject class]]
@@ -5849,7 +5848,7 @@ MFStreamEventEndEncountered
 MFStreamDispatchQueue
 v24@?0@"MFStream"8@"NSString"16
 -[MFStream openToHostName:port:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/_NSSocket.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/_NSSocket.m
 (nil == _rStream) && (nil == _wStream)
 StreamOpen
 stream
@@ -5966,7 +5965,7 @@ OAuth2RefreshToken
 ASStoreDraftsOnServer
 MFServerSSLCertificateIsTrusted
 B16@?0@"MFAuthScheme"8
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Accounts.subproj/Account.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Accounts.subproj/Account.m
 Cannot set persistent account on account with unsaved account properties
 Account
 %@:%@@%@
@@ -6114,7 +6113,7 @@ LogActivityOnHost
 logLock
 %@ _socket: %p
 -[MFConnection _setupSocketWithSettings:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Accounts.subproj/Connection.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Accounts.subproj/Connection.m
 _socket
 DONT_KNOW_SERVICE_PORT
 AUTH_NOT_SUPPORTED_FORMAT
@@ -6204,7 +6203,7 @@ messages.message_id
 %@ %@ %@
 sender LIKE '%%%@%%'
 cpsearch(sender, '%@', %d)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/CriterionAdditions.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/CriterionAdditions.m
 Only MessageRuleIsEqualTo is supported for ListIDHashCriterionType
 messages.list_id_hash = %lld
 mailbox %@ IFNULL((SELECT ROWID FROM mailboxes WHERE url = %@), -1)
@@ -6215,6 +6214,7 @@ messages.conversation_id NOT IN (%s)
 cpsearch(IFNULL(_to, '') || ' ' || IFNULL(cc, ''), '%@', %d)
 (messages.flags & %@) = %@
 deleted = '%d'
+journaled = '%d'
 sender_vip = '%d'
 (conversations.flags&1) > 0
 (conversations.flags&(1<<1)) > 0
@@ -6241,7 +6241,7 @@ TQ,R,N,V_bytesRead
 bytesWritten
 TQ,R,N,V_bytesWritten
 MFWalkUpDAErrorChain
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/DAMailAccount.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/DAMailAccount.m
 error && "Error ref passed in to here must not be NULL."
 ExchangeActiveSync
 Exchange ActiveSync
@@ -6310,7 +6310,7 @@ CSAccountTypeExchangeActiveSync
 /System/Library/Frameworks/CoreSpotlight.framework/CoreSpotlight
 ### Failed to Soft Linked: /System/Library/Frameworks/CoreSpotlight.framework/CoreSpotlight
 -[MFDAMailAccountSyncConsumer initWithCurrentTag:accountID:requests:consumers:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/DAMailAccountSyncConsumer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/DAMailAccountSyncConsumer.m
 requests.count == consumers.count && "Number of requests does not match number of consumers"
 we failed to find a sync actions consumer! requests: %@
 DOWNLOADING_STATUS
@@ -6325,7 +6325,7 @@ TB,R,N,V_hasConflict
 @sum.size
 DAMailMessage
 T@"DAMailMessage",R,N,V_DAMailMessage
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/DAMessageContentConsumer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/DAMessageContentConsumer.m
 sanity check 
  removal
 sanity check 
@@ -6347,7 +6347,7 @@ Td,R,N,V_timeOfLastActivity
 191AF69B-0088-47D2-AD66-6C9D08949C46
 meeting.ics
 -[MFDAMessageStore fetchNumMessages:preservingUID:options:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/DAMessageStore.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/DAMessageStore.m
 [[self library] isKindOfClass:[MFMailMessageLibrary class]]
 -[MFDAMessageStore _remoteIDsMatchingSearchText:predicate:limit:offset:filterByDate:handler:]
 v24@?0q8@"MFMailMessageStoreSearchResult"16
@@ -6439,10 +6439,12 @@ COMMIT
 ROLLBACK
 creating journal directory
 -[MFDbJournal _writeToDisk:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/DbJournal.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/DbJournal.m
 creating journal file
 setting protection class
 0 && "failed to set protection class"
+-[MFDbJournal _processJournalFile:db:]
+buf && "failed to allocate buffer during journal merge"
 opening journal file
 executing SQL statement from journal (%s)
 SELECT url FROM mailboxes WHERE reconcile = '1'
@@ -6538,7 +6540,7 @@ temp-
 <%@ %p: library id %@, remote id %@, conversation id %@, %@, subject hash: %@>
 @"NSDictionary"8@?0
 Attachments
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/LibraryMessage.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/LibraryMessage.m
 Expected message %@ to be self %@
 com.apple.message.searchableIndex
 com.apple.message.searchableIndex.indexingQueue
@@ -6546,7 +6548,7 @@ com.apple.message.searchableIndex.dataSource
 com.apple.message.searchableIndex.indexingQueue.batch
 v16@?0@"NSDictionary"8
 v16@?0@8
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/LibrarySearchableIndex.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/LibrarySearchableIndex.m
 [middleware conformsToProtocol:@protocol(MFLibrarySearchableIndexMiddleware)]
 ==== Searchable Index State ====
   transaction:                    %lld
@@ -6714,7 +6716,7 @@ CSSearchableItemAttributeSet
 CSSearchableItem
 B32@?0@"NSSet"8@"NSSet"16@"NSSet"24
 -[MFLibrarySearchableIndexQuery init]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/LibrarySearchableIndexQuery.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/LibrarySearchableIndexQuery.m
 <%@: %p>
 not started
 %@ %@ - %@
@@ -6787,7 +6789,7 @@ T@"NSDate",&,N,V_dateReceived
 userInfo
 T@"NSDictionary",C,N,V_userInfo
 StoreServerCountChanged
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/LibraryStore.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/LibraryStore.m
 messages shouldn't have a zero generation number.
 FetchWithoutLimits
 oldFlagsByMessage
@@ -6866,7 +6868,7 @@ MAILBOX_NAME_INCLUDES_PATH_SEPARATOR
 RENAME_FAILED
 DELETE_FAILED_FORMAT
 -[MailAccount storeClass]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Accounts.subproj/MailAccount.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Accounts.subproj/MailAccount.m
 plist
 -[MailAccount libraryID]
 0 && "account must have a library ID"
@@ -6917,7 +6919,7 @@ MailboxUidDidBecomeInvalidNotification
 MFMailboxUidWasRenamedNotification
 LastViewedMessageInMailbox
 LastViewedMessageInMailboxDate
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Accounts.subproj/MailboxUid.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Accounts.subproj/MailboxUid.m
 should not have a path component and a account on the same mailboxuid.
 *** Orphaned mailbox %@
 INBOX_SPECIAL_MAILBOX_NAME
@@ -6973,6 +6975,7 @@ MailMessageLibraryProtectedDataAvailibilityKey
 _MessageLibraryHandle-%p
 _MessageLibraryJournal-%p
 com.apple.message.library
+com.apple.message.library.stats
 com.apple.message.library.keybag
 com.apple.mobilemail.contentIndex
 UPDATE messages SET flags = (flags|:flags) WHERE rowid = :rowid
@@ -7153,7 +7156,7 @@ Getting references that do not exist in the DB in this conversation.
 SELECT url FROM mailboxes WHERE ROWID = ?;
 SELECT rowid FROM mailboxes WHERE url = ?;
 -[MFMailMessageLibrary _canSelectMessagesWithOptions:db:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MailMessageLibrary.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MailMessageLibrary.m
 NULL != db
 SELECT conversation_id, sync_key FROM conversations WHERE sync_key NOT NULL
 SELECT flags FROM conversations WHERE conversation_id = ?
@@ -7208,6 +7211,7 @@ inserting message data (unprotected)
 INSERT OR REPLACE INTO protected.message_data (message_data_id, data) VALUES (%u, NULL);
 INSERT OR REPLACE INTO protected.message_data (message_data_id, data) VALUES (%u, X'%s');
 INSERT OR REPLACE INTO protected.message_data (message_data_id, data) VALUES (%u, %Q);
+Could not get mailbox for message %p (store: %p)
 INSERT OR REPLACE INTO message_metadata (message_id, key, data) VALUES (:message_id, :key, :data)
 :key
 :data
@@ -7281,16 +7285,17 @@ SELECT COUNT(*) from messages WHERE rowid NOT IN (SELECT rowid FROM protected.me
 SELECT COUNT(*) from protected.messages WHERE rowid NOT IN (SELECT rowid FROM messages);
 SELECT COUNT(*) from message_data WHERE rowid NOT IN (SELECT rowid FROM protected.message_data);
 SELECT COUNT(*) from protected.message_data WHERE rowid NOT IN (SELECT rowid FROM message_data);
-SELECT COUNT(*) from messages
-SELECT COUNT(*) from protected.messages
+SELECT COUNT(*) FROM messages
+SELECT COUNT(*) FROM protected.messages
 SELECT COUNT(*) FROM message_data
 SELECT COUNT(*) FROM protected.message_data
 SELECT COUNT(*) FROM messages_deleted
 SELECT COUNT(*) FROM message_data_deleted
-SELECT COUNT(*) from messages where journaled='1'
+SELECT COUNT(*) FROM messages WHERE journaled = '1'
 SELECT COUNT(*) FROM mailboxes WHERE reconcile = '1'
-DELETE FROM messages WHERE rowid NOT IN (SELECT message_id FROM protected.messages);
-DELETE FROM message_data WHERE rowid NOT IN (SELECT rowid FROM protected.message_data);
+DELETE FROM messages WHERE journaled = '1'
+deleting journaled entries from messages table
+Detected messages marked as journaled after successful reconciliation
 -[MFMailMessageLibrary contentProtectionStateChanged:previousState:]
 0 && "Device is unlocked but Protected Data is not available"
 Protected Index
@@ -7469,7 +7474,7 @@ MailMessageStoreMessagesRemoved
 MailMessageStoreMessagesAttachmentStorageLocationChanged
 MailMessageStoreDidOpen
 MailMessageStoreDidClose
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/MessageStores.subproj/MailMessageStore.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/MessageStores.subproj/MailMessageStore.m
 block
 Cancelled
 Failed
@@ -7507,7 +7512,7 @@ Partial message, part %@ of %@
 To read this message, select all of the parts of the message and select the Message --> MIME --> Combine Messages menu item.
 number
 total
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MainThread.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MainThread.m
 Couldn't find signature for target %p selector %@
 VIPCriterion
 ThreadNotifyCriterionName
@@ -7611,13 +7616,12 @@ expressionIsSanitized
 TB,N,V_expressionIsSanitized
 includeRemoteBodyContent
 TB,N,V_includeRemoteBodyContent
-includeUnreconciledData
-TB,N,V_includeUnreconciledData
 T@"NSString",&,N,V_name
 criteria
     
 MessageIsRead
 MessageIsDeleted
+MessageIsJournaled
 MessageIsFlagged
 MessageWasRepliedTo
 MessageWasForwarded
@@ -7706,7 +7710,7 @@ html
 related
 inline
 -[MFMessageWriter setMessageClassToInstantiate:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MessageWriter.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MessageWriter.m
 T@"NSDictionary",R,N,V_compositionSpecification
 shouldWriteAttachmentPlaceholders
 TB,N,V_shouldWriteAttachmentPlaceholders
@@ -7850,7 +7854,7 @@ whitelistedDownloadDomains
 AttachmentPlaceholderLowerLimit
 attachmentDownloadQueue
 T@"MFInvocationQueue",R,N
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFAttachmentComposeManager.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFAttachmentComposeManager.m
 attachments already contains %@
 v32@?0Q8Q16Q24
 v24@?0B8@"NSError"12B20
@@ -7892,7 +7896,7 @@ com.apple.message.attachmentManager.imagescaling
 Invalid attachment URL.  Too few parts.
 v32@?0@"NSURL"8@"NSDictionary"16^B24
 -[MFAttachmentManager _fetchDataForAttachment:withProvider:syncLock:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFAttachmentManager.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFAttachmentManager.m
 B16@?0@"MFAttachment"8
 v16@?0@"MFAttachment"8
 Download Canceled.
@@ -7923,13 +7927,13 @@ T@"NSCache",&,N,V_cache
 cacheKeysByProperty
 T@"NSMutableDictionary",&,N,V_cacheKeysByProperty
 Could not find data for compose attachment.
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MIME.subproj/MFContentErrorDocument.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MIME.subproj/MFContentErrorDocument.m
 mimePart
 CANNOT_DECODE_MULTIPART_MESSAGE
 This message cannot be displayed because of the way it is formatted. Ask the sender to send it again using a different format or email program.
 %@/%@
 MFRegisterContentProtectionObserver
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFContentProtectionObserver.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFContentProtectionObserver.m
 nil != observer
 NULL != queue
 _observationQueue != queue
@@ -7954,7 +7958,7 @@ unlocked
 locking
 locked
 _MFDAFolderChangeConsumer_Lock
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/MFDAFolderChangeConsumer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/MFDAFolderChangeConsumer.m
 %@ should not be called twice
 %@ status %ld, error %@, folderID "%@", folderName "%@"
 statusCode
@@ -7980,7 +7984,7 @@ NewDisplayName
 %@ folder-id "%@", new-parent-folder-id "%@", new-display-name "%@"
 failed to create deferred operation for folder change %@
 -[MFDADeferredMessageMoveOperation initWithCoder:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/MFDAMoveResponseConsumer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/MFDAMoveResponseConsumer.m
 SourceMailbox
 DestinationMailbox
 SourceRemoteIDs
@@ -7990,9 +7994,9 @@ TemporaryIDs
 %@ source "%@", destination "%@", %lu messages
 incomplete
 -[_MFDADeferredSelectMailboxOperation initWithCoder:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/MFDAOfflineCache.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/MFDAOfflineCache.m
 -[_MFDADeferredSelectMailboxOperation encodeWithCoder:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/DataAccess/MFDAStoreDraftConsumer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/DataAccess/MFDAStoreDraftConsumer.m
 got non-successful status code %ld for response
 got a successful response with no server id
 %s %d : Caught exception %@
@@ -8156,7 +8160,7 @@ listID
 weightedThreshold
 weights
 limitToRecentMessages
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/MailboxPrediction/MFHeuristicsMailboxPredictor.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/MailboxPrediction/MFHeuristicsMailboxPredictor.m
 [mergedParams[kConfusionThresholdParameterKey] isKindOfClass:[NSNumber class]] || [mergedParams[kConfusionThresholdParameterKey] isKindOfClass:[NSNull class]]
 [mergedParams[kOrderParameterKey] isKindOfClass:[NSArray class]]
 weighted
@@ -8306,7 +8310,7 @@ preparing library version insert statement
 tables.sql
 triggers.sql
 _ExecuteSQLFile
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFMailMessageLibraryMigrator.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFMailMessageLibraryMigrator.m
 nil != filename
 performing statements from file "%@"
 SELECT rowid FROM messages WHERE conversation_id = 0 or conversation_id is NULL
@@ -8389,8 +8393,6 @@ SELECT DISTINCT mailbox FROM messages WHERE flags&64 = 64;
 finding mailbox IDs of draft mailboxes
 UPDATE mailboxes SET last_sync_status_count = unread_count + server_unread_count, most_recent_status_count = unread_count + server_unread_count WHERE url LIKE 'imap:%%' AND rowid NOT IN (%s)
 updating count columns for non-draft mailboxes
-UPDATE mailboxes SET last_sync_status_count = total_count, most_recent_status_count = total_count, server_unread_count = 0 WHERE url LIKE 'imap:%%' AND rowid IN (%s);
-updating count columns for draft mailboxes
 UPDATE mailboxes SET last_sync_status_count = unread_count + server_unread_count, most_recent_status_count = unread_count + server_unread_count WHERE url LIKE 'imap:%'
 updating count columns
 ALTER TABLE mailboxes ADD COLUMN reconcile;
@@ -8406,6 +8408,7 @@ DROP TABLE IF EXISTS mbl_queue;
 removing mbl_queue table
 ALTER TABLE messages ADD COLUMN journaled DEFAULT '0';
 adding journaled column
+UPDATE mailboxes SET last_sync_status_count = 0, most_recent_status_count = 0 WHERE url LIKE 'imap:%%' AND rowid IN (%s)
 @"NSNumber"16@?0@"MFMailMessage"8
 @"NSArray"16@?0@"MailAccount"8
 v32@?0@"MFMailboxUid"8@"NSMutableSet"16^B24
@@ -8413,14 +8416,11 @@ mailboxToRemoteIdDictionary
 T@"NSMutableDictionary",&,N,V_mailboxToRemoteIdDictionary
 continueOffset
 T@"NSDate",&,N,V_continueOffset
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MFMessageCollectionInfo.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MFMessageCollectionInfo.m
 comparator
+<%@ %p> hash=%lld messageInfoSet=%@
 Trying to add a messageInfo that has a different conversationHash from this collectionInfo
 Something is horribly wrong the messageInfo should have been at this index path
-This message info should not be newer than the sticky placeholder
-The first message seems newer than the one we deleted (which should have been first!)
-stickyPlaceholder
-T@"MFMessageInfo",&,N,V_stickyPlaceholder
 isEmpty
 firstMessage
 T@"MFMessageInfo",R,N
@@ -8443,7 +8443,7 @@ Flagged
 @"MFMessageCriterion"16@?0@"NSPredicate"8
 T@"<MFMessageCriterionConverterDelegate>",W,N,V_delegate
 -[MFMessageInfo hash]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MFMessageInfo.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MFMessageInfo.m
 0 && "Tried to get the hash of an object that had no UID"
 , sortUid=%u
 , sortReceived=%u
@@ -8469,14 +8469,20 @@ sortUid
 TI,N,V_sortUid
 sortDateReceivedInterval
 TI,N,V_sortDateReceivedInterval
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MFMessageInfoOrderedSet.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MFMessageInfoOrderedSet.m
 messageInfo.messageIDHash != 0
 Inconsitency: this messageID was in _knownMessageIDs, it must be in _mutableMessageInfos
 messageID mismatch, did not find the real duplicate
+messageInfo != nil
+replacementMessageInfo != nil
+messageInfo.conversationHash == replacementMessageInfo.conversationHash
+Could not find the original message info
+We just tried to swap the message info, Y U NO at the same index?
+Added replacement is a duplicate?! Impossibru!
 @"NSArray"16@?0@"MFMessageInfo"8
 B32@?0@"MFMessageInfo"8Q16^B24
 <%@: %p> (
-| %@
+| dupe=%@
 T@?,C,N,V_comparator
 T@?,C,N,V_duplicatePreferenceComparator
 countWithDuplicates
@@ -8509,7 +8515,7 @@ T@"NSString",C,N,V_cc
 T@"NSString",C,N,V_bcc
 participants
 T@"MFEmailSet",R,N
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/MailboxPrediction/MFMobileLibraryAdapter.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/MailboxPrediction/MFMobileLibraryAdapter.m
 Unexpected mailbox object.
 groupBy == MFMessageQueryGroupByMailboxPersistentID
 NSNumber variable required, got %@
@@ -8521,7 +8527,7 @@ T@"NSArray",&,N,V_accounts
 _MFDisallowNetworkActivityAssertionKey
 _MFMainThreadNetworkingAllowedAssertionKey
 _IncrementThreadLocalCounterForKey
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFNetworkAssertions.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFNetworkAssertions.m
 [countNumber isKindOfClass:[NSNumber class]]
 count < NSUIntegerMax
 _DecrementThreadLocalCounterForKey
@@ -8539,7 +8545,7 @@ com.apple.wifi.plist
 com.apple.mail.radioPreferences
 com.apple.symptoms.hasAlternateAdvice
 -[MFNetworkController dealloc]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFNetworkController.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFNetworkController.m
 NULL == _telephony
 NULL == _store
 NULL == _reachability
@@ -8558,7 +8564,7 @@ awdNetworkDiagnosticReport
 T@"AWDMailNetworkDiagnosticsReport",R,N
 %s (%d)
 -[MFOfflineCache initWithLibrary:account:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFOfflineCache.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFOfflineCache.m
 library && "library must not be nil"
 account && "account must not be nil"
 TEMP:%u
@@ -8597,7 +8603,7 @@ TransferFailureSnapshot
 NewTemporaryID
 -[_MFReplaceTemporaryIDForTransferFailureReplayContextTransformation encodeWithCoder:]
 -[MFOfflineCacheOperation setRowid:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFOfflineCacheOperation.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFOfflineCacheOperation.m
 ![self hasRowid]
 rowid
 Tq,N,V_rowid
@@ -8631,7 +8637,7 @@ com.apple.message.MFPowerController.state
 com.apple.message.MFPowerController.power
 v16@?0@"MFAppStateMonitor"8
 +[MFPowerController sharedInstance]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFPowerController.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFPowerController.m
 instance != nil
 plugged in
 unplugged
@@ -8655,7 +8661,7 @@ TB,R,GisBatterySaverModeEnabled
 holdingAssertion
 TB,R,GisHoldingAssertion
 -[MFProtectedSQLiteConnection attachProtectedDatabase]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFProtectedSQLiteConnection.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFProtectedSQLiteConnection.m
 NULL != _db
 ATTACH DATABASE "%@" AS protected
 attaching Protected Index
@@ -8682,7 +8688,7 @@ CertificatesByRecipient
 MFSecureMIMECompositionManager_lock
 com.apple.mobilemail.MFSecureMIMECompositionManagerQueue
 -[MFSecureMIMECompositionManager _determineSigningStatusWithSendingAddress:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Authentication.subproj/MFSecureMIMECompositionManager.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Authentication.subproj/MFSecureMIMECompositionManager.m
 _signingStatusSemaphore > 0
 -[MFSecureMIMECompositionManager _determineEncryptionStatusWithSendingAddress:]
 _encryptionStatusSemaphore > 0
@@ -8736,13 +8742,13 @@ UseAccountSignatures
 <br/><br/>
 (?:<br[/]?>){2}
 -[MFSparseMutable64IndexSet _incrementStorageIfNecessaryForCount:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFSparseMutable64IndexSet.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFSparseMutable64IndexSet.m
 newStorage && "Must have been able to reallocate size"
 i24@?0r^v8r^v16
 <%@: %p> [
 %llu,
 -[MFSQLiteConnection dealloc]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFSQLiteConnection.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFSQLiteConnection.m
 NULL == _db
 -[MFSQLiteConnection open]
 enabling extended error codes
@@ -8790,7 +8796,7 @@ protectedDatabaseName
 T@"NSString",C,N,V_protectedDatabaseName
 protectedDatabasePath
 protectedDatabaseFileSystemPath
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Library.subproj/MFSQLiteConnectionPool.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Library.subproj/MFSQLiteConnectionPool.m
 maxConcurrentBackgroundReaders > 0
 NULL != waitCounter
 nil != connectionWrapper
@@ -8833,7 +8839,7 @@ TSR: %@ );
 #Delete
 T@"<NSCopying>",C,N,V_key
 T@"MFWeakObjectCache",W,N,V_cache
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/MFWeakObjectCache.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/MFWeakObjectCache.m
 couldn't create a weak reference for %@
 bold
 italic
@@ -8869,7 +8875,7 @@ font-size: %dpt;
 &nbsp;&nbsp;&nbsp;&nbsp;
 <br/>
 -[MFMimeEnrichedReader setupFontStackEntry:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Message.subproj/MIME.subproj/MimeEnrichedReader.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Message.subproj/MIME.subproj/MimeEnrichedReader.m
 NULL != stackEntry
 font-weight: bold
 font-style: italic
@@ -8897,7 +8903,7 @@ keychainLock
 B16@?0^{__SecIdentity=}8
 S/MIME Encryption for %@
 com.apple.mobilemail.smime
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/NSSetAdditions.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/NSSetAdditions.m
 transform
 B16@?0@8
 "%@" : %lu
@@ -8924,7 +8930,7 @@ Unable to parse Content-type header in top-level part
 No Content-type header found in top-level part
 Invalid parser state (%d)
 condition
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Utilities.subproj/RequestQueue.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Utilities.subproj/RequestQueue.m
 nobody should be waiting at -dealloc time
 x-apple-smime-error
 x-apple-smime-signers
@@ -8933,7 +8939,7 @@ SMIME_CANT_DECRYPT_MESSAGE
 This message is encrypted.  Install a profile containing your encryption identity to decrypt this message.
 %@://%@
 x-attach-SMIME
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Authentication.subproj/SecureMimePart.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Authentication.subproj/SecureMimePart.m
 The message body should be a MFMimeBody.
 SMIME_CANT_DECRYPT_TITLE
 Unable to decrypt message
@@ -8992,7 +8998,7 @@ SMTP_RECIPIENTS_UNRECOGNIZED
 Verify that you have addressed this message correctly. Check your SMTP server settings in Mail Preferences and verify any advanced settings with your system administrator.
 SMTP_SENDING_FAILED_TITLE
 Unable to Send Email
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Delivery.subproj/SMTPConnection.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Delivery.subproj/SMTPConnection.m
 Invalid argument %@
 SMTP_GENERIC_ERROR_FORMAT
 ^([0-9]+)([- ])?(.*)$
@@ -9018,7 +9024,7 @@ SMTPFailureReasonBadCredentials
 SMTPFailureReasonWebLoginRequired
 SMTPFailureReasonUnknown
 ^([0-9]+)\.([0-9]+)\.([0-9]+)([ ]+)(.*)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2631.3/Delivery.subproj/SMTPResponse.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/Message_Sim/Message-2636/Delivery.subproj/SMTPResponse.m
 MF_SMTP_RECIPIENT_UNKNOWN
 MF_SMTP_RECIPIENT_RELAYING_NOT_ALLOWED
 MF_SMTP_RECIPIENT_INVALID_ADDRESS
@@ -9069,7 +9075,7 @@ T@"NSData",R,V_htmlData
 preferredEncoding
 TI,V_preferredEncoding
 T@"MFAttachmentManager",&,N,V_attachmentManager
-@333333
+?333333
 name=
 From 
 MbP?
@@ -9181,28 +9187,29 @@ received a redundant SyncAddAction for a message with remote-id %@
 #Warning Caught exception %@
 error syncing folder: %@
 DAMessageStore - allMailboxes searchQuery returned result with invalid folderID: %@
-#LibraryErrors sqlite error %d when committing journal statements 
-#LibraryErrors sqlite error %d when committing journal merge statements 
-#LibraryErrors An error occurred while committing the transaction on %p: failed to commit merge statements
-#LibraryErrors An error occurred while committing the transaction on %p: could not flush journal
-#LibraryErrors creating new journal file %@
-#LibraryErrors created new journal file %@ (fd: %d)
-#LibraryErrors wrote wrong number of version bytes to journal, expected: %lu actual: %ld (error %d: %s)
-#LibraryErrors flushing journal fd %d (%lu bytes)
-#LibraryErrors wrote wrong number of bytes to journal, expected: %lu actual: %ld (error %d: %s)
-#LibraryErrors processing journal file %@
-#LibraryErrors failed to allocate buffer during journal merge
-#LibraryErrors read wrong number of version bytes from journal, expected: %lu actual: %zd
-#LibraryErrors found journal file of wrong version, expected: %d actual: %lu
-#LibraryErrors realloc failed when merging journal with database
-#LibraryErrors read wrong number of bytes from journal, expected: %lu actual: %zd
-#LibraryErrors Could not find mailbox for %@
-#LibraryErrors DBJournalMergeResult %@
-#LibraryErrors An error occurred processing %@
-#LibraryErrors Skipping empty journal placeholder file %@
-#LibraryErrors An error occurred during reconciliation of journal for %@ (error %d: %s)
-#LibraryErrors Successfully reconciled journal %@
-#LibraryErrors Error %d %@ at path %@: %s
+#Library sqlite error %d when committing journal statements 
+#Library sqlite error %d when committing journal merge statements 
+#Library An error occurred while committing the transaction on %p: failed to commit merge statements
+#Library An error occurred while committing the transaction on %p: could not flush journal
+#Library creating new journal file %@
+#Library created new journal file %@ (fd: %d)
+#Library failed setting F_NOCACHE on %@ (error %d: %s)
+#Library wrote wrong number of version bytes to journal, expected: %lu actual: %ld (error %d: %s)
+#Library flushing journal fd %d (%lu bytes)
+#Library wrote wrong number of bytes to journal, expected: %lu actual: %ld (error %d: %s)
+#Library processing journal file %@
+#Library read wrong number of version bytes from journal, expected: %lu actual: %zd
+#Library found journal file of wrong version, expected: %d actual: %lu
+#Library realloc failed when merging journal with database
+#Library read wrong number of bytes from journal, expected: %lu actual: %zd
+#Library Could not find mailbox for %@
+#Library DBJournalMergeResult %@
+#Library An error occurred while processing %@ (error %d: %s)
+#Library An error occurred while committing transaction for %@ (sqlite error %d)
+#Library Successfully reconciled journal %@
+#Library Skipping empty journal file %@
+#Library No journal files found
+#Library Error %d %@ at path %@: %s
 *** Missing rspauth value in server message
 *** Bogus rspauth value returned from the server
 *** Unexpected character '%c', aborting
@@ -9298,77 +9305,77 @@ Exception while getting all email addresses: %@
 Failed to read cached info for account %@: %@
 Error %{public}@ occurred while trying to append messages to outgoing store. Ignoring and proceeding with delivery...
 Unexpected flag key "%@"
-#LibraryErrors access to protected data is allowed
-#LibraryErrors access to protected data is not allowed
-#LibraryErrors closing database connections after suspend
+#Library access to protected data is allowed
+#Library access to protected data is not allowed
+#Library closing database connections after suspend
 found message flags discrepancy
-#LibraryErrors could not set protection class for %@
-#LibraryErrors wrote wrong number of bytes to file %@!
-#LibraryErrors failed to open a file for message data at path %@, (error: %d, %s)
+#Library could not set protection class for %@
+#Library wrote wrong number of bytes to file %@!
+#Library failed to open a file for message data at path %@, (error: %d, %s)
 adding message references took %.2f (messageID: %d)
-#LibraryErrors couldn't load body for %@, aborting
-#LibraryErrors couldn't load headers for %@, skipping
-#LibraryErrors delegate denied adding message %@
-#LibraryErrors failed to find mailbox row for message %@: mailboxURL = %@
+#Library couldn't load body for %@, aborting
+#Library couldn't load headers for %@, skipping
+#Library delegate denied adding message %@
+#Library failed to find mailbox row for message %@: mailboxURL = %@
 #Warning [addMessages] setting conversation id for message with library id %d failed
-#LibraryErrors error importing message %@, aborting
-#LibraryErrors inserting message failed, rolling back transaction
+#Library error importing message %@, aborting
+#Library inserting message failed, rolling back transaction
 #Warning [updateThreadingInfoForMessage] updating conversation id for message with library id %d failed
 #SQLite #Performance %.3f seconds to load first batch of %lu messages
 #SQLite #Performance loaded %d messages in %.3f seconds
-#LibraryErrors NULL query
-#LibraryErrors criterion %@ couldn't be turned into a query, <db:%p, protected %@>
-#LibraryErrors Could not create sqlite statement from criterionType=%ld groupByKey=%lu
-#LibraryErrors criterion %ld couldn't be turned into a query, <db:%p, protected %@>
-#LibraryErrors could not update sequence identifier for mailbox %@
-#LibraryErrors couldn't load message with libraryID %u because protected data is unavailable
-#LibraryErrors no message for library ID %u, URL: %@
-#LibraryErrors NULL database
-#LibraryErrors Error %d performing query: %s
+#Library NULL query
+#Library criterion %@ couldn't be turned into a query, <db:%p, protected %@>
+#Library Could not create sqlite statement from criterionType=%ld groupByKey=%lu
+#Library criterion %ld couldn't be turned into a query, <db:%p, protected %@>
+#Library could not update sequence identifier for mailbox %@
+#Library couldn't load message with libraryID %u because protected data is unavailable
+#Library no message for library ID %u, URL: %@
+#Library NULL database
+#Library Error %d performing query: %s
 #SQLite #Performance %0.4f seconds to perform query %@
-#LibraryErrors Compacted %lu messages (%f seconds)
+#Library Compacted %lu messages (%f seconds)
 Vacuuming mailboxes: %@
-#LibraryErrors Ignoring metadata storage key %u for message %@ - data too large.
+Failed to delete attachments at %{public}@ with error %{public}@
+#Library Could not get mailbox for message %@ (store: %@)
+#Library Ignoring metadata storage key %u for message %@ - data too large.
 #CacheLoads Loaded data of length %lu for message %@ from file
 #CacheLoads loaded data of length %lu for message %@%@ from file
-#CacheLoads error loading data from file %@: %@
-#LibraryErrors failed to archive offline cache operation %@
-#LibraryErrors can't mark %@ as completed because it doesn't have a rowid
-#LibraryErrors Exception thrown while unarchiving offline cache operation: %@
-#LibraryErrors failed to archive offline cache replay data
-#LibraryErrors Posting %@
-#LibraryErrors cleanupProtectedTables took %.4f seconds
-#LibraryErrors skipping cleaning up protected tables because protected data is not available
-#LibraryErrors Database consistency check failed, the following statement returned a non-zero count (%ld): %@
-#LibraryErrors STATS %.2fs j:%lu m:%lu pm:%lu md:%lu pmd:%lu mdel:%lu mddel:%lu mbox:%lu
-#LibraryErrors STATS %.2fs j:%lu m:%lu pm:* md:%lu pmd:* mdel:%lu mddel:%lu mbox:%lu
-#LibraryErrors Time spent waiting on sqlite writer lock for reconciliation: %.2f secs
-#LibraryErrors One or more journal files failed to merge. Pruning unmatched entries in unprotected db.
-#LibraryErrors Removed %d unmatched entries from table messages after error during reconciliation
-#LibraryErrors Removed %d unmatched entries from table message_data after error during reconciliation
-#LibraryErrors Key bag locked
-#LibraryErrors Key bag unlocked
-#LibraryErrors Skipping reconciliation after unlock because Protected Index could not be opened
-#LibraryErrors Failed to open %s (error: %d). Retrying %d more times.
-#LibraryErrors Aborting reconciliation, protected data is unavailable
-#LibraryErrors Database reconciliation took %.4f seconds (result: %@)
-#LibraryErrors Updated conversation hashes on %lu messages (%.4f seconds)
-#LibraryErrors Opened new sqlite connection %p
-#LibraryErrors Starting incremental vacuum for %@ database
-#LibraryErrors Skipping incremental vacuum because protected tables are not available
-#LibraryErrors Skipping incremental vacuum because free count (%d) is below limit (256)
-#LibraryErrors Skipping incremental vacuum because load factor (%.2f) is above threshold (0.85)
-#LibraryErrors Error performing incremental vacuum: %s
-#LibraryErrors Successfully performed incremental vacuum on %@ database
-#LibraryErrors Warning: getting writer connection on the main thread
+#CacheLoads did not load data from file %@: %@
+#Library failed to archive offline cache operation %@
+#Library can't mark %@ as completed because it doesn't have a rowid
+#Library Exception thrown while unarchiving offline cache operation: %@
+#Library failed to archive offline cache replay data
+#Library Posting %@
+#Library cleanupProtectedTables took %.4f seconds
+#Library skipping cleaning up protected tables because protected data is not available
+#Library Database consistency check failed, the following statement returned a non-zero count (%ld): %@
+#Library STATS %.2fs j:%lu m:%lu pm:%lu md:%lu pmd:%lu mdel:%lu mddel:%lu mbox:%lu
+#Library STATS %.2fs j:%lu m:%lu pm:* md:%lu pmd:* mdel:%lu mddel:%lu mbox:%lu
+#Library Time spent waiting on sqlite writer lock for reconciliation: %.2f secs
+#Library Found and deleted %lu messages marked as journaled after successful reconciliation
+#Library Key bag locked
+#Library Key bag unlocked
+#Library Skipping reconciliation after unlock because Protected Index could not be opened
+#Library Failed to open %s (error: %d). Retrying %d more times.
+#Library Aborting reconciliation, protected data is unavailable
+#Library Database reconciliation took %.4f seconds (result: %@)
+#Library Updated conversation hashes on %lu messages (%.4f seconds)
+#Library Opened new sqlite connection %p
+#Library Starting incremental vacuum for %@ database
+#Library Skipping incremental vacuum because protected tables are not available
+#Library Skipping incremental vacuum because free count (%d) is below limit (256)
+#Library Skipping incremental vacuum because load factor (%.2f) is above threshold (0.85)
+#Library Error performing incremental vacuum: %s
+#Library Successfully performed incremental vacuum on %@ database
+#Library Warning: getting writer connection on the main thread
 Abort if mobilemail
 Could not open fd for %@
 Could not set protection class on %@
 #Warning %@
-#LibraryErrors Mail db will be reset on next launch
+#Library Mail db will be reset on next launch
 Could not create %@
 #Warning Removing mail database and files
-#LibraryErrors pruned %d conversations
+#Library pruned %d conversations
 invalidated %d %{public}@ with transaction ID > %lld
 assigning transaction identifier %lld to %lu type %lu tombstones
 purging tombstones older than transaction %ld
@@ -9378,14 +9385,14 @@ requesting %lu items requiring indexing
 #Warning deferring verification request until we have determined our active non-local accounts
 recording spotlight type %ld tombstones: %@
 reset transaction index for %d messages for account %{public}@ mailboxID %u
-#LibraryErrors Exception occurred while message with ID %u: %@
+#Library Exception occurred while message with ID %u: %@
 writing out no data since existing data is equally long
 not saving message data for non-existent message
-#LibraryErrors storage path is nil! _libary: %@ _message: %@ _part: %@ _partial: %@ messageUrl: %@
-#LibraryErrors Error attempting to write to file "%@": %{public}@
-#LibraryErrors Couldn't make complete path "%@"
-#LibraryErrors Exception occurred while writing to "%@": %@
-#LibraryErrors Empty message data
+#Library storage path is nil! _libary: %@ _message: %@ _part: %@ _partial: %@ messageUrl: %@
+#Library Error attempting to write to file "%@": %{public}@
+#Library Couldn't make complete path "%@"
+#Library Exception occurred while writing to "%@": %@
+#Library Empty message data
 #CacheLoads loaded data of length %lu for message %@%@ from database
 Error - could not stat path %@
 #Warning %@ has no content protection class set
@@ -9547,13 +9554,15 @@ Attempted to handle unsupported predicate %@
 Got unexpected Predicate: %@
 #MessageCriteria Received unhandled MessageRuleQualifier value:%d - assuming contains
 #MessageCriteria Received unhandled NSPredicateOperatorType value:%lu - assuming contains
+%@ Will replace %{public}@, ours=%{public}@ with %{public}@ (inPlace=%d) in set: %@
 #Warning networking is disallowed on the main thread
 Assert if seed or internal build
 #Warning networking is disallowed
-#FileCompressionQueue Running File Compression Queue Activity
+#FileCompressionQueue Running File Compression Queue Activity. %ld files in the queue
 #FileCompressionQueue Compressed all files in File Compression Queue
-#FileCompressionQueue Deferred before compressing all files in File Compression Queue. %ld files left
+#FileCompressionQueue Deferred before compressing all files in File Compression Queue.
 #FileCompressionQueue Can not run File Compression Queue Activity. Device in battery saver mode.
+#FileCompressionQueue Exiting Compression Queue Activity. %ld files left in the queue
 #Warning Could not create SCDynamicStore
 device is now %@
 listening for low-power mode notifications
@@ -9563,17 +9572,17 @@ low-power mode changed to %@
 #Assertions [*] power assertion timer expired
 #Assertions [+] %@
 #Assertions [-] %@
-#LibraryErrors Connection %p is already attached
-#LibraryErrors Attached Protected Index on connection %p
-#LibraryErrors Connection %p is already detached
-#LibraryErrors Detach Protected Index on connection %p
+#Library Connection %p is already attached
+#Library Attached Protected Index on connection %p
+#Library Connection %p is already detached
+#Library Detach Protected Index on connection %p
 #SMIMEErrors SecIdentityCopyCertificate could not find certificate for %@
 #SMIMEErrors SecTrustCreateWithCertificates returned %ld
 #SMIMEErrors Revocation check succeeded (SecTrustResultType: %d)
 #SMIMEErrors Revocation check failed with status %ld
 #SMIMEErrors SecCertificateCreateWithData() failed for %@
 Mail File Compression Queue Activity
-#LibraryErrors Closing sqlite connection %p
+#Library Closing sqlite connection %p
 #Warning Terminating outstanding connection %p
 Acquired task assertion: %{public}@
 could not aquire task assertion: %{public}@
@@ -9640,4 +9649,4 @@ Error %d on connection %p %@: %s - I/O error %d (%s)
 Error %d on connection %p %@: %s
 Wrong number of arguments (%d) to and64
 wrong number of arguments (%d) to icusearch
-#LibraryErrors Renaming database %@ to %@
+#Library Renaming database %@ to %@

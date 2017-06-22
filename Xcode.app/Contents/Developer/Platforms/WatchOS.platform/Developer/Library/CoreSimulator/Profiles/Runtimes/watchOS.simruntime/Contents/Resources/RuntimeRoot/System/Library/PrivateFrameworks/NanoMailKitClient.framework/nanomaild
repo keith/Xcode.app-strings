@@ -489,6 +489,7 @@ companionSyncService
 arrayWithObjects:count:
 initWithMailboxIds:
 requestOlderMessagesWithFilter:
+reportFetchOlderMessages
 mailboxSelection
 accounts
 initWithAccounts:
@@ -525,7 +526,7 @@ messagesProcessedHandler
 handleMessagesAdded:handler:
 allMessages
 resetVisibleStatusForMessages
-messageServiceDidRequireReloadCache:
+messageService:didRequireReloadCacheWithFirstConversations:
 isClassCDataAvailable
 requestFetchManuallyTriggered:filteredConversationId:mailboxIds:forceBatchResponse:
 dictionary
@@ -655,6 +656,8 @@ _databaseFactory
 _database
 _executionQueue
 _lastBatchFetchRequestDateByMailboxId
+source
+messageId
 initWithQueue:
 datesForIDSIdentifiersScheduledToBeResent
 enqueueIDSIdentifiersForResend:
@@ -690,7 +693,6 @@ subarrayWithRange:
 setWillTrimDatabaseAfterResults:
 string
 status
-messageId
 appendFormat:
 dataUsingEncoding:
 compressedData
@@ -793,18 +795,19 @@ messageStatusUpdates
 reportMessageUpdateReceivedForMessageWithId:fullSyncVersion:dateSynced:
 messageDeletions
 reportMessageDeletionReceivedForMessageWithId:fullSyncVersion:dateSynced:
+fetchResults
+shouldTrimDatabase
+hasDateForRequestingMoreMessages
+_handleBatchedFetchResult:isProtectedData:handler:
 syncVersionForMailboxId:
 updateSyncVersion:forMailboxId:
 messageUpdates
-shouldTrimDatabase
-hasDateForRequestingMoreMessages
 dateForRequestingMoreMessages
 deleteMessagesOlderThan:mailboxId:
 _messageIdsForMessageProtobufs:
 addObjectsFromArray:
 messagesWithIds:
 updatedStatus
-setStatus:
 handleMessagesDeleted:handler:
 updatesWithSyncEnabled:filterType:
 resetMailboxForMailboxId:applyingUpdates:
@@ -895,6 +898,7 @@ removeAllObjects
 requestFullSync:
 requestHaltSync:
 protoMailboxSelectionFromMailboxSelection:fullSyncVersion:
+setStatus:
 from
 setFrom:
 setTo:
@@ -926,7 +930,7 @@ messagesSyncServiceClient:didAddMessages:
 messagesSyncServiceClient:didSendInitialMessagesSync:
 messagesSyncServiceClient:didFetchMoreMessages:
 messagesSyncServiceClient:didFetchMoreMessagesForConversation:
-messagesSyncServiceClient:didSendBatchedFetchResult:
+messagesSyncServiceClient:didReceivedCoalescedBatchedFetchResult:
 messagesSyncServiceClient:didUpdateMessagesStatus:
 messagesSyncServiceClient:didDeleteMessages:
 messagesSyncServiceClient:didUpdateMailboxSelection:
@@ -1122,7 +1126,6 @@ _databaseQueue
 _connection
 _journal
 _demoUtility
-source
 initWithMachServiceName:
 machServiceName
 setMachServiceName:
@@ -1479,6 +1482,7 @@ receiverXPCServerDidNotifyFetchRequestCompleted:
 receiverXPCServerDidFinishSyncingMessagesSuccessfullyReceivingMessages:initialMessages:
 receiverXPCServerConnectivityDidChange:
 receiverXPCServerDidRequestReloadCache
+receiverXPCServerDidReplyWithConversationOperations:totalConversationsCount:willFetch:error:reloadCache:
 receiverXPCServerDidDeleteAllMessages
 receiverXPCServerDidAddNewAccount:
 receiverXPCServerDidUpdateAccount:
@@ -1486,7 +1490,6 @@ receiverXPCServerDidDeleteAccountWithId:
 receiverXPCServerDidChangeMailboxSelection:
 _notifyClientConnection:notificationBlock:
 remoteObjectProxyWithErrorHandler:
-receiverXPCServerDidReplyWithConversationOperations:totalConversationsCount:willFetch:error:
 requestFirstConversations:forMailboxFilter:
 requestConversationsReceivedBefore:count:
 requestMoreMessagesForConversationWithId:
@@ -1553,6 +1556,7 @@ Finished refreshing message dates.
 Requesting full sync. (Pending full sync: %lu), (Created database from scratch: %lu), (Database recently migrated: %lu), (Received full sync messages: %lu)
 It won't request full sync. (ResquestPending: %lu, Recently Migrated: %lu)
 App requested first conversations for mailbox filter: %{public}@ - count: %lu
+Requesting more messages %lu before data %{public}@.
 Mailbox selection changed from App. New Selection: [%{public}@], Previous Selection: [%{public}@]
 Mailboxes to udpate. %{public}@
 Mailboxes to re-sync. %{public}@
@@ -1560,11 +1564,13 @@ Mailboxes to disable sync. %{public}@
 Ignoring mailbox selection update from app because it has not changed.
 Requesting total number of conversation, but no mailbox filter was passed. It will count all conversations on database.
 Deleting all message requested from adhoc service
+Requesting reload cache due to reseting visible status
 Ignoring fetch request because it was already requested. %{public}@
 It will not fetch older messages becase network latency test mode is enabled.
 User hasn't been using NanoMail for a while and notifications are disabled. Halting Mail sync... (Date: %{public}@)
 Resuming Mail sync...
 Suppressing "received old message" notification for mailbox not visible. %{public}@
+Requesting reload cache due to database unlocked
 handleDatababaseDirectoryRecreated
 Waiting for device to unlock to perform requested operation...
 We couldn't unlock the device and attach the protected database before executing an operation that requires protected data. This might affect the UI.
@@ -1582,6 +1588,7 @@ Assuming the mailbox is empty. Requesting messages older than now. (Mailbox Id: 
 Will fetching from Companion from companion for mailbox Id: %{public}@, Date Cap: %{public}@).
 Fetching from Companion (Mailbox Ids: %{public}@, Filter: %lu - IDS Identifier: %{public}@).
 Message UPDATED (Id: %{public}@ - Status: %lu - Status Version: %lu).
+Sending message udpates to companion. IDS Identifier: %{public}@
 Message DELETED (Id: %{public}@ - Status: %lu).
 Will warn messages filtered out
 There is no message for conversation with id - %{public}@ - It won't fetch more messages
@@ -1616,27 +1623,29 @@ More Messages Fetch Received for Conversation (Conversation Id: %{public}@)
 Message ADDED as More Messages Fetched for Conversation from Provider (Message Id: %{public}@ - Message Id Header: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Conversation Id: %{public}@)
 Message Status UPDATED from Provider (Id: %{public}@ - Status: %lu - Protected Channel: %d)
 Message DELETED from Provider (Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
+Requesting reload cache due to batch request response. Trimming database
 Received didSendBatchedFetchResult
 'didSendBatchedFetchResult' response ignored.
 Updating mailbox-sync-version because we received a batchedFetchResult with a higher version. LMSV:%lu, NMSV:%lu
 'didSendBatchedFetchResult' response ignored because mailbox-sync-version is lower.
 Batched fetch result received (Additions: %lu - Updates: %lu - Deletions: %lu.
-NNMKSyncReceiverXPCServer: Trimming database. Deleting messages older than %{public}@...
-NNMKSyncReceiverXPCServer: Message ADDED from Provider in Batched Result (Message Id: %{public}@ - Message Id Header: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message Status UPDATED from Provider in Batched Result but message did not exist. Ignoring... (Id: %{public}@ - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message Status UPDATE in Batched Result ignored, as it's outdated... (Id: %{public}@ - Existing Status Version: %lu - Request Status Version: %lu - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message Status UPDATED from Provider in Batched Result (Id: %{public}@ - Date Received: %{public}@ - Status: %lu - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message DELETED from Provider in Batched Result but message did not exist. Ignoring... (Id: %{public}@ - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message DELETED from Provider in Batched Result (Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
+Trimming database. Deleting messages older than %{public}@...
+Message ADDED from Provider in Batched Result (Message Id: %{public}@ - Message Id Header: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
+Message Status UPDATED from Provider in Batched Result (Id: %{public}@ - Date Received: %{public}@ - Status: %lu - Protected Channel: %d)
+Message Status UPDATED from Provider in Batched Result but message did not exist. Ignoring... (Id: %{public}@ - Protected Channel: %d)
+Message Status UPDATE in Batched Result ignored, as it's outdated... (Id: %{public}@ - Existing Status Version: %lu - Request Status Version: %lu - Protected Channel: %d)
+Message Status UPDATED from Provider in Batched Result (Id: %{public}@ - Date Received: %{public}@ - Status: %lu - Status Version: %lu - Protected Channel: %d)
+Message DELETED from Provider in Batched Result but message did not exist. Ignoring... (Id: %{public}@ - Protected Channel: %d)
+Message DELETED from Provider in Batched Result (Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
 Mailbox selection changed from Companion. New Selection: [%{public}@], Previous Selection: [%{public}@]
 Ignoring mailbox selection update from companion because it has not changed. %{public}@
-NNMKSyncReceiverXPCServer: Notification Message ADDED from Provider along with Message Content (Message Id: %{public}@ - Message Id Header: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message Content Received before actual message. Will request again when message arrives... (Id: %{public}@ - Protected Channel: %d)
-NNMKSyncReceiverXPCServer: Message Content Received from Provider but had already been received. Discarding... (Id: %{public}@ - Protected Channel: %d)
+Notification Message ADDED from Provider along with Message Content (Message Id: %{public}@ - Message Id Header: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Protected Channel: %d)
+Message Content Received before actual message. Will request again when message arrives... (Id: %{public}@ - Protected Channel: %d)
+Message Content Received from Provider but had already been received. Discarding... (Id: %{public}@ - Protected Channel: %d)
 Error unarchiving content. Will assume message has no content. (Message Id: %{public}@ - Exception: %{public}@).
 Message Content Received from Provider (Id: %{public}@ - String Length: %lu - Compressed Data: %lu - Decompressed Data: %lu - Protected Channel: %d)
 Notifying clients we failed saving content (Message Id: %{public}@)...
-NNMKSyncReceiverXPCServer: Image Attachment Received before actual message. Will request full content again when message arrives... (Id: %{public}@)
+Image Attachment Received before actual message. Will request full content again when message arrives... (Id: %{public}@)
 Image Attachment ADDED from Provider (Message Id: %{public}@ - Content Id: %{public}@)
 Notification that all content has been sync'ed received (Full sync version: %lu - Callback IDS Identifier: %{public}@).
 Last Fetch More Messages Request Failed being sent by IDS. Will inform NanoMail... (IDS Identifier: %{public}@ - Error code: %li)
@@ -1771,6 +1780,7 @@ Error feching mailbox ids for account. (%{public}@).
 Error selecting messages where %{public}@ (%{public}@).
 Messages deleted successfully. %lu
 Error deleting messages (Error: %{public}@).
+Ignoring mailbox filter type for querying messages for conversation.
 Error selecting messages and conversations where %{public}@ (%{public}@).
 Error selecting accounts where %{public}@ (%{public}@).
 Error selecting mailboxes where %{public}@ (%{public}@).
@@ -1833,6 +1843,8 @@ NSObject
 NNMKDatabaseLifecycleObserver
 NNMKMessageServiceDelegate
 NNMKMessageService
+MessageDataSource
+NNMKMessageDeletion
 NNMKCompanionSyncService
 NNMKMessagesSyncServiceClientDelegate
 NNMKMessageContentSyncServiceClientDelegate
@@ -1845,7 +1857,6 @@ NanoMail
 NNMKBodyContentPreparer
 NNMKXPCConnectionLookup
 NNMKDatabaseFactory
-MessageDataSource
 NNMKMessageUpdate
 NNMKXPCListener
 NNMKMessagesProcessedHandler
@@ -1853,7 +1864,6 @@ NNMKNanoMailProcessMonitor
 NNMKMailboxUpdates
 NNMKDevice
 NNMKNanoMailSnapshotRequester
-NNMKMessageDeletion
 NNMKDatabase
 NNMKMessageDataSource
 NNMKXPCServer
@@ -1937,7 +1947,7 @@ v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMessageAdditions"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoInitialMessagesSyncBatch"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMoreMessages"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMoreMessagesForConversation"12
-v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoBatchedFetchResult"12
+v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoCoalescedBatchedFetchResult"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMessageStatusUpdates"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMessageDeletions"12
 v16@0:4@"NNMKMessagesSyncServiceClient"8@"NNMKProtoMailboxSelection"12
@@ -1957,6 +1967,7 @@ v16@0:4@"NNMKFetchesSyncServiceClient"8@"NNMKProtoComposedMessageSendingProgress
 @20@0:4@8@12@16
 v20@0:4B8@12@16
 @20@0:4@8@12B16
+v20@0:4@8B12@16
 v20@0:4@8I12I16
 v16@0:4@8I12
 v24@0:4@8@12I16@20
@@ -2100,8 +2111,6 @@ v20@0:4I8@12@16
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-<key>application-identifier</key>
-<string>Apple Certification Authority.</string>
 <key>com.apple.messages.supportsattachments</key>
 <true/>
 <key>com.apple.private.accounts.allaccounts</key>

@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1146.0.0.1.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1173
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -142,7 +142,6 @@ alloc
 init
 copy
 countByEnumeratingWithState:objects:count:
-hasPrefix:
 UTF8String
 removeObject:
 stringWithUTF8String:
@@ -353,7 +352,6 @@ Idle
 Active
 com.apple.xpc.activity.debug.trigger
 DisableSmartPowerNap
-com.apple.xpc.activity.test
 true
 false
 eligible

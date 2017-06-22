@@ -204,6 +204,17 @@ git config -f .gitmodules submodule."$sm_name".branch "$branch"
 fi &&
 git add --force .gitmodules ||
 die "$(eval_gettext "Failed to register submodule '\$sm_path'")"
+# NEEDSWORK: In a multi-working-tree world, this needs to be
+# set in the per-worktree config.
+if git config --get submodule.active >/dev/null
+then
+# If the submodule being adding isn't already covered by the
+# current configured pathspec, set the submodule's active flag
+if ! git submodule--helper is-active "$sm_path"
+then
+git config submodule."$sm_name".active "true"
+else
+git config submodule."$sm_name".active "true"
 # Execute an arbitrary command sequence in each checked out
 # submodule
 # $@ = command to execute
@@ -226,7 +237,7 @@ toplevel=$(pwd)
 exec 3<&0
 git submodule--helper list --prefix "$wt_prefix" ||
 echo "#unmatched" $?
-while read mode sha1 stage sm_path
+while read -r mode sha1 stage sm_path
 die_if_unmatched "$mode" "$sha1"
 if test -e "$sm_path"/.git
 then
@@ -295,7 +306,7 @@ then
 die "$(eval_gettext "Use '--all' if you really want to deinitialize all submodules")"
 git submodule--helper list --prefix "$wt_prefix" "$@" ||
 echo "#unmatched" $?
-while read mode sha1 stage sm_path
+while read -r mode sha1 stage sm_path
 die_if_unmatched "$mode" "$sha1"
 name=$(git submodule--helper name "$sm_path") || exit
 displaypath=$(git submodule--helper relative-path "$sm_path" "$wt_prefix")
@@ -408,7 +419,7 @@ ${jobs:+$jobs} \
 "$@" || echo "#unmatched" $?
 } | {
 err=
-while read mode sha1 stage just_cloned sm_path
+while read -r mode sha1 stage just_cloned sm_path
 die_if_unmatched "$mode" "$sha1"
 name=$(git submodule--helper name "$sm_path") || exit
 url=$(git config submodule."$name".url)
@@ -586,7 +597,7 @@ eval "set $(git rev-parse --sq --prefix "$wt_prefix" -- "$@")"
 # Get modified modules cared by user
 modules=$(git $diff_cmd $cached --ignore-submodules=dirty --raw $head -- "$@" |
 sane_egrep '^:([0-7]* )?160000' |
-while read mod_src mod_dst sha1_src sha1_dst status sm_path
+while read -r mod_src mod_dst sha1_src sha1_dst status sm_path
 # Always show modules deleted or type-changed (blob<->module)
 if test "$status" = D || test "$status" = T
 then
@@ -606,7 +617,7 @@ test -z "$modules" && return
 git $diff_cmd $cached --ignore-submodules=dirty --raw $head -- $modules |
 sane_egrep '^:([0-7]* )?160000' |
 cut -c2- |
-while read mod_src mod_dst sha1_src sha1_dst status name
+while read -r mod_src mod_dst sha1_src sha1_dst status name
 if test -z "$cached" &&
 test $sha1_dst = 0000000000000000000000000000000000000000
 then
@@ -711,16 +722,15 @@ shift
 done
 git submodule--helper list --prefix "$wt_prefix" "$@" ||
 echo "#unmatched" $?
-while read mode sha1 stage sm_path
+while read -r mode sha1 stage sm_path
 die_if_unmatched "$mode" "$sha1"
 name=$(git submodule--helper name "$sm_path") || exit
-url=$(git config submodule."$name".url)
 displaypath=$(git submodule--helper relative-path "$prefix$sm_path" "$wt_prefix")
 if test "$stage" = U
 then
 say "U$sha1 $displaypath"
 continue
-if test -z "$url" ||
+if ! git submodule--helper is-active "$sm_path" ||
 ! test -d "$sm_path"/.git &&
 ! test -f "$sm_path"/.git
 then
@@ -767,8 +777,12 @@ done
 cd_to_toplevel
 git submodule--helper list --prefix "$wt_prefix" "$@" ||
 echo "#unmatched" $?
-while read mode sha1 stage sm_path
+while read -r mode sha1 stage sm_path
 die_if_unmatched "$mode" "$sha1"
+# skip inactive submodules
+if ! git submodule--helper is-active "$sm_path"
+then
+continue
 name=$(git submodule--helper name "$sm_path")
 url=$(git config -f .gitmodules --get submodule."$name".url)
 # Possibly a url relative to parent
@@ -786,8 +800,6 @@ super_config_url=$(git submodule--helper resolve-relative-url "$url") || exit
 sub_origin_url="$url"
 super_config_url="$url"
 esac
-if git config "submodule.$name.url" >/dev/null 2>/dev/null
-then
 displaypath=$(git submodule--helper relative-path "$prefix$sm_path" "$wt_prefix")
 say "$(eval_gettext "Synchronizing submodule url for '\$displaypath'")"
 git config submodule."$name".url "$super_config_url"
