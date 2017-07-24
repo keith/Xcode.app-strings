@@ -242,6 +242,7 @@ pending
  dep:
 <%@ (%p): %@%@>
 result-operation-timeout
+finished %@
 <%@: %@ error:%@>
 CKKSResultOperationError
 Operation timed out waiting to start for [%@]
@@ -251,15 +252,19 @@ timeoutCanOccur
 TB,V_timeoutCanOccur
 timeoutQueue
 T@"NSObject<OS_dispatch_queue>",&,V_timeoutQueue
+finishingBlock
+T@?,C,V_finishingBlock
 error
 T@"NSError",&,V_error
+finishDate
+T@"NSDate",&,V_finishDate
 group-start
 group-finish
 group-queue:%@
 group-start:%@
 group-finish:%@
+<%@: finished %@ - %@>
 <%@: finished %@>
-<%@: finished>
 <%@: [%@] error:%@>
 <%@: [%@]%@>
 isFinished
@@ -365,6 +370,7 @@ ChangeTracker is not concrete
 tracker
 <ChangeTracker %@ children %ld/%ld>
 NonConcrete
+ckks
 engine-state-v2
 engine-peer-states
 engine-manifest-cache
@@ -1029,6 +1035,7 @@ wrapped key size does not match key size
 unwrapped key size does not match key size
 CommonCrypto
 IV generation failed
+ciphertext too short
 no mode given
 corecrypto
 could not ccsiv_init
@@ -1830,6 +1837,7 @@ WatchMigration
 Engram
 Manatee
 AutoUnlock
+Health
 kSOSCCViewEnable
 kSOSCCViewDisable
 kSOSCCViewQuery
@@ -1901,15 +1909,18 @@ bind_int[%d]: %d error: %@
 bind_int64[%d]: %lld error: %@
 db %@ changed outside txn
 operation returned code: %d integrity check=fail
+WARNING: unable to call SecDbHandleCorrupt (not on db queue)
 operation returned code: %d: integrity check=pass
 SecDBCheckCorrupted integrity_check returned %s
 #SecDB warning error %{public}@ when running integrity check
+#SecDB warning: failed to run integrity check due to corruption
 SecDBCheckCorrupted ran integrity_check, and that didn't return ok
+SecDBCheckCorrupted failed to run integrity check
 sqlDb: sql trace mask: 0x%08x
 #SecDB %{public}s
 #SecDB integrity check=fail
 opened block failed: %@
-opened block failed: error is released and lost
+opened block failed: error (%@) is being released and lost
 #SecDB starting maintenance
 Tried to rename corrupt database at path %@, but we failed: %@, trying explicit rename
 Database at path %@ is corrupt. Copied it to %s for further investigation.
@@ -1933,6 +1944,7 @@ RateLimiter[%@] state size %lu exceeds max %lu, overloaded until %@
 %@ %s %s changes: %@
 change %@ SOSObjectCopyDigest: %@
 change %@ bad length digest: %@
+posting notification %@
 dropping corrupt manifest for %@ from cache
 engine failed load state starting with nothing %@
 %@ peer sent bad object: %@, rolling back changes
@@ -2071,12 +2083,14 @@ upgrade: Setting version failed: %@
 upgrade: SecDB upgrade failed: %@
 upgrade: error has been set but status is true
 upgrade: error occurred, considering marking database as corrupt: %@
-upgrade: skipping to mark as corrupt for error: %@
+upgrade: not marking keychain database corrupt for error: %@
 upgrade: unable to complete upgrade, marking DB as corrupt: %@
 upgrade: unable to complete upgrade and no error object returned, marking DB as corrupt
 upgrade: marking database as corrupt
 Upgrading table %@
 item: %@ insert during upgrade: %@
+Bailing in phase 1 because AKS is unavailable: %@
+Bailing in phase 2 because AKS is unavailable: %@
 items matching issuer parent: %@
 function SecTokenItemValueCopy failed with: %@
 token item doesn't contain token value data
@@ -2506,6 +2520,8 @@ Error getting debug key interests %@
 Error getting config key interests %@
 Error getting message interests %@
 Updating interests: %@
+ key-intrest: %@->%@: %@
+Updating interests done: %lu
 Error updating keys: %@
 SOSTransportDispatchMessages received kSOSKVSAccountChangedKey
 Unknown key '%@', ignoring
@@ -2692,12 +2708,14 @@ queryDatabaseTable:where:columns:groupBy:orderBy:limit:processRow:error:
 allWhere:error:
 fetch:where:orderBy:error:
 exceptionWithName:reason:userInfo:
+allocWithZone:
 queryMaxValueForField:inTable:where:columns:processRow:
 deleteAll:
 fromDatabaseWhere:error:
 all:
 fetch:error:
 fetch:where:error:
+copyWithZone:
 saveToDatabase:
 deleteFromDatabase:
 setOriginalSelfWhereClause:
@@ -2710,6 +2728,7 @@ setContents:
 _sqlOp
 _contents
 name
+addDependency:
 dependencies
 copy
 isPending
@@ -2721,11 +2740,15 @@ isExecuting
 isReady
 selfname
 pendingDependenciesString:
-addDependency:
+linearDependencies:
 addNullableDependency:
 blockOperationWithBlock:
 setName:
 named:withBlock:
+dateWithTimeIntervalSinceNow:
+setFinishDate:
+setCompletionBlock:
+finishDate
 error
 allDependentsSuccessful
 cancel
@@ -2744,10 +2767,14 @@ timeout:
 addSuccessDependency:
 setSuccessDependencies:
 setTimeoutQueue:
+finishingBlock
+setFinishingBlock:
 _timeoutCanOccur
 _error
+_finishDate
 _successDependencies
 _timeoutQueue
+_finishingBlock
 groupStart
 completeOperation
 finishOperation
@@ -2786,8 +2813,6 @@ writersCount
 clearWriters
 writerAtIndex:
 setRatelimitertype:
-allocWithZone:
-copyWithZone:
 writerType
 setTimestamp:
 setHasTimestamp:
@@ -2877,11 +2902,11 @@ stringFromDate:
 liveRequest
 predictedNextFireTime
 queue
+_onqueueTrigger:
 futureOperation
 setLiveRequest:
 setTransaction:
 continuingDelay
-dateWithTimeIntervalSinceNow:
 setPredictedNextFireTime:
 timer
 keepProcessAlive
@@ -2890,6 +2915,7 @@ setTimer:
 _onqueueTimerTick
 initialDelay
 initWithName:delay:keepProcessAlive:block:
+waitUntil:
 trigger
 setFutureOperation:
 setInitialDelay:
@@ -2906,6 +2932,7 @@ _predictedNextFireTime
 _timer
 _queue
 _transaction
+post:
 numberWithLongLong:
 setDurationMsec:
 setHasDurationMsec:
@@ -3279,6 +3306,7 @@ postDebugScope:scope:err:
 copyDeviceKey:
 removeIncompleteiCloudIdentities:privKey:err:
 clientPing:
+arrayWithObjects:count:
 thisDeviceStatusInCircle:peer:
 checkForSponsorshipTrust:
 ghostBustingOK:updatingTo:
@@ -3306,19 +3334,20 @@ HasElements
 Stringizing
 filledAndClipped
 CKKSSQLDatabaseObject
+NSCopying
 CKKSSQLWhereObject
 CKKSUsefulPrintingOperation
 CKKSUsefulConstructorOperation
 CKKSResultOperation
 CKKSGroupOperation
 AWDKeychainCKKSRateLimiterTopWriters
-NSCopying
 RateLimiter
 NSSecureCoding
 NSCoding
 CKKSNearFutureScheduler
+CKKSNotifyPostNotifier
+CKKSNotifier
 CKKSViewManager
-CKKSControlProtocol
 AWDKeychainCKKSRateLimiterOverload
 CKKSKeychainView
 CKKSBaseAESSIVKey
@@ -3391,19 +3420,22 @@ B24@0:8^@16
 @32@0:8Q16^@24
 @40@0:8Q16@24^@32
 @48@0:8Q16@24@32^@40
+@24@0:8^{_NSZone=}16
 B32@0:8^{__OpaqueSecDbConnection=}16^@24
 @"NSDictionary"
 @32@0:8@16@24
 @32@0:8@16@?24
 @24@0:8@?16
+v24@0:8@?16
 @24@0:8Q16
 v20@0:8B16
+@?16@0:8
 @"NSError"
+@"NSDate"
 @"NSMutableArray"
 @"NSObject<OS_dispatch_queue>"
 @"NSOperationQueue"
 @"NSBlockOperation"
-@24@0:8^{_NSZone=}16
 {?="timestamp"b1}
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
@@ -3414,13 +3446,11 @@ q40@0:8@16@24^@32
 @"AWDServerConnection"
 @44@0:8@16Q24B32@?36
 @52@0:8@16Q24Q32B40@?44
-@?16@0:8
-v24@0:8@?16
 v24@0:8Q16
 @"NSString"
-@"NSDate"
 @"NSObject<OS_dispatch_source>"
 @"NSObject<OS_os_transaction>"
+v24@0:8@"NSString"16
 v24@0:8q16
 q16@0:8
 {?="durationMsec"b1"timestamp"b1}

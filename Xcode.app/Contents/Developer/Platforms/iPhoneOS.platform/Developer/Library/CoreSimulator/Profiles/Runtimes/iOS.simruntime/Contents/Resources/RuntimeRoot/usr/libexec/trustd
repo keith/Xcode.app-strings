@@ -103,6 +103,7 @@ SQL DB %@ is corrupted already. Not trying to recover, corruption error was: %d 
 /Library/Keychains/TrustStore.sqlite3
 /Library/Keychains/caissuercache.sqlite3
 PRAGMA integrity_check
+NULL
 v16@?0^{sqlite3_stmt=}8
 mkpath_np %s: [%d] %s
 open_v2 "%s" 0x%X
@@ -201,6 +202,16 @@ INSERT INTO responses (ocspResponse,responderURI,expires,lastUsed) VALUES (?,?,?
 INSERT INTO ocsp (hashAlgorithm,issuerNameHash,issuerPubKeyHash,serialNum,responseId) VALUES (?,?,?,?,?)
 DELETE FROM responses WHERE expires<?
 SELECT ocspResponse,responseId FROM responses WHERE lastUsed>? AND responseId=(SELECT responseId FROM ocsp WHERE issuerNameHash=? AND issuerPubKeyHash=? AND serialNum=? AND hashAlgorithm=?) ORDER BY expires DESC
+ValidUpdateEvent
+timestamp
+event
+updateCanceled
+downloadCanceled
+download
+updateStarted
+updateFinished
+downloadStarted
+downloadFinished
 hash
 TQ,R
 superclass
@@ -210,10 +221,14 @@ T@"NSString",R,C
 debugDescription
 handler
 T@?,C,V_handler
+revDbUpdateQueue
+T@"NSObject<OS_dispatch_queue>",&,V_revDbUpdateQueue
 currentUpdateFile
 T@"NSFileHandle",&,V_currentUpdateFile
 currentUpdateFileURL
 T@"NSURL",&,V_currentUpdateFileURL
+finishedDownloading
+TB,V_finishedDownloading
 com.apple.trustd.networking.background
 User-Agent
 com.apple.trustd/2.0
@@ -221,6 +236,7 @@ Accept
 Accept-Encoding
 gzip,deflate,br
 https://%@/g3/v%ld
+downloadScheduled
 updateScheduled
 Td,V_updateScheduled
 backgroundSession
@@ -307,7 +323,7 @@ ValidUpdateServer
 valid.apple.com
 %s/%s
 .valid_replace
-1.2.8
+1.2.11
 ValidUpdateEnabled
 ValidUpdateInterval
 valid.sqlite3
@@ -525,15 +541,18 @@ bind_double[%d]: %f error: %@
 bind_int[%d]: %d error: %@
 bind_int64[%d]: %lld error: %@
 operation returned code: %d integrity check=fail
+WARNING: unable to call SecDbHandleCorrupt (not on db queue)
 operation returned code: %d: integrity check=pass
 SecDBCheckCorrupted integrity_check returned %s
 #SecDB warning error %{public}@ when running integrity check
+#SecDB warning: failed to run integrity check due to corruption
 SecDBCheckCorrupted ran integrity_check, and that didn't return ok
+SecDBCheckCorrupted failed to run integrity check
 sqlDb: sql trace mask: 0x%08x
 #SecDB %{public}s
 #SecDB integrity check=fail
 opened block failed: %@
-opened block failed: error is released and lost
+opened block failed: error (%@) is being released and lost
 #SecDB starting maintenance
 Tried to rename corrupt database at path %@, but we failed: %@, trying explicit rename
 Database at path %@ is corrupt. Copied it to %s for further investigation.
@@ -578,14 +597,18 @@ Leaf was issued with SHA-1 after 2015
 _SecOCSPCacheAddResponse failed: %@
 _SecOCSPCacheAddResponse VACUUM failed: %@
 ocsp cache lookup failed: %@
+%s canceled at %f
+update started at %f
 failed to read %@ with error %d
 unable to unmap current update %ld bytes at %p (error %d)
+update finished at %f
 Session %@ data task %@ returned response %ld, expecting %lld bytes
 unable to open %@ (errno %d)
+download started at %f
 failed to open %@: %@. canceling task %@
 received data, but output file is not open
 Session %@ task %@ failed with error %@
-update complete at %f
+download finished at %f
 invalid update request
 missing update queue, skipping update
 postponing update until %f
@@ -872,8 +895,6 @@ iZtTp
 DG9*CO
 ki0!!
 (+pw)
-oWbW
-nwhD
 d:-+
 $[(9s
 \.aK
@@ -887,7 +908,11 @@ SELECT data FROM tsettings WHERE subj=?
 SELECT tset FROM tsettings WHERE sha1=?
 SELECT data,tset FROM tsettings ORDER BY sha1
 SELECT COUNT(*) FROM tsettings
+date
+timeIntervalSince1970
+numberWithDouble:
 reschedule
+closeFile
 taskDescription
 cStringUsingEncoding:
 statusCode
@@ -898,7 +923,6 @@ writeData:
 description
 versionFromTask:
 updateDb:
-closeFile
 isEqual:
 self
 performSelector:
@@ -934,11 +958,17 @@ URLSession:dataTask:didReceiveData:
 URLSession:dataTask:willCacheResponse:completionHandler:
 handler
 setHandler:
+revDbUpdateQueue
+setRevDbUpdateQueue:
 currentUpdateFile
 setCurrentUpdateFile:
 currentUpdateFileURL
 setCurrentUpdateFileURL:
+finishedDownloading
+setFinishedDownloading:
+_finishedDownloading
 _handler
+_revDbUpdateQueue
 _currentUpdateFile
 _currentUpdateFileURL
 backgroundSessionConfigurationWithIdentifier:
@@ -952,13 +982,13 @@ set_requiresPowerPluggedIn:
 setAllowsCellularAccess:
 validUpdateConfiguration
 setUpdateScheduled:
-setUnderlyingQueue:
 sessionWithConfiguration:delegate:delegateQueue:
 updateScheduled
 URLWithString:
 _obliterateAllBackgroundSessionsWithCompletionHandler:
 backgroundSession
 createSession:
+numberWithUnsignedInteger:
 dataTaskWithURL:
 setTaskDescription:
 resume
