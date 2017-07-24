@@ -21,7 +21,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.13.0 (Apple Git-88)";
+our $version = "2.13.1 (Apple Git-89)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;
@@ -6178,7 +6178,7 @@ print <<EOT;
 <p><strong>Pattern</strong> is by default a normal string that is matched precisely (but without
 regard to case, except in the case of pickaxe). However, when you check the <em>re</em> checkbox,
 the pattern entered is recognized as the POSIX extended
-<a href="http://en.wikipedia.org/wiki/Regular_expression">regular expression</a> (also case
+<a href="https://en.wikipedia.org/wiki/Regular_expression">regular expression</a> (also case
 insensitive).</p>
 <dl>
 <dt><b>commit</b></dt>

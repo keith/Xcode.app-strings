@@ -1,11 +1,11 @@
-#!/usr/bin/sandbox-exec -n no-network /usr/bin/ruby -v
+#!/usr/bin/sandbox-exec -n no-network /usr/bin/ruby -E UTF-8 -v
 # -*- coding: utf-8; mode: ruby -*-
 #  A utility for performing various operations on IPA files.  This script is
 #  intended to be invoked by xcodebuild.  It is not intended for direct use,
 #  or for invocation in any manner other than through xcodebuild.  Any other
 #  use is unsupported.
 #  Copyright 
- 2015-2016 Apple Inc. All Rights Reserved.
+ 2015-2017 Apple Inc. All Rights Reserved.
 GC.disable
 require 'optparse'
 require 'cfpropertylist'
@@ -149,18 +149,18 @@ class CmdSpec
     end
   end
   # Raises NonZeroExcitException if the process exits with non-zero
-  def run(log_indent = 0)
-    $stderr.puts(self.to_s.indent(log_indent))
+  def run(log_indent = 0, verbose_log = true)
+    $stderr.puts(self.to_s.indent(log_indent)) if verbose_log
     
     opts = {}
     opts[:chdir] = chdir if self.chdir.nil_if_empty
     out_str, err_str, status = Open3.capture3(self.env, self.bin, *self.args, opts)
     
     s = "#{bin.shellescape} exited with #{status}\nStdout:\n#{out_str.indent}\nStderr:\n#{err_str.indent}"
-    $stderr.puts(s.indent(log_indent+1))
+    $stderr.puts(s.indent(log_indent+1)) if verbose_log
     
     unless status.success?
-      raise NonZeroExcitException.new(self, out_str, err_str, status), s
+      raise NonZeroExcitException.new(self, out_str, err_str, status)
     end
     
     return out_str
@@ -234,7 +234,7 @@ class LinkageGraph
     resolvedDylibs.assert_array_of(MachOImage)
     
     self[image] = resolvedDylibs
-    $stderr.puts("LinkageGraph << #{image} ->\n#{resolvedDylibs.join("\n").indent}".indent(level))
+    # $stderr.puts("LinkageGraph << #{image} ->\n#{resolvedDylibs.join("\n").indent}".indent(level))
     # Follow each dependency
     resolvedDylibs.each{|img| resolveLoadedDylibs(img, rpathFallbackStack, rpathStack, machOsByRealPath, executablePath, level + 1) }
   end
@@ -315,7 +315,6 @@ OPTIONS.skipThinDevices = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
 OPTIONS.validateOutput = false
-Encoding.default_external = "UTF-8"
 USAGE_BANNER = "usage: #{File.basename(__FILE__).shellescape} <ipa-or-dir> [options] [--output=<ipa-or-dir>]"
 OptionParser.new do |opts|
   opts.banner = USAGE_BANNER
@@ -567,7 +566,7 @@ if OPTIONS.inputPath.file?
   # Use 'ditto -x -k' to unpack the IPA (it's really just a Zip file, for now); later we'll use the StreamingZip tool.
   $stdout.puts "Unpacking #{OPTIONS.inputPath.basename.to_s.shellescape}..." if OPTIONS.verbosity >= 3
   unpackedDir = OPTIONS.tmpDir.join("ipa")
-  output = CmdSpec.new("ditto", ["-x", "-k", "--noqtn", "--noacl", OPTIONS.inputPath, unpackedDir]).run()
+  output = CmdSpec.new("ditto", ["-x", "-k", "--noqtn", "--noacl", OPTIONS.inputPath, unpackedDir]).run(0, false)
   FatalError(__LINE__, "Could not unpack flat IPA file (ditto failed with exit code #{$?.exitstatus})") if $?.exitstatus != 0
   OPTIONS.inputPath = unpackedDir
 #  Allow us to annotate paths with architectures, when we know them
@@ -614,7 +613,7 @@ class MachOImage
       FileUtils.cp(self.machoFile.path, dstPath)
     else
       # We don't have a thin file, so we use lipo(1) to extract the slice from our Mach-O file.
-      CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-thin", arch, machoFile.path, "-output", dstPath]).run(level)
+      CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-thin", arch, machoFile.path, "-output", dstPath]).run(level, false)
     end
   end
   def isDylib
@@ -625,7 +624,7 @@ class MachOImage
     return self.machoFile.path.reparent(ipa.path, options.tmpDir + "thinned" + self.arch)
   end
   def rawLoadCommands
-    @rawLoadCommands ||= CmdSpec.new(locate_tool("otool", [self.platform.toolsPath]), ["-l", "-v", "-m", "-arch", self.arch, self.machoFile.path]).run()
+    @rawLoadCommands ||= CmdSpec.new(locate_tool("otool", [self.platform.toolsPath]), ["-l", "-v", "-m", "-arch", self.arch, self.machoFile.path]).run(0, false)
   end
   # Names from LC(_LAZY)?_LOAD(_WEAK)?_DYLIB commands.
   def loadedDylibs
@@ -641,6 +640,33 @@ class MachOImage
     return rawLoadCommands.
       scan(/cmd LC_RPATH.*?path\s+(.*?)\s+\(offset \d+\)/m).
       map{|groups| groups[0] }
+  end
+  # Should we exclude this image from the output IPA?
+  def shouldExcludeFromOutput
+    if not defined? @shouldExcludeFromOutput
+      @shouldExcludeFromOutput = lambda {
+        return !self.machoFile.enclosingBundle.bitcodeCompilationRootMachO.machoImages.any?{ |img|
+          img.arch == self.arch
+        }
+      }.call
+    end
+    return @shouldExcludeFromOutput
+  end
+  def shouldCompileBitcode(options)
+    return (options.compileBitcode &&
+            self.hasBitcode &&
+            !self.shouldExcludeFromOutput &&
+            self.machoFile.enclosingBundle.bitcodeCompilationRootMachO.machoImages.any? { |img|
+              img.hasBitcode && img.arch == self.arch
+            })
+  end
+  def shouldStripBitcode(options)
+    return (self.hasBitcode &&
+            !self.shouldExcludeFromOutput &&
+            (!options.compileBitcode ||
+             self.machoFile.enclosingBundle.bitcodeCompilationRootMachO.machoImages.any?{ |img|
+               !img.hasBitcode && img.arch == self.arch
+             }))
   end
 class Pathname
   # /a/foo reparent from /a to /b => /b/foo
@@ -724,7 +750,7 @@ class FSMachOFileNode < FSFileNode
     return self.machoImages[0].platform
   end
   def isFat
-    output = CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-info", self.path]).run()
+    output = CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-info", self.path]).run(0, false)
     if output =~ /Architectures in the fat file.*\:(.+)/m
       return true
     elsif output =~ /Non-fat file.*\:(.+)/m
@@ -803,7 +829,7 @@ class FSAssetCatalogFileNode < FSFileNode
                           "#{a.to_assetutil_T_string}/#{b.to_assetutil_T_string}",
                           self.path,
                          ]
-                         ).run()
+                         ).run(0, false)
     return false if output.start_with?("not equal ")
     if output.start_with?("equal ")
       if a.gfxFeatureSetFallbacks != b.gfxFeatureSetFallbacks
@@ -1002,12 +1028,58 @@ class FSBundleDirectoryNode < FSDirectoryNode
   def thinnableAssetCatalogs
     return self.enumerateTree.select{ |node| node.kind_of?(FSAssetCatalogFileNode) && node.shouldThin }
   end
+# WatchKit extras
 class FSBundleDirectoryNode
   def isWatchKitStubApp
     return self.infoDict["WKWatchKitApp"] == true
   end
   def isWatchKitAppExtension
     return self.infoDict["NSExtension"].kind_of?(Hash) && self.infoDict["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.watchkit"
+  end
+# Bitcode recompilation extras
+class FSBundleDirectoryNode
+  def watchAppExChild
+    if not defined? @watchAppExChild
+      @watchAppExChild = lambda {
+        return (if self.isWatchKitStubApp then self.nestedBundles.detect{|b| b.isWatchKitAppExtension } else nil end)
+      }.call
+    end
+    
+    return @watchAppExChild
+  end
+  # This is usually the main app in an IPA, but iOS apps which contain watchOS apps will have two roots for bitcode compilation (one for iOS, one for watchOS). In the abstract, bitcode compilation needs to happen in linkage dependency order, so it starts with a tree of bundles and resolves dependencies within that tree. Dependency resolution cannot cross platform boundaries, so a bundle with a new platform becomes a new root.
+  def isBitcodeCompilationRootBundle
+    if not defined? @isBitcodeCompilationRootBundle
+      @isBitcodeCompilationRootBundle = lambda {
+        return (!self.enclosingBundle ||
+                self.platformIdentifier != self.enclosingBundle.platformIdentifier ||
+                self.watchAppExChild != nil)
+      }.call
+    end
+    
+    return @isBitcodeCompilationRootBundle
+  end
+  # Find the root bundle (see isBitcodeCompilationRootBundle) for the current tree. E.g. if this bundle is an iOS appex, this method will return the parent iOS app.
+  def bitcodeCompilationRootBundle
+    if not defined? @bitcodeCompilationRootBundle
+      @bitcodeCompilationRootBundle = lambda {
+        return (if self.isBitcodeCompilationRootBundle then self else self.enclosingBundle.bitcodeCompilationRootBundle end)
+      }.call
+    end
+    
+    return @bitcodeCompilationRootBundle
+  end
+  # Find the root bundle (see isBitcodeCompilationRootBundle and bitcodeCompilationRootBundle), then find the root mach-o from there. It's not necessarily the same as the bundle's mainMachoFile; watchOS apps contain a stub as their mainMachoFile, so the "root" mach-o as far as bitcode compilation is concerned is actually the user's appex (see isWatchKitAppExtension).
+  def bitcodeCompilationRootMachO
+    if not defined? @bitcodeCompilationRootMachO
+      @bitcodeCompilationRootMachO = lambda {
+        root = bitcodeCompilationRootBundle
+        actualRoot = root.watchAppExChild || root
+        return actualRoot.mainMachoFile
+      }.call
+    end
+    
+    return @bitcodeCompilationRootMachO
   end
 # An IPA object represents a directory tree containing the expanded contents of a .ipa file.  The IPA's path is the
 # top-level directory.  The mainBundle property is the FSBundleDirectoryNode object that represents the main bundle
@@ -1157,7 +1229,7 @@ def GetMachOImagesFromOToolInfoForFile (path)
   machoImages = []
   for arch in [ *archs ]
     # Use otool(1) to get the load commands for the architecture, and strip off the first line.
-    output = CmdSpec.new(locate_tool("otool"), ["-l", "-v", "-m", "-arch", arch, path]).run()
+    output = CmdSpec.new(locate_tool("otool"), ["-l", "-v", "-m", "-arch", arch, path]).run(0, false)
     output = output.lines.drop(1).join('')
     # Collect load commands.
     loadCommands = nil
@@ -1227,7 +1299,7 @@ def MakeFileSystemNode (path, parentDirectory = nil, enclosingBundle = nil, pare
     # Check the file name suffix as a first indication of what kind of file it might be.
     case path.extname.downcase
     when ".car"
-      magic_type = CmdSpec.new(locate_tool("file"), ["-b", "--", path]).run().strip
+      magic_type = CmdSpec.new(locate_tool("file"), ["-b", "--", path]).run(0, false).strip
       is_bom = magic_type == "Mac OS X bill of materials (BOM) file"
       
       if is_bom
@@ -1372,8 +1444,7 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
   for subbundle in bundle.nestedBundles
     ValidatePayloadBundle(subbundle, ipa, level + 1)
   end
-def ValidateOutputIPA (srcIPA, outputPath, options)
-  outputIPA = IPA.new(outputPath)
+def ValidateOutputIPA (srcIPA, outputIPA, options)
   # There should be no AppThinning plist
   if outputIPA.appThinningInfoPath.exist?
     EmitIPAOutputValidationError("Should have been removed: #{outputIPA.appThinningInfoPath.to_s.shellescape}")
@@ -1384,19 +1455,26 @@ def ValidateOutputIPA (srcIPA, outputPath, options)
   end
   # If we compiled bitcode, we should have symbols
   if options.compileBitcode
-    inputHadBitcode = lambda { |outputSubPath|
-      relOutputPath = outputSubPath.relative_path_from(outputPath)
-      correspondingInputPath = srcIPA.path + relOutputPath
-      node = MakeFileSystemNode(correspondingInputPath, nil, nil, srcIPA.path)
-      return node.machoImages.any?{|i| i.hasBitcode }
-    }
+    dSYMsDir = outputIPA.path + "dSYMs"
+    dSYMs = if Dir.exist?(dSYMsDir) then Set.new(Dir.entries(dSYMsDir)) else Set.new() end
     
-    dSYMs = Set.new(Dir.entries(outputPath + "dSYMs"))
-    symbols = Set.new(Dir.entries(outputPath + "Symbols"))
-    for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) && inputHadBitcode.call(n.path) }
+    symbolsDir = outputIPA.path + "Symbols"
+    symbols = if Dir.exist?(symbolsDir) then Set.new(Dir.entries(symbolsDir)) else Set.new() end
+    srcMachOs = srcIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) }
+    
+    for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) }
+      correspondingInputPath = machO.path.relative_path_from(outputIPA.path)
+      correspondingInputMachO = srcMachOs.detect{|n| n.path.relative_path_from(srcIPA.path) == correspondingInputPath }
+      assert(correspondingInputMachO, "Could not find macho node with path: #{correspondingInputPath} in #{srcMachOs.map{|n| n.path.relative_path_from(srcIPA.path).to_s }}")
+      
       for image in machO.machoImages
-        EmitIPAOutputValidationError("Could not find dSYM for: #{machO.path} : #{image.arch}") unless dSYMs.include?(image.uuid + ".dSYM")
-        EmitIPAOutputValidationError("Could not find symbols for: #{machO.path} : #{image.arch}") unless symbols.include?(image.uuid + ".symbols")
+        correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == image.arch }
+        assert(correspondingInputImage, "Couldn't find image for #{image.arch} among #{correspondingInputMachO.machoImages.map{|i|i.arch}}")
+        
+        if correspondingInputImage.shouldCompileBitcode(options)
+          EmitIPAOutputValidationError("Could not find dSYM for: #{machO.path} : #{image.arch}") unless dSYMs.include?(image.uuid + ".dSYM")
+          EmitIPAOutputValidationError("Could not find symbols for: #{machO.path} : #{image.arch}") unless symbols.include?(image.uuid + ".symbols")
+        end
       end
     end
   end
@@ -1542,7 +1620,8 @@ def CreateOutputIPA (srcIPA, dstPath, thinningTraits = nil, supportedDevices = n
     outputInfo.placeholderAppPath = placeholderAppPath
   end
   if OPTIONS.validateOutput
-    ValidateOutputIPA(srcIPA, dstPath, OPTIONS)
+    # Create a new IPA from source, because srcIPA has been mutated
+    ValidateOutputIPA(IPA.new(srcIPA.path), IPA.new(dstPath), OPTIONS)
   end
   return outputInfo
 # We need to compile the bitcode once for each architecture that contains bitcode, and we need to do so in reverse
@@ -1555,35 +1634,14 @@ def CreateOutputIPA (srcIPA, dstPath, thinningTraits = nil, supportedDevices = n
 # disjoint.  Any architecture that doesn't end up in either set should be omitted.  Mach-O images to that should be
 # stripped can be stripped immediately, but those that should be compiled have to be added to a list and compiled
 # later, as noted above (we have to compile them in the right order).
-def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, archsToStrip = nil, machoImagesToCompile = nil, machoFilesToReassemble = nil, level = 0)
+def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = nil, machoFilesToReassemble = nil, level = 0)
   # If we're at the top level or if we are crossing into a new platform (i.e. if we area looking at a "main bundle"
   # for the platform), we reset our idea of the sets of architectures for which to compile or to strip bitcode.
-  watchAppExChild = if bundle.isWatchKitStubApp then bundle.nestedBundles.detect{|b| b.isWatchKitAppExtension } else nil end
-  isMainBundle = \
-  (!bundle.enclosingBundle \
-   || (bundle.platformIdentifier != bundle.enclosingBundle.platformIdentifier) \
-   || (watchAppExChild) \
-   )
-  mainBundle = if watchAppExChild then watchAppExChild else bundle end
-  if isMainBundle
+  if bundle.isBitcodeCompilationRootBundle
     # It's a main bundle for its platform.  As such, we expect it to have a main Mach-O.
-    mainMachoFile = mainBundle.mainMachoFile
-    FatalError(__LINE__, "main bundle #{mainBundle.path.relative_path_from(ipa.payloadPath)} doesn't have a main Mach-O file") unless mainMachoFile
-    # Populate 'archsToCompile' and 'archsToStrip' based on what's in the main Mach-O (and our 'compile' option).
-    FatalError(__LINE__, "main bundle #{mainBundle.path.relative_path_from(ipa.payloadPath)} specifies a main Mach-O file ('#{mainMachoFile.name}') that isn't an actual Mach-O") unless mainMachoFile.kind_of?(FSMachOFileNode)
-    allMachoImages = mainMachoFile.machoImages
-    bitcodeMachoImages = allMachoImages.select{ |img| img.hasBitcode }
-    if options.compileBitcode
-      # In this case, the set of architectures for which to compile is those for which there is bitcode, and the
-      # set of architectures for which to strip is the others (those that don't have bitcode).
-      archsToCompile = bitcodeMachoImages.map{ |img| img.arch }
-      archsToStrip = allMachoImages.map{ |img| img.arch } - archsToCompile
-    else
-      # In this case, the set of architectures for which to compile is empty, and the set of architectures to
-      # strip is all of them.
-      archsToCompile = []
-      archsToStrip = allMachoImages.map{ |img| img.arch }
-    end
+    mainMachoFile = bundle.bitcodeCompilationRootMachO
+    EmitIPAPayloadValidationError("main bundle #{mainBundle.path.relative_path_from(ipa.payloadPath)} doesn't have a main Mach-O file") unless mainMachoFile
+    EmitIPAPayloadValidationError("main bundle #{mainBundle.path.relative_path_from(ipa.payloadPath)} specifies a main Mach-O file ('#{mainMachoFile.name}') that isn't an actual Mach-O") unless mainMachoFile.kind_of?(FSMachOFileNode)
     # Start a new list of Mach-O images to compile.  Note that this does not affect the lists that are already
     # being built up by callers.
     machoImagesToCompile = []
@@ -1600,7 +1658,7 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
     adjustedMachoImages = []
     for machoImage in machoFile.machoImages
       # Exclude this Mach-O image if its architecture isn't one of the ones we want.
-      unless archsToCompile.include?(machoImage.arch) or archsToStrip.include?(machoImage.arch)
+      if machoImage.shouldExcludeFromOutput
         puts "  #{"|  " * level}.#{machoImage.arch} (exclude)" if options.verbosity >= 2
         next
       end
@@ -1608,21 +1666,20 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
       # use lipo, or might just copy (or hard-link) the file if we already have a thin slice).
       machoImage.thinToPath(machoImage.thinnedPath(ipa, options), level)
       # What we do next depends on whether or not the Mach-O has bitcode.
-      if machoImage.hasBitcode
-        # Either compile or strip the bitcode.
-        if archsToCompile.include?(machoImage.arch)
-          # Because we have to compile Mach-Os in dependency order, we defer the actual compilation.
-          puts "  #{"|  " * level}.#{machoImage.arch} (compile)" if options.verbosity >= 2
-          machoImagesToCompile << machoImage
-        else
-          # But we can strip bitcode from the binary right away (no need to defer).  We do so in-place.
-          puts "  #{"|  " * level}.#{machoImage.arch} (strip)" if options.verbosity >= 2
-          CmdSpec.new(locate_tool("bitcode_strip", [machoImage.platform.toolsPath]), [ "-r", "-o", machoImage.thinnedPath(ipa, options), machoImage.thinnedPath(ipa, options) ]).run(level)
-          # Strip Swift symbols from Swift dylibs
-          if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
-            CmdSpec.new(locate_tool("strip", [machoImage.platform.toolsPath]), [ "-ST", machoImage.thinnedPath(ipa, options) ]).run(level)
-          end
+      if machoImage.shouldCompileBitcode(options)
+        # Because we have to compile Mach-Os in dependency order, we defer the actual compilation.
+        puts "  #{"|  " * level}.#{machoImage.arch} (compile)" if options.verbosity >= 2
+        machoImagesToCompile << machoImage
+        
+      elsif machoImage.shouldStripBitcode(options)
+        # But we can strip bitcode from the binary right away (no need to defer).  We do so in-place.
+        puts "  #{"|  " * level}.#{machoImage.arch} (strip)" if options.verbosity >= 2
+        CmdSpec.new(locate_tool("bitcode_strip", [machoImage.platform.toolsPath]), [ "-r", "-o", machoImage.thinnedPath(ipa, options), machoImage.thinnedPath(ipa, options) ]).run(level)
+        # Strip Swift symbols from Swift dylibs
+        if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
+          CmdSpec.new(locate_tool("strip", [machoImage.platform.toolsPath]), [ "-ST", machoImage.thinnedPath(ipa, options) ]).run(level)
         end
+        
       else
         # Otherwise, the Mach-O image doesn't have bitcode, so we strip swift symbols and leave the copy we already have alone.
         verb = "copy"
@@ -1646,15 +1703,16 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
   # Recurse through any subbundles (including, possibly, those of other platforms).  We pass down or context
   # and accumulator containers.
   for subbundle in bundle.nestedBundles
-    CompileOrStripBitcodeInBundle(ipa, options, subbundle, archsToCompile, archsToStrip, machoImagesToCompile, machoFilesToReassemble, level + 1)
+    CompileOrStripBitcodeInBundle(ipa, options, subbundle, machoImagesToCompile, machoFilesToReassemble, level + 1)
   end
   # If we're a main bundle, we do the postprocessing, now that we've dealt with all Mach-Os and all subbundles.
   # This includes compiling any bitcode files that need it (in library dependency order), and reassembling the
   # Mach-O files for use in the universal binary.
-  if isMainBundle
+  if bundle.isBitcodeCompilationRootBundle
     # Now go through the list of Mach-O images we need to compile.  We process them one architecture at a time.
     # We have already copied bitcode-less executables into a single per-architecture directory, so the bitcode
     # compiler will be able to find them.
+    archsToCompile = if options.compileBitcode then bundle.bitcodeCompilationRootMachO.machoImages.select{|i| i.hasBitcode}.map{|i| i.arch} else [] end
     for arch in archsToCompile
       # Get the list of Mach-O images that match the current architecture.
       puts "  #{"|  " * level}Compiling bitcode for #{arch}..." if options.verbosity >= 1
@@ -1771,11 +1829,11 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, archsToCompile = nil, a
         end
         cmdln += [ "-output", univMachoFilePath ]
         
-        CmdSpec.new(locate_tool("lipo", [machoFile.platform.toolsPath]), cmdln).run(level)
+        CmdSpec.new(locate_tool("lipo", [machoFile.platform.toolsPath]), cmdln).run(level, false)
       end
       machoFile.path = univMachoFilePath
     end
-  end  # isMainBundle
+  end  # isBitcodeCompilationRootBundle
 # Main function for processing an unpacked IPA with a set of options.
 # The first parameter is a directory containing the unpacked IPA contents, the second parameter is an options OpenStruct.
 def ProcessIPA (ipaDir, options)
@@ -1954,6 +2012,8 @@ def ProcessIPA (ipaDir, options)
         path: bundle.path,
         identifier: bundle.identifier,
         platform: bundle.platformIdentifier,
+        isBitcodeCompilationRootBundle: bundle.isBitcodeCompilationRootBundle,
+        bitcodeCompilationRootMachO: bundle.bitcodeCompilationRootMachO.path,
         machoFiles: bundle.machoFiles.collect do |machoFile|
           # Construct a dictionary for the Mach-O file.
           {  path: machoFile.path,

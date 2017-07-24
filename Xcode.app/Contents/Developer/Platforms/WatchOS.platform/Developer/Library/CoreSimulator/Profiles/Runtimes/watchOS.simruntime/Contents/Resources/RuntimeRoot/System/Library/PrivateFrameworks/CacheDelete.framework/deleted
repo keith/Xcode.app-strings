@@ -75,6 +75,8 @@ propertyListWithData:options:format:error:
 class
 isKindOfClass:
 objectForKeyedSubscript:
+processLowDiskVolume:key:
+containsObject:
 volumeWithMountpoint:
 validate
 isSpecialVolume
@@ -100,7 +102,14 @@ processLowDiskVolumes:key:
 collection_queue
 pendingLowDiskCount
 setPendingLowDiskCount:
+mutableCopy
+pendingLowDiskVolumes
+minusSet:
+count
+unionSet:
 reportReceivedLowDiskNotification:forVolume:
+processLowDiskVolumes:filteringBySet:key:
+allObjects
 handleVFSStreamXPCEvent:
 registerActivityWithIdentifier:criteria:runHandler:
 UTF8String
@@ -117,11 +126,9 @@ copy
 beginMatchingExtensionsWithAttributes:completion:
 setExtensionMatchContext:
 extensionMatchContext
-mutableCopy
 applicationExtensions
 copyServices
 lastRefreshTimes
-count
 allKeys
 setWithArray:
 pruneWithServices:
@@ -143,7 +150,7 @@ registerOperation:
 updateLastRefresh:
 recentInfoForVolumes:atUrgency:
 refreshingPurgeableCache
-containsObject:
+_purge:volume:callback:
 purgeOperations
 removeObjectForKey:
 notify_queue
@@ -189,7 +196,6 @@ unarchiveObjectWithData:
 updateRecentInfoForServiceID:volume:info:
 inFlightOperations
 addPointer:
-allObjects
 operationsDebugState
 servicesDebugState
 numberWithUnsignedInteger:
@@ -227,6 +233,7 @@ setDaemons:
 setDefault_values:
 setPurgeOperations:
 setInFlightOperations:
+setPendingLowDiskVolumes:
 _refreshingPurgeableCache
 _measureElapsedTimes
 _collection_queue
@@ -249,6 +256,7 @@ _purgeableResultCache
 _analytics
 _inFlightOperations
 _pendingLowDiskCount
+_pendingLowDiskVolumes
 postDailyStats
 dataWithPropertyList:format:options:error:
 bytes
@@ -351,6 +359,7 @@ reportPeriodic:
 roundNumber:toSignificantDigits:
 systemUsageStats
 applicationUsageStats
+cacheManagementUsageStats
 _serialQueue
 _dailyStats
 _serviceProvider
@@ -495,7 +504,6 @@ setVolume:
 containsValueForKey:
 decodeIntegerForKey:
 encodeInteger:forKey:
-minusSet:
 removeObjectsForKeys:
 diagnostics
 setDiagnostics:
@@ -550,10 +558,11 @@ purge_amount_needed
 setPurgeResult:
 purgeResult
 setPurge_amount_reported:
-cancel
 amountPurged
+oneShot:volume:urgency:donation:currentRoundResults:timeout:sendEvent:
+cancel
 purge_amount_reported
-serviceRequest:volume:urgency:donation:completion:
+serviceRequest:volume:urgency:donation:sendEvent:completion:
 servicePurge:info:replyBlock:
 _cancel
 _purgeResult
@@ -585,8 +594,8 @@ _reply
 serviceQueue
 purgeQueue
 objectAtIndex:
-requestQueue
 removeObjectAtIndex:
+requestQueue
 drainPurgeQueue
 _servicePurge:info:replyBlock:
 _servicePurgeable:info:replyBlock:
@@ -800,6 +809,7 @@ Missing or invalid volume in request
 Operations
 Services
 PendingLowDiskCount
+PendingLowDiskVolumes
 Purgeable
 v12@?0@"<CacheDeleteOperation>"4^B8
 v16@?0@"NSString"4@"CDService"8^B12
@@ -842,6 +852,8 @@ inFlightOperations
 T@"NSPointerArray",&,N,V_inFlightOperations
 pendingLowDiskCount
 TI,N,V_pendingLowDiskCount
+pendingLowDiskVolumes
+T@"NSMutableSet",&,N,V_pendingLowDiskVolumes
 collection_queue
 T@"NSObject<OS_dispatch_queue>",R,N,V_collection_queue
 defaults_queue
@@ -883,6 +895,7 @@ Unknown urgency: %d
 dailyFreeBytesRoot
 dailyTotalBytesRoot
 dailyPurgeableBytes%s
+dailyItemizedPurgeableBytes%s_%s
 dailyPurgeableBytesTot
 dailyEffectiveFreeBytesRoot
 dailyPurgeableOverTotalRatioRoot
@@ -891,11 +904,15 @@ dailyPurgeableOverEffectiveFreeRatioRoot
 dailyIsLowDiskRoot
 com.apple.mobile.cache_delete_daily
 CACHE_DELETE_ANALYTICS_REPORT
+systemUsageStatsTimeout
 com.apple.mobile.cache_delete_app_container_caches
+applicationUsageStatsTimeout
 appBundle_name
 %@_%@
 v16@?0@"NSString"4@"NSNumber"8^B12
 v16@?0@"NSString"4@"NSDictionary"8^B12
+com.apple.mobile.cache_delete_managed_assets
+cacheManagementStatsTimeout
 Root
 dailyPurgeReqs%s%s
 dailyPurgeSuccess%s%s
@@ -1148,7 +1165,7 @@ com.apple.cache_delete.CDService.serviceCancelPurge
 com.apple.cache_delete.CDService.servicePing
 com.apple.cache_delete.CDService.serviceNotify
 com.apple.cache_delete.CDService.serviceCallback
-<%@: %p (%@) = { inFlight=%s }>
+<%@: %p (%@) = { inFlight=%s , purgeQueueLength=%d }>
 ANONYMOUS_%p
 T@"NSString",R,N
 doesPeriodic
@@ -1244,6 +1261,7 @@ Unable to set result cache breadcrumb: %d (%s)
 Resuming XPC Listeners
 propertyListWithData failed: %@
 unable to read plist at: %@ : %@
+Not processing low disk %@
 Unable to validate volume %@
 Special Volume: %@, skipping
 Purging %@ to Desirable (%llu bytes)
@@ -1252,10 +1270,11 @@ Purging %@ to get above LOW_DISK (%llu bytes)
 %@ LOW_DISK purge callback: %@
 Failing to broadcast low disk notification for volume %@ because it became invalid
 Sent low disk notification
-caught VQ_VERYLOWDISK
-caught VQ_LOWDISK
-caught VQ_NEARLOWDISK
+caught VQ_VERYLOWDISK on "%@"
+caught VQ_LOWDISK on "%@"
+caught VQ_NEARLOWDISK on "%@"
 caught VFS_QUOTA
+Dropping VFS event %p (pending count: %d, volumes: %@)
 Registering delayed critical low disk activity for volume %@
 Running critical purge activity %p
 Clearing delayed critical low disk activity for volume %@
@@ -1295,7 +1314,7 @@ Returning cached results, and asynchronously refreshing any stale results
 Waiting for current purgeable refresh to complete...
 Purgeable refresh complete
 No results for volume %@
-Volume: %@, Total: %@
+Purgeable Result: %@ bytes on: "%@"
 Purge: unable to validate volume
 Invalid token
 PurgeOperation on volume %@
@@ -1326,6 +1345,7 @@ invalid or missing token or uuid
 Connection is not entitled to trigger a periodic purge!
 periodic
 result: %@
+Invalid volume: %@
 invalid serviceRequestOperation dictionary, more that one key
 serviceRequestOperation is an unsupported object: %@
 ServiceCallback results: %@
@@ -1338,7 +1358,7 @@ key is not an NSString: %@
 persistent_state is not a dictionary: %@
 using default value: %@ for key: %@
 Parameter Error
-Parameter Error: missing or invalid cache volume
+Parameter Error: missing or invalid cache volume %@
 Request Error
 Crashing On Purpose!
 main
@@ -1351,6 +1371,7 @@ CacheDelete, open for business!
 RECEIVED SIGTERM
 *** CacheDelete SigInfo ***
 * Pending Low-Disk Count: %@
+* Pending Low-Disk Volumes: %@
 * Operations = {
 %lu: %@
 * Services = {
@@ -1371,6 +1392,8 @@ Failed to get system usage stats! %@
 Requesting analytic data from app caches service
 Received response from app caches service analytics data request
 Received %@
+Requesting analytic data from cache management service
+Received response from cache management service analytics data request
 Unable to fetch splunk endpoint: %@
 Malformed iTunes bag payload!
 Failed to serialize Splunk payload: %@
@@ -1421,6 +1444,8 @@ CACHE_DELETE_AMOUNT is missing in info: %@
 CancelPurge complete (service=%@)
 user_timeout_seconds: %llu
 urgencyLimit: %d, info at start: %@
+[Purge VERY_LOWDISK]: asking snapshot holders for %llu bytes from %@
+[Purge goal satisfied, skipping services loop
 Purging at urgency = %d
 [Purge Start](Urgency %d : Round %d) Goal = %lld, Donation = %llu, Remaining Services = %@
 [Purge Main](Urgency %d : Round %d) Begin
@@ -1434,15 +1459,17 @@ Purge failed (volume %@ likely invalid)
 [Purge Main](Urgency %d : Round %d) Timed out waiting for: %@
 Timed out with no inFlight list!
 [Purge Cleanup](Urgency %d : Round %d) Begin
-[Purge Result (cleanup)] %@ purged (%llu / %llu) bytes : elapsed time %lfs
-[Purge Result (cleanup, tardy!)] %@ purged (%llu / %llu) bytes : elapsed time %lfs
-Purge Cleanup failed (volume %@ was likely invalid)
-[Purge Cleanup] (Urgency %d : Round %d) Timed out waiting for: %@
 [Purge Cleanup](Urgency %d : Round %d) End
 [Purge End](Urgency %d) Volume %@ finished after %d Rounds (%llu bytes left)
 CacheDelete was unable to satisfy the purge request.
 Purge Result: %llu bytes on: %@
 %@ : %@
+[Purge OneShot](Urgency %d) Begin
+[Purge Result (oneShot)] %@ purged (%llu / %llu) bytes : elapsed time %lfs
+[Purge Result (oneShot, tardy!)] %@ purged (%llu / %llu) bytes : elapsed time %lfs
+Purge oneShot failed (volume %@ was likely invalid)
+[Purge OneShot] (Urgency %d) Timed out waiting for: %@
+[Purge OneShot](Urgency %d) End
 Purge callback firing more than once for service %@
 Invalid volume parameter, info: %@
 NOT using cached purgeable values for %@
@@ -1521,8 +1548,8 @@ CDPurgeableOperationResult
 CDPeriodicServiceRequestResult
 CDPurgeServiceRequestResult
 CDPurgeableServiceRequestResult
-0"4@P
 0"2@
+0"6P
 0"2@P
 CacheDeletePurgeOperation
 0"4P
@@ -1553,6 +1580,7 @@ v20@0:4@"NSString"8i12@?<v@?@"NSNumber"@"NSError">16
 @"<CDService>"12@0:4@"NSString"8
 v8@0:4
 v16@0:4@8@12
+v20@0:4@8@12@16
 {VolumeThresholdsAndGoals=QQQQ}12@0:4@8
 v12@0:4@8
 @20@0:4@8@12@?16
@@ -1618,7 +1646,6 @@ v20@0:4@8@12B16
 @"NSString"
 @12@0:4I8
 @12@0:4i8
-v20@0:4@8@12@16
 @"NSDictionary"12@0:4i8
 @"NSDictionary"16@0:4@"CacheDeleteDaemonVolume"8i12
 @"NSDictionary"16@0:4@"NSArray"8i12
@@ -1646,7 +1673,8 @@ B24@0:4@8i12d16
 B28@0:4@8@12i16d20
 B16@0:4@8i12
 @"NSDate"
-v32@0:4@8@12i16Q20@?28
+v44@0:4@8@12i16Q20@28Q32@40
+v36@0:4@8@12i16Q20@28@?32
 @"CDPurgeOperationResult"
 @"CDPurgeableOperationResult"
 @"NSCountedSet"

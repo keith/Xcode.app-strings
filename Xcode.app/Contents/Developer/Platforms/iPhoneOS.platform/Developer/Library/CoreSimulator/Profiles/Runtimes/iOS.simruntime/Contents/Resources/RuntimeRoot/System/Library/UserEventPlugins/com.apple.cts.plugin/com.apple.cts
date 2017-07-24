@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1173
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1194
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -140,12 +140,13 @@ _desired_motion_state
 _das_data
 alloc
 init
-copy
-countByEnumeratingWithState:objects:count:
 UTF8String
 removeObject:
-stringWithUTF8String:
+copy
+countByEnumeratingWithState:objects:count:
 addObject:
+stringWithUTF8String:
+isEqualToString:
 setDay:
 setMonth:
 setValue:forComponent:
@@ -188,10 +189,6 @@ Control channel connection: %d
 evaluating activities
 activity timer fired
 User %s
-activities are suspended
-Activity %{public}@ is eligible to run.
-Updating XPC Activity: %{public}@ (eligible=%s)
-Updating XPC Activity (deferred): %{public}@ (eligible=%s)
 %{public}@ state change %ld -> %ld
 Initiating XPC Activity: %{public}@
 Created temporary power assertion for %{public}@: %d
@@ -204,6 +201,10 @@ Unregistered unmanaged XPC Activity: %{public}@
 taking power assertion: %{public}@: %d
 releasing temporary power assertion: %{public}@: %d
 Scheduling activity timer for [%{public}@] in %lld seconds
+activities are suspended
+Activity %{public}@ is eligible to run.
+Updating XPC Activity: %{public}@ (eligible=%s)
+Updating XPC Activity (deferred): %{public}@ (eligible=%s)
 Time Change: resubmitting %{public}@
 No name in unmanaged activity request. Rejecting request.
 Failed to register unmanaged XPC Activity: %{public}s
@@ -211,7 +212,8 @@ Registered unmanaged XPC Activity: %{public}@
 %{public}s: %{public}s
 %{public}@: permissible values for priority are %s or %s
 Control Channel: %{public}s %{public}s
-Failed to register XPC Activity: %{public}s
+Creating XPC Activity: %{public}s
+Failed to create XPC Activity: %{public}s
 Registered XPC Activity: %{public}@
 %{public}@: %{public}s
 Unregistered XPC Activity: %{public}@
@@ -352,11 +354,11 @@ Idle
 Active
 com.apple.xpc.activity.debug.trigger
 DisableSmartPowerNap
-true
-false
-eligible
 name
 state
+eligible
+true
+false
 Command
 Identifier
 List

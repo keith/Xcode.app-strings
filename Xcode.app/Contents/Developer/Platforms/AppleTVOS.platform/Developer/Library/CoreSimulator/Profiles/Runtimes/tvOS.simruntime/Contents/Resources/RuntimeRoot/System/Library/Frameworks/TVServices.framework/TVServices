@@ -471,6 +471,7 @@ TVSWiFiQualityMeasurement [%p] %llu bytes / %f secs = %f BPS (%f bps)
 Network Date (%d records)
 RawRSSI: %f Noise: %d SNR: %f
 *** BAD DATA (%@) ***
+Invalid store URL bag used: %@
 v16@?0@"NSTimer"8
 v32@?0Q8d16@"NSError"24
 TQ,N,V_state
@@ -905,7 +906,7 @@ tvs_sharedPhotoStreamEnabled
 tvs_myPhotoStreamEnabled
 tvs_iCloudPhotoLibraryEnabled
 TVTopShelfItemsDidChangeNotification@
-*** WARNING: can't monitor change notifications from process %@ because it is not an extension or application or has no identifiable bundle ID
+*** WARNING: can't monitor top shelf change notifications from process %@ because it is not an extension or application or has no identifiable bundle ID
 TVExtension
 NSExtension
 NSExtensionPrincipalClass
@@ -1788,6 +1789,7 @@ initWithBTLEPeripheral:
 _checkStatus
 isConnected
 isPaired
+wasDeviceDiscovered:
 connectedDevices
 tvs_shallowIsEqualToSet:
 setConnectedDevices:
@@ -1796,7 +1798,6 @@ setPairedDevices:
 discoveredDevices
 setDiscoveredDevices:
 __init
-weakObjectsHashTable
 _discoveredPeripheralsDidChangeNotification:
 _peripheralStateDidChangeNotification:
 _bluetoothAvailabilityChanged:
@@ -1812,15 +1813,13 @@ _bluetoothPairingPINResultFailed:
 _bluetoothPowerStateChanged:
 _bluetoothNotificationHandler:
 _updateDevicesLists
-startScanning
-stopScanning
+addScanObserver:
+_updateScanningStateIfNeeded
+removeScanObserver:
 connectWithCompletion:
 disconnectWithCompletion:
 unpairWithCompletion:
 cancelPairing
-_startBluetoothDeviceDiscovery
-setDevicePairingEnabled:
-_stopBluetoothDeviceDiscovery
 integerValue
 bluetoothDeviceForBTLEPeripheral:
 _noteStateChangeFailure:
@@ -1828,9 +1827,9 @@ _removeBluetoothDevice:
 bluetoothManager:didCompleteDeviceConnection:error:
 isPairing
 setPairing:
-_decrementPairingDeviceCounter
 bluetoothManager:didCompleteDeviceDisconnection:error:
 available
+_startBluetoothDeviceDiscovery
 object
 bluetoothDeviceForClassicBluetoothDevice:
 sharedAppleTVServicesPreferences
@@ -1839,6 +1838,7 @@ _noteConnectionFailure:
 isPINPairing
 wasPINPairingCancelled
 cancelPINPairing
+paired
 _noteDisconnectionFailure:
 setPINPairing:
 setPINPairingFailed:
@@ -1857,7 +1857,12 @@ pairedPeripherals
 discoveredPeripherals
 _checkDeviceStatus
 bluetoothManagerDidUpdateDiscoveredDevices:
+_pairingDeviceCount
+startScanning
+stopScanning
+_stopBluetoothDeviceDiscovery
 powered
+setDevicePairingEnabled:
 scanForServices:
 setDeviceScanningEnabled:
 resetDeviceScanning
@@ -1867,13 +1872,11 @@ connectDevice:
 disconnectDevice:
 unpairDevice:
 setFilterDeviceScan:
-_incrementPairingDeviceCounter
 _lock
 _allBTDevices
 _observers
 _log
-_scanningCounter
-_pairingDeviceCounter
+_scanningState
 _discovering
 _finishedSetup
 _connectedDevices
@@ -2290,6 +2293,8 @@ associatedNetwork
 setConnectedWiFiNetwork:
 _startWithCompletion:
 setUrlBagLoadObserver:
+initWithFormat:
+initWithDomain:code:userInfo:
 urlBagLoadObserver
 _recordCurrentNetworkData
 scheduledTimerWithTimeInterval:repeats:block:
@@ -2601,7 +2606,6 @@ disableComponent:
 _logForComponent:level:message:
 enableComponent:withLogHandler:
 enableComponent:withConfiguration:
-initWithFormat:
 initWithFormat:arguments:
 loggingEnabledForComponent:atLevel:
 initializeLoggingWithDomain:persistentComponents:
@@ -2753,6 +2757,10 @@ _xpc_checkAdoptedProtocolsWithResultHandler:
 _principalObject
 _xpc_topShelf_fetchContentItemsWithResultHandler:
 provideTopShelfItems:
+_xpc_topShelf_reportItemSelected:reply:
+topShelfItemSelected:
+_xpc_topShelf_reportItemPlayed:reply:
+topShelfItemPlayed:
 load
 setPrincipalObjectClass:
 allInstalledTopShelfProviderExtensions
@@ -2765,6 +2773,8 @@ supportsPublicProtocol:
 containingApplicationProxy
 fetchSupportedProtocolsWithResultHandler:
 fetchTopShelfInfoWithResultHandler:
+reportItemSelected:
+reportItemPlayed:
 set_principalObject:
 _protocols
 set_protocols:
@@ -2892,7 +2902,6 @@ _peripheralStateChanged:
 _peripheralBatteryLevelChanged:
 supportsBatteryLevel
 connected
-paired
 sharedAccessoryManager
 availableAccessories
 macAddress
@@ -3350,7 +3359,6 @@ q16@0:8
 @"NSMutableSet"
 @"NSMutableArray"
 @"NSLock"
-@"NSHashTable"
 @"NSObject<OS_os_log>"
 @"NSSet"
 @"<TVSBluetoothManagerDelegate>"
@@ -3454,6 +3462,7 @@ v24@0:8#16
 @44@0:8@16@24B32@36
 v24@0:8@?<v@?Q>16
 v24@0:8@?<v@?q@"NSArray">16
+v32@0:8@"TVContentItem"16@?<v@?>24
 @"LSApplicationProxy"
 @"LSPlugInKitProxy"
 @"BKSProcessAssertion"
@@ -3533,12 +3542,8 @@ bluetooth manager initialized
 adding observer %p
 removing observer %p
 cancelling pairing
-starting scanning
-Will not start scan because pairing counter is > 0
-incremented scanning counter to %lld
-stopping scanning
-Will not stop scanning because pairing counter is not 0
-decremented scanning counter to %lld
+DEPRECATED!! Use addScanObserver:
+DEPRECATED!! Use removeScanObserver:
 got TVSPeripheralManagerDiscoveredPeripheralsDidChangeNotification
 got TVSPeripheralManagerPeripheralStateDidChangeNotification
 removing bluetooth peripheral: %@
@@ -3547,6 +3552,7 @@ got BluetoothDeviceRemovedNotification; %@
 removing bluetooth device: %@
 got BluetoothDeviceConnectSuccessNotification; %@
 got BluetoothDeviceConnectFailedNotification; %@; error: %@
+got BluetoothDeviceDisconnectSuccessNotification; but already unpaired %@
 got BluetoothDeviceDisconnectSuccessNotification; %@
 got BluetoothDeviceDisconnectFailedNotification; %@; error: %@
 got BluetoothDeviceUnpairedNotification; %@
@@ -3558,13 +3564,12 @@ PIN pairing failed for device: %@
 bluetooth power state changed to %d
 got %@; %@
 updating device lists
-Increment paring device counter to %lld
-Suppressing scan
-Will not pause the scan because the scan has not started.
-Decrement paring device counter to %lld
-UNsuppressing scan
-Will not resume scanning because scanning counter is 0
-Pairing device counter should not be < 0. Reset to 0
+Current pairing device counter to %ld - observer count: %ld
+Scan -> Active
+Scan -> Suppressed
+Scan -> Inactive
+Scan -> Active (UNsuppressing)
+Scan -> Inactive (Scanning counter == 0; pairing device count == 0; --> stop scanning)
 #Alert #SYSTEM Unable to unarchive properties for account %@: %{public}@
 #Alert #SYSTEM set keychain property failed: %lu (doing %@)
 #Alert #STORE Failed to find keychain item for %@ (%lu)
@@ -3595,6 +3600,7 @@ Average noise %f vs %f.
 Ideal average noise (%f) greater than actual (%f). Unexpected.
 Possible network interference detected.
 Cannot measure wireless network quality - no WiFi network.
+%{public}@
 Cannot measure network quality - no Internet.
 Attempt to start measurement while already measuring - ignored.
 Recording network rawRSSI:%f noise:%d SNR:%f
