@@ -399,9 +399,9 @@ plistPath
 assetPath
 boolValue
 storeIdentifier
-syncedBookManifest
-_manifestEntryForInstallInfo:inManifest:
 purchasedBookManifest
+_manifestEntryForInstallInfo:inManifest:
+syncedBookManifest
 lastPathComponent
 setDestinationFilename:
 setFullRestoreFilePath:
@@ -1004,6 +1004,7 @@ setPlistPath:
 dq_enqueueInstall:
 dq_completeOperationForDownloadID:
 setCompletionBlock:
+dq_failOperationForDownloadID:
 _assetAlreadyStartedTheInstallationStage:
 dq_notifyServerOfDownloadCancelledForInstallOperation:completion:
 dq_notifyServerOfDownloadCompleteForInstallOperation:completion:
@@ -1325,9 +1326,12 @@ _overrideProgress
 [Install-Op]: Required plist location missing.
 [Install-Op]: Required asset path missing.
 [Install-Op]: Init ... persistentID == %{public}@, storeID == %@, isRestore == YES
-[Install-Op]: Restore item found in the sync manifest.
-[Install-Op]: Restore item found in the purchase manifest.
+[Install-Op]: Init ... looking for restore entry in the purchase manifest first
+[Install-Op]: Init ... restore entry found in the purchase manifest.
+[Install-Op]: Init ... restore entry not found in the purchase manifest.  Now looking for restore entry in the sync manifest first
+[Install-Op]: Init ... restore item found in the sync manifest.
 [Install-Op]: Init ... overriding install filename to: %{public}@
+[Install-Op]: Init ... backup path not found on a restore.  This is fatal ... persitentID == %{public}@, title == %@
 [Install-Op]: Error: could not find manifest entry for restore book: [downloadID:%{public}@, persistentID:%{public}@, storeID: %@, title:%@, author:%@]
 [Install-Op]: Could not find restore item with key: "%{public}@" ... now trying with key: "%{public}@"
 [Install-Op]: Restore item found with key: %{public}@
@@ -1339,7 +1343,7 @@ _overrideProgress
 [Install-Op]: We have an existing shared download: %{public}@
 [Install-Op]: We have a new shared download: %{public}@
 [Install-Op]: Shared book container location is: %{public}@
-[Install-Op]: We have a normal download: %{public}@
+[Install-Op]: We have a non-shared download: %{public}@
 [Install-Op]: Operation %{public}@ for downloadID %{public}@, error %{public}@
 [Install-Op]: Simulating a crash during install finish
 [Install-Op]: Failed to install iTunesMetadata.plist.
@@ -1405,6 +1409,8 @@ Daemon exited.
 [Download]: Stop task: %lu for downloadID: %{public}@ with reason [cancel]
 [Download]: Cancel operation: %@ for downloadID: %{public}@
 [Download] didStartInstallWithOperation: could not find taskState for installOperation: [%@], downloadID: %{public}@ bookTitle: %@ so starting a new one.  This is likely EDU mode.
+[Download] started install operation %@ for downloadID: %{public}@
+[Download] finished install operation %@ for downloadID: %{public}@
 [Download] didFinishInstallForOperation: could not find taskState for installOperation: [%@], downloadID: %{public}@ bookTitle: %@
 [Download]: Consumer failed for task: %lu for downloadID: %{public}@ with error: %@
 [Download]: Consumer with task: %lu for downloadID: %{public}@ is committing transfer progress: %.2f%%
@@ -1492,14 +1498,15 @@ Unknown urgency value, defaulting to low urgency.
 [Install-Mgr]: FRC received move.
 [Install-Mgr]: FRC received update.
 [Install-Mgr]: Enqueing install operation for download %{public}@.
-[Install-Mgr]: Download exists in queue already. %{public}@
+[Install-Mgr]: Install operation already exists in queue for downloadID: %{public}@
 [Install-Mgr]: Cancelling operation for download %{public}@.
-[Install-Mgr]: Download removed %{public}@.
+[Install-Mgr]: Can't dequeue non-existant download operation for %{public}@.
+[Install-Mgr]: Operation %{public}@ failed.
+[Install-Mgr]: No operation found for %{public}@.
 [Install-Mgr]: Operation %{public}@ completed.
 [Install-Mgr]: Operation states failed. Error: %{public}@
 [Install-Mgr]: Successfully purged downloadInfo for id %{public}@.
 [Install-Mgr]: Successfully purged downloadPolicyInfo for id %{public}@.
-[Install-Mgr]: No operation found for %{public}@.
 [Install-Mgr]: Marking downloadID %{public}@ as [finished] for server.
 [Install-Mgr]: Failed to mark downloadID %{public}@ as [finished] for server. Error: %{public}@
 [Install-Mgr]: Marking downloadID %{public}@ as [cancelled] for server.
@@ -1681,7 +1688,7 @@ BKSimulateCrashAtInstallDuringUnzip
 BKSimulateCrashAtInstallDuringFinish
 BKSimulateDeviceOutOfSpace
 -[BLService performPreListenerStartupWithCompletion:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-95/frameworks/BookLibrary/BLService/BLService.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-98/frameworks/BookLibrary/BLService/BLService.m
 invalid nil value for '%s'
 self.downloadManager
 self.installManager
@@ -1737,7 +1744,7 @@ Documents/BLDatabaseManager
 DownloadsDatabase
 momd
 -[BLDatabaseManager init]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-95/frameworks/BookLibrary/BLService/BLDatabaseManager.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-98/frameworks/BookLibrary/BLService/BLDatabaseManager.m
 [IMLibraryPlist sharedContainerURL] returned nil!  Falling back to using: %{public}@.  Please file a radar.
 BLDatabaseManager.sqlite
 %K = %@ || %K = %@
@@ -1811,6 +1818,8 @@ BLDownloadStateUnknown
 v16@?0@"NSException"8
 META-INF
 sinf.xml
+Bad backup plist
+This plist entry for representing this download could not be found
 installOperation
 succeeded
 failed
@@ -2017,7 +2026,6 @@ T@"NSString",R,N
 outputBlock
 T@?,C,V_outputBlock
 ebook
-com.apple.icloud.restore
 com.apple.bookassetd.
 discretionary.
 powered.
@@ -2129,8 +2137,10 @@ songId
 download-id
 com.apple.ibooks.BLService.BLBookInstallManagerQueue
 (%K == %@)
+-[BLBookInstallManager dq_failOperationForDownloadID:]
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-98/frameworks/BookLibrary/BLService/BLBookInstallManager.m
+Expecting this operation not to be successful.
 -[BLBookInstallManager dq_notifyServerOfDownloadCancelledForInstallOperation:completion:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-95/frameworks/BookLibrary/BLService/BLBookInstallManager.m
 installInfo.cancelDownloadURL
 T@"NSFetchedResultsController",&,N,V_frc
 queue
@@ -2175,7 +2185,7 @@ com.apple.ibooks.BLService.BLBookManifest
 BLManifestTestEnv
 BLLibrarySimulateMultiUser
 -[BLBookManifest manifestEntriesWithProperty:equalToNumber:limitCount:]_block_invoke
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-95/frameworks/BookLibrary/BLService/BLBookManifest.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-98/frameworks/BookLibrary/BLService/BLBookManifest.m
 expected nil value for '%s'
 candidateValueAsDecimalNumber
 manifest
@@ -2187,7 +2197,7 @@ T@"NSObject<OS_os_transaction>",&,N,V_osTransaction
 Documents/BLDownloads
 com.apple.ibooks.BLService.DownloadManager
 +[BLDownloadManager downloadsDirectory]_block_invoke
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-95/frameworks/BookLibrary/BLService/BLDownloadManager.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/AlderServices_Sim/AlderServices-98/frameworks/BookLibrary/BLService/BLDownloadManager.m
 [IMLibraryPlist sharedContainerURL] returned nil!  Please file a radar.
 BLDownloadManagerCustomPath
 v24@?0@"BLDownload"8@"NSError"16
@@ -2575,11 +2585,13 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 v32@0:8@16B24B28
 @56@0:8@16@24@32q40@48
 v32@0:8r*16q24
-@(#)PROGRAM:bookassetd  PROJECT:BookLibrary-95
+@(#)PROGRAM:bookassetd  PROJECT:BookLibrary-98
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<key>adi-client</key>
+<string>612006184</string>
 <key>application-identifier</key>
 <string>com.apple.bookassetd</string>
 <key>com.apple.accounts.appleaccount.fullaccess</key>

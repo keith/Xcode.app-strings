@@ -14,6 +14,7 @@ _extensionContextForUUID:
 setContext:
 context
 setDelegate:
+activate
 beginExtensionRequestWithInputItems:completion:
 requestIdentifier
 requestFailedWithError:completion:
@@ -92,17 +93,28 @@ initWithStore:extensionsDataSource:identificationEntriesChangedNotifier:queue:
 extensionsDataSource
 installedExtensionIdentifiersWithError:
 storedExtensionIdentifiersWithError:
+enabledStoredExtensionIdentifiersWithError:
+disabledStoredExtensionIdentifiersWithError:
+unavailableStoredExtensionIdentifiersWithError:
 mutableCopy
 minusSet:
+intersectSet:
 count
 countByEnumeratingWithState:objects:count:
 store
 addExtensionWithIdentifier:error:
+setState:forExtensionWithIdentifier:error:
 removeExtensionWithIdentifier:error:
 identificationEntriesChangedNotifier
 performTransactionWithBlock:error:
-prioritizedExtensionIdentifiersWithError:
-setWithArray:
+setCachedStoreExtensions:
+cachedStoreExtensions
+prioritizedExtensionsWithError:
+identifier
+addObject:
+copy
+storedExtensionIdentifiersPassingTest:error:
+state
 initWithStore:
 performWithCompletionHandler:
 setStore:
@@ -111,11 +123,9 @@ setIdentificationEntriesChangedNotifier:
 _store
 _extensionsDataSource
 _identificationEntriesChangedNotifier
+_cachedStoreExtensions
 installedExtensionsWithError:
 setWithCapacity:
-identifier
-addObject:
-copy
 extensionsWithCompletionHandler:
 dictionaryRepresentation
 stringWithFormat:
@@ -154,7 +164,6 @@ _has
 initWithExtensionIdentifier:queue:store:
 extensionIdentifier
 extensionWithIdentifier:error:
-state
 initWithExtensionIdentifier:store:
 setExtensionIdentifier:
 _extensionIdentifier
@@ -220,7 +229,6 @@ setIdentificationEntriesAdded:
 setLastBlockingPhoneNumber:
 setLastIdentificationPhoneNumber:
 setIncrementalLoadingState:
-setState:forExtensionWithIdentifier:error:
 performInitialDeletionIfNecessaryWithError:
 entriesAdded
 maximumAllowedEntries
@@ -242,11 +250,15 @@ _identificationEntriesAdded
 _lastBlockingPhoneNumber
 _lastIdentificationPhoneNumber
 initWithStore:queue:
-prioritizedExtensionsWithError:
+date
+stateLastModified
+timeIntervalSinceDate:
+unavailableExtensionPurgeTimeout
 removeUnreferencedRecordsWithError:
 vacuumWithError:
 initWithPrioritizedExtensionIdentifiers:store:identificationEntriesChangedNotifier:
 prioritizedExtensionIdentifiers
+containsObject:
 setPrioritizedExtensionIdentifiers:error:
 setPrioritizedExtensionIdentifiers:
 _prioritizedExtensionIdentifiers
@@ -298,9 +310,6 @@ disableAllExtensionsWithError:
 requiresExtensionSynchronization
 checkForExtensionsStuckLoading:
 setStateForAllExtensions:error:
-date
-stateLastModified
-timeIntervalSinceDate:
 compare:
 Request with requestIdentifier %@ completed
 Request with requestIdentifier %@ was cancelled. Error: %@
@@ -313,10 +322,20 @@ Number of blocking entries (%ld) greater than INT_MAX
 Number of identification entries (%ld) greater than INT_MAX
 Got metric container for metricId=%lu
 Skipping reporting for metricId=%lu since no metric container was provided
+installedExtensionIdentifiers: %@
 Error retrieving installed extension identifiers: %@
+storedExtensionIdentifiers: %@
 Error retrieving stored extension identifiers: %@
+enabledStoredExtensionIdentifiers: %@
+Error retrieving enabled stored extension identifiers: %@
+disabledStoredExtensionIdentifiers: %@
+Error retrieving disabled stored extension identifiers: %@
+unavailableStoredExtensionIdentifiers: %@
+Error retrieving unavailable stored extension identifiers: %@
 Adding extension with identifier %@
 Error adding extension with identifier %@ into store %@: %@
+Changing state to %ld for extension with identifier %@
+Error changing state to %ld for extension with identifier %@ from store %@: %@
 Removing extension with identifier %@
 Error removing extension with identifier %@ from store %@: %@
 Error rolling back transaction: %@
@@ -360,6 +379,7 @@ No extension found with identifier %@: %@
 Requested to load data for extension with identifier %@ but it is currently Disabled (without data) and allowLoadingDisabledExtensions is %d
 Requested to load data for extension with identifier %@ but it is currently Disabled (with data)
 Requested to load data for extension with identifier %@ but it is currently already loading
+Requested to load data for extension with identifier %@ but it is unavailable
 incrementalLoadingState: %ld for extension with identifier %@
 Error setting state to %ld for extension with identifier %@ into store %@: %@
 Error requesting data for extension with identifier %@: %@
@@ -392,7 +412,9 @@ Error removing identification entries for extensionID: %ld: %@
 Extension data request removed all identification entries
 Removed all phone number identification entries
 Error removing all identification entries for extensionID: %ld: %@
+Removing entries for extension with identifier %@
 Error updating state for extensionID %lld from %ld to %ld in store %@: %@
+Error removing extension with identifier %@: %@
 Error removing unreferenced records: %@
 Error vacuuming store: %@
 Error retrieving extensions: %@
@@ -449,12 +471,15 @@ com.apple.calls.calldirectory
 Default
 com.apple.callkit.calldirectory.synchronizeextensionsoperation
 B24@?0@?<B@?^@>8^@16
+B16@?0@"CXCallDirectoryStoreExtension"8
 store
 T@"CXCallDirectoryStore",&,N,V_store
 extensionsDataSource
 T@"<CDXSynchronizeExtensionsOperationExtensionsDataSource>",&,N,V_extensionsDataSource
 identificationEntriesChangedNotifier
 T@"<CDXNotifydNotifier>",&,N,V_identificationEntriesChangedNotifier
+cachedStoreExtensions
+T@"NSArray",&,N,V_cachedStoreExtensions
 v24@?0@"NSArray"8@"NSError"16
 %@ %@
 timestamp
@@ -477,7 +502,7 @@ T@"NSString",&,N,V_providerBundleId
 com.apple.callkit.calldirectory.retrieveextensionenabledstatusoperation
 extensionIdentifier
 T@"NSString",C,N,V_extensionIdentifier
-com.apple.callkit.calldirectory.removeextensiondataoperation
+com.apple.callkit.calldirectory.setextensionenabledoperation
 v16@?0@"NSError"8
 enabled
 TB,N,GisEnabled,V_enabled
@@ -514,6 +539,8 @@ lastIdentificationPhoneNumber
 Tq,N,V_lastIdentificationPhoneNumber
 TB,N,V_allowLoadingDisabledExtensions
 com.apple.callkit.calldirectory.compactstoreoperation
+unavailableExtensionPurgeTimeout
+Td,R,N
 com.apple.callkit.calldirectory.prioritizeextensionsoperation
 prioritizedExtensionIdentifiers
 T@"NSArray",C,N,V_prioritizedExtensionIdentifiers
@@ -577,9 +604,9 @@ B24@0:8@"Protocol"16
 Vv24@0:8@?16
 Vv32@0:8@16@?24
 Vv24@0:8@?<v@?B@"NSError">16
-Vv32@0:8@"CXCallDirectoryBlockingEntryData"16@?<v@?>24
+Vv32@0:8@"CXCallDirectoryPhoneNumberEntryData"16@?<v@?>24
 Vv24@0:8@?<v@?>16
-Vv32@0:8@"CXCallDirectoryIdentificationEntryData"16@?<v@?>24
+Vv32@0:8@"CXCallDirectoryLabeledPhoneNumberEntryData"16@?<v@?>24
 v24@0:8@?16
 v24@0:8@16
 v24@0:8@?<v@?@"NSError">16
@@ -602,10 +629,12 @@ v28@0:8I16@?20
 r*16@0:8
 @48@0:8@16@24@32@40
 @24@0:8@16
+@32@0:8@?16^@24
 @24@0:8^@16
 @"CXCallDirectoryStore"
 @"<CDXSynchronizeExtensionsOperationExtensionsDataSource>"
 @"<CDXNotifydNotifier>"
+@"NSArray"
 @"NSSet"24@0:8^@16
 @24@0:8^{_NSZone=}16
 v24@0:8Q16
@@ -636,13 +665,13 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 B32@0:8@16^@24
 B40@0:8@16@24^@32
 B32@0:8@"<CDXExtensionDataRequest>"16^@24
-B40@0:8@"<CDXExtensionDataRequest>"16@"CXCallDirectoryBlockingEntryData"24^@32
-B40@0:8@"<CDXExtensionDataRequest>"16@"CXCallDirectoryIdentificationEntryData"24^@32
+B40@0:8@"<CDXExtensionDataRequest>"16@"CXCallDirectoryPhoneNumberEntryData"24^@32
+B40@0:8@"<CDXExtensionDataRequest>"16@"CXCallDirectoryLabeledPhoneNumberEntryData"24^@32
 @64@0:8@16@24@32@40Q48@56
 q16@0:8
 v24@0:8q16
 @"<CDXExtensionDataRequest>"
-@"NSArray"
+d16@0:8
 @36@0:8@16@24B32
 @"<CDXRetrieveExtensionsOperationExtensionsDataSource>"
 @"NSURL"16@0:8
@@ -652,7 +681,7 @@ v24@0:8q16
 @"CXCallDirectorySanitizer"
 @32@0:8@16^@24
 @"<CDXRetrieveFirstIdentificationEntriesOperationExtension>"32@0:8@"NSString"16^@24
-@(#)PROGRAM:com.apple.CallKit.CallDirectory  PROJECT:CallKit-1
+@@(#)PROGRAM:com.apple.CallKit.CallDirectory  PROJECT:CallKit-1
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

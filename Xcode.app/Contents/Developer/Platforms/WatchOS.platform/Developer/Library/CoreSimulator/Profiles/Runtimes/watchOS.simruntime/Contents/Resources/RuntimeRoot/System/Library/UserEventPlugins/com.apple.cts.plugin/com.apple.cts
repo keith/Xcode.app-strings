@@ -1,4 +1,5 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1201
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1205.1.7
+fffff
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -184,6 +185,7 @@ timeIntervalSinceNow
 newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@
+Cleaning up spam activity record for %{public}@
 failed to register user idle notification
 Control channel connection: %d
 evaluating activities
@@ -250,6 +252,7 @@ ActivityBaseDates
 com.apple.xpc.activity2
 DateCompleted
 DateSubmitted
+com.apple.weather.watchapp.routine-forecast.
 v12@?0i8
 com.apple.system.powermanagement.useractivity
 BackgroundTask

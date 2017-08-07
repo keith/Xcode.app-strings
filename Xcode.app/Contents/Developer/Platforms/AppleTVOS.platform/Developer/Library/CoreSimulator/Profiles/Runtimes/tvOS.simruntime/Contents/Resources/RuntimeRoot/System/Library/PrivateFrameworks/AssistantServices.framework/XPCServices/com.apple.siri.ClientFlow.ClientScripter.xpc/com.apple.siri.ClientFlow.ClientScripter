@@ -41,14 +41,18 @@ T@?,C,N,V_flowCompletion
 jsExecutionStart
 Td,N,V_jsExecutionStart
 _deferred_
+com.apple.siri.ClientFlow
+clientflow.scriptoverride
 -[CFScripter siriEnabled]
 -[CFScripter siriDisabled]
 -[CFScripter performWarmup]
 -[CFScripter performWarmupAndEvaluateScriptWithScriptHint:]_block_invoke
 scriptIdentifier
 v16@?0@"SABaseCommand"8
--[CFScripter evaluateScriptsInCommmand:jsContextDecorator:]_block_invoke
+-[CFScripter overrideScriptsFromLocalCacheInCommand:]
+-[CFScripter overrideScriptsFromLocalCacheInCommand:]_block_invoke
 v32@?0@"SACFClientFlowScript"8Q16^B24
+-[CFScripter evaluateScriptsInCommmand:jsContextDecorator:]_block_invoke
 -[CFScripter cacheScriptForCommand:]_block_invoke
 -[CFScripter cacheScriptForCommand:]_block_invoke_2
 -[CFScripter handleCommand:clientProxy:completion:]_block_invoke
@@ -251,6 +255,7 @@ com.apple.siri.ClientFlow.ScriptCache
 -[CFFileCacheStore cacheScriptForDomain:script:shouldCacheInMemory:completion:]_block_invoke
 -[CFFileCacheStore updateScriptCacheForFlowScript:completion:]
 -[CFFileCacheStore updatedScriptForFlowScript:]
+-[CFFileCacheStore scriptFromFileSystemForIdentifier:]_block_invoke
 -[CFFileCacheStore scriptForDomain:scriptLoadType:]
 -[CFFileCacheStore scriptForDomain:scriptLoadType:]_block_invoke
 -[CFFileCacheStore removeScriptWithIdentifier:]_block_invoke
@@ -258,8 +263,9 @@ com.apple.siri.ClientFlow.ScriptCache
 -[CFFileCacheStore removeAllScriptsWithCompletion:]_block_invoke_2
 -[CFFileCacheStore logScriptLoadType:forDomain:]
 -[CFFileCacheStore createCacheDirectoryIfNeeded]
++[CFFileCacheStore scriptCheckSumDictionaryFromFileSystem]
++[CFFileCacheStore scriptCheckSumDictionaryFromFileSystem]_block_invoke
 -[CFFileCacheStore populateChecksumDictionary]_block_invoke
--[CFFileCacheStore populateChecksumDictionary]_block_invoke_2
 v32@?0@"NSString"8@"NSData"16^B24
 com.apple.siri.ClientFlow.FileCacheStore
 cacheFileQueue
@@ -288,10 +294,12 @@ valueForEntitlement:
 processIdentifier
 processPathForPID:
 stringWithFormat:
+UTF8String
 scripterForProcessPath:
 setExportedObject:
 setExportedInterface:
 setRemoteObjectInterface:
+_setQueue:
 resume
 stringWithUTF8String:
 init
@@ -336,7 +344,10 @@ performCommandExecutionForCommand:completion:
 performWarmupAndEvaluateScriptWithScriptHint:
 performWarmup
 updateScriptCacheForFlowScript:completion:
+removeScripts:completion:
 interfaceWithProtocol:
+setWithObjects:
+setClasses:forSelector:argumentIndex:ofReply:
 handleOneWayCommand:
 handleCommand:reply:
 isDeviceLockedWithPasscodeWithCompletion:
@@ -373,29 +384,37 @@ _jsExecutionStart
 name
 jsContextDecoratorCache
 removeAllObjects
-commandProcessingQueue
 contextDecoratorForScriptDomain:
 cacheFilePathForDomain:
 fileURLWithPath:
 setScriptURL:
+isScriptEvaluated
 scriptForDomain:scriptLoadType:
 logScriptLoadType:forDomain:
-isScriptEvaluated
 evaluateScript:withName:
 dictionaryWithObjects:forKeys:count:
+commandProcessingQueue
 currentConnection
 initWithXPCConnection:
+overrideScriptsFromLocalCacheInCommand:
 handleCommand:clientProxy:completion:
+initWithSuiteName:
+boolForKey:
+domain
+scriptFromFileSystemForIdentifier:
+setJsScript:
+jsLibraries
+jsScriptIdentifier
+SHA256
+setJsScriptChecksum:
 jsParameters
 jsDialogScripts
 arrayWithObjects:
 executeScriptWithArguments:error:
-jsLibraries
 jsScript
-jsScriptIdentifier
 dictionary
-domain
 cacheScriptForDomain:script:completion:
+cachingEnabled
 cachedScriptDomainsAndCheckSums
 setCachedDomainClassJavascriptChecksumMap:
 setClientState:
@@ -417,10 +436,8 @@ fetchScriptsForCommand:clientProxy:completion:
 reevaluateStaleScriptsForCommand:context:
 scriptIsStaleForContext:command:
 freshScriptForCommand:
-setJsScript:
 setDomain:
 length
-SHA256
 scriptChecksums
 isEqualToData:
 countByEnumeratingWithState:objects:count:
@@ -450,7 +467,6 @@ setObject:forKey:cost:
 setName:
 setCountLimit:
 setMinimumObjectCount:
-UTF8String
 domainForCommand:
 setJsContextDecoratorCache:
 setCommandProcessingQueue:
@@ -628,6 +644,7 @@ firstObject
 fileExistsAtPath:isDirectory:
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 hasPrefix:
+scriptCheckSumDictionaryFromFileSystem
 valueForKey:
 enumerateKeysAndObjectsUsingBlock:
 createCacheDirectoryIfNeeded
@@ -666,7 +683,12 @@ dataWithJSONObject:options:error:
 %s [%@] Recevied Siri Disabled notification, removing Caches
 %s [%@] ClientScripter started warmup
 %s [%@] ClientScripter started warmup with command processor and hint %@
-%s [%@] Skipping evaluation of script hint - %@...
+%s [%@] Unable to find cached script. Skipping evaluation of script hint - %@...
+%s [%@] JSContext already evaluated for script hint. Skipping evaluation of script hint - %@...
+%s Override scripts is ON
+%s Script force loaded from cache --> %@
+%s Script could not be force loaded from cache, script not in cache --> %@
+%s Override scripts is OFF
 %s [%@] Evaluating script with id - %@
 %s [%@] Empty script found in command %@
 %s [%@] Cached script for domain %@ successfully
@@ -774,8 +796,8 @@ dataWithJSONObject:options:error:
 %s Removing script with identifier %@ from cache
 %s Uncompressed script not present, checking for compressed script
 %s Decompressing script with identifier %@
-%s Unable to read script for empty domain
 %s Unable to read script at %@, error %@
+%s Unable to read script for empty domain
 %s Deleting %@
 %s Removing script checksum from memory for script %@
 %s Failed to delete %@ error %@
@@ -851,6 +873,7 @@ v32@0:8@16@?24
 v32@0:8@"SACFAbstractClientCommand"16@?<v@?@"SABaseCommand">24
 v24@0:8@"NSString"16
 v32@0:8@"SACFClientFlowScript"16@?<v@?B>24
+v32@0:8@"NSArray"16@?<v@?B>24
 @24@0:8@"NSString"16
 v24@0:8@?16
 v24@0:8@"SABaseCommand"16

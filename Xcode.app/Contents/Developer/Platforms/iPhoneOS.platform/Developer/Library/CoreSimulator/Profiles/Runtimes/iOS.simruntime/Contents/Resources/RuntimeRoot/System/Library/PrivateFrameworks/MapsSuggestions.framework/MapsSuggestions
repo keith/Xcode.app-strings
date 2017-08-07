@@ -311,6 +311,7 @@ MapsSuggestionsTravelFlightImprover
 MapsSuggestionsTicketedEventImprover
 MapsSuggestionsHotelImprover
 MapsSuggestionsDeduper
+MapsSuggestionsAppConnectionDeduper
 MapsSuggestionsReservationAndCalendarEventDeduper
 MapsSuggestionsFrequentLocationDeduper
 MapsSuggestionsSameRidesharingRideDeduper
@@ -601,6 +602,9 @@ MapsSuggestionsHotelImprover
 MapsSuggestionsCalendarHotelCheckOutTime
 MapsSuggestionsCalendarHotelCheckInTime
 MapsSuggestionsCalendarTimeZone
+MapsSuggestionsAppConnectionDeduperEnabledKey
+MapsSuggestionsAppConnectionDeduper
+-[MapsSuggestionsAppConnectionDeduper dedupeByEnrichingEntry:withEntry:]
 MapsSuggestionsReservationAndCalendarEventDeduperEnabledKey
 -[MapsSuggestionsReservationAndCalendarEventDeduper dedupeByEnrichingEntry:withEntry:]
 MapsSuggestionsCoreSuggestionsOpaqueKey
@@ -866,7 +870,7 @@ MapsSuggestionsTracker
 -[MapsSuggestionsTracker _scheduleRefresh]_block_invoke
 -[MapsSuggestionsTracker _refresh]_block_invoke
 _refresh
-MapsSuggestionsTrackerETAFreshTimeKey
+MapsSuggestionsTrackerRequiredMaxAgeLocationKey
 MapsSuggestionsTrackerRequiredAccuracyKey
 v16@?0@"CLLocation"8
 MapsSuggestionsTransportTypeKey
@@ -874,6 +878,8 @@ _determineTransportTypeFromOrigin
 -[MapsSuggestionsTracker _decorateEntry:eta:trafficString:]
 Requires a suggestions entry
 _decorateEntry:%@:eta:route:
+MapsSuggestionsETAValidUntilKey
+MapsSuggestionsTrackerETAFreshTimeKey
 self
 -[MapsSuggestionsTracker _requestETAs]_block_invoke
 v32@?0@"NSArray"8@"NSArray"16@"NSError"24
@@ -912,6 +918,7 @@ MapsSuggestionsTrackerSupportsEntryTypeCalendarEventKey
 MapsSuggestionsTrackerSupportsEntryTypeFrequentLocationKey
 MapsSuggestionsTrackerSupportsEntryTypeResumeRouteKey
 MapsSuggestionsTrackerSupportsEntryTypeWorkKey
+MapsSuggestionsTrackerQueue
 com.apple.GeoServices.userTransportTypePreferenceChanged
 MapsSuggestionsTrackerRefreshDeferTimeInSecKey
 MapsSuggestionsTrackerRefreshIntervalInSecKey
@@ -988,7 +995,6 @@ TicketedEvent
 TravelFlight
 CarRental
 Hotel
-ExploreVenue
 AppConnection
 ResumeRoute
 CarPlayLowEnergy
@@ -1047,7 +1053,6 @@ MapsSuggestionsEntryTypeTicketedEvent
 MapsSuggestionsEntryTypeTravelFlight
 MapsSuggestionsEntryTypeCarRental
 MapsSuggestionsEntryTypeHotel
-MapsSuggestionsEntryTypeExploreVenue
 MapsSuggestionsEntryTypeAppConnection
 MapsSuggestionsEntryTypeResumeRoute
 MapsSuggestionsEntryTypeCarPlayLowEnergy
@@ -1301,6 +1306,10 @@ Requires storage
 deduping
 improving
 filtering
+EKEventStore
+/System/Library/Frameworks/EventKit.framework/EventKit
+/AppleInternal/Library/Frameworks/EventKit.framework/EventKit
+### Failed to Soft Linked: /System/Library/Frameworks/EventKit.framework/EventKit
 MapsSuggestionsVerboseLoggingKey
 MapsSuggestionsServerSideFilter
 -[MapsSuggestionsServerSideFilter shouldKeepEntry:]
@@ -1309,7 +1318,6 @@ MapsSuggestionsEntryTypeTicketedEventEnabledKey
 MapsSuggestionsEntryTypeTravelFlightEnabledKey
 MapsSuggestionsEntryTypeCarRentalEnabledKey
 MapsSuggestionsEntryTypeHotelEnabledKey
-MapsSuggestionsEntryTypeExploreVenueEnabledKey
 MapsSuggestionsEntryTypeAppConnectionEnabledKey
 MapsSuggestionsEntryTypeResumeRouteEnabledKey
 MapsSuggestionsEntryTypeCarPlayLowEnergyEnabledKey
@@ -1359,8 +1367,8 @@ MapsSuggestionsCommuteOnlyFilter
 -[MapsSuggestionsCommuteOnlyFilter shouldKeepEntry:]
 MapsSuggestionsMaximumCommuteWindowDurationKey
 MapsSuggestionsCommuteUsesLastVisitDateKey
-MapsSuggestionsApproximateCommuteEndTime
-MapsSuggestionsApproximateCommuteStartTime
+MapsSuggestionsSupergreenCommuteEndTimeKey
+MapsSuggestionsSupergreenCommuteStartTimeKey
 MapsSuggestionsCommuteFilterOverrideExitTimeInRelativeSecondsKey
 MapsSuggestionsCommuteFilterSupportAllTypesKey
 MapsSuggestionsApproximateCommuteEndTimeAfterDepartureIntervalKey
@@ -1576,6 +1584,9 @@ _updateAllSourcesOnce
 scheduleUpdateAllSourcesOnce
 _startAllSources
 _stopAllSources
+_startLocationUpdater
+_stopLocationUpdater
+_restartLocationUpdaterIfNeeded
 _pruneExpiredSourceEntries
 _pruneExpiredFromEntries:
 _sendInvalidateToAllSinks
@@ -1655,6 +1666,7 @@ name
 _muid
 _hasMUID
 integerValue
+hasSuffix:
 numberWithInteger:
 _customLabel
 _labelType
@@ -2156,7 +2168,6 @@ _enableMapsSuggestionsEntryTypeRidesharing
 _enableMapsSuggestionsEntryTypeCarPlayLowEnergy
 _enableMapsSuggestionsEntryTypeResumeRoute
 _enableMapsSuggestionsEntryTypeAppConnection
-_enableMapsSuggestionsEntryTypeExploreVenue
 _enableMapsSuggestionsEntryTypeHotel
 _enableMapsSuggestionsEntryTypeCarRental
 _enableMapsSuggestionsEntryTypeTravelFlight
@@ -2188,6 +2199,7 @@ _lastVisitDateMovedToTodayForEntry:now:
 _lastVisitDateArrivalWindowForEntry:now:
 _exitDateDepartureWindow
 _bestAvailableDateForEntry:now:
+containsDate:
 initWithStartDate:endDate:
 earlierDate:
 nextDateAfterDate:matchingComponents:options:
@@ -2310,6 +2322,9 @@ RELINKING from %@ to %@: %@
 %@ received error: %@
 %@ found no changes to previous result.
 {MSgDebug} PRUNED by OBJECT{%@} {%p:%@}:
+Restarting location updater
+Stopping location updater
+Starting location updater
 Stopping SOURCE{%@}
 _updateAllSourcesOnce schedule
 strongSelf2 went away in %s line %d
@@ -2427,6 +2442,7 @@ CLEAR data
 Car is parked %g meters away
 MapsSuggestionsCommuteFilterSupportAllTypes=%d
 MapsSuggestionsCommuteFilterOverrideExitTimeInRelativeSeconds=%f
+shouldKeepEntry:
 DEBUG MODE: Allowing Entry of type %@
 Entry %@ is not a home/work entry
 Entry %@ has 0 weight
@@ -2436,6 +2452,7 @@ Using the entry date window: %@
 Using the departure window: %@
 Using the last visit date window: %@
 No window is available, filtering entry away: %@
+Setting window
 New estimated exit date is nil. Keeping exit date %@
 Updating exit date %@
 Got no location for exit times. Keeping whatever we have.

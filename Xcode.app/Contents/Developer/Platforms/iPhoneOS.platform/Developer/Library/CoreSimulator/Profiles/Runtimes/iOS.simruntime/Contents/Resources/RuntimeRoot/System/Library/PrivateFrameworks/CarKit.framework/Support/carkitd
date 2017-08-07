@@ -143,6 +143,8 @@ shouldCreateGeofenceAroundStart
 TB,N,V_shouldCreateGeofenceAroundStart
 isCurrentlyInsideGeofence
 TB,N,V_isCurrentlyInsideGeofence
+hasUnknownFenceState
+TB,N,V_hasUnknownFenceState
 activelyMonitoringGeofences
 TB,N,V_activelyMonitoringGeofences
 locationManager
@@ -385,8 +387,6 @@ carkitd-buddy-locales
 plist
 CarKit
 com.apple.carkit.dnd.transaction
-CARDNDQueue
-T@"NSObject<OS_dispatch_queue>",&,N,V_CARDNDQueue
 userDisableTimer
 T@"NSTimer",&,N,V_userDisableTimer
 quietModeAssertion
@@ -400,6 +400,8 @@ T@"CARSessionStatus",&,N,V_sessionStatus
 assertionTrap
 T@"CARDNDAssertionTrap",&,N,V_assertionTrap
 T@"CRVehicleStore",W,N,V_vehicleStore
+CARDNDQueue
+T@"NSObject<OS_dispatch_queue>",&,N,V_CARDNDQueue
 nextUnlockAction
 TQ,N,V_nextUnlockAction
 nextLockAction
@@ -868,17 +870,23 @@ shouldCreateGeofenceAroundStart
 didCreateGeofenceAroundStart
 location
 horizontalAccuracy
+timestamp
+timeIntervalSinceNow
 coordinate
 _addCoordinatesToMonitoredRegion:identifier:radius:
 setDidCreateGeofenceAroundStart:
 setIsCurrentlyInsideGeofence:
+requestStateForRegion:
 _createGeofencesAroundPredictedLocationsFromLocation:
 _createGeofencesAroundHomeAndWork
 startMonitoringSignificantLocationChanges
+startUpdatingLocation
 monitoredRegions
 stopMonitoringForRegion:
+setHasUnknownFenceState:
 setMonitoredRegions:
 stopMonitoringSignificantLocationChanges
+stopUpdatingLocation
 center
 initWithCenter:radius:identifier:
 arrayByAddingObject:
@@ -899,7 +907,10 @@ fetchLocationsOfInterestOfType:withHandler:
 setLocationServicesEnabled:
 beginMonitoringLOIsWithStartingLocationGeofence:
 lastObject
+hasUnknownFenceState
+_pollFencesWithUnknownState
 _updateState:forRegion:
+code
 locationManager:didUpdateToLocation:fromLocation:
 locationManager:didUpdateLocations:
 locationManager:didUpdateHeading:
@@ -925,6 +936,7 @@ _DNDActive
 _didCreateGeofenceAroundStart
 _shouldCreateGeofenceAroundStart
 _isCurrentlyInsideGeofence
+_hasUnknownFenceState
 _activelyMonitoringGeofences
 _exitConfirmationActive
 _locationServicesEnabled
@@ -1172,6 +1184,7 @@ status
 setStartedFirstRidePreference:
 setCompletedFirstRidePreference:
 _performCARPreferencesBlock:forReading:
+CARDNDQueue
 _setDNDActive:completion:
 setAutomaticDNDTriggeringMethod:
 setOptedOutOfAutomaticDND:
@@ -1233,7 +1246,6 @@ collectedDiagnosticsRadarURL
 setPendingRadarURLs:
 _stopDictation
 domain
-code
 _carAlertWithTitle:dismissTime:
 fileRadarAlert
 setFileRadarAlert:
@@ -1279,7 +1291,6 @@ quietModeAssertion
 geofencingObserver
 sharedConnection
 userBoolValueForSetting:
-CARDNDQueue
 _processVehicleState:
 nextLockAction
 _showDNDStartBanner
@@ -1335,24 +1346,24 @@ setIdleExitTransaction:
 userDisableTimer
 setUserDisableTimer:
 _userDisabledTimerFired:
-setCARDNDQueue:
 setStateMachine:
 setPreferences:
 setSessionStatus:
 setAssertionTrap:
 setVehicleStore:
+setCARDNDQueue:
 setFirstRideVehicleHints:
 setGeofencingObserver:
 idleExitTransaction
 _gateway
 _expectedDNDTermination
 _vehicleQueryInitiatedTimestamp
-_CARDNDQueue
 _userDisableTimer
 _quietModeAssertion
 _stateMachine
 _sessionStatus
 _assertionTrap
+_CARDNDQueue
 _nextUnlockAction
 _nextLockAction
 _lastKnownVehicularState
@@ -1550,7 +1561,9 @@ completed first unlock
 [Rhodes] Activating geofences since location services are now enabled
 [Rhodes] Received location update, but nil location
 [Rhodes] Received location update, but no longer monitoring
+[Rhodes] Received location update, but age is too old
 [Rhodes] Creating start geofence around received location
+[Rhodes] Polling fences with unknown state
 [Rhodes] Begin monitoring for lat/long: {%f, %f}
 [Rhodes] Begin monitoring for [%@]
 [Rhodes] Entered region for lat/long: {%f, %f}
@@ -1613,7 +1626,6 @@ Enable Wi-Fi alert accepted, turning on Wi-Fi
 [Rhodes] Engaging DND from external activation.
 [Rhodes] Disabling DND from external activation.
 [Rhodes] Should Display Exit Confirmation: %d
-[Rhodes] Dismissed Buddy; reminding again after next drive.
 [Rhodes] Updated auto-reply audience to %@
 [Rhodes] Disabling DND until end of drive.
 [Rhodes] Ignoring disable DND until end of drive - DND was not valid.
@@ -1651,11 +1663,11 @@ Failed to move: %@
 [Rhodes] DND while driving is set to Manually
 [Rhodes] Starting first ride.
 [Rhodes] In vehicle, but has not completed first ride. Ignoring.
-[Rhodes] DND is already active.
 [Rhodes] Scheduling DND start with next device lock.
 [Rhodes] Cleaning up DND state.
 [Rhodes] Expected DND termination.
 [Rhodes] Unexpected DND termination.
+[Rhodes] Posting DND status changed.
 [Rhodes] User indicated passenger.
 [Rhodes] User indicated pulled over.
 [Rhodes] User indicated incorrect vehicle detection.
@@ -1666,9 +1678,9 @@ Failed to move: %@
 [Rhodes] Not showing DND Buddy because restriction is enabled
 [Rhodes] Not showing DND Buddy because region is not US, locale is: %@
 [Rhodes] Override is set; forcing vehicle state ON.
+[Rhodes] Skipping non-BT in-vehicle report received after BT in-vehicle report.
 [Rhodes] Ignoring vehicle state change because CarPlay session is active.
 [Rhodes] Ignoring vehicle state change because AirPlane mode is active.
-[Rhodes] Skipping non-BT in-vehicle report received after BT in-vehicle report.
 [Rhodes] Likely a CarPlay connection.
 [Rhodes] CarPlay vehicle that isn't disabled.
 [Rhodes] Marking non-vehicular report while user disabled.
@@ -1907,8 +1919,8 @@ RenWcarkitd_
 com.apple.internal.carkitdS6.0TBNDLS1.0
 iPhoneSimulatorQ1_
 "com.apple.compilers.llvm.clang.1_0P_
-iphonesimulatorT11.0W15A325a_
-iphonesimulator11.0T0900V9L173x
+iphonesimulatorT11.0V15A340_
+iphonesimulator11.0T0900V9M189u
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

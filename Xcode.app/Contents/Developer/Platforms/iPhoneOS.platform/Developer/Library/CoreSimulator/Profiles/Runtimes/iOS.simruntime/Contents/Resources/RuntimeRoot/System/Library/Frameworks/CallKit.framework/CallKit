@@ -109,8 +109,6 @@ actions
 T@"NSArray",R,C,N
 remoteObjectProxy
 T@,R,&
-count
-TQ,R,N
 v24@?0@"<NSCopying>"8@"NSArray"16
 v24@?0@"<NSCopying>"8@"NSError"16
 v16@?0@"<NSCopying>"8
@@ -141,6 +139,8 @@ T@"CXTransactionManager",&,N,V_transactionManager
 callSources
 T@"NSArray",R,N
 <%@ %p count=%lu phoneNumberData.length=%lu labelData.length=%lu>
+count
+TQ,R,N
 phoneNumberData
 T@"NSData",&,N,V_phoneNumberData
 labelData
@@ -166,6 +166,7 @@ INSERT INTO Extension (bundle_id, priority, state_last_modified) VALUES (?, ?, (
 DELETE FROM Extension WHERE (bundle_id = ?)
 UPDATE Extension SET state = ?, state_last_modified = ((julianday('now') - 2440587.5)*86400.0) WHERE (bundle_id = ?)
 UPDATE Extension SET state = ?, state_last_modified = ((julianday('now') - 2440587.5)*86400.0) WHERE (id = ?)
+UPDATE Extension SET state_last_modified = ? WHERE (id = ?)
 UPDATE Extension SET state = ?, state_last_modified = ((julianday('now') - 2440587.5)*86400.0)
 DELETE FROM PhoneNumber WHERE id NOT IN (SELECT DISTINCT phone_number_id FROM PhoneNumberIdentificationEntry UNION SELECT DISTINCT phone_number_id FROM PhoneNumberBlockingEntry)
 DELETE FROM Label WHERE id NOT IN (SELECT DISTINCT label_id FROM PhoneNumberIdentificationEntry)
@@ -193,8 +194,7 @@ INSERT OR IGNORE INTO Label (localized_label) VALUES %@
 (?, (SELECT id FROM PhoneNumber WHERE (number = ?)), (SELECT id FROM Label WHERE (localized_label = ?)))
 INSERT INTO PhoneNumberIdentificationEntry (extension_id, phone_number_id, label_id) VALUES %@
 INSERT OR IGNORE INTO PhoneNumber (number) VALUES %@
-(? || ?)
-DELETE FROM PhoneNumberIdentificationEntry WHERE id IN (SELECT PhoneNumberIdentificationEntry.id FROM PhoneNumberIdentificationEntry INNER JOIN PhoneNumber ON (PhoneNumberIdentificationEntry.phone_number_id = PhoneNumber.id) INNER JOIN Label ON (PhoneNumberIdentificationEntry.label_id = Label.id) WHERE PhoneNumberIdentificationEntry.extension_id = ? AND (PhoneNumber.number || Label.localized_label) IN (%@))
+DELETE FROM PhoneNumberIdentificationEntry WHERE extension_id = ? AND phone_number_id IN (SELECT id FROM PhoneNumber WHERE number IN %@)
 DELETE FROM PhoneNumberIdentificationEntry WHERE extension_id = ?
 SELECT EXISTS(SELECT 1 FROM PhoneNumberBlockingEntry INNER JOIN PhoneNumber ON (PhoneNumber.id = PhoneNumberBlockingEntry.phone_number_id) WHERE (PhoneNumber.number IN %@) LIMIT 1)
 SELECT EXISTS(SELECT 1 FROM PhoneNumberBlockingEntry INNER JOIN PhoneNumber ON (PhoneNumber.id = PhoneNumberBlockingEntry.phone_number_id) INNER JOIN Extension ON (Extension.id = PhoneNumberBlockingEntry.extension_id) WHERE (Extension.state = %ld AND PhoneNumber.number IN %@) LIMIT 1)
@@ -237,7 +237,9 @@ schemaVersion
 Tq,R,N
 corrupt
 TB,R,N,GisCorrupt
+com.apple.callkit.calldirectoryextensionhostcontext
 v16@?0@"NSError"8
+T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"<CXCallDirectoryProviderHostProtocol>",W,N,V_delegate
 -[CXProviderExtensionVendorContext registerWithConfiguration:]
 -[CXProviderExtensionVendorContext reportNewIncomingCallWithUUID:update:reply:]
@@ -723,13 +725,13 @@ T@"NSString",C,N,V_extensionBundleIdentifier
 v20@?0B8@"NSError"12
 Calling %@ when isIncremental is false is unsupported
 pendingBlockingEntryData
-T@"CXCallDirectoryBlockingEntryMutableData",&,N,V_pendingBlockingEntryData
+T@"CXCallDirectoryMutablePhoneNumberEntryData",&,N,V_pendingBlockingEntryData
 pendingBlockingEntryChangeType
 Tq,N,V_pendingBlockingEntryChangeType
-pendingIdentificationEntryData
-T@"CXCallDirectoryIdentificationEntryMutableData",&,N,V_pendingIdentificationEntryData
-pendingIdentificationEntryChangeType
-Tq,N,V_pendingIdentificationEntryChangeType
+pendingIdentificationEntryDataForAddition
+T@"CXCallDirectoryMutableLabeledPhoneNumberEntryData",&,N,V_pendingIdentificationEntryDataForAddition
+pendingIdentificationEntryDataForRemoval
+T@"CXCallDirectoryMutablePhoneNumberEntryData",&,N,V_pendingIdentificationEntryDataForRemoval
 hasQueriedIsIncremental
 TB,N,V_hasQueriedIsIncremental
 remoteObjectProxyGenerator
@@ -741,6 +743,11 @@ hasConnected
 TB,N,V_hasConnected
 hasEnded
 TB,N,V_hasEnded
+endpointOnCurrentDevice
+TB,N,GisEndpointOnCurrentDevice,V_endpointOnCurrentDevice
+hostedOnCurrentDevice
+TB,N,GisHostedOnCurrentDevice,V_hostedOnCurrentDevice
+T@"NSUUID",R,C,N,V_UUID
 init
 extensionMatchingContext
 endMatchingExtensions:
@@ -946,10 +953,13 @@ countByEnumeratingWithState:objects:count:
 addOrUpdateCall:
 removeObjectForKey:
 removeCall:
-initWithConnection:serialQueue:
-addObject:
-removeObject:
+count
+arrayWithCapacity:
 allValues
+addObject:
+initWithConnection:serialQueue:
+removeObject:
+_callsForCallControllerHostConnection:
 applicationIdentifier
 bundle
 callControllerHost:clientWithIdentifier:bundle:extensionIdentifier:requestedTransaction:completion:
@@ -988,8 +998,6 @@ cx_providerVendorInterface
 cx_providerHostInterface
 _extensionAuxiliaryVendorProtocol
 _extensionAuxiliaryHostProtocol
-count
-phoneNumberAtIndex:
 setExtensionContext:
 setRequestCompletionBlock:
 setRequestCancellationBlock:
@@ -1082,6 +1090,7 @@ getBytes:range:
 bytes
 phoneNumberData
 labelData
+phoneNumberAtIndex:
 utf8LabelAtIndex:length:
 setPhoneNumberData:
 setLabelData:
@@ -1146,6 +1155,8 @@ numberWithLongLong:
 executeSQL:withBindings:transient:error:
 countOfRecordsModifiedByLastQuery
 numberWithInteger:
+timeIntervalSince1970
+numberWithDouble:
 _removeUnreferencedPhoneNumbersWithError:
 _removeUnreferencedLabelsWithError:
 executeSQL:error:
@@ -1199,7 +1210,6 @@ _storeIdentificationEntryWithExtensionBundleID:localizedLabel:
 selectSQL:withBindings:expectedColumnCount:transient:resultRowHandler:error:
 setExtensionBundleIdentifier:
 setLocalizedLabel:
-arrayWithCapacity:
 componentsJoinedByString:
 vacuumWithError:
 initForReadingWithError:
@@ -1212,6 +1222,7 @@ addExtensionWithIdentifier:priority:error:
 removeExtensionWithIdentifier:error:
 setState:forExtensionWithIdentifier:error:
 setState:forExtensionWithID:error:
+setStateLastModifiedDate:forExtensionWithID:error:
 setStateForAllExtensions:error:
 removeUnreferencedRecordsWithError:
 prioritizedExtensionsWithError:
@@ -1249,6 +1260,8 @@ _lastAddPhoneNumbersCount
 _addPhoneNumbersSQL
 _lastRemoveIdentificationEntriesCount
 _removeIdentificationEntriesSQL
+initWithInputItems:listenerEndpoint:contextUUID:
+activate
 requestFailedWithError:reply:
 isIncrementalLoadingAllowed:
 addBlockingEntriesWithData:reply:
@@ -1787,37 +1800,37 @@ setStatement:
 processResultsWithExpectedColumnCount:resultRowHandler:error:
 sleepForTimeInterval:
 stringWithUTF8String:
-numberWithDouble:
 dataWithBytes:length:
 null
 _statement
 extensionBundleIdentifier
 _extensionBundleIdentifier
-initWithInputItems:listenerEndpoint:contextUUID:
 remoteObjectProxyGenerator
 pendingBlockingEntryChangeType
 pendingBlockingEntryData
 _flushPendingBlockingEntryData
 setPendingBlockingEntryChangeType:
-pendingIdentificationEntryChangeType
-pendingIdentificationEntryData
-_flushPendingIdentificationEntryData
-setPendingIdentificationEntryChangeType:
+pendingIdentificationEntryDataForAddition
+_flushPendingIdentificationEntryDataForAddition
+pendingIdentificationEntryDataForRemoval
+_flushPendingIdentificationEntryDataForRemoval
 setPendingBlockingEntryData:
 _remoteObjectProxyWithErrorHandler:synchronous:
-setPendingIdentificationEntryData:
+setPendingIdentificationEntryDataForAddition:
+setPendingIdentificationEntryDataForRemoval:
 hasQueriedIsIncremental
 setHasQueriedIsIncremental:
 appendBlockingEntryPhoneNumber:changeType:
 isIncremental
 _performBlockIfIncremental:usingSelectorForExceptionMessage:
-appendIdentificationEntryPhoneNumber:label:changeType:
+appendIdentificationEntryForAdditionWithPhoneNumber:label:
+appendIdentificationEntryForRemovalWithPhoneNumber:
 requestFailedForExtensionContext:withError:
 addBlockingEntryWithNextSequentialPhoneNumber:
 removeBlockingEntryWithPhoneNumber:
 removeAllBlockingEntries
 addIdentificationEntryWithNextSequentialPhoneNumber:label:
-removeIdentificationEntryWithPhoneNumber:label:
+removeIdentificationEntryWithPhoneNumber:
 removeAllIdentificationEntries
 completeRequestWithCompletionHandler:
 setRemoteObjectProxyGenerator:
@@ -1825,15 +1838,21 @@ _incremental
 _hasQueriedIsIncremental
 _pendingBlockingEntryData
 _pendingBlockingEntryChangeType
-_pendingIdentificationEntryData
-_pendingIdentificationEntryChangeType
+_pendingIdentificationEntryDataForAddition
+_pendingIdentificationEntryDataForRemoval
 _remoteObjectProxyGenerator
 initWithUUID:
 hasConnected
 hasEnded
+isEndpointOnCurrentDevice
+isHostedOnCurrentDevice
 setHasConnected:
+setEndpointOnCurrentDevice:
+setHostedOnCurrentDevice:
 _hasConnected
 _hasEnded
+_endpointOnCurrentDevice
+_hostedOnCurrentDevice
 Error beginning to match extensions with attributes %@: %@
 No NSExtension found for identifier %@ containingAppBundleURL %@
 No containing app bundle ID found for containingAppPID %d
@@ -2014,15 +2033,15 @@ CXCallDirectoryProvider
 NSExtensionRequestHandling
 CXTransaction
 CXProviderExtensionContext
-CXCallDirectoryEntryData
 CXExtensionCallSource
 CXXPCCallSource
 CXCallSourceManager
 CXCallSourceDelegate
 CXCallSourceUpdates
 CXTransactionManagerDelegate
-CXCallDirectoryIdentificationEntryData
-CXCallDirectoryIdentificationEntryMutableData
+CXCallDirectoryLabeledPhoneNumberEntryData
+CXCallDirectoryEntryData
+CXCallDirectoryMutableLabeledPhoneNumberEntryData
 CXCallDirectoryStore
 CXCallDirectoryExtensionHostContext
 CXCallDirectoryProviderHostProtocol
@@ -2075,8 +2094,8 @@ CXInProcessProvider
 CXCallDirectoryExtension
 CXTransactionGroup
 CXCallDirectorySanitizer
-CXCallDirectoryBlockingEntryData
-CXCallDirectoryBlockingEntryMutableData
+CXCallDirectoryPhoneNumberEntryData
+CXCallDirectoryMutablePhoneNumberEntryData
 CXProviderConfiguration
 CXCallAction
 CXCallObserver
@@ -2174,7 +2193,6 @@ v48@0:8@"CXCallControllerHostConnection"16@"CXTransaction"24@"NSString"32@?<v@?@
 @"NSMutableSet"
 v24@0:8@"NSExtensionContext"16
 @"NSMutableOrderedSet"
-q24@0:8Q16
 @"CXProviderExtensionHostContext"
 @"NSExtension"
 @"<NSCopying>"
@@ -2200,6 +2218,7 @@ v32@0:8@"CXTransactionManager"16@"CXTransactionGroup"24
 @"<CXCallSourceManagerDelegate>"
 @"CXTransactionGroup"
 @"CXTransactionManager"
+q24@0:8Q16
 r*32@0:8Q16o^S24
 @"NSData"
 @24@0:8Q16
@@ -2217,11 +2236,11 @@ q32@0:8@16^@24
 q40@0:8@16q24^@32
 B40@0:8q16@24^@32
 B40@0:8q16q24^@32
+B40@0:8@16q24^@32
 B32@0:8q16^@24
 B24@0:8^@16
 @40@0:8@16@24Q32
 @32@0:8@16q24
-B40@0:8@16q24^@32
 B56@0:8@16Q24Q32q40^@48
 B48@0:8q16q24q32^@40
 q32@0:8q16^@24
@@ -2231,9 +2250,9 @@ B32@0:8@?16^@24
 B48@0:8@16@24@?32^@40
 @"CXDatabase"
 Vv24@0:8@?<v@?B@"NSError">16
-Vv32@0:8@"CXCallDirectoryBlockingEntryData"16@?<v@?>24
+Vv32@0:8@"CXCallDirectoryPhoneNumberEntryData"16@?<v@?>24
 Vv24@0:8@?<v@?>16
-Vv32@0:8@"CXCallDirectoryIdentificationEntryData"16@?<v@?>24
+Vv32@0:8@"CXCallDirectoryLabeledPhoneNumberEntryData"16@?<v@?>24
 @"<CXCallDirectoryProviderHostProtocol>"
 @"<CXProviderExtensionVendorContextDelegate>"
 @32@0:8q16^@24
@@ -2322,11 +2341,10 @@ B40@0:8r*16i24i28^@32
 v24@0:8^{sqlite3_stmt=}16
 ^{sqlite3_stmt=}
 v32@0:8q16q24
-v40@0:8q16@24q32
-v32@0:8@?16:24
 v32@0:8q16@24
+v32@0:8@?16:24
 @"<CXCallDirectoryExtensionContextDelegate>"
-@"CXCallDirectoryBlockingEntryMutableData"
-@"CXCallDirectoryIdentificationEntryMutableData"
+@"CXCallDirectoryMutablePhoneNumberEntryData"
+@"CXCallDirectoryMutableLabeledPhoneNumberEntryData"
 r@333333
 @(#)PROGRAM:CallKit  PROJECT:CallKit-1

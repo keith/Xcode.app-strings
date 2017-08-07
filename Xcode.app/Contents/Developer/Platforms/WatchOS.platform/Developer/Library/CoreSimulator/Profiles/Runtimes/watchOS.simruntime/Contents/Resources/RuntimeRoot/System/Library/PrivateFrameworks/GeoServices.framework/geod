@@ -70,6 +70,7 @@ NRPairedDeviceRegistryDeviceDidPairDarwinNotification
 /System/Library/PrivateFrameworks/NanoRegistry.framework/NanoRegistry
 ### Failed to Soft Linked: /System/Library/PrivateFrameworks/NanoRegistry.framework/NanoRegistry
 NRPairedDeviceRegistryWatchDidBecomeActiveDarwinNotification
+-new
 experiments
 datasetABStatus
 com.apple.geoservices.experiments.set
@@ -414,6 +415,7 @@ updateCachedSpotlightCategorySuggestions:
 updateWithMessage:
 initWithDelegate:configuration:
 discreteProgressWithTotalUnitCount:
+initWithManifestConfiguration:mapLayerDataManager:
 dataWithContentsOfFile:
 copy
 UTF8String
@@ -422,6 +424,7 @@ _pairedDeviceDidChange
 invalidate
 cancel
 dealloc
+_updateActiveTileGroupIfNeeded
 initWithMachServiceName:options:
 enqueueFetchTile:cachedETag:forRequestIdentifier:callback:
 sendEnqueuedTileFetchesForRequestIdentifier:
@@ -446,8 +449,19 @@ remoteObjectProxy
 uniqueIdentifier
 setInterruptionHandler:
 resume
-openConnection
+_openConnection:
+_connectionWithReconnect
 isEqualToString:
+_updateActiveTileGroup:
+timeIntervalSinceNow
+defaultManager
+fileExistsAtPath:
+removeItemAtPath:error:
+date
+taskForNewTileGroup:oldTileGroup:activeScales:activeScenarios:updateType:
+respondsToSelector:
+array
+startWithCompletionHandler:callbackQueue:
 activeResources
 arrayWithArray:
 staleResources
@@ -460,13 +474,9 @@ addObjectsFromArray:
 resourcesURL
 isDefaultConfiguration
 initWithTargetDirectory:baseURLString:resources:maximumConcurrentLoads:additionalDirectoryToConsider:
-stringByDeletingLastPathComponent
-defaultManager
-fileExistsAtPath:isDirectory:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-writeToFile:atomically:
+populateTileGroup:
+removeOldData:
 serverProxy:didChangeActiveTileGroup:finishedCallback:
-startWithCompletionHandler:callbackQueue:
 isEqual:
 self
 performSelector:
@@ -476,7 +486,6 @@ isProxy
 isKindOfClass:
 isMemberOfClass:
 conformsToProtocol:
-respondsToSelector:
 retain
 release
 autorelease
@@ -487,6 +496,7 @@ superclass
 description
 debugDescription
 initWithDelegate:configuration:additionalMigrationTaskClasses:
+openConnection
 closeConnection
 authToken
 configuration
@@ -511,20 +521,27 @@ _activeTileGroup
 _authToken
 _authTokenLock
 _configuration
+_tileGroupMigrators
 _connectionLock
 _connectionOpen
 _connection
 _resourceLoader
 _changingActiveTileGroupIdentifier
+_activeMigrationTasks
+_lastUpdateAttempt
 _didPairNotificationToken
 _didBecomeActiveNotificationToken
 _updateProgress
 hasReserved
 reserved
+stringByDeletingLastPathComponent
+fileExistsAtPath:isDirectory:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+writeToFile:atomically:
+stringByAppendingString:
 contentsOfDirectoryAtPath:error:
 filename
 stringByAppendingPathComponent:
-removeItemAtPath:error:
 setWithArray:
 regionalResources
 removeObject:
@@ -586,7 +603,6 @@ lastObject
 alphanumericCharacterSet
 invertedSet
 rangeOfCharacterFromSet:
-stringByAppendingString:
 progress
 becomeCurrentWithPendingUnitCount:
 resignCurrent
@@ -708,15 +724,20 @@ logMsgEvents
 logMsgStates
 stateType
 acceptsLogMsgStateType:
+disallowedStateWithStateType:logMsgEvent:logMessage:
 hasExperiments
 isFullExperimentsStateAllowed
 experiments
 setClientAbExperimentAssignment:
 setTilesAbExperimentAssignment:
 setAbAssignInfo:
+logMsgStateOfType:
+hasApplicationIdentifier
+applicationIdentifier
+hasAppIdentifier
+appIdentifier
 abAssignInfo
 refreshRelativeTimeStamp
-logMsgStateOfType:
 addLogMsgState:
 mergeFrom:
 isLogFrameworkAdaptor
@@ -835,20 +856,22 @@ deviceRegion
 setDeviceRegion:
 start
 _rescheduleTimeout
+_processTile:tileData:error:errors:userInfo:eTag:
+_enqueueFetchTile:callback:
+_sendEnqueuedTileRequests
 removeKey:
 tileEditionForKey:
 tileSetForKey:
 tileRequester:receivedData:tileEdition:tileSet:etag:forKey:userInfo:
 isEqualToNumber:
 updateManifest:
-_enqueueFetchTile:callback:
-_sendEnqueuedTileRequests
+_closeConnection
+addBarrierBlock:
 tileProviderIdentifier
 _remainingList
 _timeoutTimer
 _networkTileRequester
 _requestIdentifier
-array
 regionalResourcesCount
 regionalResourceAtIndex:
 resourceType
@@ -857,7 +880,6 @@ attributionsCount
 attributionAtIndex:
 addAttribution:
 manifestConfiguration
-fileExistsAtPath:
 checksum
 isEqualToData:
 regionalResourcesURL
@@ -926,13 +948,22 @@ Couldn't construct a place with storage data bytes: %{public}.*P
 Opening connection to nanomapsgd
 Connection to nanomapsgd was invalidated.
 Connection to nanomapsgd was interrupted.
+Connection to nanomapsgd should already be established, but isn't. Establishing connection.
 Closing connection to nanomapsgd
 Pairing state changed. Considering if we need to re-establish connection to nanomapsgd.
 Attempting to re-establish connection to nanomapsgd.
 Force update resource manifest.
-Connection to nanomapsgd should already be established, but isn't. Establishing connection.
 Received new active tile group
 Error decoding new tile group. Ignoring...
+Already activating this tile group. Ignoring.
+Already activating a tile group, not updating.
+Last update attempt was too recent, not updating.
+No stored new tile group, not updating
+Error decoding new tile group from disk. Removing & ignoring...
+Tile group migration task '%{public}@' encountered error: %{public}@
+Tile group migration task 'load resources' encountered error: %{public}@
+Mis-matched resource loader, ignoring.
+Recieved errors, failing. %{private}@
 Successfully changed active tile group (%{private}@). Informing clients.
 Finished informing clients of tile group change
 Could not remove resource '%{public}@' from disk: %{public}@
@@ -1056,12 +1087,15 @@ v12@0:4@?<v@?@"GEOResourceManifestDownload"@"NSError">8
 v12@0:4@"<GEOResourceManifestServerProxyDelegate>"8
 @"GEOActiveTileGroup"8@0:4
 @16@0:4@8@12
+@12@0:4B8
 @"<GEOResourceManifestServerProxyDelegate>"
 @"GEOActiveTileGroup"
 @"NSString"
 @"GEOResourceManifestConfiguration"
+@"NSArray"
 @"NSXPCConnection"
 @"GEOResourceLoader"
+@"NSDate"
 @"NSProgress"
 @"GEOLocationShifter"
 v16@0:4@8@12
@@ -1098,6 +1132,7 @@ v16@0:4@"GEOTileRequester"8@"NSError"12
 v12@0:4@"GEOTileRequester"8
 I12@0:4r^{_GEOTileKey=b6b26b26b6b8b8b8b1b7[4C]}8
 v16@0:4^{_GEOTileKey=b6b26b26b6b8b8b8b1b7[4C]}8@?12
+v32@0:4@8@12@16@20@24@28
 @"GEOTileKeyList"
 @"NSTimer"
 @"GEOTileRequester"
@@ -1130,8 +1165,8 @@ DTPlatformBuild^DTPlatformName_
 DTPlatformVersionZDTSDKBuildYDTSDKNameWDTXcode\DTXcodeBuild_
 MinimumOSVersion^UIDeviceFamilyW16B2657WEnglishTgeod^com.apple.geodS6.0TAPPLT????
 ^WatchSimulatorQ1_
-"com.apple.compilers.llvm.clang.1_0P^watchsimulatorS4.0V15R331_
-watchsimulator4.0T0900V9L173x
+"com.apple.compilers.llvm.clang.1_0P^watchsimulatorS4.0W15R344a_
+watchsimulator4.0T0900V9M189u
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
