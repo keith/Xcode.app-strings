@@ -21,7 +21,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.13.3 (Apple Git-91)";
+our $version = "2.13.5 (Apple Git-94)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;

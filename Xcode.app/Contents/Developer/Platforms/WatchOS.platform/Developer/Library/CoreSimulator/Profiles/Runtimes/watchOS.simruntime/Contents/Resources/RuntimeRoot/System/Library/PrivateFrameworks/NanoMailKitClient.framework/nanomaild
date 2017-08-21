@@ -18,8 +18,8 @@ T@"NSString",R,C
 debugDescription
 delegate
 T@"<NNMKMessageServiceDelegate>",W,N
-companionSyncService
-T@"NNMKCompanionSyncService",&,N,V_companionSyncService
+syncReceiver
+T@"NNMKSyncReceiver",&,N,V_syncReceiver
 messageDataSource
 T@"NNMKMessageDataSource",&,N,V_messageDataSource
 databaseFactory
@@ -34,6 +34,8 @@ executeFullSyncAfterFirstUnlock
 TB,N,V_executeFullSyncAfterFirstUnlock
 lastBatchFetchRequestDateByMailboxId
 T@"NSMutableDictionary",&,N,V_lastBatchFetchRequestDateByMailboxId
+connectionFailed
+TB,N,V_connectionFailed
 T@"<NNMKMessageServiceDelegate>",W,N,V_delegate
 Message
 ComposedMessage
@@ -336,8 +338,6 @@ DELETE FROM IDS_IDENTIFIER_NOT_YET_ACKD
 (%@VISIBLE_STATUS & %lu) > 0
 "%@"
  %@.MAILBOX_ID IN (%@) 
-T@"NNMKProtectedSQLiteConnection",W,N,V_connection
-T@"NNMKSQLJournal",W,N,V_journal
 loadedSyncedMailboxProtectedData
 TB,N,V_loadedSyncedMailboxProtectedData
 protectedDatabaseAttached
@@ -380,10 +380,10 @@ T@"NSHashTable",&,N,V_observers
 com.apple.nanomail.receiverServerQueue
 NanoMail's Main Transaction
 v8@?0B4
-v8@?0@"<NNMKSyncReceiverXPCBasicClientInterface>"4
-v8@?0@"<NNMKSyncReceiverXPCAdHocClientInterface>"4
-v8@?0@"<NNMKSyncReceiverXPCMessageUpdatesBasedClientInterface>"4
-v8@?0@"<NNMKSyncReceiverXPCConversationsBrowsingBasedClientInterface>"4
+v8@?0@"<NNMKNanoMailServiceXPCBasicClientInterface>"4
+v8@?0@"<NNMKNanoMailServiceXPCAdHocClientInterface>"4
+v8@?0@"<NNMKNanoMailServiceXPCMessageUpdatesBasedClientInterface>"4
+v8@?0@"<NNMKNanoMailServiceXPCConversationsBrowsingBasedClientInterface>"4
 v8@?0@"NSError"4
 serviceCoordinator
 T@"NNMKServiceCoordinator",&,N,V_serviceCoordinator
@@ -451,7 +451,7 @@ initWithExecutionQueue:
 database
 initWithQueue:database:
 initWithQueue:dataSource:database:
-initWithQueue:delegate:companionSyncService:messageDataSource:databaseFactory:
+initWithQueue:delegate:syncReceiver:messageDataSource:databaseFactory:
 setObserver:
 registerObserver:
 setDelegate:
@@ -480,7 +480,7 @@ lastObject
 conversation
 oldestMessageDateForMailboxId:
 compare:
-companionSyncService
+syncReceiver
 arrayWithObjects:count:
 initWithMailboxIds:
 requestOlderMessagesWithFilter:
@@ -543,6 +543,9 @@ deleteComposedMessageWithId:
 resendComposedMessageWithId:
 composedMessageIdsByReferenceMessageIdsAndProgress:
 failedComposedMessageIdsAndSubjects
+connectionFailed
+delegate
+messageService:didChangeConnectivity:
 setAppLastLaunchedDate:
 setNotificationSettingsEnabled:
 notificationSettingsEnabled
@@ -553,7 +556,6 @@ requestFetchManuallyTriggered:filteredConversationId:forceBatchResponse:
 requestCompactMessagesBeforeDate:
 startDelayedDatabaseCompactProcedure
 cancelDelayedDatabaseCompactProcedure
-delegate
 messageService:didAddMessages:containsNewMessages:
 messageService:didUpdateMessages:
 messageService:didDeleteMessages:
@@ -570,7 +572,7 @@ messageService:didFinishSyncingMessages:isInitialSync:
 isMailboxVisible:
 messageServiceDidReceiveOldMessageAvailableNotification:forMailboxId:
 messageServiceDidCompleteFetchRequest:batchResponse:
-messageService:didChangeConnectivity:
+setConnectionFailed:
 messageServiceDidDeleteAllMessages:
 messageService:didAddAccount:
 messageService:didUpdateAccount:
@@ -615,6 +617,7 @@ handleDatabaseUnlocked
 handleDatababaseChangedForRetailDemo
 handleDatababaseDirectoryRecreated
 handleDatababaseMigrated
+messageService:didSucceedToCommunicate:
 requestMessageContentForMessageIds:onlyIfNotAvailable:highPriority:
 initWithQueue:delegate:
 serviceForMessage:
@@ -631,7 +634,7 @@ resumeNetworkActivity
 updateAppLastLaunchedDate
 dispatchAfterProtectedDatabaseAttached:
 waitUntilDone
-setCompanionSyncService:
+setSyncReceiver:
 setMessageDataSource:
 setDatabaseFactory:
 setDatabase:
@@ -645,8 +648,9 @@ lastBatchFetchRequestDateByMailboxId
 setLastBatchFetchRequestDateByMailboxId:
 _pendingFullSyncRequest
 _executeFullSyncAfterFirstUnlock
+_connectionFailed
 _delegate
-_companionSyncService
+_syncReceiver
 _messageDataSource
 _databaseFactory
 _database
@@ -669,6 +673,7 @@ setFullSyncVersion:
 archivedDataWithRootObject:
 setBeforeDateReceived:
 requestCompactMessages:
+isPossiblyConnected
 _requestContentFromProviderForMessageWithIds:highPriority:
 dataSource
 containsMessageContentAndAttachmentsForMessageId:
@@ -1558,6 +1563,8 @@ It will not fetch older messages becase network latency test mode is enabled.
 User hasn't been using NanoMail for a while and notifications are disabled. Halting Mail sync... (Date: %{public}@)
 Resuming Mail sync...
 Suppressing "received old message" notification for mailbox not visible. %{public}@
+#Connectivity Reseting connection failed because connectivity changed. Connection failed: %lu
+#Connectivity Updating connection failed state. Succeed to communicate: %lu, Connected: %lu
 Requesting reload cache due to database unlocked
 handleDatababaseDirectoryRecreated
 Waiting for device to unlock to perform requested operation...
@@ -1573,14 +1580,14 @@ Preparing to request a Fetch from Companion. We've detected we're connected over
 Preparing to request a Fetch from Companion. We've detected we're NOT connected over Cloud. Companion will trigger a fetch and will send messages as new messages/updates, instead of batching them all together.
 No filter to fetch older messages.
 Assuming the mailbox is empty. Requesting messages older than now. (Mailbox Id: %{public}@, Filter: %lu)
-Will fetching from Companion from companion for mailbox Id: %{public}@, Date Cap: %{public}@).
-Fetching from Companion (Mailbox Ids: %{public}@, Filter: %lu - IDS Identifier: %{public}@).
+Will fetch older from companion for mailbox Id: %{public}@, Date Cap: %{public}@).
+Fetching older messages from Companion (Mailbox Ids: %{public}@, Filter: %lu - IDS Identifier: %{public}@).
 Message UPDATED (Id: %{public}@ - Status: %lu - Status Version: %lu).
 Sending message udpates to companion. IDS Identifier: %{public}@
 Message DELETED (Id: %{public}@ - Status: %lu).
 Will warn messages filtered out
 There is no message for conversation with id - %{public}@ - It won't fetch more messages
-Fetching from Companion for Specific Conversation (Last Date Received: %{public}@ - Conversation Id: %{public}@).
+Fetching older messages from Companion for Specific Conversation (Last Date Received: %{public}@ - Conversation Id: %{public}@).
 Could not find mailbox for conversation with id %{public}@
 Initial Accounts Sync Received.
 Mailbox Synced from Provider (Id: %{public}@)
@@ -1636,6 +1643,7 @@ Notifying clients we failed saving content (Message Id: %{public}@)...
 Image Attachment Received before actual message. Will request full content again when message arrives... (Id: %{public}@)
 Image Attachment ADDED from Provider (Message Id: %{public}@ - Content Id: %{public}@)
 Notification that all content has been sync'ed received (Full sync version: %lu - Callback IDS Identifier: %{public}@).
+Error sending IDS Messages (IDS Identifier: %{public}@ - Error code: %li).
 Last Fetch More Messages Request Failed being sent by IDS. Will inform NanoMail... (IDS Identifier: %{public}@ - Error code: %li)
 Last Fetch Request Failed being sent by IDS. Will inform NanoMail... (IDS Identifier: %{public}@ - Error code: %li)
 Last Full Sync Request Failed being sent by IDS. Will re-try... (IDS Identifier: %{public}@ - Error code: %li)
@@ -1840,7 +1848,7 @@ NNMKMessageServiceDelegate
 NNMKMessageService
 MessageDataSource
 NNMKMessageDeletion
-NNMKCompanionSyncService
+NNMKSyncReceiver
 NNMKMessagesSyncServiceClientDelegate
 NNMKMessageContentSyncServiceClientDelegate
 NNMKAccountsSyncServiceClientDelegate
@@ -1862,7 +1870,7 @@ NNMKDatabase
 NNMKMessageDataSource
 NNMKXPCServer
 NNMKNanoMailSnapshotRequesterDelegate
-NNMKSyncReceiverXPCServerInterface
+NNMKNanoMailServiceXPCServerInterface
 NSXPCListenerDelegate
 @8@0:4
 v8@0:4
@@ -1928,7 +1936,7 @@ v20@0:4B8@12B16
 @12@0:4^@8
 @12@0:4o^@8
 @"<NNMKMessageServiceDelegate>"
-@"NNMKCompanionSyncService"
+@"NNMKSyncReceiver"
 @"NNMKMessageDataSource"
 @"NNMKDatabaseFactory"
 @"NNMKDatabase"
