@@ -983,6 +983,7 @@ __gitcomp "
 --template=
 --depth
 --single-branch
+--no-tags
 --branch
 --recurse-submodules
 --no-single-branch
@@ -1031,7 +1032,7 @@ case "$cur" in
 __gitcomp "
 --all --tags --contains --abbrev= --candidates=
 --exact-match --debug --long --match --always --first-parent
---exclude
+--exclude --dirty --broken
 return
 esac
 __git_complete_refs
@@ -1720,14 +1721,23 @@ return
 esac
 __gitcomp "
 add.ignoreErrors
+advice.amWorkDir
 advice.commitBeforeMerge
 advice.detachedHead
 advice.implicitIdentity
-advice.pushNonFastForward
+advice.pushAlreadyExists
+advice.pushFetchFirst
+advice.pushNeedsForce
+advice.pushNonFFCurrent
+advice.pushNonFFMatching
+advice.pushUpdateRejected
 advice.resolveConflict
+advice.rmHints
 advice.statusHints
+advice.statusUoption
 alias.
 am.keepcr
+am.threeWay
 apply.ignorewhitespace
 apply.whitespace
 branch.autosetupmerge
@@ -1772,7 +1782,9 @@ color.status
 color.status.added
 color.status.changed
 color.status.header
+color.status.localBranch
 color.status.nobranch
+color.status.remoteBranch
 color.status.unmerged
 color.status.untracked
 color.status.updated
@@ -1788,6 +1800,8 @@ core.attributesfile
 core.autocrlf
 core.bare
 core.bigFileThreshold
+core.checkStat
+core.commentChar
 core.compression
 core.createObject
 core.deltaBaseCacheLimit
@@ -1797,6 +1811,8 @@ core.excludesfile
 core.fileMode
 core.fsyncobjectfiles
 core.gitProxy
+core.hideDotFiles
+core.hooksPath
 core.ignoreStat
 core.ignorecase
 core.logAllRefUpdates
@@ -1804,20 +1820,30 @@ core.loosecompression
 core.notesRef
 core.packedGitLimit
 core.packedGitWindowSize
+core.packedRefsTimeout
 core.pager
+core.precomposeUnicode
 core.preferSymlinkRefs
 core.preloadindex
+core.protectHFS
+core.protectNTFS
 core.quotepath
 core.repositoryFormatVersion
 core.safecrlf
 core.sharedRepository
 core.sparseCheckout
+core.splitIndex
+core.sshCommand
 core.symlinks
 core.trustctime
 core.untrackedCache
 core.warnAmbiguousRefs
 core.whitespace
 core.worktree
+credential.helper
+credential.useHttpPath
+credential.username
+credentialCache.ignoreSIGHUP
 diff.autorefreshindex
 diff.external
 diff.ignoreSubmodules
@@ -1848,15 +1874,19 @@ format.subjectprefix
 format.suffix
 format.thread
 format.to
+gc.aggressiveDepth
 gc.aggressiveWindow
 gc.auto
+gc.autoDetach
 gc.autopacklimit
+gc.logExpiry
 gc.packrefs
 gc.pruneexpire
 gc.reflogexpire
 gc.reflogexpireunreachable
 gc.rerereresolved
 gc.rerereunresolved
+gc.worktreePruneExpire
 gitcvs.allbinary
 gitcvs.commitmsgannotation
 gitcvs.dbTableNamePrefix
@@ -1995,6 +2025,8 @@ sendemail.suppressfrom
 sendemail.thread
 sendemail.to
 sendemail.validate
+sendemail.smtpbatchsize
+sendemail.smtprelogindelay
 showbranch.default
 status.relativePaths
 status.showUntrackedFiles

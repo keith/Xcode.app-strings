@@ -46,16 +46,16 @@ com.apple.siri.ClientFlow
 clientflow.scriptoverride
 -[CFScripter siriEnabled]
 -[CFScripter siriDisabled]
--[CFScripter performWarmup]
--[CFScripter performWarmupAndEvaluateScriptWithScriptHint:]_block_invoke
+-[CFScripter performWarmupWithCompletion:]
+-[CFScripter performWarmupAndEvaluateScriptWithScriptHint:completion:]_block_invoke
 scriptIdentifier
+-[CFScripter performCommandExecutionForCommand:completion:]_block_invoke
 v8@?0@"SABaseCommand"4
 -[CFScripter overrideScriptsFromLocalCacheInCommand:]
 -[CFScripter overrideScriptsFromLocalCacheInCommand:]_block_invoke
 v16@?0@"SACFClientFlowScript"4I8^B12
 -[CFScripter evaluateScriptsInCommmand:jsContextDecorator:]_block_invoke
--[CFScripter cacheScriptForCommand:]_block_invoke
--[CFScripter cacheScriptForCommand:]_block_invoke_2
+-[CFScripter evaluateFlowScript:jsContextDecorator:]
 -[CFScripter handleCommand:clientProxy:completion:]_block_invoke
 v8@?0@"SACFFlowCompleted"4
 v8@?0@"SACFProviderCompleted"4
@@ -118,7 +118,6 @@ v8@?0@"NSError"4
 Missing Connection
 spellout
 -[CFJSContextDecorator resetJsContext]
--[CFJSContextDecorator setScriptURL:]
 _base64StringFromData
 @"NSString"8@?0@"NSData"4
 _dataFromBase64String
@@ -174,6 +173,8 @@ _submitCommand
 _isDeviceLockedWithPasscode
 _unarchiveObjectWithData
 @8@?0@"NSData"4
+_plistData
+@"NSData"8@?0@"JSValue"4
 _toJSONString
 @"NSString"8@?0@4
 _injectIntentClasses
@@ -203,11 +204,11 @@ _completed
 -[CFJSContextDecorator addJavaScriptBridges]_block_invoke_12
 ClientFlowScript exception - %@
 v12@?0@"JSContext"4@"JSValue"8
+%@+%@
 -[CFJSContextDecorator evaluateScript:withName:]
 scriptSize
 -[CFJSContextDecorator executeScriptWithArguments:error:]
 com.apple.siri.ClientFlow.ChecksumQueue
-Client Flow JSContext
 context
 T@"NSString",&,N,V_context
 contextVersion
@@ -220,14 +221,12 @@ scriptChecksumDictionary
 T@"NSMutableDictionary",&,N,V_scriptChecksumDictionary
 checksumDictionaryQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_checksumDictionaryQueue
+scriptContextIdentifier
+T@"NSString",&,N,V_scriptContextIdentifier
 jsContext
 T@"JSContext",R,N,V_jsContext
 scriptEvaluated
 TB,N,GisScriptEvaluated,V_scriptEvaluated
-scriptURL
-T@"NSURL",C,N,V_scriptURL
-scriptDomain
-T@"NSString",&,N,V_scriptDomain
 scriptLength
 TI,R,N,V_scriptLength
 clientProxy
@@ -251,7 +250,6 @@ areaCode
 number
 +[CFPhoneNumberBridge decomposePhoneNumber:countryCode:]
 com.apple.siri.ClientFlow.ScriptCache
--[CFFileCacheStore cacheScriptForDomain:script:]_block_invoke
 -[CFFileCacheStore cacheScriptForDomain:script:completion:]
 -[CFFileCacheStore cacheScriptForDomain:script:shouldCacheInMemory:completion:]_block_invoke
 -[CFFileCacheStore updateScriptCacheForFlowScript:completion:]
@@ -332,9 +330,9 @@ logEventWithType:context:
 enableTransactions
 serviceListener
 setDelegate:
+performWarmupWithCompletion:
+performWarmupAndEvaluateScriptWithScriptHint:completion:
 performCommandExecutionForCommand:completion:
-performWarmupAndEvaluateScriptWithScriptHint:
-performWarmup
 updateScriptCacheForFlowScript:completion:
 removeScripts:completion:
 interfaceWithProtocol:
@@ -377,9 +375,6 @@ name
 jsContextDecoratorCache
 removeAllObjects
 contextDecoratorForScriptDomain:
-cacheFilePathForDomain:
-fileURLWithPath:
-setScriptURL:
 isScriptEvaluated
 scriptForDomain:scriptLoadType:
 logScriptLoadType:forDomain:
@@ -388,11 +383,12 @@ dictionaryWithObjects:forKeys:count:
 commandProcessingQueue
 currentConnection
 initWithXPCConnection:
+domain
+jsContextHasEvaluatedScriptForDomain:
 overrideScriptsFromLocalCacheInCommand:
 handleCommand:clientProxy:completion:
 initWithSuiteName:
 boolForKey:
-domain
 scriptFromFileSystemForIdentifier:
 setJsScript:
 jsLibraries
@@ -404,18 +400,18 @@ jsDialogScripts
 arrayWithObjects:
 executeScriptWithArguments:error:
 jsScript
+evaluateFlowScript:jsContextDecorator:
 dictionary
-cacheScriptForDomain:script:completion:
+shouldSkipExecution
+shouldCacheScript
+cacheScriptForDomain:script:
 cachingEnabled
 cachedScriptDomainsAndCheckSums
 count
 setCachedDomainClassJavascriptChecksumMap:
 setClientState:
 resetJsContext
-sendClientFlowStateWithCommandProcessoryProxy:
-cacheScriptForCommand:
-triggerGarbageCollection
-clearConnectionAndInvalidate:
+completeFlowForCommand:clientProxy:jsContextDecorator:
 setExecutionParameters:
 setClientProxy:
 executeCommand:jsContextDecorator:
@@ -426,6 +422,10 @@ addLogMessage:
 queuedLogs
 arrayWithObjects:count:
 failureResponseWithAceId:logs:
+triggerGarbageCollection
+cacheScriptForCommand:
+sendClientFlowStateWithCommandProcessoryProxy:
+clearConnectionAndInvalidate:
 evaluateScriptsInCommmand:jsContextDecorator:
 fetchScriptsForCommand:clientProxy:completion:
 reevaluateStaleScriptsForCommand:context:
@@ -451,10 +451,8 @@ flowScripts
 addObjectsFromArray:
 componentsJoinedByString:
 allObjects
-scriptURL
-absoluteString
 removeObjectForKey:
-setScriptDomain:
+initWithName:
 cacheContextDecorator:forScriptDomain:
 scriptLength
 setObject:forKey:cost:
@@ -496,7 +494,6 @@ cf_handleWithCommandProcessor:completion:
 jsScriptIdentifiers
 setFlowScripts:
 fetchScriptType
-cacheScriptForDomain:script:
 setInvalidationHandler:
 setInterruptionHandler:
 code
@@ -561,24 +558,28 @@ dictionaryWithDictionary:
 callWithArguments:
 numberWithBool:
 unarchiveObjectWithData:
+dataWithPropertyList:format:options:error:
 cf_toJSONString
 injectIntentClasses
 encodeProtoFromJSONDictionary:withTypeName:
 decodeProtoToJSONDictionaryFromData:withTypeName:
 domainContext
+scriptContextIdentifier
 toInt32
-clientFlowCompletedWithRefId:status:context:contextVersion:logs:
+clientFlowCompletedWithRefId:domain:status:context:contextVersion:logs:
 setResults:
 clientProviderCompletedWithRefId:status:executionResults:logs:
 results
 setExceptionHandler:
 areClassesInjected
 setClassesInjected:
+setScriptContextIdentifier:
+updateScriptContextIdentifierWithScriptName:
+fileURLWithPath:
 evaluateScript:withSourceURL:
 setScriptEvaluated:
 scriptChecksumDictionary
 managedValueWithValue:
-scriptDomain
 readyToExecute
 addJavaScriptBridges
 setScriptChecksumDictionary:
@@ -587,8 +588,6 @@ setChecksumDictionaryQueue:
 _scriptEvaluated
 _classesInjected
 _jsContext
-_scriptURL
-_scriptDomain
 _scriptLength
 _clientProxy
 _executionParameters
@@ -598,6 +597,7 @@ _contextVersion
 _executionResults
 _scriptChecksumDictionary
 _checksumDictionaryQueue
+_scriptContextIdentifier
 isEmpty:
 logQueue
 setLogQueue:
@@ -617,7 +617,9 @@ bestGuessNormalizedNumberForNumber:countryCode:__JS_EXPORT_AS__bestGuessNormaliz
 formattedStringWithPhoneNumber:countryCode:formatLocalization:formatCompression:__JS_EXPORT_AS__formattedStringWithPhoneNumber:
 isValidPhoneNumber:countryCode:__JS_EXPORT_AS__isValidPhoneNumberForCountry:
 decomposePhoneNumber:countryCode:__JS_EXPORT_AS__decomposePhoneNumber:
+cacheScriptForDomain:script:completion:
 cacheScriptForDomain:script:shouldCacheInMemory:completion:
+cacheFilePathForDomain:
 scriptsMemoryCacheWithDomainAsKey
 dictionaryWithObject:forKey:
 defaultManager
@@ -649,9 +651,9 @@ _cacheFileQueue
 _scriptsMemoryCacheWithDomainAsKey
 %s Creating new scripter for processPath %@
 %s Found scripter for processPath %@ in cache
-%s Client with pid %zd does not have client scripter entitlement %@
+%s Client with pid %d does not have client scripter entitlement %@
 %s Unable to find process path for PID: %d
-%s Connecting to PID=%zd, processPath = %@ 
+%s Connecting to PID=%d, processPath = %@ 
 %s processIdentifier=%d , length=%d, processPath=%s
 %s Unable to elevate jetsam band
 %s Elevated jetsam successfully
@@ -669,16 +671,14 @@ _scriptsMemoryCacheWithDomainAsKey
 %s [%@] ClientScripter started warmup with command processor and hint %@
 %s [%@] Unable to find cached script. Skipping evaluation of script hint - %@...
 %s [%@] JSContext already evaluated for script hint. Skipping evaluation of script hint - %@...
+%s [%@] Evaluated context for %@ found in cache for execution
 %s Override scripts is ON
 %s Script force loaded from cache --> %@
 %s Script could not be force loaded from cache, script not in cache --> %@
 %s Override scripts is OFF
-%s [%@] Evaluating script with id - %@
 %s [%@] Empty script found in command %@
-%s [%@] Cached script for domain %@ successfully
-%s [%@] Caching script failed for domain %@
-%s [%@] Cached library %@ successfully
-%s [%@] Caching of script for library %@ failed.
+%s [%@] Skipping evaluation and caching script with id - %@
+%s [%@] Evaluating script with id - %@
 %s Flow completed %@
 %s Provider completed %@
 %s [%@] Executing script for domain %@
@@ -694,7 +694,6 @@ _scriptsMemoryCacheWithDomainAsKey
 %s Fetch script encountered error - %@
 %s Script identifier not specified for %@
 %s [%@] Cache has %d objects
-%s [%@] %@ is present in JSContextCache
 %s [%@] Unassigned context not found in cache, creating a new one ..
 %s [%@] Unassigned context found in cache
 %s [%@] Context for %@ not found in cache, looking for unassigned contexts ..
@@ -733,7 +732,6 @@ _scriptsMemoryCacheWithDomainAsKey
 %s Error - %@
 %s Invalidating connection from Scripter
 %s Resetting jsContext
-%s Setting scriptURL %@
 %s %@
 %s Calendar system could not be found for system %@
 %s CFJSContext exception - %@
@@ -748,6 +746,7 @@ _scriptsMemoryCacheWithDomainAsKey
 %s Local context is nil!
 %s _unarchiveObjectWithData invoked for data %@
 %s unarchived NSData: %@
+%s Plist serialization failed for dictionary %@
 %s _toJSONString invoked with object %@
 %s JSON stringified value: %@
 %s _toJSONString called on an object not conforming to CFJSONSerializable. class=%@
@@ -769,10 +768,9 @@ _scriptsMemoryCacheWithDomainAsKey
 %s Unable to format input number %@ with country code %@ options=%u compression=%u
 %s Nil phone number or country
 %s Unable to decompose %@ %@
-%s Cached flow script for domain %@
-%s Unable to cache script for domain %@
 %s Nothing to cache.. 
 %s Saving script for domain %@ to memory cache
+%s Cached flow script for domain %@
 %s Saving script checksum in memory for script %@
 %s Unable to cache domain script %@, error %@
 %s No valid script found in command for script %@
@@ -851,16 +849,16 @@ v12@0:4@8
 @"NSMutableDictionary"
 @"NSXPCInterface"
 @"CFSiriSettingMonitor"
+v12@0:4@?8
 v16@0:4@8@?12
+v12@0:4@?<v@?B>8
+v16@0:4@"NSString"8@?<v@?B>12
 v16@0:4@"SACFAbstractClientCommand"8@?<v@?@"SABaseCommand">12
-v12@0:4@"NSString"8
 v16@0:4@"SACFClientFlowScript"8@?<v@?B>12
 v16@0:4@"NSArray"8@?<v@?B>12
 @12@0:4@"NSString"8
-v12@0:4@?8
 v12@0:4@"SABaseCommand"8
 v16@0:4@"SABaseCommand"8@?<v@?@"SABaseCommand">12
-v12@0:4@?<v@?B>8
 v12@0:4B8
 @"NSMutableArray"
 @"NSObject<OS_dispatch_queue>"
@@ -870,6 +868,7 @@ v16@0:4d8
 @"NSString"
 v16@0:4@8@12
 v20@0:4@8@12@?16
+v20@0:4@8@12@16
 v24@0:4@8@12@16@?20
 B20@0:4@8@12@16
 @16@0:4@8@12
@@ -883,7 +882,6 @@ B12@0:4@"NSString"8
 @"NSXPCConnection"
 @16@0:4@8^@12
 @"JSContext"
-@"NSURL"
 @"CFCommandProcessorProxy"
 @"CFJSExecutionParameters"
 @"CFLogQueuer"

@@ -21,7 +21,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.13.6 (Apple Git-96)";
+our $version = "2.14.3 (Apple Git-98)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;
@@ -2319,6 +2319,8 @@ our $projectroot;
 return if (m!^[/.]$!);
 # only directories can be git repositories
 return unless (-d $_);
+# need search permission
+return unless (-x $_);
 # don't traverse too deep (Find is super slow on os x)
 # $project_maxdepth excludes depth of $projectroot
 if (($File::Find::name =~ tr!/!!) - $pfxdepth > $project_maxdepth) {
@@ -2358,7 +2360,7 @@ $pr->{'owner'} = to_utf8($owner);
 push @list, $pr;
 close $fd;
 return @list;
-# written with help of Tree::Trie module (Perl Artistic License, GPL compatibile)
+# written with help of Tree::Trie module (Perl Artistic License, GPL compatible)
 # as side effects it sets 'forks' field to list of forks for forked projects
 sub filter_forks_from_projects_list {
 my $projects = shift;
@@ -3313,7 +3315,7 @@ print "<div class=\"page_nav\">\n" .
  } @navs);
 print "<br/>\n$extra<br/>\n" .
       "</div>\n";
-# returns a submenu for the nagivation of the refs views (tags, heads,
+# returns a submenu for the navigation of the refs views (tags, heads,
 # remotes) with the current view disabled and the remotes view only
 # available if the feature is enabled
 sub format_ref_views {

@@ -280,8 +280,9 @@ transitType
 enRoute
 felicaStateWithPassUniqueIdentifier:paymentApplication:
 isInStation
-_shouldDisplayNotificationForTransaction:
 initWithPaymentTransaction:forPassUniqueIdentifier:paymentApplication:
+_shouldCreateNotificationForTransaction:
+updateReasons
 allObjects
 devicePrimaryInAppPaymentApplication
 supportsInAppPayment
@@ -997,6 +998,7 @@ countForObject:
 _processTransactionDictionary:forPassUniqueIdentifier:paymentApplication:performTruncation:
 _processMessageDictionary:forPassUniqueIdentifier:paymentApplication:performTruncation:
 paymentTransactionWithSource:dictionary:hasNotificationServiceData:
+addUpdateReasons:
 processPaymentTransaction:forPassUniqueIdentifier:paymentApplication:
 paymentMessageWithDictionary:
 setByRemovingObject:
@@ -1566,7 +1568,9 @@ setRequireScreenSleep:
 _ubiquityManager
 restart
 _queue_passUniqueIDs
-_passIfExistsWithUniqueID:
+_passIfExistsWithUniqueID:error:
+domain
+code
 _deletePossibleInvalidCardWithUniqueID:
 catalogWithContentsOfURL:nonUbiquitousCatalogURL:
 _objectURLForUniqueID:
@@ -1593,7 +1597,7 @@ URLByResolvingSymlinksInPath
 _cacheURLForUniqueID:
 _recursivelyCheckRevocationStatusForPassUniqueIdentifiers:
 revocationStatusWithCompletion:
-_queue_cardWithUniqueID:
+_queue_cardWithUniqueID:error:
 initWithFileURL:error:
 contentWithFileURL:
 createXPCContainerForImageSetWithType:displayProfile:screenScale:screenSize:suffix:fileURL:cacheURL:
@@ -1865,7 +1869,7 @@ paymentMessage
 paymentHash
 hasNotificationServiceData
 hasTransactionSource
-isFromCloudStore
+_updateCameExclusivelyFromCloudStore:
 closestTransactionInDatabase:fromTransactionDate:withTransactionSource:withNotificationServiceData:forPaymentHash:forPassWithUniqueIdentifier:
 setIsCloudKitArchived:
 updateWithPaymentTransaction:
@@ -2227,8 +2231,6 @@ source
 _registrationTaskSucceeded:
 _whatChangedTaskSucceeded:
 reportAbandonedTask:passTypeID:
-domain
-code
 reportError:webService:logToService:
 reportWarnings:webService:logToService:
 _updatePassTypeIdentifier:
@@ -2321,6 +2323,7 @@ stage
 countryCode
 identityVerificationRequired
 isAccountStateDirty
+lastUpdated
 termsAcceptanceRequired
 termsIdentifier
 termsURL
@@ -2342,6 +2345,7 @@ setMaximumBalance:
 setIdentityVerificationRequired:
 setTermsAcceptanceRequired:
 setAccountStateDirty:
+setLastUpdated:
 setTermsIdentifier:
 setTermsURL:
 setAssociatedPassURL:
@@ -3224,6 +3228,7 @@ _migrateFrom11019To11020:context:
 _migrateFrom11020To11021:context:
 _migrateFrom11021To11022:context:
 _migrateFrom11022To11100:context:
+_migrateFrom11100To11200:context:
 hasDatabasePopulationOperations
 performDatabasePopulationOperationsWithPasses:
 performPostMigrationOperations
@@ -4732,7 +4737,7 @@ CREATE TABLE IF NOT EXISTS associated_pass_type_identifier (pass_pid INTEGER, id
 CREATE TABLE IF NOT EXISTS associated_web_domain (pass_pid INTEGER, web_domain TEXT, PRIMARY KEY (pass_pid, web_domain));
 CREATE TABLE IF NOT EXISTS value_added_service_transaction (pid INTEGER, pass_pid INTEGER, payment_transaction_pid INTEGER, merchant_pid INTEGER, identifier TEXT, merchant_url TEXT, successful INTEGER, terminal_application_version INTEGER, terminal_mode INTEGER, transaction_date INTEGER, PRIMARY KEY (pid));
 CREATE TABLE IF NOT EXISTS value_added_merchant (pid INTEGER, identifier TEXT, times_presented INTEGER, PRIMARY KEY (pid));
-CREATE TABLE IF NOT EXISTS peer_payment_account (pid INTEGER, pass_pid INTEGER, state INTEGER, stage INTEGER, country_code TEXT, current_balance_currency TEXT, current_balance_amount INTEGER, maximum_balance_amount INTEGER, identity_verification_required INTEGER, account_state_dirty INTEGER, terms_acceptance_required INTEGER, terms_identifier TEXT, terms_url TEXT, associated_pass_url TEXT, associated_pass_serial_number TEXT, associated_pass_type_identifier TEXT, PRIMARY KEY (pid));
+CREATE TABLE IF NOT EXISTS peer_payment_account (pid INTEGER, pass_pid INTEGER, state INTEGER, stage INTEGER, country_code TEXT, current_balance_currency TEXT, current_balance_amount INTEGER, maximum_balance_amount INTEGER, identity_verification_required INTEGER, account_state_dirty INTEGER, last_updated_date INTEGER, terms_acceptance_required INTEGER, terms_identifier TEXT, terms_url TEXT, associated_pass_url TEXT, associated_pass_serial_number TEXT, associated_pass_type_identifier TEXT, PRIMARY KEY (pid));
 CREATE TABLE IF NOT EXISTS peer_payment_account_feature_descriptor (pid INTEGER, identifier TEXT, peer_payment_account_pid INTEGER, minimum_amount INTEGER, maximum_amount INTEGER, supported_networks TEXT, merchant_identifier TEXT, merchant_capabilities INTEGER, PRIMARY KEY (pid));
 CREATE TABLE IF NOT EXISTS payment_transaction_fee (pid INTEGER, identifier TEXT, payment_transaction_pid INTEGER, type INTEGER, amount INTEGER, currency TEXT, localized_display_name TEXT,PRIMARY KEY (pid));
 PRAGMA foreign_keys = ON;
@@ -4937,6 +4942,7 @@ send_device_score_identifier TEXT
 device_score_identifiers_required INTEGER
 device_score_identifiers_submitted INTEGER
 account_state_dirty INTEGER
+last_updated_date INTEGER
 v32@?0@"Pass"8@"PDPassGroupingProfile"16^B24
 Applying catalog of record
 passTypeID
@@ -5113,7 +5119,14 @@ No Cards. Skipping Lost Mode Exit
 Lost Mode Is Active
 Express Transaction: notification received but no pass identifier set.
 Express Transaction: received unknown express type %@.
-Not creating notification for cloud store transaction %@ because it has been more than 1 day since the transaction changed.
+Creating new notification for transaction or update.
+Found an existing, active user notification. Updating contents but not re-rolling banner.
+Found an existing, inactive user notification. Will roll banner with new contents when possible.
+Not creating notification for transaction update: %@
+Not creating notification for transaction %@ because it does not have a transactionDate.
+Not creating notification for transaction %@ because it has been more than 1 day since the transaction changed.
+Not create notification for transaction that did not have a relevant update reason set. Update Reasons Bitmask: %ld. Transaction: %@
+Not create notification for transaction that was part of the initial cloudkit sync. Update Reasons Bitmask: %ld. Transaction: %@
 Received request for payment passes
 Received request for thumbnail image for pass: %@
 Database integrity problem found.
@@ -5268,6 +5281,7 @@ exception trying to read %@. The data should be discarded. %@
 Passbook is not available - sync disabled
 Migrating image archive for %@...
 Unable to instantiate object with unique ID %@
+Skipping delete of missing object with uniqueID: %@ due to signature check being unreachable
 Content for object with unique ID %@ unavailable at %@
 CardFileManager unable to load content for uniqueID %@
 CardFileManager is removing invalid pass with uniqueID %@
@@ -5630,6 +5644,7 @@ Migrating database from user_version 11019 to 11020
 Migrating database from user_version 11020 to 11021
 Migrating database from user_version 11021 to 11022
 Migrating database from user_version 11022 to 11100
+Migrating database from user_version 11100 to 11200
 Unrecognized database version %ld
 Unable to migrate database from version %ld
 Migrating settings: %ld for Pass with unqiue identifier: %@
@@ -6113,6 +6128,7 @@ v24@0:8@"PKPass"16
 @"NSURL"16@0:8
 v32@0:8@"PKPass"16@?<v@?B@"NSError">24
 B40@0:8@16q24^@32
+@32@0:8@16^@24
 @40@0:8@16q24@32
 @40@0:8@16^@24^@32
 @"PDUbiquityManager"
@@ -6374,9 +6390,9 @@ DTPlatformVersionZDTSDKBuildYDTSDKNameWDTXcode\DTXcodeBuild_
 MinimumOSVersion^UIDeviceFamilyW16B2657Upassd_
 com.apple.passdS1.0T????
 iPhoneSimulator_
-"com.apple.compilers.llvm.clang.1_0U15B78_
-iphonesimulatorT11.1_
-iphonesimulator11.1T0900U9A229
+"com.apple.compilers.llvm.clang.1_0P_
+iphonesimulatorT11.2U15C92_
+iphonesimulator11.2T0920T9C16
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
