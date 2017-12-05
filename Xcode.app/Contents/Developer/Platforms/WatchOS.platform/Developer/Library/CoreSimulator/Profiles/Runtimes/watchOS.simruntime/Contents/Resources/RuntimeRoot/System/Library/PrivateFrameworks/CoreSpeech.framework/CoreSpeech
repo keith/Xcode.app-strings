@@ -429,14 +429,14 @@ setupSmartSiriVolume
 _setupVoiceTrigger
 defaultCenter
 removeObserver:
-_startForwardingToSmartSiriVolume
 _notifyEvent:
+sharedInstance
+addObserver:
+_startForwardingToSmartSiriVolume
 mediaserverdDidRestart
 addObserver:selector:name:object:
 _startObservingSystemControllerLifecycle
 startObservingSystemVolumes
-sharedInstance
-addObserver:
 willDestroy
 supportContinuousVoiceTrigger
 shouldRunVTOnCS
@@ -535,6 +535,7 @@ audioRecorderDisconnected:
 audioRecorderLostMediaserverd:
 didTransitFrom:to:by:
 didIgnoreEvent:from:
+CSSiriEnabledMonitor:didReceiveEnabled:
 CSAssetManagerDidDownloadNewAsset:
 CSLanguageCodeUpdateMonitor:didReceiveLanguageCodeChanged:
 initWithVoiceTriggerFirstPass:voicetriggerSecondPass:voicetriggerEventNotifier:audioRecorder:
@@ -589,8 +590,8 @@ secondPassStartSampleCount
 setSecondPassStartSampleCount:
 clientStartSampleCount
 setClientStartSampleCount:
-recordingPendingTimeout
-setRecordingPendingTimeout:
+recordPendingStartMachAbsTime
+setRecordPendingStartMachAbsTime:
 lastVoiceTriggerEventInfo
 setLastVoiceTriggerEventInfo:
 listenPollingTimer
@@ -601,6 +602,9 @@ pendingSetRecordModeToRecordingCompletion
 setPendingSetRecordModeToRecordingCompletion:
 systemVolumeValue
 setSystemVolumeValue:
+isSiriEnabled
+setIsSiriEnabled:
+_isSiriEnabled
 _audioRecorder
 _assetQueryQueue
 _stateMachine
@@ -622,12 +626,12 @@ _continuousAudioProcessors
 _lastForwardedSampleCount
 _secondPassStartSampleCount
 _clientStartSampleCount
-_recordingPendingTimeout
 _lastVoiceTriggerEventInfo
 _listenPollingTimer
 _pendingSetRecordModeToRecordingToken
 _pendingSetRecordModeToRecordingCompletion
 _systemVolumeValue
+_recordPendingStartMachAbsTime
 lowercaseString
 hasPrefix:
 substringFromIndex:
@@ -1152,6 +1156,7 @@ stringByAppendingString:
 convertStopReason:
 resetEndPointer
 hasAudioRoute
+_didReceiveSiriSettingChanged:
 beepCancellerDidCancelSamples:buffer:timestamp:
 cancelBeepFromSamples:timestamp:
 willBeep
@@ -1702,6 +1707,7 @@ _fileURL
 %s SmartSiriVolume init value for LKFS estimation %{public}f
 %s asset is nil, use default parameters(this should not happen).
 %s SmartSiriVolume configure: %{public}@
+%s SmartSiriVolume heartbeat = %{public}lld
 %s SmartSiriVolume: estimated noise level %{public}f
 %s SmartSiriVolume: estimated LKFS %{public}f
 %s SmartSiriVolume: pause LKFS calculation.
@@ -1751,6 +1757,8 @@ _fileURL
 %s Cannot register interstitial sounds : %{public}@
 %s Successfully register interstitial
 %s XPC Connection is not exist?
+%s Siri is enabled, let start!!
+%s Siri is not enabled yet we are keep waiting
 %s CSVoiceTriggerAsset found: %{public}@
 %s Cannot find voicetrigger asset from asset manager, let's fallback to asset in the framework
 %s speechController = %{public}p
@@ -1837,6 +1845,7 @@ _fileURL
 %s given asset is same as existing, don't need to reinitialize VoiceTrigger
 %s SmartSiriVolume: final estimated TTS volume %{public}f with system volume %{public}f
 %s Wrongly called: SmartSiriVolume is not supported on this device type.
+%s We stop listen polling since we anyway going to stop
 %s init-_currentLanguageCode: %{public}@
 %s Not able to fetch remote meta now, registering for callback
 %s CSAssetManager cannot query for nil language
@@ -1991,6 +2000,9 @@ _fileURL
 %s Cannot prepare since audio recorder does not exist
 %s AudioRecorder is already recording, do not prepare anymore
 %s Cannot prepareRecordWithSettings : %@
+%s Start monitoring : Siri setting switch, Siri is %{public}@
+%s Stop monitoring : Siri setting switch
+%s Siri Enabled = %{public}@
 %s BeepCanceller asset file loading from : %{public}@
 %s beepVector Size = %{public}lu
 %s Cannot initialize beep canceller
@@ -2259,6 +2271,7 @@ triggerStartSampleCount
 triggerEndSampleCount
 -[CSSmartSiriVolume initWithSamplingRate:asset:systemVolume:]
 -[CSSmartSiriVolume _setAsset:]
+-[CSSmartSiriVolume _processAudioChunk:soundType:]
 v8@?0I4
 -[CSSmartSiriVolume estimateSoundLevelbySoundType:]_block_invoke
 -[CSSmartSiriVolume pauseLKFSProcessing]
@@ -2324,7 +2337,7 @@ Tf,N,V_lastScore
 delegate
 T@"<CSVoiceTriggerDelegate>",W,N,V_delegate
 -[CSAudioSampleRateConverter _createSampleRateConverterWithInASBD:outASBD:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.8/CoreSpeech/CSAudioSampleRateConverter.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.10/CoreSpeech/CSAudioSampleRateConverter.m
 <Unknown File>
 Too many buffers
 l16@?0^I4^{AudioBufferList=I[1{AudioBuffer=II^v}]}8^^{AudioStreamPacketDescription}12
@@ -2413,6 +2426,7 @@ speechManagerStartSampleCount
 speechManagerSetRecordModeToRecordingDelay
 CSSpeechManager Asset Query Queue
 -[CSSpeechManager startManager]
+-[CSSpeechManager startManager]_block_invoke
 -[CSSpeechManager _reset]
 -[CSSpeechManager _getVoiceTriggerAsset]
 en-US
@@ -2511,8 +2525,10 @@ MediaserverdCrashed
 MediaserverdRestarted
 kDidStartFailed
 RecorderDisconnected
-StartListeningForAudioAnalysis
+SiriEnabled
+SiriDisabled
 -[CSSpeechManager getEstimatedTTSVolume]
+-[CSSpeechManager CSSiriEnabledMonitor:didReceiveEnabled:]_block_invoke
 assetQueryQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_assetQueryQueue
 stateMachine
@@ -2552,8 +2568,8 @@ secondPassStartSampleCount
 TI,N,V_secondPassStartSampleCount
 clientStartSampleCount
 TI,N,V_clientStartSampleCount
-recordingPendingTimeout
-Ti,N,V_recordingPendingTimeout
+recordPendingStartMachAbsTime
+TQ,N,V_recordPendingStartMachAbsTime
 lastVoiceTriggerEventInfo
 T@"NSDictionary",&,N,V_lastVoiceTriggerEventInfo
 listenPollingTimer
@@ -2564,6 +2580,8 @@ pendingSetRecordModeToRecordingCompletion
 T@?,C,N,V_pendingSetRecordModeToRecordingCompletion
 systemVolumeValue
 Tf,N,V_systemVolumeValue
+isSiriEnabled
+TB,N,V_isSiriEnabled
 audioRecorder
 T@"CSAudioRecorder",&,N,V_audioRecorder
 com.apple.MobileAsset.VoiceTriggerAssets
@@ -2786,7 +2804,7 @@ T@"<CSStateMachineDelegate>",W,N,V_delegate
 currentState
 Ti,R,N,V_currentState
 Serial CSEventMonitor queue
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.8/CoreSpeech/CSEventMonitor.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.10/CoreSpeech/CSEventMonitor.m
 Subclasses need to overwrite this method
 -[CSAudioFileLog _closeAudioFile]
 -[CSAudioFileLog startRecording]_block_invoke
@@ -2949,6 +2967,11 @@ com.apple.VoiceTriggerUI.RemoteRecordSessionQueue
 -[CSVTUIAudioSessionRemote _audioRecorder]
 -[CSVTUIAudioSessionRemote prepareRecord]
 T@"<CSVTUIAudioSessionDelegate>",W,N,V_delegate
+-[CSSiriEnabledMonitor _startMonitoringWithQueue:]
+Enabled
+Disabled
+-[CSSiriEnabledMonitor _stopMonitoring]
+_AssistantPrefsChangedNotification
 beepLocation
 statsComputed
 beepPower
@@ -3249,7 +3272,7 @@ dictionary
 -[CSHybridEndpointAnalyzer processAudioSamplesAsynchronously:]
 -[CSHybridEndpointAnalyzer handleVoiceTriggerWithActivationInfo:]_block_invoke
 -[CSHybridEndpointAnalyzer recordingStoppedForReason:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.8/CoreSpeech/CSHybridEndpointAnalyzer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.10/CoreSpeech/CSHybridEndpointAnalyzer.m
 CSHybridEndpointAnalyzer reset called
 -[CSHybridEndpointAnalyzer CSLanguageCodeUpdateMonitor:didReceiveLanguageCodeChanged:]
 -[CSHybridEndpointAnalyzer CSAssetManagerDidDownloadNewAsset:]
@@ -3329,7 +3352,7 @@ T@"<CSKeywordAnalyzerQuasarScoreDelegate>",W,N,V_delegate
 corespeech.json
 hybridendpointer.json
 hybridendpointer_marsh.json
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.8/CoreSpeech/CSAsset.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.10/CoreSpeech/CSAsset.m
 ERR: Unknown assetType: %lu
 +[CSAsset fallBackAssetResourcePath]
 defaultFallback
@@ -3415,7 +3438,7 @@ T@"NSString",R,N,V_resourcePath
 hashFromResourcePath
 T@"NSString",R,N,V_configVersion
 -[CSAudioConverter _convertBufferedLPCM:allowPartial:timestamp:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.8/CoreSpeech/CSAudioConverter.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/CoreSpeech_Sim/CoreSpeech-135.10/CoreSpeech/CSAudioConverter.m
 Cannot produce ASPD for PCM
 -[CSAudioConverter reset]
 -[CSAudioConverter _configureAudioConverter:]
@@ -3522,6 +3545,7 @@ CSConfig
 CSSpeechManager
 CSAudioRecorderDelegate
 CSStateMachineDelegate
+CSSiriEnabledMonitorDelegate
 CSAssetManagerDelegate
 CSLanguageCodeUpdateMonitorDelegate
 CSVTUIEditDistance
@@ -3571,6 +3595,7 @@ KeywordDetector
 CSVoiceTriggerSpeakerTrainer
 CSVTUIAudioSessionRemote
 CSVTUIAudioSession
+CSSiriEnabledMonitor
 CSBeepCanceller
 CSVoiceTriggerSecondPass
 CSSpeakerDetectorNDAPIDelegate
@@ -3708,6 +3733,8 @@ v12@0:4@"CSAudioRecorder"8
 v16@0:4@"CSAudioRecorder"8@"NSDictionary"12
 v20@0:4i8i12i16
 v16@0:4i8i12
+v16@0:4@8B12
+v16@0:4@"CSSiriEnabledMonitor"8B12
 v12@0:4@"CSAssetManager"8
 v16@0:4@8@"NSString"12
 @24@0:4@8@12@16@20
@@ -3721,6 +3748,7 @@ v16@0:4@8^@12
 Q16@0:4Q8
 @12@0:4i8
 @12@0:4I8
+Q8@0:4
 @?8@0:4
 v12@0:4@?8
 @"CSAudioRecorder"
@@ -3740,7 +3768,6 @@ v12@0:4@?8
 @"NSHashTable"
 @"NSObject<OS_dispatch_source>"
 @"NSUUID"
-v16@0:4@8B12
 @16@0:4I8@12
 @20@0:4I8@12B16
 v16@0:4@8@?12
@@ -3771,7 +3798,6 @@ B16@0:4d8
 B12@0:4B8
 B16@0:4@8i12
 B12@0:4i8
-Q8@0:4
 f12@0:4I8
 v20@0:4d8@?16
 @"CSAudioConverter"
