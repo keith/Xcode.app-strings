@@ -21,7 +21,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.14.3 (Apple Git-98)";
+our $version = "2.15.1 (Apple Git-101)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;
@@ -4530,6 +4530,8 @@ print "</td>\n" .
       $cgi->a({-href => href(action=>$ftype, hash_base=>$commit, file_name=>$file_name)}, $ftype) . " | " .
       $cgi->a({-href => href(action=>"commitdiff", hash=>$commit)}, "commitdiff");
 if ($ftype eq 'blob') {
+print " | " .
+      $cgi->a({-href => href(action=>"blob_plain", hash_base=>$commit, file_name=>$file_name)}, "raw");
 my $blob_current = $file_hash;
 my $blob_parent  = git_get_hash_by_path($commit, $file_name);
 if (defined $blob_current && defined $blob_parent &&

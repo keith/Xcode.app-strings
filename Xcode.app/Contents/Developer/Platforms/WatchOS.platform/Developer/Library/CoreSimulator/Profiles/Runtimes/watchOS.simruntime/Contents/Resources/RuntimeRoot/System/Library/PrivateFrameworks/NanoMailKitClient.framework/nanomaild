@@ -87,6 +87,7 @@ v12@?0@"NNMKRetailDemoUtility"4@"NSError"8
 PROTECTED
 CONTROL
 v8@?0@"NSString"4
+Could not find file to create database. %@
 /private/var/mobile/Library/Mail
 databaseQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_databaseQueue
@@ -129,7 +130,7 @@ T@?,C,N,V_conversationOperationsHandler
  SYNC_REQUESTED = ? 
  SYNC_ENABLED = ? 
  SET 
- SET CUSTOM_NAME = '%@' 
+ SET CUSTOM_NAME = %Q 
  SET CUSTOM_NAME = ? 
 [filter_type: %@, 
 syncActive: %@, 
@@ -183,6 +184,7 @@ TI,N,V_nanoMailState
 nanoMailStateMonitor
 T@"BKSApplicationStateMonitor",&,N,V_nanoMailStateMonitor
 T@"<NNMKNanoMailSnapshotRequesterDelegate>",W,N,V_delegate
+T@"NNMKProtectedSQLiteConnection",W,N,V_connection
 DBSchemaVersion
 FullSyncVersion
 ReceivedFullSyncMessages
@@ -267,7 +269,7 @@ INSERT INTO PROTECTED.MAILBOX (ID, CUSTOM_NAME) VALUES (?, ?)
 INSERT INTO PROTECTED.MAILBOX (ID, CUSTOM_NAME) VALUES (%Q, %Q)
 UPDATE MAILBOX %@ WHERE ID = ?
 UPDATE PROTECTED.MAILBOX %@ WHERE ID = ?
-UPDATE PROTECTED.MAILBOX %@ WHERE ID = '%@'
+UPDATE PROTECTED.MAILBOX %@ WHERE ID = %@
 INSERT INTO IDS_IDENTIFIER_NOT_YET_ACKD (IDS_IDENTIFIER, OBJECT_ID, OBJECT_TYPE, DATE_TO_RESEND, RESEND_INTERVAL) VALUES (?, ?, ?, NULL, ?)
 SELECT OBJECT_ID, OBJECT_TYPE, RESEND_INTERVAL FROM IDS_IDENTIFIER_NOT_YET_ACKD WHERE IDS_IDENTIFIER = ?
 DELETE FROM IDS_IDENTIFIER_NOT_YET_ACKD WHERE IDS_IDENTIFIER = ?
@@ -359,6 +361,8 @@ currentDatabaseSchemaVersion
 TI,N,V_currentDatabaseSchemaVersion
 expectedDatabaseVersion
 TI,R,N
+databaseProtectionManager
+T@"<NNMKDatabaseProtectionManager>",&,N,V_databaseProtectionManager
 fullSyncVersion
 TI,N,V_fullSyncVersion
 receivedFullSyncMessages
@@ -1106,8 +1110,9 @@ _setupDatabaseForRetailDemo
 _doSetupDatabase
 setupConnection
 _checkForDatabaseCorruptionFromErrorCode:
-notifyProtectionDataAvailable:
+notifyProtectionDataAvailable:mergedJournalSuccessfully:
 errorCodeMeansCorruptedDatabase:
+handleRecreateDatabase
 _recreateDatabaseFromScratch:
 demoUtility
 setDemoUtility:
@@ -1136,6 +1141,7 @@ commitTransaction
 bundleForClass:
 bundlePath
 stringWithContentsOfFile:encoding:error:
+stringWithFormat:
 executeSQL:
 messageFrameworkDatabaseDiretory
 currentDatabase
@@ -1184,6 +1190,8 @@ bindUnsignedInteger:intoStatement:paramIndex:
 boolValue
 bindBool:intoStatement:paramIndex:
 bindString:intoStatement:paramIndex:
+UTF8String
+stringWithUTF8String:
 updatesWithSyncActive:
 updatesWithSyncEnabled:customName:
 hasProtectedChanges
@@ -1253,6 +1261,8 @@ _lastNanoMailSnapshotRequest
 _numberOfUnprocessedOperations
 _nanoMailState
 _nanoMailStateMonitor
+updateConnection:
+initWithConnection:
 _loadControlValues
 expectedDatabaseVersion
 setCurrentDatabaseSchemaVersion:
@@ -1266,7 +1276,6 @@ isResponseOkFromPreparedStatementExecution:
 stringFromStatement:columnIndex:
 dictionaryWithCapacity:
 _paramsStringWithString:count:
-stringWithFormat:
 bindDate:intoStatement:paramIndex:
 componentsSeparatedByString:
 _selectConversationWhere:limitRange:index:messagesByConversationId:mailboxFilter:blockForBinding:
@@ -1284,8 +1293,6 @@ _selectMailboxesWhere:blockForBinding:
 integerFromStatement:columnIndex:
 visibleStatus
 componentsJoinedByString:
-UTF8String
-stringWithUTF8String:
 appendSQLStatement:
 flushIfNeeded
 rollbackTransaction
@@ -1343,6 +1350,7 @@ writeToURL:options:error:
 stringByPaddingToLength:withString:startingAtIndex:
 nnmk_startOfCurrentDay
 messageStateForMailboxFilterType:
+setDatabaseProtectionManager:
 messagesForMailboxId:
 messagesForAccountId:
 imageAttachmentContentIdsForMessageWithId:
@@ -1367,6 +1375,7 @@ addImageData:forImageAttachmentOfMessageWithId:contentId:
 deleteComposedMessagesOlderThan:
 _controlValueForKey:protected:withBlockForColumn:
 setWaitingForMigration:
+databaseProtectionManager
 loadedSyncedMailboxProtectedData
 setLoadedSyncedMailboxProtectedData:
 _waitingForMigration
@@ -1375,6 +1384,7 @@ _databaseRecentlyMigrated
 _notificationSettingsEnabled
 _loadedSyncedMailboxProtectedData
 _currentDatabaseSchemaVersion
+_databaseProtectionManager
 _fullSyncVersion
 _lastIDSIdentifierForFullSyncRequest
 _lastIDSIdentifierForHaltSyncRequest
@@ -1904,6 +1914,7 @@ NNMKMessagesProcessedHandler
 NNMKMailboxUpdates
 NNMKDevice
 NNMKNanoMailSnapshotRequester
+NNMKDatabaseProtectionManager
 NNMKDatabase
 NNMKMessageDataSource
 NNMKXPCServer
@@ -2041,7 +2052,8 @@ v12@0:4@"UIImage"8
 @"NSXPCConnection"8@0:4
 B12@0:4i8
 i8@0:4
-i12@0:4B8
+B12@0:4B8
+i16@0:4B8o^B12
 @"<NNMKDatabaseLifecycleObserver>"
 @"NNMKProtectedSQLiteConnection"
 @"NNMKSQLJournal"
@@ -2062,6 +2074,7 @@ v16@0:4I8B12
 @"<NNMKNanoMailSnapshotRequesterDelegate>"
 @"NSDate"
 @"BKSApplicationStateMonitor"
+v12@0:4@"NNMKProtectedSQLiteConnection"8
 @20@0:4I8^@12@16
 @24@0:4{_NSRange=II}8^@16@20
 @28@0:4@8I12^I16^@20@24
@@ -2090,6 +2103,7 @@ I16@0:4@8@12
 B16@0:4@8@12
 @12@0:4I8
 @16@0:4I8@12
+@"<NNMKDatabaseProtectionManager>"
 @"NNMKMailboxFilter"
 @16@0:4I8o^B12
 @20@0:4@8I12o^B16

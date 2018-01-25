@@ -126,6 +126,7 @@ WebBookmarksSpecialFoldersDidChangeNotification
 WebBookmarksChangedFolderID
 com.apple.bookmarks.OmitFromUI
 _DatabaseResetReason
+com.apple.bookmarks.IsBuiltinBookmark
 com.apple.bookmarks.IsBuiltinDeviceBookmark
 com.apple.bookmarks.IsCarrierBookmark
 com.apple.bookmarks.SelectedFavoritesFolder
@@ -184,6 +185,8 @@ VACUUM
 parent = %d AND deleted = 0 AND read = 1 AND (archive_status = %d OR archive_status = %d)
 id = %d AND deleted = 0
 external_uuid = ? AND deleted = 0
+SELECT external_uuid FROM bookmarks WHERE deleted = 0 AND external_uuid IN (
+v32@?0@"NSString"8Q16^B24
 SELECT id FROM bookmarks WHERE parent = ? AND type = 1 AND title = ? AND deleted = 0
 parent = ? AND title = ? AND deleted = 0 ORDER BY order_index
 parent = %d AND type = 1 AND deleted = 0 AND hidden = 0 AND hidden_ancestor_count = 0 ORDER BY order_index
@@ -431,8 +434,8 @@ UPDATE generations SET generation = generation + 1
 SELECT %@ %@
 FROM folder_ancestors LEFT OUTER JOIN bookmarks ON folder_id = bookmarks.id WHERE bookmarks.id != 0 AND added = 1 AND syncable = 1 GROUP BY folder_id ORDER BY count(ancestor_id) ASC
 FROM bookmarks WHERE added = 1 AND id != 0 AND type = 0 AND syncable = 1
-FROM folder_ancestors LEFT OUTER JOIN bookmarks ON folder_id = bookmarks.id WHERE dav_generation = %d AND deleted = 0 AND added = 0 AND bookmarks.id != 0 AND syncable = 1 AND (modified_attributes & %zd) == %zd GROUP BY folder_id ORDER BY count(ancestor_id) ASC
-FROM bookmarks WHERE dav_generation = %d AND deleted = 0 AND added = 0 AND id != 0 AND syncable = 1 AND ((modified_attributes & %zd) != %zd OR type = 0)
+FROM folder_ancestors LEFT OUTER JOIN bookmarks ON folder_id = bookmarks.id WHERE dav_generation = %d AND deleted = 0 AND added = 0 AND bookmarks.id != 0 AND syncable = 1 AND (modified_attributes & %llu) == %llu GROUP BY folder_id ORDER BY count(ancestor_id) ASC
+FROM bookmarks WHERE dav_generation = %d AND deleted = 0 AND added = 0 AND id != 0 AND syncable = 1 AND ((modified_attributes & %llu) != %llu OR type = 0)
 FROM bookmarks WHERE deleted = 1 AND server_id IS NOT NULL AND syncable = 1
 UPDATE bookmarks SET added = 0, modified_attributes = 0 WHERE added != 0 OR modified_attributes != 0
 UPDATE bookmarks SET added = ? WHERE id = ?
@@ -494,7 +497,7 @@ UPDATE sync_properties SET value = ? WHERE key = ?
 INSERT INTO sync_properties (value, key) VALUES (?, ?)
 SELECT value FROM sync_properties WHERE key = ?
 com.apple.bookmarks.dbchanged
-SELECT COUNT(*) FROM bookmarks WHERE special_id == 0
+special_id == 0 AND id != 0
 _usesCloudKit
 TB,R,D,N
 _cloudKitLocalMigrationState
@@ -655,7 +658,6 @@ AddToReadingList
 ClearAllCloudTabDevices
 ClearCloudTabsForCurrentDevice
 DidToggleCloudTabs
-DidTogglePrivateBrowsing
 RegisterForReadingListFetcherUpdates
 StartReadingListFetcher
 UnregisterForReadingListFetcherUpdates
@@ -674,7 +676,6 @@ ClearHSTSSuperCookies
 ClearAllSafariHistory
 ScheduleBookmarksDatabaseMaintenanceTask
 ScheduleBookmarksDatabaseMigrationTask
-ScheduleReadingListIconMigration
 Address
 ClientBundleID
 Enabled
@@ -685,8 +686,6 @@ DataUsageSize
 WebsiteDataAllRecords
 WebsiteDataRecord
 MessageReceivedAcknowledgement
-SafariGetCurrentlySelectedSearchEngineMessage
-SearchEngineShortName
 http:
 https:
 B24@?0Q8@"NSObject<OS_xpc_object>"16
@@ -996,7 +995,6 @@ didToggleCloudTabs:terminateAfterUpdating:
 clearAllCloudTabDevices
 clearTabsForCurrentDevice
 didToggleCloudTabs:
-didTogglePrivateBrowsing:
 _trimmedTitle:
 _trimmedPreviewText:
 sharedFeatureManager
@@ -1024,6 +1022,7 @@ shortTypeDescription
 appendFormat:
 _web_bestURLForUserTypedString
 copyWithZone:
+initBuiltinBookmarkWithTitle:address:
 initCarrierBookmarkWithTitle:address:
 initWhiteListBookmarkWithTitle:address:
 localizedTitle
@@ -1150,6 +1149,8 @@ vacuum
 _selectBookmarksWhere:
 _finalizeStatementIfNotNull:
 _initWithSqliteRow:
+appendString:
+enumerateObjectsUsingBlock:
 isWebFilterWhiteListOnlyModeEnabled
 rootBookmark
 subarrayWithRange:
@@ -1213,7 +1214,6 @@ _firstBookmarkWithURLMatchingString:prefixMatch:inParent:
 _inMemoryChangeSet
 addObjectsFromArray:
 stringValue
-appendString:
 _postBookmarksDidReloadNotification
 _tableExpressionForArchiveMode:
 _orderedWhereClauseForArchiveMode:automaticArchivingEnabled:
@@ -1386,6 +1386,7 @@ localeSettingsChanged
 purgeableSpace
 purge:
 bookmarkWithUUID:
+validBookmarkUUIDsFromUUIDs:
 readingListFolder
 bookmarkAtPath:
 subfoldersOfID:
@@ -1636,7 +1637,6 @@ deleteSafariWebsiteDataRecord:completionHandler:
 deleteSafariPersistentURLCacheStorageWithCompletionHandler:
 getSafariDataUsageByteCountWithCompletionHandler:
 clearAllSafariHistoryWithCompletionHandler:
-getCurrentlySelectedSearchEngineWithCompletion:
 scheduleBookmarksDatabaseMaintenance
 scheduleBookmarksDatabaseMigrationTask
 scheduleHSTSSuperCookieCleanup
@@ -1684,7 +1684,7 @@ _backgroundTaskAssertionToken
 _startBackgroundTaskAssertionBlock
 _finishBackgroundTaskAssertionBlock
 Received a vnode event for bookmarks metadata file
-Posted bookmarks metadata file changed notfication
+Posted bookmarks metadata file changed notification
 Error reading bookmarks metadata file with code: %zd
 Read device identifier: %{private}@ from bookmarks metadata file, readonly: %d
 Failed to write bookmarks metadata file to %{public}@
@@ -1737,12 +1737,13 @@ WebBookmarks could not start an immediate transaction; sleeping.
 WebBookmarks could not start an immediate transaction; sleeping longer.
 WebBookmarks could not start an immediate transaction; bailing. Error was: %{public}s
 WebBookmarks could not start an immediate transaction; bailing. Result code was: %d
+Updating changes from in memory identifier %ld to database identifier %ld
 Error converting in-memory changes into plist data: %@{public}
 Failed to persist in-memory bookmarks changes plist: %{public}@
 Error converting plist data to dictionary: %{public}@
 Persisted bookmark changes plist is corrupted.
 Cannot create a Reading List item. URLs must begin with http or https.
-Failed to open Bookmarks database. Acquired sync lock: %zd, error: %{public}@.
+Failed to open Bookmarks database. Acquired sync lock: %d, error: %{public}@.
 Couldn't create bookmarks database at %{public}@
 Refusing to remove corrupted bookmarks database at %{public}@: The path appears to be a directory.
 Refusing to remove corrupted bookmarks database at %{public}@: The file is not named Bookmarks.db.
@@ -1782,6 +1783,7 @@ Failed to save bookmark %{public}@: Write transation isn't valid
 No BookmarkImages directory exists, but bookmark had an icon UUID
 Failed to delete bookmark icon: %{public}@
 Deleted bookmark icon successfully
+Moving bookmark with identifier %ld to folder with identifier %ld
 Creating a directory for Reading List icons failed: %{public}@
 Saving Reading List icon failed: %{public}@
 Saving a bookmark failed
@@ -1804,9 +1806,10 @@ Crashing since we can't save a bookmark with no address. Please file a bug.
 Failed to save bookmark %{public}@: Invalid parentID %d
 Failed to increment bookmarks generation. Sqlite error: %d
 Handling bookmarks metadata file change notification
-WebBookmarks sync is not posting a change notfication because the collection is not dirty
+WebBookmarks sync is not posting a change notification because the collection is not dirty
 %{public}@ Please file a bug citing the following caller:
 Failed to merge bookmarks with dictionary. Bookmarks dictionary is %{public}@
+Adding bookmark in memory with identifier %ld to folder with identifier %ld
 Device identifier is empty
 Looking up migration state for device identifier %{private}@
 Local migration state read from database %{public}@
@@ -1830,13 +1833,15 @@ Process %{public}@ did lock bookmarks database
 Postponing unlockSync. The process %{public}@ has requested to hold the lock
 Process %{public}@ did unlock bookmarks database
 Attempting to unlock sync since last requestor has unheld the lock in process %{public}@
-Setting sync notification type: %zd
+Setting sync notification type: %ld
 Posting com.apple.bookmarks.dbchanged to BookmarkDAV
 Request sync client trigger sync
 Requesting a CloudKit bookmarks sync due to local changes
 Could not construct WFUserSettings. Default values will be used.
 Error reading bookmark extra attributes: %{public}@
 Error reading bookmark local attributes: %{public}@
+Setting bookmark with identifier %ld as its own parent
+Setting bookmark identifier to its parent identifier %ld
 Could not archive: %{private}@ to path: %{public}@: %{public}@
 Could not remove sym link: %{public}@: %{public}@
 Could not create sym link from %{public}@ to %{public}@: %{public}@
@@ -1859,15 +1864,15 @@ WBDatabaseLockAcquisitor: releasing database lock
 WBDatabaseLockAcquisitor: successfully acquired database lock
 WBDatabaseLockAcquisitor: failed to acquire database lock
 WebBookmarksXPCConnection: No handler registered for the message %{public}s.
-Not queueing settings task with type %zd since one has already been scheduled.
+Not queueing settings task with type %ld since one has already been scheduled.
 Attempting to perform a webbookmarksd settings task while there is no current task set
-Dropping settings task with type %zd because maximum retry count exceeded
-Performing settings task with type: %zd
-Skipping task with type %zd due to incorrect arguments
-Marking current task with type %zd as finished. Attempting next available task
-Successfully performed settings task with type: %zd
-Settings task with type %zd finished with a non-xpc error %{public}@
-Received error while performing settings task with type: %zd, error: %{public}@
+Dropping settings task with type %ld because maximum retry count exceeded
+Performing settings task with type: %ld
+Skipping task with type %ld due to incorrect arguments
+Marking current task with type %ld as finished. Attempting next available task
+Successfully performed settings task with type: %ld
+Settings task with type %ld finished with a non-xpc error %{public}@
+Received error while performing settings task with type: %ld, error: %{public}@
 WebBookmarkDeviceIdentifier
 BAChangeRecord
 WebBookmarkCloudKitSyncCollection

@@ -84,8 +84,7 @@ ${__git_dir:+--git-dir="$__git_dir"} "$@" 2>/dev/null
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #   GNU General Public License for more details.
 #   You should have received a copy of the GNU General Public License
-#   along with this program; if not, write to the Free Software Foundation,
-#   Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+#   along with this program; if not, see <http://www.gnu.org/licenses/>.
 #   The latest version of this software can be obtained here:
 #   http://bash-completion.alioth.debian.org/
 #   RELEASE: 2.x
@@ -937,7 +936,8 @@ __gitcomp "diff3 merge" "" "${cur##--conflict=}"
 --*)
 __gitcomp "
 --quiet --ours --theirs --track --no-track --merge
---conflict= --orphan --patch
+--conflict= --orphan --patch --detach --ignore-skip-worktree-bits
+--recurse-submodules --no-recurse-submodules
 # check if --track, --no-track, or --no-guess was specified
 # if so, disable DWIM mode
 local flags="--track --no-track --no-guess" track_opt="--track"

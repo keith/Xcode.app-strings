@@ -52,26 +52,31 @@ v16@?0@"NTKDCollectionStoreKey"4@"NTKDCollectionStore"8^B12
 com.apple.ntkd.collectioncoordinator.busy
 com.apple.ntkd.collectioncoordinator.callout
 com.apple.ntkd.curatecollection.
-type=%@, faceUUID=%@, complicationClientID=%@
+type=%@, faceUUID=%@, complicationClientID=%@, complicationFamily=%@
 face-selection
 face-order
+%@-%@
 unknown
 messageType
 faceUUID
 payload
 progress
 complicationClientID
+complicationFamily
 objectIdentifier
 T@"NSString",R,N
 sequencer
 changeType
 Ti,R,N
+supportsSecureCoding
+TB,R
 Ti,N,V_messageType
 T@"NSUUID",&,N,V_faceUUID
 payloadData
 T@"NSData",&,N,V_payloadData
 Td,N,V_progress
 T@"NSString",C,N,V_complicationClientID
+T@"NSNumber",&,N,V_complicationFamily
 com.apple.ntkd.photolibrarydeviceobserver
 com.apple.ntkd.photolibraryobserver.asyncwork
 B12@?0@"NTKFace"4@"PHAsset"8
@@ -90,8 +95,8 @@ A rare error has occurred. Please trigger a co-sysdiagnose (hold both crown & si
 v8@?0B4
 DateOfLastActivity_
 com.apple.nanotimekit.daemon-activity-queue
-checkin
 v8@?0@"NSObject<OS_xpc_object>"4
+checkin
 guard-early-jetsam
 --30s-extension
 com.apple.nanotimekit.daemon-activity
@@ -139,6 +144,7 @@ T@?,C,N,V_nextObjectBlock
 message-type
 face-uuid
 complicaiton-clientID
+complication-family
 payload-id
 v16@?0@"NSDictionary"4I8^B12
 @"NTKDSyncMessage"4@?0
@@ -168,6 +174,8 @@ com.apple.private.alloy.clockface.sync
 NTKSyncBackoffPeriodInSeconds
 com.apple.nanotimekit.messageType
 com.apple.nanotimekit.message
+receiverSyncVersion
+senderSyncVersion
 com.apple.pairedsync.faces.NTKSyncBackoffQueue
 com.apple.pairedsync.faces.NTKSyncServiceQueue
 -[NTKDCompanionSyncWrapper initAsMaster:]
@@ -302,6 +310,7 @@ NTKDPhotoLibraryObserver: collectionStoreWillBePurged(%@-%@)
 NTKDPhotoLibraryObserver: no purgable stores for device %@
 Failed to create face from data: %@
 unzip failed, data written to disk for analysis: %@
+prompting to raise a radar re: unzip failure
 performing activity for identifier %@ because minimum interval %g has elapsed since last performed (%@)
 not performing activity for identifier %@ because minimum interval %g has not elapsed since last performed (%@)
 checkin complete with state = %s
@@ -419,15 +428,17 @@ delta sync under backoff, reset sync delayed
 delta sync already under backoff, no delta sync requested
 sync service encountered an error: %@
 requesting new reset sync after previous failure
-ignoring unexpected incoming validation message -- should not happen on watch!
+ignoring unexpected incoming out of band message -- should not happen on watch!
 UNEXPECTED SYNC OUTCOME: please file a radar w/ co-sysdiagnose under 'Pepper UI Clock'
 sessionStateResult: %ld, messageToSend: %@
-apply sync mesages: %@, success=%@
+failed to unarchive sync message: %@
+apply sync mesage: %@, success=%@
 incoming reset sync %s
 reset sync ended with error: %@
 sync session ended with error: %@
 didSwitchFromPairingID:%@ toPairingID:%@
 Pairing ID did switched. Reset _resetSyncRequested to NO.
+error decoding sync message (%@): %@
 Adding face with UUID %@ to backup
 Removing face with UUID %@ from backup
 Setting backup list of face UUIDs to %@
@@ -448,6 +459,11 @@ Selected face UUID in the backup wasn't available; selecting the first one inste
 Failed to load face (%@) backup (%@) with error: %@
 Failed to load face backup with UUID %@: couldn
 t find backup file
+Failed to load face UUIDs (%@) with error: %@
+Failed to unarchive face UUIDs with error: %@
+Face UUIDs do not exist at path %@
+Failed to load string (%@) with error: %@
+Selected face UUID does not exist at path %@
 Cleaning up orphaned face collection stores...
 ...deleting face collection stores for device uuid %@
 ...deleting GLOBAL face collection stores
@@ -491,6 +507,7 @@ Unable to read removals dictionary at path %@: %@
 Not executing _WriteRemovals as we are in demo mode and have no companion
 Unable to convert payload data to array of UUIDS: %@
 Unable to convert payload data to NTKComplicationSampleData: %@
+Unable to convert payload data to CLKComplicationTemplate: %@
 current locale (%@) does not match last sorted locale (%@)--sorting addable faces
 received locale change notification; setting daemon to exit when clean; addable faces will be sorted when daemon restarts
 received system app cache change notification--rebuilding addable faces
@@ -550,8 +567,8 @@ addObject:
 _addFace:toStore:andSelect:
 class
 isKindOfClass:
-initForReadingWithData:
-setRequiresSecureCoding:
+initForReadingFromData:error:
+setDecodingFailurePolicy:
 decodeObjectOfClass:forKey:
 enumerateObjectsUsingBlock:
 floatValue
@@ -624,6 +641,7 @@ _updateLocalizableSampleData:forClientIdentifier:skipSyncObserver:
 addClientId:supportForSampleTemplateForFamily:
 _queue_incrementSeqId
 _queue_notifyDidUpdateSampleTemplate:forClientIdentifier:family:skipSyncObserver:
+_updateLocalizableSampleData:forClientIdentifier:family:skipSyncObserver:
 removeClientId:
 removeObjectForKey:
 _queue_notifyDidRemoveComplicationForClientIdentifier:skipSyncObserver:
@@ -651,6 +669,7 @@ sampleTemplateForClientIdentifier:family:
 updateLocalizableSampleDataTemplate:forClientIdentifier:family:
 removeComplicationForClientIdentifier:
 withoutNotifyingSyncObserverSetComplicationSampleData:forClientIdentifier:
+withoutNotifyingUpdateLocalizableSampleDataTemplate:forClientIdentifier:family:
 withoutNotifyingSyncObserverRemoveComplicationForClientIdentifier:
 collectionIdentifier
 deviceUUID
@@ -678,7 +697,7 @@ createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 stringWithContentsOfFile:encoding:error:
 writeToFile:atomically:encoding:error:
 initWithContentsOfFile:options:error:
-archivedDataWithRootObject:
+archivedDataWithRootObject:requiringSecureCoding:error:
 dictionaryWithContentsOfFile:
 reason
 removeAllObjects
@@ -718,19 +737,20 @@ setMessageType:
 messageOfType:
 setFaceUUID:
 setComplicationClientID:
+setComplicationFamily:
 decodeIntegerForKey:
 doubleValue
 encodeInteger:forKey:
 encodeObject:forKey:
 numberWithDouble:
 messageOfType:withFaceUUID:
-messageOfType:withComplicationCliendId:
+messageOfType:withComplicationCliendId:family:
 supportsSecureCoding
 objectIdentifier
 sequencer
 changeType
-initWithCoder:
 encodeWithCoder:
+initWithCoder:
 messageType
 faceUUID
 payloadData
@@ -738,11 +758,13 @@ setPayloadData:
 progress
 setProgress:
 complicationClientID
+complicationFamily
 _uuid
 _messageType
 _faceUUID
 _payloadData
 _complicationClientID
+_complicationFamily
 _progress
 initWithName:
 photoLibraryDeviceObserverQueue
@@ -801,6 +823,7 @@ _onQueueAsync:
 createFaceForPerformanceTesting:
 updateSnapshotForFace:
 performAfterCompletingCurrentlyPendingSnapshots:
+snapshotFace:options:completion:
 remoteObjectProxy
 faceSnapshotChangedForKey:
 initWithConnection:snapshotController:
@@ -846,7 +869,8 @@ _startSnapshottingActivity
 _cleanAllFaces
 _endSnapshottingActivityDidTakeSnapshot:
 _updateSnapshotForFace:
-createFace:snapshotUIOnly:unadornedContent:forceLockedUI:
+createFace:options:
+takeSnapshotOfFace:options:hasBlankComplication:
 _queue_updateSnapshotForFace:
 clientIdentifier
 _queue_updateSnapshotForFace:complicationTemplateChanged:
@@ -865,7 +889,7 @@ _currentContext
 _snapshotExistsForKey:
 snapshotContext:isStaleRelativeToContext:
 unmodifiedDate
-takeSnapshotOfFace:snapshotUIOnly:unadornedContent:forceLockedUI:hasBlankComplication:
+numberWithBool:
 _cleanSnapshotKeysWithBlankComplications
 _writeImageToDisk:imageName:
 _noteExternalChangeForKey:
@@ -885,7 +909,6 @@ setMonogram:
 currentLocale
 localeIdentifier
 setLocale:
-numberWithBool:
 setUses24hTime:
 setBuildVersion:
 timeZoneDataVersion
@@ -1027,7 +1050,8 @@ removeObjectAtIndex:
 _getMessageType:
 _getFaceUUID:
 _getClientID:
-_pruneMessagesMadeObsoleteByNewMessageOfType:withFaceUUID:clientID:
+_getFamily:
+_pruneMessagesMadeObsoleteByNewMessageOfType:withFaceUUID:clientID:family:
 indexSet
 addIndex:
 removeObjectsAtIndexes:
@@ -1060,9 +1084,8 @@ setOptions:
 resume:
 _queue_resetSync
 _queue_deltaSync
-data
-initForWritingWithMutableData:
-finishEncoding
+initRequiringSecureCoding:
+encodedData
 sendData:options:completion:
 setNeedsResetSync
 _queue_requestSync:withBlock:
@@ -1070,12 +1093,15 @@ setHasChangesAvailable
 _getSyncBackoffPeriod
 setSerializer:
 setTargetQueue:
+sessionMetadata
+dictionaryWithDictionary:
 isSending
+setSessionMetadata:
 delegate
 isResetSync
 serializer
 dataFromChange:
-unarchiveObjectWithData:
+unarchivedObjectOfClass:fromData:error:
 setIsResetSync:
 sentChangeCount
 setChangesSent:
@@ -1196,6 +1222,7 @@ _containsUUID:
 _orderedUUIDs
 _boxedStylesByUUID
 destinationOfSymbolicLinkAtPath:error:
+data
 copyItemAtPath:toPath:error:
 createSymbolicLinkAtPath:withDestinationPath:error:
 faceWithJSONObjectRepresentation:
@@ -1209,6 +1236,7 @@ _handleSystemAppChangeNotification
 schedulerWithQueue:delay:updateBlock:
 _handleLocaleChangeNotification
 schedule
+_handleSignificantTimeChanged:
 _sortAddableFacesIfNecessary:
 _addOrRemoveInternalFaces
 allValues
@@ -1256,6 +1284,8 @@ NTKDCollectionCoordinator
 NSXPCListenerDelegate
 NTKDSyncMessage
 SYChange
+NSSecureCoding
+NSCoding
 PhotoLibraryDeviceObserver
 _NTKDPhotoLibraryDeviceObserver
 NTKDPhotoLibraryObserver
@@ -1354,7 +1384,10 @@ v16@0:4@?8@12
 @"NSMutableSet"
 @12@0:4i8
 @16@0:4i8@12
+@20@0:4i8@12@16
 i8@0:4
+v12@0:4@"NSCoder"8
+@12@0:4@"NSCoder"8
 v12@0:4i8
 d8@0:4
 v16@0:4d8
@@ -1408,7 +1441,7 @@ B20@0:4@8@12@16
 @"NSXPCListener"
 v12@0:4I8
 @12@0:4I8
-v20@0:4i8@12@16
+v24@0:4i8@12@16@20
 i12@0:4@8
 B12@0:4i8
 B20@0:4@8@12^@16
