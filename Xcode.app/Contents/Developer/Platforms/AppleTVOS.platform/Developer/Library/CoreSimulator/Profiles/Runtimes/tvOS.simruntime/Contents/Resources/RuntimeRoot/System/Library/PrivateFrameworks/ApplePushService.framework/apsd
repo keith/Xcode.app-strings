@@ -390,6 +390,8 @@ piggybackDualChannelAttempts
 setPiggybackDualChannelAttempts:
 costDrivenDualChannelAttempts
 setCostDrivenDualChannelAttempts:
+disableDualModePiggybackTimer
+setDisableDualModePiggybackTimer:
 numberOfCriticalMessageKeepAlivesBeforeDisconnecting
 setNumberOfCriticalMessageFlushesBeforeDisconnecting:
 criticalMessageKeepAliveTimerDuration
@@ -531,7 +533,7 @@ clearConnectionEstablishTimerOnInterface:
 startKeepAliveResponseTimerOnInterface:shortInterval:
 clearKeepAliveResponseTimerOnInterface:
 topicManagerRequestToSendFilter:
-networkMonitor:shouldUseDualModeChanged:
+networkMonitor:evaluateDualModeState:
 networkMonitorWiFiBecameAssociated:
 courierConnection:connectionManager:handleEvent:context:onInterface:
 courierConnection:disconnectStreamOnInterface:
@@ -1303,7 +1305,7 @@ _currentStream
 shouldClientScheduleReconnectDueToFailure
 countOfGrowthActions
 isDualChannelAllowed
-_handleDualModeChange
+_handleDualModeState
 _interfaceForConnectionManager:
 _interfaceForProtocolParser:
 _interfaceForStream:
@@ -1425,11 +1427,14 @@ _screenLit
 initWithValue:
 value
 _value
+systemMonitor
 _reloadDualMode
+wifiManager
 _processSSIDChangeWithSSID:querySSID:
 _registerForWoWNotifications
 _deregisterFromWoWNotifications
 _clearConnectionThrottleTimer
+_clearPiggybackConnectionTimer
 _toggleWiFiAutoAssociateIfNecessary
 isWiFiAssociated
 setValue:forKey:
@@ -1437,9 +1442,11 @@ _flushStaleWiFiMeasurements
 currentSSID
 _flushStaleElementsFrom:withThreshold:
 _accumulatedAwakePercentage
+secondsBetweenPiggybacks
 _wifiIsHistoricallyCheap
 _checkPiggybackBudget
 __toggleWiFiAutoAssociateIfNecessary
+_piggybackConnectionTimerFired
 _connectionThrottleTimerFired
 powerCostForPushOnRAT:withLinkQuality:
 cutWiFiManagerDeviceAttached:
@@ -1449,12 +1456,14 @@ notePushWithCost:
 serverSupportsDualMode
 isWoWEnabled
 setIsWoWEnabled:
+shouldEnableWifiAutoAssoc
 _lastSSID
 _wifiMeasurements
 _wifiGrowAttemptsBeforeSSID
 _wifiGrowAttempts
 _wifiKeepAliveInterval
 _connectionThrottleTimer
+_piggybackConnectionTimer
 _shouldThrottleConnection
 _serverSupportsDualMode
 _dualMode
@@ -1469,6 +1478,7 @@ _shouldEnableWifiAutoAssoc
 _criticalReliability
 _isWoWEnabled
 _isPiggybacking
+_disableDualModePiggybackTimer
 initWithCString:encoding:
 _sendPresenceMessageWithServerTime:
 sendPresenceMessage
@@ -1990,7 +2000,7 @@ q16@?0^@8
 v24@?0@"NSDictionary"8@"NSError"16
 enabled
 disabled
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-623/APSCourier.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-624/APSCourier.m
 <Unknown File>
 power assertion already exists
 %@-criticalreliability
@@ -2319,7 +2329,7 @@ ttlEnd
 Td,VttlEnd
 serverCount
 TI,VserverCount
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-623/APSTCPStream.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-624/APSTCPStream.m
 stream already opened
 v24@?0@"APSConfiguration"8@"NSError"16
 DNSServiceQueryRecord() failed: %d
@@ -2365,7 +2375,7 @@ q24@?0@"APSPushRecord"8@"APSPushRecord"16
 Outgoing message queue full
 Message cancelled
 Sent message %lu
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-623/APSOutgoingMessageQueue.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-624/APSOutgoingMessageQueue.m
 Message already sent
 Received ack for msg %lu
 FlushCount
@@ -2447,7 +2457,7 @@ TB,N,GisLoadBalanced,V_loadBalanced
 debugHostname
 TB,N,V_debugHostname
 priority
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-623/APSConfiguration.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/ApplePushService_Sim/ApplePushService-624/APSConfiguration.m
 must be called from main thread
 User-Agent
 x-internal
@@ -2491,6 +2501,7 @@ APNSMaxExpensiveConditionsConnectionAttempts
 APNSExpensiveConditionsBackOffInterval
 APNSWiFiKeepAliveEarlyFireConstantInterval
 APNSDelayedReconnectInterval
+APNSDisableDualModePiggybackTimer
 unexpected end of http response
 status
 Ti,R,N
@@ -2519,6 +2530,7 @@ expensiveConditionsBackOffInterval
 T@"NSNumber",R,N,V_expensiveConditionsBackOffInterval
 wifiKeepAliveEarlyFireConstantInterval
 delayedReconnectInterval
+disableDualModePiggybackTimer
 expiry
 T@"NSDate",C,N,V_expiry
 fetchDate
@@ -2705,6 +2717,7 @@ com.apple.aps.internalsettings
 DualChannelSupportOverride
 enabling
 disabling
+APSNetworkMonitor-piggybackConnectionTimer-%@
 APSNetworkMonitor-connectionThrottle-%@
 Piggybacked
 Piggyback Count
@@ -2720,6 +2733,8 @@ TB,R,N,V_shouldUseDualMode
 isPiggybacking
 isWoWEnabled
 TB,N,V_isWoWEnabled
+shouldEnableWifiAutoAssoc
+TB,R,N,V_shouldEnableWifiAutoAssoc
 com.apple.operator
 APSClientIdentityUpdatedNotification
 appIds
@@ -2923,7 +2938,7 @@ _getClientIdentity: already had identity: %@
 %@ updating AppLaunchStats with pending work %@
 %@ _schedulePendingWorkUpdate
 %@ topicManager %@ requested to send filter. Connected on %lu interfaces.
-%@: Received delegate call: shouldUseDualModeChanged to %@
+%@: Received delegate call: shouldUseDualMode is set to %@
 %@ resetting consecutive failures because we have at least one connection
 %@: Received networkMonitorWiFiBecameAssociated
 %@ WiFi poorLQ keepAlive sent
@@ -3343,7 +3358,7 @@ Invalid value for interface: %ld, failed to deliver
 %@ - INTEGRITY CHECK FAILED: closing the old connections
 %@ closing old connection on %@
 %@: Uh oh! Asked to set isConnected %@ on interface %@ but we have no stream for that interface!
-%@: handleDualModeChange isDualChannelAllowed %@
+%@: handleDualModeState isDualChannelAllowed %@
 %@ dual channel is no longer allowed
 %@ WWAN is connected; to be consistent, closing the non-cellular connection
 %@ NonCellular is connected; to be consistent, closing the wwan connection
@@ -3456,7 +3471,7 @@ Server supports dual mode %@  old value %@
 %@ _toggleWiFiAutoAssociateIfNecessary %@ wifi auto association highEnoughPushCost %@  wifiHistoricallyOK %@  serverLoadIsOK %@ criticalReliability %@  serverSupportsDualMode %@  _dualMode %ld enableDualMode %@ disableCostDrivenDualMode %@
 %@ should use dual mode changed to %@!
 %@: informed that second channel opened
-%@ this is a piggybacked connection. PiggybackCount %lu
+%@ this is a piggybacked connection. PiggybackCount %lu, starting piggyback connection timer
 %@ rescheduling our connection throttle timer
 %@: informed that second channel closed - %@
 %@: This connection was piggybacked and we are unlocked - disabling piggybacking for some time (or until next lock)
@@ -3465,6 +3480,7 @@ Server supports dual mode %@  old value %@
 %@ setDisableCostDrivenDualChannelAttempts: changing from %@ to %@ (got number %@)
 %@ setCostDrivenDualChannelAttempts: changing from %lu to %lu (got number %@)
 %@ setPiggybackDualChannelAttempts: changing from %lu to %lu (got number %@)
+%@ setDisableDualModePiggybackTimer: changing from %@ to %@ (got number %@)
 %@ _sendPresenceMessageWithServerTime %@, isNearby? %@
 %@ sendInactiveMessage, isNearby? %@
 %@ sendingMessage with messageGUID %@

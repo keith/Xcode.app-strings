@@ -434,11 +434,13 @@ initWithString:
 setDateFormat:
 timeZoneForSecondsFromGMT:
 setTimeZone:
-timeIntervalSinceReferenceDate
-updateEstimateInfo:
 defaultSessionConfiguration
 sessionWithConfiguration:
 setMaxConcurrentOperationCount:
+allKeys
+timeIntervalSinceReferenceDate
+updateEstimateInfo:
+stopTimerIfNoDownloadsInProgress
 syncSplunkTasks
 moveItemAtURL:toURL:error:
 initWithDictionary:
@@ -453,7 +455,6 @@ requestWithURL:
 setHTTPMethod:
 uploadTaskWithRequest:fromFile:
 set_timeoutIntervalForResource:
-allKeys
 initWithArray:
 originalRequest
 getCurrentInflightDownloads:
@@ -513,7 +514,6 @@ backgroundSession
 splunkDiscretionarySession
 inProcessSession
 downloadStateQueue
-timeEstimateQueue
 splunkStateQueue
 currentState
 haveSyncedSplunkData
@@ -526,6 +526,7 @@ currentSplunkEvent
 timer
 previousTimeEstimatePoint
 timerRunning
+timerHandler
 _haveSyncedSplunkData
 _currentlyBatchingSplunk
 _haveSyncedSplunkState
@@ -543,7 +544,6 @@ _backgroundSession
 _splunkDiscretionarySession
 _inProcessSession
 _downloadStateQueue
-_timeEstimateQueue
 _splunkStateQueue
 _currentState
 _pallasVerifier
@@ -552,6 +552,7 @@ _splunkUrl
 _currentSplunkEvent
 _timer
 _previousTimeEstimatePoint
+_timerHandler
 lastDownloadedDateForAssetMetadataType:
 assetsOfAssetType:matchingPredicate:error:
 updateMetadataForAssetType:overRide:withOptions:completionHandler:
@@ -764,13 +765,15 @@ setExpectedTimeRemaining:
 _totalExpected
 _totalWritten
 _expectedTimeRemaining
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+predicateWithFormat:
+filteredArrayUsingPredicate:
 dataWithContentsOfFile:
 initFileURLWithPath:
 lastPathComponent
 dictionaryWithContentsOfURL:
 scanCachedMetadataForUpdates
 dictionaryWithObjectsAndKeys:
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
 stringByDeletingPathExtension
 stringByAppendingPathExtension:
@@ -821,7 +824,6 @@ _supplementalAssetMetadataForAssetType:
 _metadataForAvailableAssetsOfAssetType:
 _installedAndDownloadingAssetsOfAssetType:error:
 objectAtIndexedSubscript:
-filteredArrayUsingPredicate:
 evaluateWithObject:
 _assetsOfAssetType:matchingPredicate:error:
 URLByAppendingPathExtension:
@@ -889,6 +891,7 @@ checkAndInitiateDownload:for:using:
 removeAssetDir:using:
 getStateOfAsset:incoming:
 handleCoverageDump:using:
+handleMigrateAssetsRequest:using:and:
 handleClientConnection:on:
 writeToFile:atomically:
 metaDataQueue
@@ -1589,11 +1592,14 @@ downloadOptions
 https://xp.apple.com/report/2/psr_ota
 yyyy-MM-dd
 com.apple.MobileAsset.daemon.download.state
-com.apple.MobileAsset.daemon.download.timeEstimate
 com.apple.MobileAsset.daemon.splunk.state
--[DownloadManager startDownloadTimer]
+-[DownloadManager stopTimerIfNoDownloadsInProgress]
+Stopping timer as there are no more downloads in flight
+-[DownloadManager startDownloadTimer]_block_invoke
+Creating Download Timer
 Starting Download Timer
 -[DownloadManager updateEstimateInfo:]_block_invoke
+In updateEstimateInfo
 Cannot process interval data
 com.apple.MobileAsset.networking.background.discretionary
 com.apple.MobileAsset.networking.background
@@ -1856,15 +1862,15 @@ MA Notifying : %@
 We have no info about this task, cannot retry: %@
 The downloads in flight are: %@
 Download manager notified of finished task: %@
-We have no info about this task, cannot reply: %@
 -[DownloadManager taskFinishedUpdateState:with:]_block_invoke
+Task finished without a task descriptor, syncing with nsurlsession
+We have no info about this task, cannot reply: %@
 Download failed however we are going to retry at original url: %@
 Download failed and there is no extractor to retry so failing
 Skipping due to no connection
 Skipping due to no reply
 Call backs are nil
 Skipping notification because of failure or no change
-Stopping timer as there are no more downloads in flight
 -[DownloadManager processAssetDownload:with:and:shouldMove:extractorExists:]
 Error, download failed due to nil extractor
 Cannot move file as control manager is nil
@@ -1898,8 +1904,6 @@ inProcessSession
 T@"NSURLSession",R,N,V_inProcessSession
 downloadStateQueue
 T@"NSObject<OS_dispatch_queue>",R,N,V_downloadStateQueue
-timeEstimateQueue
-T@"NSObject<OS_dispatch_queue>",R,N,V_timeEstimateQueue
 splunkStateQueue
 T@"NSObject<OS_dispatch_queue>",R,N,V_splunkStateQueue
 currentState
@@ -1924,6 +1928,8 @@ previousTimeEstimatePoint
 T@"NSDate",R,N,V_previousTimeEstimatePoint
 timerRunning
 TB,R,N,V_timerRunning
+timerHandler
+T@?,R,N,V_timerHandler
 com.apple.MobileAsset.SystemApp
 -[SplunkSessionDelegate URLSession:task:didCompleteWithError:]
 Network error: %ld
@@ -2331,6 +2337,7 @@ Tq,N,V_totalWritten
 TB,N,V_isStalled
 expectedTimeRemaining
 Td,N,V_expectedTimeRemaining
+pathExtension='asset'
 .xml
 Could not create target folder: %@,   %@
 SplunkRetry
@@ -2661,6 +2668,15 @@ Couldnt purge asset: %@ , %@
 Purge attempt for : %@ , %@ will not work asset doesnt exist
 Successfully purged: %@
 com.apple.private.assets.change-daemon-config
+-[ControlManager handleMigrateAssetsRequest:using:and:]_block_invoke
+Migration failed due to nil asset type
+Migration failed due to nil file manager
+Migration failed due to nil normalizedAssetTypeStr
+/var/MobileAsset/Assets
+Migration failed due to nil assets
+Skipping asset: %@ as it already exists
+Failed to move asset: %@ in migration: %@
+Moved asset: %@ in migration
 Setting pallas audience
 Setting pallas url
 Query for existing NSURL tasks
@@ -2670,8 +2686,10 @@ The task descriptor is: %@, %ld
 v8@?0@"NSSet"4
 %@ issued meta data download command
 Completion handler for xml download job: %@
+-[ControlManager handleClientConnection:on:]_block_invoke
 Setting server url override
 the asset type is %@ and the url is %@
+Migrating assets for %@
 Unknown Command
 Termination imminent
 Unexpected xpc object %@
@@ -2842,6 +2860,7 @@ v20@0:4@8i12@16
 v16@0:4@8i12
 i28@0:4@8@12@16B20B24
 v28@0:4@8@12B16B20@24
+@?8@0:4
 @"NSURLSessionConfiguration"
 @"NSOperationQueue"
 @"<NSURLSessionDelegate>"
@@ -2864,7 +2883,6 @@ v20@0:4@"NSString"8l12@"NSDictionary"16
 @"ASAssetRepository"8@0:4
 B16@0:4@8B12
 v12@0:4i8
-@?8@0:4
 ^{__MobileAsset={__CFRuntimeBase=IAI}^{__CFString}^{__CFDictionary}^{__MobileAssetQuery}^{__MobileAssetQuery}C^{__CFString}}
 @"MobileAssetReport"
 @"NSObject<OS_dispatch_semaphore>"
@@ -2959,7 +2977,7 @@ metadata download receieved response (status=%ld)
 metadata download received data (%lu - %lld/%lld)
 received data for task with no data
 will retry metadata download
-H@(#)PROGRAM:mobileassetd  PROJECT:MobileAsset-437.50.25
+H@(#)PROGRAM:mobileassetd  PROJECT:MobileAsset-437.50.31
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

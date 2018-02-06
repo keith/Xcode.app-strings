@@ -123,6 +123,8 @@ _MSPMockCloudRequestGroup
 MSPCloudRequestGroup
 MSPPin
 MSPRemoteFavoritesContainerPersister
+MSPLongLivedCKOpCache
+MSPLongLivedCKOpScopedCache
 MSPRouteBookmark
 MSPFuzzyLocationPersister
 MSPJournal
@@ -425,6 +427,9 @@ v24@0:8@?<v@?@?<v@?B@"NSError">>16
 B48@0:8@16^B24o^@32o^@40
 @"<CKRecordValue>"24@0:8@"NSString"16
 v32@0:8@"<CKRecordValue>"16@"NSString"24
+@"NSUserDefaults"
+B32@0:8@16@24
+@"MSPLongLivedCKOpCache"
 @24@0:8^@16
 B24@0:8^@16
 @"NSFileHandle"
@@ -502,6 +507,7 @@ B32@0:8q16q24
 @"CKDatabase"
 @"CKRecordZoneID"
 @"MSPCloudCoalescedOperationExecutor"
+@"MSPLongLivedCKOpScopedCache"
 @36@0:8q16@24B32
 @"CKRecord"
 @28@0:8@16B24
@@ -1226,6 +1232,15 @@ committing favorites to mapspushd during container save
 v24@?0@"NSData"8@"NSError"16
 @"<MSPFavoritesReplicaRecord>"24@?0@"NSUUID"8@"<MSPFavoritesReplicaRecord>"16
 v24@?0@"MSPFavoritesReplica"8@"NSError"16
+defaults
+T@"NSUserDefaults",C,N,V_defaults
+currentOpIDs
+T@"NSMutableSet",&,N,V_currentOpIDs
+LongLivedOpIds
+cache
+T@"MSPLongLivedCKOpCache",&,N,V_cache
+typeName
+T@"NSString",R,N,V_typeName
 path
 T@"<MSPJournaling>",W,N,V_delegate
 MapsSupportJournal
@@ -1496,12 +1511,13 @@ NewModifyRegistrationRequest
 NewSubscriptionRequest
 UpdateAvailability
 ReceivedCloudKitNotification
+longLivedOpCache
+T@"MSPLongLivedCKOpScopedCache",&,N,V_longLivedOpCache
 v24@?0@"CKRecordID"8@"NSError"16
 v16@?0@"NSError"8
 recordID: %@, error: %@
 Save record zones & subscriptions
 v24@?0@"NSArray"8@"NSError"16
-MapsSupport
 v24@?0@"CKOperation"8@"NSError"16
 v20@?0B8@"NSError"12
 .deviceSubscription
@@ -1515,6 +1531,7 @@ v16@?0@"NSDictionary"8
 B40@?0@"NSString"8Q16^@24^@32
 B40@?0@"CKRecordID"8Q16^@24^@32
 v24@?0@"MSPCloudRepeatableTask"8@"<MSPCloudAccess>"16
+MapsSupport
 @24@?0@"CKRecordZoneID"8Q16
 v24@?0@"CKQueryCursor"8@"NSError"16
 type: %@, error: %@
@@ -1524,6 +1541,7 @@ TRUEPREDICATE
 MSPCloudKitReachabilityQueue
 MapsSyncAccess
 com.apple.Maps.Sync
+UseLongLivedOperations
 v24@?0@"CKRecordID"8@"NSString"16
 MSPErrorDomain
 nextStopsMuidsCount
@@ -2361,7 +2379,6 @@ setPreviousServerChangeToken:
 token
 initWithZoneName:ownerName:
 zoneName
-addOperation:
 setFetchRecordZoneChangesCompletionBlock:
 setRecordZoneChangeTokensUpdatedBlock:
 setRecordZoneFetchCompletionBlock:
@@ -2713,6 +2730,36 @@ allAccesses
 completionBlock
 setCompletionBlock:
 writeData:forTag:
+_defaults
+_currentOpIDs
+_operationIDsByType
+_operationIDsForType:
+_setOperationIDs:forType:
+addOperation:forType:
+removeOperation:forType:
+pruneOperationsToIDs:
+hasOperationID:forType:
+isAwareOfOperationID:
+isCurrentOperationID:
+defaults
+setDefaults:
+currentOpIDs
+setCurrentOpIDs:
+operationID
+synchronize
+dictionaryForKey:
+standardUserDefaults
+sharedCache
+_typeName
+_cache
+initWithType:
+initWithType:cache:
+addOperation:
+removeOperation:
+hasOperationID:
+typeName
+cache
+setCache:
 _path
 initWithPaths:
 writeDictionary:error:
@@ -3050,7 +3097,6 @@ mergeOptionsForEarliestKnownSyncDate:
 cloudRecordType
 addEntriesFromDictionary:
 replicaRecordClass
-standardUserDefaults
 stringForKey:
 boostDateDefaultsKey
 identityDefaultsKey
@@ -3102,6 +3148,7 @@ _clientRegistrationIdentifier
 _minimumRetryAfter
 _reachabilityQueue
 _coalescedExecutor
+_longLivedOpCache
 initWithEnvironment:zoneID:usesZoneWidePCS:
 initWithZoneID:
 taskToResolveError:
@@ -3111,6 +3158,8 @@ _accountChanged:
 _rescheduleAllLongLivedOperationsWithHandler:completionGroup:thenContinue:
 newGroupForSubscriptionsAndZoneChanges
 statesToReport
+longLivedOpCache
+setLongLivedOpCache:
 logMsgEventForNetworkService:requestAppId:requestErrorDomain:requestErrorCode:requestDataSize:responseDataSize:responseTime:httpResponseStatusCode:remoteAddressAndPort:
 error
 duration
@@ -3121,16 +3170,17 @@ notificationFromRemoteNotificationDictionary:
 fetchUserRecordIDWithCompletionHandler:
 recordName
 fetchAllLongLivedOperationIDsWithCompletionHandler:
+initWithArray:
 fetchLongLivedOperationWithID:completionHandler:
-_snapshotLongLivedIDs
+useLongLivedOperations
 setModifySubscriptionsCompletionBlock:
 initWithSubscriptionsToSave:subscriptionIDsToDelete:
 setNotificationInfo:
 setShouldSendContentAvailable:
 initWithZoneID:subscriptionID:
-_didCompleteLongLivedOperation:
-_willEmitLongLivedOperation:
+setLongLivedOperationWasPersistedBlock:
 setLongLived:
+configuration
 setAtomic:
 setSavePolicy:
 setRecordsToSave:
@@ -3163,13 +3213,13 @@ initWithRecordID:action:
 initWithRecordType:zoneID:
 componentsSeparatedByString:
 containerForEnvironment:usesZoneWidePCS:
-_trackedLongLivedIDsSet
 initWithContainerID:
 initWithContainerIdentifier:environment:
 containerWithIdentifier:
 initWithContainerID:options:
 setUseZoneWidePCS:
-operationID
+isEphemeralMultiUser
+sharedConnection
 setShouldEnqueueDependenciesWhenPerformingAsCloudRequest:
 fetchRecordsCompletionBlock
 modifyRecordsCompletionBlock
@@ -3325,8 +3375,4 @@ com.apple.pairedsync.mapssync Isync:%{private}@ (resetSync:%i error:%{private}@)
 com.apple.pairedsync.mapssync Isync:%{private}@
 com.apple.pairedsync.mapssync Isync:%{private}@ (resetSyncRequested:%i)
 MSPContainer: [%p (%{private}@)] -- %{private}@
-MSP CLOUD ACCESS: Not enqueuing operation with identifier %@ because another access is already executing it.
-MSP CLOUD ACCESS: Not enqueuing operation with identifier %@ because it was started in this process and hasn't finished.
-MSP CLOUD ACCESS: Finished running previous long-lived operation %@
-MSP CLOUD ACCESS: Finished running previous long-lived operation %@ with error (if any): %@
 MSP CLOUD ACCESS: Finished saving zones %@ with error (if any): '%@'

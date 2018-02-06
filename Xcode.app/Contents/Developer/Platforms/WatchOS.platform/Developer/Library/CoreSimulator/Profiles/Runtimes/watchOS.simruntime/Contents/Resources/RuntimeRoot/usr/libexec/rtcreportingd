@@ -38,7 +38,7 @@ TC,V_batchEvents
 samplingFactor
 Td,V_samplingFactor
 samplingThreshold
-T@"NSNumber",V_samplingThreshold
+T@"NSNumber",&,V_samplingThreshold
 digestKey
 T@"NSData",C,V_digestKey
 digestAlgorithm
@@ -51,6 +51,7 @@ DEVPUBS
 VIDEOS
 MBLASSET
 ARPL
+release_timeout
 version
 refresh_cycle
 gamekit
@@ -95,6 +96,7 @@ rtcreporting_storebag_url
 https://qtpartners.apple.com/storebags/maple
 https://pancake.apple.com/bags/maple
 seed
+%@:%@
 UniqueDeviceID
 ProductVersion
 BuildVersion
@@ -202,12 +204,14 @@ Content-Encoding
 success
 uploadURL
 T@"NSString",C,V_uploadURL
+com.apple.RTCReportingAgentStateQueue
 com.apple.private.rtcreportingd
 StorebagFetchTime
 StorebagFetchState
 Fetch Successful
 StorebagMaxAge
 StorebagData
+v8@?0I4
 Fetch Failure
 hash
 superclass
@@ -220,6 +224,7 @@ T@?,V_completionHandler
 receivedData
 T@"NSMutableData",R,V_receivedData
 com.apple.ConnectivityHelperStateQueue
+inactive
 com.apple.system.diagnostics
 Task_%08x
 /tmp/rtcstorage
@@ -416,6 +421,8 @@ _reportingSessionConnectivityDelegate
 class
 isKindOfClass:
 objectForKeyedSubscript:
+dictionaryWithDictionary:
+setObject:forKeyedSubscript:
 initWithString:
 bundleForClass:
 infoDictionary
@@ -457,6 +464,7 @@ requestWithURL:cachePolicy:timeoutInterval:
 setValue:forHTTPHeaderField:
 GETRequestMode
 initWithDelegate:mode:
+activate:
 statusCode
 retain
 getURLRequestWithCompletionHandler:completion:
@@ -492,22 +500,26 @@ dataWithLength:
 mutableBytes
 setLength:
 gzipDeflate
-dictionaryWithDictionary:
-setObject:forKeyedSubscript:
 arrayWithArray:
 hasPrefix:
 replaceObjectAtIndex:withObject:
 dataWithBytes:length:
 base64EncodedStringWithOptions:
-POSTRequestMode
 copyReportingAgentState:cachedStorebags:
 addSessionsAccumulatedHealthInfoToPayload:sessionList:storebags:
 internalSendMessage:timestamp:method:respCode:
 shutdownSessionAggregation
+incrementTotalSessionsServedCount
+releaseXPCTransactions:
+releaseUserInfo
 setStorebagVersion:
-invalidate
+releaseSharedConnectivityHelperForReportingSession:
+POSTRequestMode
+copySharedConnectivityHelperForReportingSession:mode:
+setReleaseTimeout:
 unsignedIntValue
 updateCorrelatedSessions:
+updateUserInfo:
 currentLocale
 storebagForSession:
 storebagVersionForSession:
@@ -581,6 +593,7 @@ _connection
 _hasAggregator
 _hasFinishedGracefully
 _connectivityHelper
+_connectivityHelperReleaseTimeout
 respondsToSelector:
 methodSignatureForSelector:
 invocationWithMethodSignature:
@@ -670,6 +683,9 @@ containsObject:
 getFirstSessionWithHierarchy:inSessionList:
 initWithCapacity:
 addObjectsFromArray:
+ownerIncrementUsageCount
+invalidate
+ownerDecrementUsageCountWithBlock:queue:
 isEqual:
 self
 performSelector:
@@ -684,11 +700,11 @@ hash
 superclass
 debugDescription
 listener:shouldAcceptNewConnection:
-releaseXPCTransaction
 _sessionList
 _cachedStorebags
 _correlatedSessions
 _sharedData
+_sharedConnectivityHelpers
 _XPCTransactionReference
 initWithTaskDescription:completion:
 completionHandler
@@ -697,6 +713,11 @@ receivedData
 _completionHandler
 _taskDescription
 _receivedData
+delegate
+sessionDescription
+stopConnectivityHelperReleaseTimer
+finishTasksAndInvalidate
+releaseAllXPCTransactions
 privateURLSessionConfigWithMode:
 setMaxConcurrentOperationCount:
 sessionWithConfiguration:delegate:delegateQueue:
@@ -704,9 +725,7 @@ identifier
 UUID
 UUIDString
 setSessionDescription:
-sessionDescription
-delegate
-finishTasksAndInvalidate
+startConnectivityHelperReleaseTimerWithBlock:queue:
 defaultSessionConfiguration
 backgroundSessionConfigurationWithIdentifier:
 setNetworkServiceType:
@@ -752,6 +771,13 @@ _reportingdSessionDelegate
 _tasks
 _mode
 _NSURLDelegateQueue
+_isActive
+_usageCount
+_totalSessionsServedCount
+_releaseTimeout
+_connectivityHelperReleaseTimer
+_connectivityHelperReleaseTimerBlock
+_connectivityHelperReleaseTimerQueue
 getPersistentIdentifierForDNU:
 numberWithLong:
 numberWithDouble:
@@ -849,6 +875,8 @@ expandMacroForDataSet: Expanding macro '%@' into '%@'
 initWithSessionDelegate: ReportingdSession initWithSessionDelegate:%s
 initWithSessionDelegate: Initialized session with UUID %s
 dealloc: ReportingdSession dealloc: %u
+ReportingdSession dealloc: incrementing total sessions count for session %u
+ReportingdSession dealloc: release XPC transaction for session without connectivity helper for session %u
 setSessionInfo: Configuring session %u
 setSessionInfo: Configure session: user info provided without requiring it
 startConfigWithCompletionHandler: Starting configuration for session %u
@@ -912,14 +940,14 @@ UploadBackend(uploadFileAtPath): Unable to create URL request
 UploadBackend(uploadFileAtPath): sending to |%s|, Json output: %s
 UploadBackend(uploadFileAtPath): post %s
 createReportingSessionWithDelegate: XPC transaction started with session %@
-createReportingSessionWithDelegate: retained XPCTransaction. Ref count is %d
+createReportingSessionWithDelegate: retained XPC Transaction. Ref count is %d
 invalidateReportingSession: ReportingdSession %@ was invalidated
 listener: Accepting new XPC connection %s as it has proper entitlement, %d(%d) connections.
 listener: new XPC connection %s does not have required rtcreporting entitlement. Closing connection...
 listener: XPC connection to %s was interrupted
 listener: XPC connection to %s was invalidated
-releaseXPCTransaction: XPC transaction ref count is %d
-releaseXPCTransaction: XPC transaction ended
+releaseXPCTransactions: XPC transaction ref count is %d, decremented by %d
+releaseXPCTransactions: XPC transaction ended
 storebagForSession: Retrieving storebag for session %u with client type %d
 storebagForSession: Override maxAge as disk cache for storebag '%@' was updated: modification time '%@' is greater than last fetch time '%@
 storebagForSession: Cached storebag found for client type %d
@@ -935,18 +963,41 @@ parentSessionForChild: ERROR: No sessions found for hierarchyToken %s
 parentSessionForChild: ERROR: Session %u not found for hierarchyToken %s
 parentSessionForChild: Unable to find session with hierarchy of %d for hierarchyToken '%s'
 updateDownstreamSessions: Updating combined session ID and syncing reporting states for session %u
+requestSharedConnectivityHelperForReportingSession: Requesting shared connectivity helper for userInfoKey %@
+requestSharedConnectivityHelperForReportingSession: Creating shared connectivity helper for userInfoKey %@
+requestSharedConnectivityHelperForReportingSession: Found existing shared connectivity helper for userInfoKey %@
+requestSharedConnectivityHelperForReportingSession: Incrementing usage of shared connectivity helper for userInfoKey %@
+releaseSharedConnectivityHelperForReportingSession: Releasing shared connectivity helper for userInfoKey %@
+releaseSharedConnectivityHelperForReportingSession: Decrementing usage count of shared connectivity helper for userInfoKey %@
+releaseSharedConnectivityHelperForReportingSession: Usage count of shared connectivity helper for userInfoKey %@ reached zero. Invalidating the helper
 fetchAndCacheStorebag: Fetching storebag for client type %d
 fetchAndCacheStorebag: clientType %d is invalid
 fetchAndCacheStorebag: Storebag max age: %d seconds
 fetchAndCacheStorebag: Unable to fetch storebag for client type %d
 ConnectivityHelperTask with ID <%@> created
 ConnectivityHelperTask with ID <%@> dealloced
-NSURLSession created with ID <%@>, delegate %d
-NSURLSession dealloced with ID <%@>
+ReportingSessionConnectivityHelper created with delegate %d
+ReportingSessionConnectivityHelper dealloced with ID <%@>
 ReportingSessionConnectivityHelper:invalidate: NSURLSession with ID <%@>
+ReportingSessionConnectivityHelper:invalidate: release %d XPC transactions for inactive connectivity helper
+startConnectivityHelperReleaseTimerWithBlock: Special case of dealing with ever-lasting connectivity helper %@
+startConnectivityHelperReleaseTimerWithBlock: release %d XPC transactions for ever-lasting connectivity helper %@
+startConnectivityHelperReleaseTimerWithBlock: Connectivity helper release timer fired for NSURLSession with ID <%@>, timeout %ds
+startConnectivityHelperReleaseTimerWithBlock: Calling back owner of Connectivity helper with _usageCount=%d
+startConnectivityHelperReleaseTimerWithBlock: started connectivity helper release timer for NSURLSession with ID <%@>
+stopConnectivityHelperReleaseTimer: stopping connectivity helper release timer for NSURLSession with ID <%@>
+activate: activating connectivity helper for NSURLSession with ID <%@>
+activate: connectivity helper is already active for NSURLSession with ID <%@>
+NSURLSession created and activated with ID <%@>, delegate %d
+Total Sessions Served Count is incremented for NSURLSession with ID <%@>
+ownerIncrementUsageCount: connectivity helper incremented usage count for NSURLSession with ID <%@>. _usageCount=%d, _totalSessionsServedCount=%d
+ownerDecrementUsageCountWithBlock: connectivity helper decremented usage count for NSURLSession with ID <%@>. _usageCount=%d, _totalSessionsServedCount=%d
+ownerDecrementUsageCountWithBlock: Usage count for NSURLSession with ID <%@> is greater than 0. Notifying owner that _usageCount=%d, _totalSessionsServedCount=%d
+ownerDecrementUsageCountWithBlock: Usage count for NSURLSession with ID <%@> is equal to 0. Starting connectivity helper release timer
 createHelperForTask: created helperTask for task <%@>
 postURLRequestWithCompletionHandler: wrong mode for POST operation detected %d
 getURLRequestWithCompletionHandler: wrong mode for GET operation detected %d
+didBecomeInvalidWithError: release %d XPC transactions for session %@
 didBecomeInvalidWithError: session <%@> invalidated with error %@
 didSendBodyData: for <session>:<task> <%@>:<%@>: Sent %lld out of %lld
 didCompleteWithError: for <session>:<task> <%@>:<%@> with response %@, error %@
@@ -1060,17 +1111,18 @@ v12@0:4@"NSDictionary"8
 v16@0:4@"NSString"8@"NSObject"12
 v16@0:4@"NSData"8i12
 @16@0:4@8@12
+B8@0:4
 v32@0:4@8d12S20S24@28
 v24@0:4@8r^{timeval=ii}12S16S20
 I16@0:4@8@12
 v20@0:4@8@12@16
 v32@0:4@8@12@16S20S24@28
-B8@0:4
 v12@0:4B8
 @"NSMutableDictionary"
 @"<ReportingdSessionDelegate>"
 [41C]
 @"NSXPCConnection"
+@"ReportingSessionConnectivityHelper"
 B12@0:4i8
 @"NSBundle"
 @20@0:4*8S12S16
@@ -1095,12 +1147,14 @@ B12@0:4@"Protocol"8
 B16@0:4@8@12
 B16@0:4@"NSXPCListener"8@"NSXPCConnection"12
 v16@0:4^@8^@12
+@16@0:4@8i12
 @"NSDictionary"12@0:4@"ReportingdSession"8
 @"NSString"12@0:4@"ReportingdSession"8
 v12@0:4@"ReportingdSession"8
 @"ReportingdSession"12@0:4@"ReportingdSession"8
 v16@0:4@"ReportingdSession"8@"NSDictionary"12
 v16@0:4@"ReportingdSession"8@"NSString"12
+@"ReportingSessionConnectivityHelper"16@0:4@"ReportingdSession"8i12
 @16@0:4i8@12
 @16@0:4@8@?12
 @?8@0:4
@@ -1129,7 +1183,7 @@ v24@0:4@"NSURLSession"8@"NSURLSessionDataTask"12@"NSCachedURLResponse"16@?<v@?@"
 v24@0:4@8@12@16@20
 v16@0:4@"NSURLSession"8@"NSURLSessionStreamTask"12
 v24@0:4@"NSURLSession"8@"NSURLSessionStreamTask"12@"NSInputStream"16@"NSOutputStream"20
-@16@0:4@8i12
+v16@0:4@?8@12
 @12@0:4i8
 @"NSURLSession"
 @"NSOperationQueue"
@@ -1154,6 +1208,7 @@ B20@0:4@8@12@16
 </array>
 </dict>
 </plist>
+zPLR
 zPLR
 zPLR
 zPLR
