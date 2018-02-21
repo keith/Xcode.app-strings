@@ -226,6 +226,7 @@ bytes
 initWithRecordZoneName:
 initWithContainerID:
 containerWithIdentifier:
+prepareContainerForID:
 mainBundle
 bundleIdentifier
 executablePath
@@ -242,6 +243,8 @@ accountStatusDidChange:
 needsDeviceToDevice
 identityUpdated:
 setupAccountDidChange:
+setQueue:
+setDebugIdentifier:
 initWithContainer:recordZoneName:
 cloudKitContainer
 recordName
@@ -252,6 +255,7 @@ postNotificationName:object:userInfo:
 setupSubscription
 setupRecordZoneWithCompletionHandler:ignoreDefaults:
 queryAccountStatusWithCompletionHandler:
+postRequest:
 lastKnownUserKey
 stringForKey:
 recordZoneKey
@@ -329,6 +333,7 @@ setQueuePriority:
 defaultQualityOfService
 initWithRecordZoneIDs:
 itemErrorFromError:forID:
+numberWithInt:
 setFetchRecordZonesCompletionBlock:
 _inconvenientOperation:
 initWithRecordZonesToSave:recordZoneIDsToDelete:
@@ -345,6 +350,8 @@ setCloudKitContainer:
 setPublicDatabase:
 _ckWorkQueue
 _dataQueue
+_accountChangeThrottle
+_fetchZoneThrottle
 _recordZoneOperationInProgress
 _subscriptionOperationInProgress
 _cloudKitDatabase
@@ -494,7 +501,6 @@ intValue
 decodeIntForKey:
 encodeInt:forKey:
 protectionFromURL:
-numberWithInt:
 setResourceValue:forKey:error:
 writeToURL:atomically:
 checkResourceIsReachableAndReturnError:
@@ -591,6 +597,14 @@ _queuePSC
 _managedObjectContext
 _managedObjectModel
 _persistentStoreCoordinator
+initWithCurve:maximumDelay:
+_launch
+debugIdentifier
+_curveFunction
+_maximum
+_request
+_retryCount
+_debugIdentifier
 initWithFiles:
 initWithRecord:
 numberWithUnsignedLong:
@@ -875,6 +889,7 @@ _languagesIfOffline
 _attemptingConnection
 _retryPending
 _needRetry
+_identityThrottle
 arrayByAddingObjectsFromArray:
 valueWithEntry:
 matchesEntry:
@@ -1011,6 +1026,7 @@ KSCloudKitAccountDidChangeStatusKey
 KSCloudKitAccountDidChangeUserChangedKey
 KSCloudKitAccountDidChangeDeviceToDeviceKey
 KSCloudKitAccountDidChangeAccountChangedKey
+KSCloudKitAccountDidSuccessfullyCreateZone
 KSCloudKitIdentitiesDidChange
 KSCKSubscriptionProd
 KSCKDidSetupRecordZoneProd
@@ -1019,9 +1035,13 @@ KSCKErrorDomain
 timestamp
 %@-%@
 com.apple.keyboardservices._ksCloudKitManager.cloudKitWorkQueue
+account change
+fetch zone
 v24@?0@"CKRecordID"8@"NSError"16
+-[_KSCloudKitManager setupAccountDidChange:]_block_invoke
 v24@?0q8B16B20
 -[_KSCloudKitManager accountStatusDidChange:]
+v16@?0@?<v@?@"NSNumber">8
 -[_KSCloudKitManager queryAccountStatusWithCompletionHandler:]_block_invoke
 -[_KSCloudKitManager queryAccountStatusWithCompletionHandler:]_block_invoke_2
 v20@?0q8B16
@@ -1219,6 +1239,13 @@ managedObjectModel
 T@"NSManagedObjectModel",&,N,V_managedObjectModel
 persistentStoreCoordinator
 T@"NSPersistentStoreCoordinator",&,N,V_persistentStoreCoordinator
+f12@?0i8
+-[_KSRequestThrottle _launch]_block_invoke_2
+-[_KSRequestThrottle _launch]_block_invoke
+v16@?0@"NSNumber"8
+T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+debugIdentifier
+T@"NSString",C,N,V_debugIdentifier
 Data
 DynSize
 DynDate
@@ -1469,9 +1496,10 @@ LastUsed
 0123456789ABCDEF
 com.apple.keyboardServices.userWords.workQueue
 com.apple.keyboardServices.userWords.pusher
+identity change
 -[_KSUserWordsSynchroniser information]
 -[_KSUserWordsSynchroniser accountDidChange:]_block_invoke
--[_KSUserWordsSynchroniser identitiesDidChange:]_block_invoke
+-[_KSUserWordsSynchroniser identitiesDidChange:]_block_invoke_2
 reset was pending, attempting immediately
 attempting to access
 Start
@@ -1550,6 +1578,7 @@ _KSFileDirectory
 NSFastEnumeration
 _KSControlFileController
 _KSTextReplacementCoreDataStore
+_KSRequestThrottle
 _KSUserWordsInfo
 _KSTextReplacementServiceProtocol
 _KSReachabilityMonitor
@@ -1637,6 +1666,7 @@ v32@0:8@16@24
 v40@0:8Q16@24@?32
 v48@0:8Q16@24@?32Q40
 v56@0:8@16Q24@32@?40Q48
+@"_KSRequestThrottle"
 @"CKDatabase"
 @"CKRecordZone"
 @"<_KSCloudKitManagerDelegate>"
@@ -1664,6 +1694,7 @@ B28@0:8@16B24
 @"NSManagedObjectContext"
 @"NSManagedObjectModel"
 @"NSPersistentStoreCoordinator"
+@32@0:8@?16d24
 @"_KSFileEntry"
 v40@0:8@"NSArray"16@"NSArray"24@?<v@?B@"NSError">32
 v24@0:8@?<v@?B@"NSError">16
@@ -1736,6 +1767,7 @@ v48@0:8@16@24q32@?40
 %s  completed sync following migration
 %s  >>> switching to CK Store
 %s  removing migration state monitor
+%s  Failed to set up record zone
 %s  Received account change from cloudkit
 %s  >>> checking account status
 %s  >>> account is set up
@@ -1800,6 +1832,9 @@ v48@0:8@16@24q32@?40
 %s  Could not get records to be synced count, error: %@
 %s  Querying records failed with error : %@, exception %@
 %s  error saving change token: %@
+%s  Throttle(%@): giving up
+%s  Throttle(%@): success after %i tries
+%s  Throttle(%@): 128 attempts counted
 %s  Failed to get files for language '%@': %@
 %s  Could not create reachability!
 %s  Could not set reachability callback
@@ -1846,6 +1881,7 @@ v48@0:8@16@24q32@?40
 %s  Resetting user words state due to account change %i
 %s  Disabling syncing if necessary as no compatible account found
 %s  Disabling syncing if necessary as account found is not supported
+%s  Account inoperable - could not create zone
 %s  Identities changed - %s
 %s  State: %s: %@
 %s  Error reading files (upload check): %@
@@ -1868,5 +1904,6 @@ v48@0:8@16@24q32@?40
 %s  Identity not available - resetting
 %s  Zone disappeared (%li)
 %s  Failed to reset zone (delete=%@; error=%@)
+(knN
 MbP?
 @(#)PROGRAM:KeyboardServices  PROJECT:KeyboardServices-1

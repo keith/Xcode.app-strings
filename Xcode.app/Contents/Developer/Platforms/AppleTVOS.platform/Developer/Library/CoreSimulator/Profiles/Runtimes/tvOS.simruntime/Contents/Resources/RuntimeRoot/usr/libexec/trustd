@@ -329,6 +329,7 @@ AppleServerAuthenticationAllowUATIdMS
 kSecTrustSettingsPolicyOptions
 kSecTrustSettingsAllowedError
 WeakKeySize
+WeakSignature
 BlackListedLeaf
 BlackListedKey
 UsageConstraints
@@ -363,7 +364,7 @@ ValidUpdateEnabled
 ValidUpdateInterval
 valid.sqlite3
 SELECT DISTINCT groupid FROM issuers WHERE issuer_hash=?
-CREATE TABLE admin(key TEXT PRIMARY KEY NOT NULL,ival INTEGER NOT NULL,value BLOB);CREATE TABLE issuers(groupid INTEGER NOT NULL,issuer_hash BLOB PRIMARY KEY NOT NULL);CREATE INDEX issuer_idx ON issuers(issuer_hash);CREATE TABLE groups(groupid INTEGER PRIMARY KEY AUTOINCREMENT,flags INTEGER,format INTEGER,data BLOB);CREATE TABLE serials(rowid INTEGER PRIMARY KEY AUTOINCREMENT,groupid INTEGER NOT NULL,serial BLOB NOT NULL,UNIQUE(groupid,serial));CREATE TABLE hashes(rowid INTEGER PRIMARY KEY AUTOINCREMENT,groupid INTEGER NOT NULL,sha256 BLOB NOT NULL,UNIQUE(groupid,sha256));CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; END;
+CREATE TABLE admin(key TEXT PRIMARY KEY NOT NULL,ival INTEGER NOT NULL,value BLOB);CREATE TABLE issuers(groupid INTEGER NOT NULL,issuer_hash BLOB PRIMARY KEY NOT NULL);CREATE INDEX issuer_idx ON issuers(issuer_hash);CREATE TABLE groups(groupid INTEGER PRIMARY KEY AUTOINCREMENT,flags INTEGER,format INTEGER,data BLOB);CREATE TABLE serials(groupid INTEGER NOT NULL,serial BLOB NOT NULL,UNIQUE(groupid,serial));CREATE TABLE hashes(groupid INTEGER NOT NULL,sha256 BLOB NOT NULL,UNIQUE(groupid,sha256));CREATE TABLE dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL,);CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
 full
 DELETE FROM groups WHERE groupid=?
 issuer-hash
@@ -377,18 +378,25 @@ check-ocsp
 known-intermediates-only
 require-ct
 no-ca
+overridable
+not-before
+not-after
 SELECT flags,format,data FROM groups WHERE groupid=?
 params
 INSERT OR REPLACE INTO issuers (groupid,issuer_hash) VALUES (?,?)
 INSERT OR REPLACE INTO serials (groupid,serial) VALUES (?,?)
 INSERT OR REPLACE INTO hashes (groupid,sha256) VALUES (?,?)
+INSERT OR REPLACE INTO dates (groupid,notbefore,notafter) VALUES (?,?,?)
+SELECT notbefore,notafter FROM dates WHERE groupid=?
+CREATE TABLE if not exists dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL,);
+DROP TRIGGER if exists group_del;CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
 db_version
 db_format
 db_source
 SELECT value FROM admin WHERE key='db_source'
 check_again
 SELECT value FROM admin WHERE key='check_again'
-DROP TABLE hashes; DROP TABLE serials; DROP TABLE issuers; DROP TABLE groups; DROP TABLE admin; DELETE from sqlite_sequence
+DROP TABLE hashes; DROP TABLE serials; DROP TABLE issuers; DROP TABLE dates; DROP TABLE groups; DROP TABLE admin; DELETE from sqlite_sequence
 SELECT rowid FROM serials WHERE groupid=? AND serial=?
 SELECT rowid FROM hashes WHERE groupid=? AND sha256=?
 SELECT ival FROM admin WHERE key='db_version'
@@ -397,6 +405,7 @@ SELECT ival FROM admin WHERE key='db_format'
 v12@?0I8
 https
 OCSPSigner
+ (non-recoverable error)
 http
 v24@?0^{OpaqueSecPVC=^{SecPathBuilder}^{__CFArray}^{__CFDictionary}qB^{__CFArray}I^{__CFArray}I}8^B16
 trust
@@ -772,8 +781,10 @@ unable to open %s (errno %d)
 unable to read and map %s (errno %d)
 starting update
 _SecRevocationDbApplyUpdate failed: invalid args
-_SecRevocationDbSetVersion failed: %@
+_SecRevocationDbUpdateIssuerConstraints failed (ok=%s, localError=%@)
+_SecRevocationDbUpdateSchema failed: %@
 _SecRevocationDbSetSchemaVersion failed: %@
+_SecRevocationDbSetVersion failed: %@
 _SecRevocationDbSetUpdateFormat failed: %@
 _SecRevocationDbSetUpdateSource failed: %d
 _SecRevocationDbSetUpdateSource failed: unable to get UTF-8 encoding
@@ -790,6 +801,7 @@ ocsp responder: %@ no signer found for response
 ocsp signer cert not signed by issuer
 Sending http ocsp request for cert %ld
 too many ocsp responders (%ld)
+certificate issuance date not within the allowed range for this CA%s
 network access re-enabled by policy
 network access disabled by policy
 completed: %@ details: %@ result: %d
@@ -803,7 +815,7 @@ replacing %sev %s score: %ld with %sev score: %ld %@
 %sev score: %ld lower than %ld %@
 In ComputeDetails, we got a reject after an accept in DidValidatePath.
 CREATE TABLE cert: %s
-@(#)PROGRAM:trustd  PROJECT:Security-58286.50.200
+@(#)PROGRAM:trustd  PROJECT:Security-58286.50.211
 Apple Inc.1&0$
 Apple Certification Authority1
 Apple Root CA0
@@ -916,7 +928,7 @@ $[(9s
 \.aK
 u#"r
 jCMl
-INSERT INTO tsettings(sha1,subj,tset,data)VALUES(?,?,?,?)
+BINSERT INTO tsettings(sha1,subj,tset,data)VALUES(?,?,?,?)
 UPDATE tsettings SET tset=? WHERE sha1=?
 DELETE FROM tsettings WHERE sha1=?
 BEGIN EXCLUSIVE TRANSACTION; DELETE from tsettings; COMMIT TRANSACTION; VACUUM;
