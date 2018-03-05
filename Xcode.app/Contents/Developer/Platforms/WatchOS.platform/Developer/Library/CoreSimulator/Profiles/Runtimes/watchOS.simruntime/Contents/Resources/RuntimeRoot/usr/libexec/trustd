@@ -5,6 +5,12 @@ update-current
 v8@?0r*4
 update-full
 update-full.gz
+trustd_health_analytics.db
+trust_analytics.db
+TLS_analytics.db
+%@-shm
+%@-wal
+%@-journal
 v8@?0^v4
 v4@?0
 serverxpc
@@ -34,6 +40,8 @@ modify-anchor-certificates
 object for key %s failed to create certificate from data
 object for key %s missing
 escrowType
+eventAttributes
+eventName
 %@: %@ lacks entitlement %@
 application-identifier
 keychain-access-groups
@@ -155,6 +163,8 @@ SIMULATOR_ROOT
 MobileAssetContentVersion
 OTAPKIContext.plist
 TrustedCTLogs.plist
+AnalyticsSamplingRates.plist
+AppleCertificateAuthorities.plist
 com.apple.MobileAsset.PKITrustSupplementals
 SecOTAPKI
 com.apple.security.OTAPKIQueue
@@ -168,9 +178,10 @@ VersionNumber
 Blocked
 plist
 GrayListedKeys
-TrustedCTLogs
 OTATrust
+SupplementalsAssets/
 CertificatePinning
+Events
 ValidUpdate
 Version
 Format
@@ -230,7 +241,6 @@ VACUUM
 DELETE FROM responses WHERE expires<?
 SELECT ocspResponse,responseId FROM responses WHERE lastUsed>? AND responseId=(SELECT responseId FROM ocsp WHERE issuerNameHash=? AND issuerPubKeyHash=? AND serialNum=? AND hashAlgorithm=?) ORDER BY expires DESC
 DELETE FROM responses
-ValidUpdateEvent
 timestamp
 event
 updateCanceled
@@ -405,6 +415,27 @@ v8@?0I4
 https
 OCSPSigner
  (non-recoverable error)
+Analytics/trustd_health_analytics.db
+VersionSampler
+ValidUpdateEvent
+DatabaseEvent
+OTAPKIEvent
+EvaluationCompletedEvent
+OTAPKIAssetVersion
+PinningDbVersion
+RevocationDbVersion
+errorDomain
+errorCode
+database
+@"NSDictionary"4@?0
+AnalyticsRate
+Analytics/trust_analytics.db
+Analytics/TLS_analytics.db
+TLS Analytics attributes received were not a dictionary type
+Analytics
+B12@?0r*4@"NSObject<OS_xpc_object>"8
+Unsupported xpc type
+B12@?0L4@"NSObject<OS_xpc_object>"8
 http
 v12@?0^{OpaqueSecPVC=^{SecPathBuilder}^{__CFArray}^{__CFDictionary}iB^{__CFArray}I^{__CFArray}I}4^B8
 trust
@@ -550,6 +581,7 @@ certificate_exists
 KeybagAdd
 KeybagDelete
 KeychainControlEndpoint
+TLSAnalyticsReport
 Unknown xpc operation
 object for key %s is NULL
 object for key %s not array but %@
@@ -616,6 +648,7 @@ read: %ld
 resource: %@.%@ in %@ not found
 Using asset v%llu instead of system v%llu
 could not create path: %s (%s)
+resource: %@ not found
 %s path
 %s path as UTF8 string
 EVRoot.plist is wrong type.
@@ -629,6 +662,8 @@ Intializing listener for Asset changes from system trustd.
 Got notification about a new PKITrustSupplementals asset from system trustd.
 OTATrust: missing url and version for downloaded asset
 OTATrust: unable to create TrustedCTLogs from asset file: %@
+OTATrust: unable to create AnalyticsSamplingRates from asset file: %@
+OTATrust: unable to create AppleCAs from asset file: %@
 updating asset version from %llu to %llu
 OTATrust: unable to write CT logs to disk: %@
 OTATrust: unable to write asset version to disk: %@
@@ -739,6 +774,7 @@ Fetching rules for policy named %@
 SecPinningDb: error querying DB for policyName: %@
 Database Schema: %@ Content: %@
 SecPinningDb: unable to initialize db: %@
+SecPinningDb: unable to get content version: %@
 cert[%d]: %@ =(%s)[%s]> %@
 cert[%d]: skipped allowed error %@
 cert[%d]: skipped exception error %@
@@ -780,7 +816,13 @@ unable to open %s (errno %d)
 unable to read and map %s (errno %d)
 starting update
 _SecRevocationDbApplyUpdate failed: invalid args
+_SecRevocationDbApplyGroupDelete failed: %@
+_SecRevocationDbGroupIdForIssuerHash failed: %@
+_SecRevocationDbUpdateGroup failed: %@
+_SecRevocationDbUpdateIssuers failed: %@
+_SecRevocationDbUpdatePerIssuerData failed: %@
 _SecRevocationDbUpdateIssuerConstraints failed (ok=%s, localError=%@)
+_SecRevocationDbCopyDateConstraints failed: %@
 _SecRevocationDbUpdateSchema failed: %@
 _SecRevocationDbSetSchemaVersion failed: %@
 _SecRevocationDbSetVersion failed: %@
@@ -788,8 +830,16 @@ _SecRevocationDbSetUpdateFormat failed: %@
 _SecRevocationDbSetUpdateSource failed: %d
 _SecRevocationDbSetUpdateSource failed: unable to get UTF-8 encoding
 _SecRevocationDbSetUpdateSource failed: %@
+_SecRevocationDbCopyUpdateSource failed: %@
 _SecRevocationDbSetNextUpdate failed: %@
+_SecRevocationDbGetNextUpdateTime failed: %@
+_SecRevocationDbRemoveAllEntries failed: %@
+_SecRevocationDbSerialInGroup failed: %@
+_SecRevocationDbCertHashInGroup failed: %@
 error processing filter params at index %ld
+_SecRevocationDbGetVersion failed: %@
+_SecRevocationDbGetSchemaVersion failed: %@
+_SecRevocationDbGetUpdateFormat failed: %@
 BAD certStatus (%d) for cert %ld
 responder: %@ returned status: %d
 ocsp responder: %@ did not include status of requested cert
@@ -813,8 +863,15 @@ replacing %sev %s score: %ld with %sev score: %ld %@
 %sev score: %ld %@
 %sev score: %ld lower than %ld %@
 In ComputeDetails, we got a reject after an accept in DidValidatePath.
+Failed to update trust store: (%d) %@
+Removal of certificate from trust store failed: %d
+Clearing of trust store failed: %d
+Failed to read parents from trust store: %d
+Failed to query for all certs in trust store: %d
 CREATE TABLE cert: %s
-@(#)PROGRAM:trustd  PROJECT:Security-58286.50.211
+Failed to create trust store database: %d
+Failed to query for cert in trust store: %d
+@(#)PROGRAM:trustd  PROJECT:Security-58286.50.233.100.3
 Apple Inc.1&0$
 Apple Certification Authority1
 Apple Root CA0
@@ -928,7 +985,7 @@ $[(9s
 \.aK
 u#"r
 jCMl
-BINSERT INTO tsettings(sha1,subj,tset,data)VALUES(?,?,?,?)
+OINSERT INTO tsettings(sha1,subj,tset,data)VALUES(?,?,?,?)
 UPDATE tsettings SET tset=? WHERE sha1=?
 DELETE FROM tsettings WHERE sha1=?
 BEGIN EXCLUSIVE TRANSACTION; DELETE from tsettings; COMMIT TRANSACTION; VACUUM;
@@ -972,16 +1029,25 @@ NSURLSessionTaskDelegate
 NSURLSessionDataDelegate
 ValidUpdateRequest
 SecPinningDb
+TrustdHealthAnalytics
+trustdAdditions
+TrustAnalytics
+TLSAnalytics
 arrayWithContentsOfURL:
+URLByAppendingPathComponent:isDirectory:
 fileSystemRepresentation
 URLByAppendingPathComponent:
 class
 isKindOfClass:
+URLWithString:relativeToURL:
+dictionaryWithContentsOfURL:
+objectForKeyedSubscript:
 numberWithUnsignedLongLong:
 unsignedLongLongValue
-URLWithString:relativeToURL:
 defaultManager
 copyItemAtURL:toURL:error:
+logger
+logResultForEvent:hardFailure:result:
 dictionaryWithObjects:forKeys:count:
 writeToURL:error:
 alloc
@@ -1005,12 +1071,9 @@ setObject:forKey:
 errorWithDomain:code:userInfo:
 compare:
 getLocalFileUrl
+logSuccessForEventNamed:
 purge:
-dictionaryWithContentsOfURL:
-objectForKeyedSubscript:
 date
-timeIntervalSince1970
-numberWithDouble:
 reschedule
 closeFile
 taskDescription
@@ -1112,6 +1175,8 @@ enumerateObjectsUsingBlock:
 objectAtIndex:
 shouldUpdateContent:
 updateDb:error:pinningList:updateSchema:updateContent:
+numberWithUnsignedChar:
+logHardError:withEventName:withAttributes:
 arrayWithContentsOfURL:error:
 createOrAlterAdminTable:error:
 createOrAlterRulesTable:error:
@@ -1153,6 +1218,42 @@ dbPath
 setDbPath:
 _queue
 _dbPath
+numberWithInteger:
+path
+logHardFailureForEventNamed:withAttributes:
+databasePath
+AddMultiSamplerForName:withTimeInterval:block:
+numberWithLong:
+logSoftFailureForEventNamed:withAttributes:
+unsignedIntValue
+floatValue
+trustd_logDetailedEventforEventNamed:attributesCallback:
+containsObject:
+numberWithUnsignedInt:
+hasPrefix:
+dictionary
+domain
+code
+mutableCopy
+setValuesForKeysWithDictionary:
+getBytes:range:
+addObject:
+indexOfObject:
+arrayWithObjects:count:
+lowercaseString
+hasSuffix:
+setObject:forKeyedSubscript:
+numberWithBool:
+numberWithLongLong:
+dateWithTimeIntervalSinceReferenceDate:
+calendarWithIdentifier:
+components:fromDate:
+dateFromComponents:
+timeIntervalSince1970
+numberWithDouble:
+setWithObjects:
+stringWithCString:encoding:
+initWithBytes:length:encoding:
 #8@0:4
 @12@0:4:8
 @16@0:4:8@12
@@ -1173,7 +1274,6 @@ v12@0:4@"NSURLSession"8
 v24@0:4@8@12@16@?20
 v28@0:4@8@12@16@20@?24
 v40@0:4@8@12q16q24q32
-v20@0:4@8@12@16
 v24@0:4@"NSURLSession"8@"NSURLSessionTask"12@"NSURLRequest"16@?<v@?i@"NSURLRequest">20
 v16@0:4@"NSURLSession"8@"NSURLSessionTask"12
 v28@0:4@"NSURLSession"8@"NSURLSessionTask"12@"NSHTTPURLResponse"16@"NSURLRequest"20@?<v@?@"NSURLRequest">24
@@ -1213,6 +1313,9 @@ v12@0:4@8
 ^{__OpaqueSecDb=}
 @"NSObject<OS_dispatch_queue>"
 @"NSURL"
+v20@0:4@8@12@16
+v16@0:4@8@?12
+zPLR
 zPLR
 zPLR
 zPLR

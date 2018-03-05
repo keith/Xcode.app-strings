@@ -869,7 +869,6 @@ class FSAssetCatalogFileNode < FSFileNode
   end
 class FSBundleDirectoryNode < FSDirectoryNode
   attr           :infoDict                      # Info.plist contents of the bundle (always a dictionary)
-  attr           :supportedIdioms               # Set of supported device idioms, such as "phone", "pad", etc
   attr           :requiredDeviceCapabilities    # Set of required device capabilities
   # This class has multi-stage initialization. Anything which uses the below is not safe until initialized is true.
   attr_accessor  :initialized
@@ -883,7 +882,6 @@ class FSBundleDirectoryNode < FSDirectoryNode
     @machoFiles = []
     @mainMachoFile = nil
     @nestedBundles = []
-    @supportedIdioms = DeviceTraits.assetutil_idioms_for_UIDeviceFamily(infoDict["UIDeviceFamily"]) if infoDict["UIDeviceFamily"]
     # Examine UIRequiredDeviceCapabilities
     @requiredDevCaps = infoDict["UIRequiredDeviceCapabilities"] || {}
     if @requiredDevCaps.kind_of?(Array)
@@ -907,23 +905,42 @@ class FSBundleDirectoryNode < FSDirectoryNode
   def identifier ()
     return infoDict["CFBundleIdentifier"]
   end
+  def supportedIdioms
+    if not defined? @supportedIdioms
+      @supportedIdioms = lambda {
+        family = infoDict["UIDeviceFamily"]
+        
+        if family.nil_if_empty.nil?
+          if self.enclosingBundle && self.platformIdentifier == self.enclosingBundle.platformIdentifier
+            return self.enclosingBundle.supportedIdioms
+          else
+            return nil
+          end
+        end
+        
+        return DeviceTraits.assetutil_idioms_for_UIDeviceFamily(family)
+      }.call
+    end
+    return @supportedIdioms
+  end
   def statedPlatformIdentifier
     supportedPlatformIdents = infoDict["CFBundleSupportedPlatforms"]
-    if self.enclosingBundle && (supportedPlatformIdents.nil? || (supportedPlatformIdents.kind_of?(Array) && supportedPlatformIdents.empty?))
-      return self.enclosingBundle.platformIdentifier
+    if self.enclosingBundle && supportedPlatformIdents.nil_if_empty.nil?
+      return self.enclosingBundle.statedPlatformIdentifier
     end
     if !supportedPlatformIdents.kind_of?(Array) || supportedPlatformIdents.count != 1
       EmitIPAPayloadValidationError("#{path.basename.to_s.shellescape}/Info.plist should specify CFBundleSupportedPlatforms with an array containing a single platform, e.g. CFBundleSupportedPlatforms = [ iPhoneOS ], but it has CFBundleSupportedPlatforms = #{supportedPlatformIdents}")
       exit(1)
     end
-    return supportedPlatformIdents.first.downcase
+    platformIdent = supportedPlatformIdents.first.downcase
+    # WatchKit 1 app bundle
+    platformIdent = "watchos" if platformIdent == "iphoneos" and infoDict["WKWatchKitApp"] == true
+    return platformIdent
   end
   def platformIdentifier
     platformIdent = statedPlatformIdentifier
-    # WatchKit 1 app bundle
-    platformIdent = "watchos" if platformIdent == "iphoneos" and infoDict["WKWatchKitApp"] == true
     # Plain resources bundle
-    assert(initialized, path.to_s)
+    assert(initialized, path.to_s) # assert that we've finalized mutable fields (machoFiles and nestedBundles)
     platformIdent = self.enclosingBundle.platformIdentifier if self.enclosingBundle && self.machoFiles.empty? && self.nestedBundles.empty?
     return platformIdent
   end
@@ -1019,6 +1036,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     return path + "Info.plist"
   end
   def shouldThin
+    return false if isWatchKitStubApp
     return !enclosingBundle || (enclosingBundle.shouldThin && platformIdentifier == enclosingBundle.platformIdentifier)
   end
   def copyToPath (dstPath, thinningTraits = nil, level = 0)
@@ -1454,6 +1472,9 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
     bundle.infoDict["WKWatchKitApp"] == true &&
     bundle.infoDict["NSExtension"].kind_of?(Hash) &&
     bundle.infoDict["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.watchkit"
+  EmitIPAPayloadValidationError("Info.plist of 
+#{bundleDisplayPath}
+ should specify UIDeviceFamily with an array containing one or more entries") if bundle.supportedIdioms.nil_if_empty.nil?
   if bundle.isBitcodeCompilationRootBundle
     # It's a main bundle for its platform.  As such, we expect it to have a main Mach-O.
     mainMachoFile = bundle.bitcodeCompilationRootMachO
@@ -1824,7 +1845,7 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
             dsymImageForArch = dsymImages.detect{|i| i.arch == machoImage.arch }
             assert(dsymImageForArch, "Couldn't find image for arch '#{machoImage.arch}' in '#{dsymImages.map{|i|i.arch}}'")
             uuid = dsymImageForArch.uuid
-            if uuid.nil? || uuid.empty?
+            if uuid.nil_if_empty.nil?
               FatalError(__LINE__, "failed to determine UUID of dSYM file #{dsymFile.to_s.shellescape}")
             else
               # We were able to figure out the path of the dSYM, so we can rename the output file to it.  We annotate it with the architecture.
