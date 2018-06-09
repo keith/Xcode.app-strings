@@ -266,6 +266,8 @@ revDbUpdateQueue
 T@"NSObject<OS_dispatch_queue>",&,V_revDbUpdateQueue
 transaction
 T@"NSObject<OS_os_transaction>",&,V_transaction
+currentUpdateServer
+T@"NSString",&,V_currentUpdateServer
 currentUpdateFile
 T@"NSFileHandle",&,V_currentUpdateFile
 currentUpdateFileURL
@@ -367,6 +369,7 @@ check-again
 %s%s
 ValidUpdateServer
 valid.apple.com
+valid.apple.com/carry
 %s/%s
 .valid_replace
 1.2.11
@@ -374,7 +377,7 @@ ValidUpdateEnabled
 ValidUpdateInterval
 valid.sqlite3
 SELECT DISTINCT groupid FROM issuers WHERE issuer_hash=?
-CREATE TABLE admin(key TEXT PRIMARY KEY NOT NULL,ival INTEGER NOT NULL,value BLOB);CREATE TABLE issuers(groupid INTEGER NOT NULL,issuer_hash BLOB PRIMARY KEY NOT NULL);CREATE INDEX issuer_idx ON issuers(issuer_hash);CREATE TABLE groups(groupid INTEGER PRIMARY KEY AUTOINCREMENT,flags INTEGER,format INTEGER,data BLOB);CREATE TABLE serials(groupid INTEGER NOT NULL,serial BLOB NOT NULL,UNIQUE(groupid,serial));CREATE TABLE hashes(groupid INTEGER NOT NULL,sha256 BLOB NOT NULL,UNIQUE(groupid,sha256));CREATE TABLE dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL,);CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
+CREATE TABLE IF NOT EXISTS admin(key TEXT PRIMARY KEY NOT NULL,ival INTEGER NOT NULL,value BLOB);CREATE TABLE IF NOT EXISTS issuers(groupid INTEGER NOT NULL,issuer_hash BLOB PRIMARY KEY NOT NULL);CREATE INDEX IF NOT EXISTS issuer_idx ON issuers(issuer_hash);CREATE TABLE IF NOT EXISTS groups(groupid INTEGER PRIMARY KEY AUTOINCREMENT,flags INTEGER,format INTEGER,data BLOB);CREATE TABLE IF NOT EXISTS serials(groupid INTEGER NOT NULL,serial BLOB NOT NULL,UNIQUE(groupid,serial));CREATE TABLE IF NOT EXISTS hashes(groupid INTEGER NOT NULL,sha256 BLOB NOT NULL,UNIQUE(groupid,sha256));CREATE TABLE IF NOT EXISTS dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL);CREATE TRIGGER IF NOT EXISTS group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
 full
 DELETE FROM groups WHERE groupid=?
 issuer-hash
@@ -398,15 +401,15 @@ INSERT OR REPLACE INTO serials (groupid,serial) VALUES (?,?)
 INSERT OR REPLACE INTO hashes (groupid,sha256) VALUES (?,?)
 INSERT OR REPLACE INTO dates (groupid,notbefore,notafter) VALUES (?,?,?)
 SELECT notbefore,notafter FROM dates WHERE groupid=?
-CREATE TABLE if not exists dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL,);
-DROP TRIGGER if exists group_del;CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
+CREATE TABLE IF NOT EXISTS dates(groupid INTEGER PRIMARY KEY NOT NULL,notbefore REAL,notafter REAL);
+DROP TRIGGER IF EXISTS group_del;CREATE TRIGGER group_del BEFORE DELETE ON groups FOR EACH ROW BEGIN DELETE FROM serials WHERE groupid=OLD.groupid; DELETE FROM hashes WHERE groupid=OLD.groupid; DELETE FROM issuers WHERE groupid=OLD.groupid; DELETE FROM dates WHERE groupid=OLD.groupid; END;
 db_version
 db_format
 db_source
 SELECT value FROM admin WHERE key='db_source'
 check_again
 SELECT value FROM admin WHERE key='check_again'
-DROP TABLE hashes; DROP TABLE serials; DROP TABLE issuers; DROP TABLE dates; DROP TABLE groups; DROP TABLE admin; DELETE from sqlite_sequence
+DELETE FROM groups; DELETE FROM admin WHERE key='version'; DELETE FROM sqlite_sequence
 SELECT rowid FROM serials WHERE groupid=? AND serial=?
 SELECT rowid FROM hashes WHERE groupid=? AND sha256=?
 SELECT ival FROM admin WHERE key='db_version'
@@ -418,17 +421,10 @@ OCSPSigner
  (non-recoverable error)
 Analytics/trustd_health_analytics.db
 ValidUpdateEvent
-DatabaseEvent
-EvaluationCompletedEvent
-database
+AnalyticsRate
 Analytics/trust_analytics.db
-@"NSDictionary"8@?0
 Analytics/TLS_analytics.db
-TLS Analytics attributes received were not a dictionary type
 Analytics
-B24@?0r*8@"NSObject<OS_xpc_object>"16
-Unsupported xpc type
-B24@?0Q8@"NSObject<OS_xpc_object>"16
 http
 v24@?0^{OpaqueSecPVC=^{SecPathBuilder}^{__CFArray}^{__CFDictionary}qB^{__CFArray}I^{__CFArray}I}8^B16
 trust
@@ -793,6 +789,7 @@ SCT version unsupported: %d
 SCT is in the future: %llu > %llu
 SCT signature failed (log=%@)
 invalid update data
+switching db source from "%@" to "%@"
 failed to process valid update
 failed to verify valid update
 remove (%s): %s
@@ -825,6 +822,8 @@ _SecRevocationDbSetUpdateSource failed: %@
 _SecRevocationDbCopyUpdateSource failed: %@
 _SecRevocationDbSetNextUpdate failed: %@
 _SecRevocationDbGetNextUpdateTime failed: %@
+resetting database, result: %d (expected 1)
+compacting database, result: %d (expected 1)
 _SecRevocationDbRemoveAllEntries failed: %@
 _SecRevocationDbSerialInGroup failed: %@
 _SecRevocationDbCertHashInGroup failed: %@
@@ -832,7 +831,6 @@ error processing filter params at index %ld
 _SecRevocationDbGetVersion failed: %@
 _SecRevocationDbGetSchemaVersion failed: %@
 _SecRevocationDbGetUpdateFormat failed: %@
-BAD certStatus (%d) for cert %ld
 responder: %@ returned status: %d
 ocsp responder: %@ did not include status of requested cert
 ocsp responder: %@ response signed by issuer
@@ -842,6 +840,7 @@ ocsp responder: %@ no signer found for response
 ocsp signer cert not signed by issuer
 Sending http ocsp request for cert %ld
 too many ocsp responders (%ld)
+BAD certStatus (%d) for cert %ld
 certificate issuance date not within the allowed range for this CA%s
 network access re-enabled by policy
 network access disabled by policy
@@ -863,7 +862,8 @@ Failed to query for all certs in trust store: %d
 CREATE TABLE cert: %s
 Failed to create trust store database: %d
 Failed to query for cert in trust store: %d
-@(#)PROGRAM:trustd  PROJECT:Security-58286.52.5
+@(#)PROGRAM:trustd  PROJECT:Security-58286.60.28
+3333
 Apple Inc.1&0$
 Apple Certification Authority1
 Apple Root CA0
@@ -1062,6 +1062,8 @@ compare:
 getLocalFileUrl
 purge:
 date
+timeIntervalSince1970
+numberWithDouble:
 reschedule
 closeFile
 taskDescription
@@ -1113,6 +1115,8 @@ revDbUpdateQueue
 setRevDbUpdateQueue:
 transaction
 setTransaction:
+currentUpdateServer
+setCurrentUpdateServer:
 currentUpdateFile
 setCurrentUpdateFile:
 currentUpdateFileURL
@@ -1123,6 +1127,7 @@ _finishedDownloading
 _handler
 _revDbUpdateQueue
 _transaction
+_currentUpdateServer
 _currentUpdateFile
 _currentUpdateFileURL
 backgroundSessionConfigurationWithIdentifier:
@@ -1136,12 +1141,13 @@ set_requiresPowerPluggedIn:
 setAllowsCellularAccess:
 validUpdateConfiguration
 setUpdateScheduled:
+copy
 sessionWithConfiguration:delegate:delegateQueue:
 updateScheduled
 URLWithString:
 _obliterateAllBackgroundSessionsWithCompletionHandler:
 backgroundSession
-createSession:
+createSession:forServer:
 numberWithUnsignedInteger:
 dataTaskWithURL:
 setTaskDescription:
@@ -1163,9 +1169,6 @@ enumerateObjectsUsingBlock:
 objectAtIndex:
 shouldUpdateContent:
 updateDb:error:pinningList:updateSchema:updateContent:
-logger
-numberWithUnsignedChar:
-logHardError:withEventName:withAttributes:
 arrayWithContentsOfURL:error:
 createOrAlterAdminTable:error:
 createOrAlterRulesTable:error:
@@ -1208,32 +1211,18 @@ setDbPath:
 _queue
 _dbPath
 numberWithInteger:
+logger
 path
+logHardFailureForEventNamed:withAttributes:
 databasePath
+logHardError:withEventName:withAttributes:
+unsignedIntValue
+floatValue
 trustd_logDetailedEventforEventNamed:attributesCallback:
-containsObject:
-numberWithUnsignedInt:
-hasPrefix:
-dictionary
-getBytes:range:
-addObject:
-indexOfObject:
-arrayWithObjects:count:
-lowercaseString
-hasSuffix:
-setObject:forKeyedSubscript:
-numberWithLong:
-numberWithBool:
-dateWithTimeIntervalSinceReferenceDate:
-calendarWithIdentifier:
-components:fromDate:
-dateFromComponents:
-timeIntervalSince1970
-numberWithDouble:
-setWithObjects:
-stringWithCString:encoding:
-numberWithLongLong:
-initWithBytes:length:encoding:
+domain
+code
+mutableCopy
+setValuesForKeysWithDictionary:
 #16@0:8
 @24@0:8:16
 @32@0:8:16@24
@@ -1273,6 +1262,7 @@ q24@0:8@16
 v24@0:8@?16
 v20@0:8B16
 @"NSObject<OS_os_transaction>"
+@"NSString"
 @"NSFileHandle"
 B40@0:8@16Q24@32
 d16@0:8
