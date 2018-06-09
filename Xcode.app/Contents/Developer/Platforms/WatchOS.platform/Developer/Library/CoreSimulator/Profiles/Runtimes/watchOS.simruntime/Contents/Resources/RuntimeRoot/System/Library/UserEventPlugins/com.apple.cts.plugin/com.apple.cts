@@ -1,12 +1,12 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1205.50.76
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1336.200.58.10.2
 distantFuture
 timeIntervalSinceReferenceDate
 interval
-name
 setBaseTime:
 baseTime
 delay
 grace_period
+name
 setTempDelay:
 setElapsedTime:
 setStartTime:
@@ -21,6 +21,7 @@ deadlineTime
 markStarted:
 markStopped:
 totalElapsed
+random_initial_delay
 .cxx_destruct
 token
 setToken:
@@ -38,12 +39,15 @@ setDelay:
 setGrace_period:
 expected_duration
 setExpected_duration:
+setRandom_initial_delay:
 state
 setState:
 eligible
 setEligible:
 das_eligible
 setDas_eligible:
+das_started
+setDas_started:
 bundle_id
 setBundle_id:
 bgwake_count
@@ -95,9 +99,14 @@ duet_power_budgeted
 setDuet_power_budgeted:
 bgtask_debug
 setBgtask_debug:
+group_name
+setGroup_name:
+group_concurrency_limit
+setGroup_concurrency_limit:
 _unmanaged
 _eligible
 _das_eligible
+_das_started
 _repeating
 _requires_screen_sleep
 _requires_significant_user_inactivity
@@ -129,6 +138,7 @@ _interval
 _delay
 _grace_period
 _expected_duration
+_random_initial_delay
 _tempDelay
 _baseTime
 _startTime
@@ -138,6 +148,8 @@ _bundle_id
 _expected_network_transfer_size_bytes
 _desired_motion_state
 _das_data
+_group_name
+_group_concurrency_limit
 alloc
 init
 UTF8String
@@ -185,6 +197,7 @@ newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@
 Cleaning up spam activity record for %{public}@
+Adding random initial delay %{public}d/%{public}d
 failed to register user idle notification
 Control channel connection: %d
 evaluating activities
@@ -199,6 +212,7 @@ Rescheduling XPC Activity: %{public}@
 releasing power assertion: %d
 XPC Activity client connection closed: %{public}@
 Unregistered unmanaged XPC Activity: %{public}@
+Running XPC Activity (PID %d): %{pubilc}@
 taking power assertion: %{public}@: %d
 releasing temporary power assertion: %{public}@: %d
 Scheduling activity timer for [%{public}@] in %lld seconds
@@ -285,6 +299,8 @@ grace_period
 Tq,N,V_grace_period
 expected_duration
 Tq,N,V_expected_duration
+random_initial_delay
+Tq,N,V_random_initial_delay
 tempDelay
 Tq,N,V_tempDelay
 baseTime
@@ -297,6 +313,8 @@ Tq,N,V_state
 TB,N,V_eligible
 das_eligible
 TB,N,V_das_eligible
+das_started
+TB,N,V_das_started
 bundle_id
 T@"NSString",&,N,V_bundle_id
 bgwake_count
@@ -348,6 +366,12 @@ duet_power_budgeted
 TB,N,V_duet_power_budgeted
 bgtask_debug
 TB,N,V_bgtask_debug
+group_name
+T@"NSString",&,N,V_group_name
+group_concurrency_limit
+TQ,N,V_group_concurrency_limit
+Internal
+Activities
 com.apple.xpc.activity.unmanaged
 v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.xpc.activity.control
@@ -389,6 +413,8 @@ CPUIntensive
 DuetPowerBudgeting
 MemoryIntensive
 Effective Criteria
+ActivityGroupName
+MaxConcurrencyLimit
 <Unknown>
 Month
 Hour

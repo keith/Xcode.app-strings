@@ -144,11 +144,13 @@ _hmAccessory
 deviceName
 deviceNameByRemovingBonjourSuffix
 setDeviceName:
+_init
+reloadHomeConfiguration
 _calculateCurrentStateAndFindLocalAccessory
+_homeManagerQueue
 startSearchingForNewAccessories
 stopSearchingForNewAccessories
 isCurrentAccessory
-localAccessory
 stopBrowsingForLocalAccessory
 homes
 currentUser
@@ -171,14 +173,14 @@ setWithObjects:
 accessories
 activeAccount
 _queueCalculateCurrentStateAndFindLocalAccessory
-homeConfigurationState
 _isAuthenticatedWithiCloud
+_setLocalAccessory:homeConfigurationState:
 status
 dataSyncState
 _currentHMAccessory
-setLocalAccessory:
-setHomeConfigurationState:
 password
+homeConfigurationState
+localAccessory
 assignAccessory:toRoom:completionHandler:
 _moveLocalAccessoryToRoom:inHome:completionHandler:
 addAccessory:password:completionHandler:
@@ -207,7 +209,6 @@ accessoryBrowser:didFindNewAccessory:
 accessoryBrowser:didRemoveNewAccessory:
 accessoryBrowser:didUpdateNewAccessory:
 loadHomeConfiguration:
-reloadHomeConfiguration
 forgetHomeConfiguration:
 startAdvertisingForProximityKeyTransfer
 stopAdvertisingForProximityKeyTransfer
@@ -216,32 +217,28 @@ ownedCurrentHome
 moveOrAddLocalAccessoryToRoom:inHome:completionHandler:
 createRoomNamed:inHome:completionHandler:
 createDefaultHomeWithCompletionHandler:
+setHomeConfigurationState:
 isAdvertising
 setAdvertising:
 isConfigurationInProgress
 setConfigurationInProgress:
+setLocalAccessory:
 isBrowsingForAccessory
 setBrowsingForAccessory:
 browsedCurrentHMAccessory
 setBrowsedCurrentHMAccessory:
 setHomeManager:
-startAdvertisingForKeyTransferIfNeeded
-setStartAdvertisingForKeyTransferIfNeeded:
 accessoryBrowser
 setAccessoryBrowser:
-homeManagerQ
-setHomeManagerQ:
 _cachedOwnedHomes
 _advertising
 _configurationInProgress
 _browsingForAccessory
-_startAdvertisingForKeyTransferIfNeeded
 _homeConfigurationState
 _localAccessory
 _browsedCurrentHMAccessory
 _homeManager
 _accessoryBrowser
-_homeManagerQ
 firstMatchInString:options:range:
 numberOfRanges
 numberOfMatchesInString:options:range:
@@ -397,7 +394,7 @@ TVCSHomeUnknownState
 TVCSHomeRequiresKeyExchangeState
 TVCSHomeUnconfiguredState
 TVCSHomeUnconfiguredWithLocalAccessoryState
-TVCSHomeeConfiguredState
+TVCSHomeConfiguredState
 TVCSHomeWaitingForCloudDataState
 TVCSHomeUserInterventionRequiredState
 TVCSHomeiCloudNotAuthenticatedState
@@ -416,10 +413,12 @@ allOwnedHomes
 homeConfigurationState
 -[TVCSHomeManager _currentHMAccessory]
 -[TVCSHomeManager _queueCalculateCurrentStateAndFindLocalAccessory]
--[TVCSHomeManager _queueCalculateCurrentStateAndFindLocalAccessory]_block_invoke
 localAccessory
 +[TVCSHomeManager _applyCurrentAirPlaySettingsToHome:completionHandler:]
 +[TVCSHomeManager _applyCurrentAirPlaySettingsToHome:completionHandler:]_block_invoke
+-[TVCSHomeManager _setLocalAccessory:homeConfigurationState:]_block_invoke
+.some
+.none
 -[TVCSHomeManager _moveLocalAccessoryToRoom:inHome:completionHandler:]
 -[TVCSHomeManager _moveLocalAccessoryToRoom:inHome:completionHandler:]_block_invoke
 -[TVCSHomeManager _addLocalAccessoryToRoom:inHome:completionHandler:]
@@ -440,12 +439,10 @@ TB,N,GisConfigurationInProgress,V_configurationInProgress
 T@"TVCSAccessory",&,N,V_localAccessory
 homeManager
 T@"HMHomeManager",&,V_homeManager
-startAdvertisingForKeyTransferIfNeeded
-TB,V_startAdvertisingForKeyTransferIfNeeded
 accessoryBrowser
 T@"HMAccessoryBrowser",&,V_accessoryBrowser
-homeManagerQ
-T@"NSObject<OS_dispatch_queue>",&,V_homeManagerQ
+homeManagerQueue
+T@"NSObject<OS_dispatch_queue>",R,G_homeManagerQueue,V_homeManagerQueue
 cachedOwnedHomes
 T@"NSArray",C,N,G_cachedOwnedHomes,S_setCachedOwnedHomes:,V_cachedOwnedHomes
 ownedCurrentHome
@@ -457,25 +454,21 @@ T@"TVCSHome",R,N
 Error removing accessory (%@) from home (%@): %@.
 Starting to browse for accessories.
 Stopping the browse for accessories.
-%s Found new accessory: %@ - room: %@ - home: %@ (is current? %@)
-%s Local accessory :%@
+%s: Found new accessory: %@ - room: %@ - home: %@ (is current? %@)
 %s homes: %lu
 %s home %@ has no accessories.
 %s Accessory: %@ isCurrent? %@
-%s entry.  Current state %@ (%lu).  Home manager sync state %lu and status %lu.
-%s Weirdness. _isAuthenticatedWithiCloud returned YES, but HomeKit is in state HMHomeManagerDataSyncStateWaitingForCloudData. FILE A RADAR (Likely the iCloud account is not HK compatible)!
-%s Surprise! Unrecognized HMStatus was %lu. FILE A RADAR!
-%s entry.  Current state %@ (%lu).  There is no iCloud account.
-%s removing prior local accessory.
-%s -currentAccessory returned nil, but accessory was found via browse.
-%s Local accessory found, room and home are nil indicating it is unconfigured. %@
-%s Local accessory found, room and home are configured. %@
-%s will set local accessory on main thread. %@
-%s Setting localAccessory on main thread %@
-%s Not setting localAccessory (%@).
-%s No local accessory found.  Unconfigured state.
-%s Setting localAccessory to nil on main thread.
-%s exit.  New state %@ (%lu)
+calculate current state and find local accessory
+%s: Checking home manager status. %lu
+%s: We have an iCloud account but HomeKit is in a no account state. (Likely the iCloud account is not HomeKit compatible.) FILE A RADAR.
+%s: Unrecognized status. FILE A RADAR.
+%s: Home manager status is good.
+%s: Checking data sync state. %lu
+%s: Data sync state is good.
+%s: Found local accessory. %@
+%s: Local accessory has home and room.
+%s: Local accessory is not configured.
+%s: No local accessory found.
 %s: Applying current AirPlay settings to home.
 %s: Updating media peer to peer enabled.
 %s: Failed to update media peer to peer enabled. error: %@
@@ -487,6 +480,13 @@ Stopping the browse for accessories.
 %s: Failed to update media password. error: %@
 %s: Update media password complete.
 %s: Apply current AirPlay settings to home complete.
+%s: Update home manager state.
+- current state: %{public}@
+- new state: %{public}@
+- current accessory: %@ (%{public}s), 
+- new accessory: %@ (%{public}s)
+%s: Writing new state and sending notifications.
+%s: Skipping duplicate update.
 %s moving local accessory %@ to room %@ (%@).
 %s room assignment successful.  Will update accessory state.
 %s assign to room failed with error: %@
