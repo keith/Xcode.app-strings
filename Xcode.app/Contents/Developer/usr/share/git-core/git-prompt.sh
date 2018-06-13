@@ -231,11 +231,10 @@ s="$flags_color$s"
 if [ -n "$u" ]; then
 u="$bad_color$u"
 r="$c_clear$r"
-# Helper function to read the first line of a file into a variable.
-# __git_eread requires 2 arguments, the file path and the name of the
-# variable, in that order.
 __git_eread ()
-test -r "$1" && IFS=$'\r\n' read "$2" <"$1"
+local f="$1"
+shift
+test -r "$f" && read "$@" <"$f"
 # __git_ps1 accepts 0 or 1 arguments (i.e., format string)
 # when called from PS1 using command substitution
 # in this mode it prints text to add to bash PS1 prompt (includes branch name)

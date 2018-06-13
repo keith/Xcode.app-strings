@@ -259,7 +259,6 @@ copyWithZone:
 initBuiltinBookmarkWithTitle:address:
 initCarrierBookmarkWithTitle:address:
 initWhiteListBookmarkWithTitle:address:
-initFrequentlyVisitedSiteWithWebBookmark:title:
 localizedTitle
 isBookmarksBarFolder
 isBookmarksMenuFolder
@@ -639,7 +638,6 @@ saveArchivesForReadingListBookmarks:
 deleteArchiveForReadingListBookmarkWithID:
 saveIconWithData:urlString:forBookmark:
 saveAndMoveBookmark:toFolderID:
-fixCachedNumberOfChildrenIfNeeded
 _prefixSearch:usingColumns:maxCount:
 bookmarksMatchingString:
 _bookmarksFromStatementSelectingIDs:withQuery:
@@ -656,7 +654,6 @@ clearCarrierBookmarks
 migrateReadingListIconsFromDatabaseToBookmarkImagesDirectory
 _rootFolderHiddenChildrenClause
 _sqliteStatementWithQuery:
-_sqliteStatementWithQuery:runInBlock:
 _metaDataFileChanged:
 _clearCachedFavoritesFolderIdentifier
 setFavoritesFolder:localOnly:
@@ -1164,8 +1161,6 @@ Trying to save a bookmark without first obtaining the bookmarks database file lo
 UPDATE bookmarks SET order_index = order_index + 1 WHERE order_index < ? AND order_index >= ? AND parent = ?
 UPDATE bookmarks SET order_index = order_index - 1 WHERE order_index > ? AND order_index <= ? AND parent = ?
 UPDATE bookmarks SET order_index = ?1, dav_generation = ?2%@ WHERE id = ?3
-SELECT id, parent, num_children, (SELECT COUNT(*) FROM bookmarks AS child_bookmark WHERE child_bookmark.parent = parent_bookmark.id AND hidden = 0) AS real_num_children FROM bookmarks AS parent_bookmark WHERE num_children != real_num_children
-UPDATE bookmarks SET num_children = ? WHERE id = ?
 DISTINCT url
 SELECT %s FROM bookmarks WHERE type = 0 AND url >= ? AND url < ? AND deleted = 0 LIMIT ?
 SELECT %s FROM bookmarks WHERE type = 0 AND deleted = 0 LIMIT ?
@@ -1218,12 +1213,12 @@ INSERT INTO bookmarks (id, special_id, parent, type, order_index, num_children, 
 UPDATE bookmarks SET num_children = 1 WHERE id = 0
 PRAGMA user_version = %d
 DROP TABLE IF EXISTS bookmark_title_words
-CREATE TABLE bookmark_title_words (id INTEGER PRIMARY KEY AUTOINCREMENT, bookmark_id INTEGER NOT NULL CONSTRAINT fk_bookmark_id REFERENCES bookmarks(id) ON DELETE CASCADE, word TEXT, word_index INTEGER)
+CREATE TABLE bookmark_title_words (id INTEGER PRIMARY KEY, bookmark_id INTEGER NOT NULL CONSTRAINT fk_bookmark_id REFERENCES bookmarks(id) ON DELETE CASCADE, word TEXT, word_index INTEGER)
 CREATE TRIGGER fkd_bookmark_title_words_bookmark_id BEFORE DELETE ON bookmarks      FOR EACH ROW BEGIN DELETE FROM bookmark_title_words WHERE bookmark_id = OLD.id;      END;
 CREATE INDEX title_word_index ON bookmark_title_words(word)
 CREATE INDEX title_bookmark_id_index ON bookmark_title_words(bookmark_id)
 DROP TABLE IF EXISTS bookmarks
-CREATE TABLE bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT,special_id INTEGER DEFAULT 0,parent INTEGER, type INTEGER,title TEXT,url TEXT COLLATE NOCASE,num_children INTEGER DEFAULT 0,editable INTEGER DEFAULT 1,deletable INTEGER DEFAULT 1,hidden INTEGER DEFAULT 0,hidden_ancestor_count INTEGER DEFAULT 0,order_index INTEGER NOT NULL,external_uuid TEXT,read INTEGER DEFAULT NULL,last_modified REAL DEFAULT NULL,server_id TEXT, sync_key TEXT,sync_data BLOB,added INTEGER DEFAULT 1,deleted INTEGER DEFAULT 0,extra_attributes BLOB DEFAULT NULL,local_attributes BLOB DEFAULT NULL,fetched_icon BOOL DEFAULT 0, icon BLOB DEFAULT NULL,dav_generation INTEGER DEFAULT 0,locally_added BOOL DEFAULT 0,archive_status INTEGER DEFAULT 0,syncable BOOL DEFAULT 1,web_filter_status INTEGER DEFAULT 0%@)
+CREATE TABLE bookmarks (id INTEGER PRIMARY KEY,special_id INTEGER DEFAULT 0,parent INTEGER, type INTEGER,title TEXT,url TEXT COLLATE NOCASE,num_children INTEGER DEFAULT 0,editable INTEGER DEFAULT 1,deletable INTEGER DEFAULT 1,hidden INTEGER DEFAULT 0,hidden_ancestor_count INTEGER DEFAULT 0,order_index INTEGER NOT NULL,external_uuid TEXT,read INTEGER DEFAULT NULL,last_modified REAL DEFAULT NULL,server_id TEXT, sync_key TEXT,sync_data BLOB,added INTEGER DEFAULT 1,deleted INTEGER DEFAULT 0,extra_attributes BLOB DEFAULT NULL,local_attributes BLOB DEFAULT NULL,fetched_icon BOOL DEFAULT 0, icon BLOB DEFAULT NULL,dav_generation INTEGER DEFAULT 0,locally_added BOOL DEFAULT 0,archive_status INTEGER DEFAULT 0,syncable BOOL DEFAULT 1,web_filter_status INTEGER DEFAULT 0%@)
 CREATE INDEX special_id_index ON bookmarks (special_id)
 CREATE INDEX autocomplete_index ON bookmarks (url)
 CREATE INDEX folder_list_index ON bookmarks (parent, type, order_index)
@@ -1237,7 +1232,6 @@ UPDATE bookmarks SET title = 'Root', external_uuid = 'Root' WHERE id = 0
 UPDATE bookmarks SET special_id = 1 WHERE id = 1
 UPDATE bookmarks SET special_id = 2 WHERE id = 2
 PRAGMA user_version = 1
-CREATE TABLE bookmark_title_words (id INTEGER PRIMARY KEY, bookmark_id INTEGER NOT NULL CONSTRAINT fk_bookmark_id REFERENCES bookmarks(id) ON DELETE CASCADE, word TEXT, word_index INTEGER)
 CREATE TRIGGER fkd_bookmark_title_words_bookmark_id BEFORE DELETE ON bookmarks         FOR EACH ROW BEGIN DELETE FROM bookmark_title_words WHERE bookmark_id = OLD.id;         END;
 PRAGMA user_version = 3
 ALTER TABLE bookmarks ADD COLUMN server_id TEXT
@@ -1398,7 +1392,6 @@ title = ? AND parent = 0 AND deleted = 0 ORDER BY order_index ASC
 UPDATE bookmarks SET num_children = (SELECT COUNT(*) FROM bookmarks AS count_bookmarks WHERE count_bookmarks.parent = %d) WHERE (bookmarks.id = %d AND bookmarks.num_children < 0)
 DROP TABLE IF EXISTS folder_ancestors
 DROP TRIGGER IF EXISTS fkd_ancestors_folder_id
-CREATE TABLE folder_ancestors (id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER NOT NULL CONSTRAINT fk_ancestors_folder_id REFERENCES bookmarks(id) ON DELETE CASCADE, ancestor_id INTEGER NOT NULL)
 INSERT INTO folder_ancestors (folder_id, ancestor_id) VALUES (?, ?)
 SELECT id FROM bookmarks WHERE parent = ? AND type = 1 AND deleted = 0
 UPDATE bookmarks SET hidden_ancestor_count = hidden_ancestor_count + ? WHERE parent IN (SELECT folder_id from folder_ancestors WHERE ancestor_id = ?) OR parent = ?
@@ -1533,14 +1526,14 @@ syncData
 T@"NSData",&,N
 dictionaryRepresentationForInMemoryChangeTracking
 TQ,R,N
+WebsiteDataRecordDomain
+WebsiteDataRecordUsage
 XPCDictionaryRepresentation
 T@"NSObject<OS_xpc_object>",R,C,N
 domain
 T@"NSString",R,C,N,V_domain
 usage
 TQ,N,V_usage
-WebsiteDataRecordDomain
-WebsiteDataRecordUsage
 BookmarkSync
 DataMigration
 ReadingListIcons
@@ -1788,7 +1781,6 @@ B16@0:4@8@12
 ^{sqlite3_stmt=}12@0:4@8
 ^{sqlite3_stmt=}16@0:4@8i12
 i12@0:4^{sqlite3_stmt=}8
-i16@0:4@8@?12
 i12@0:4r*8
 B20@0:4@8i12B16
 B16@0:4i8B12
@@ -1934,7 +1926,7 @@ Updating changes from in memory identifier %ld to database identifier %ld
 Error converting in-memory changes into plist data: %@{public}
 Failed to persist in-memory bookmarks changes plist: %{public}@
 Error converting plist data to dictionary: %{public}@
-Persisted bookmark changes plist is corrupted
+Persisted bookmark changes plist is corrupted.
 Cannot create a Reading List item. URLs must begin with http or https.
 Failed to open Bookmarks database. Acquired sync lock: %d, error: %{public}@.
 Couldn't create bookmarks database at %{public}@
@@ -1981,8 +1973,6 @@ Saving Reading List icon failed: %{public}@
 Saving a bookmark failed
 Saving a previously deleted bookmark failed
 Moving bookmark %d to folder %d failed
-Number of children mismatch detected for bookmark with id: %d, parent: %d, expected number of children: %d, actual: %d
-Could not fix number of children of folder with id: %d, error: %d, %{public}s
 Got nil local attributes dictionary: %{public}@
 Got nil reading list attributes dictionary, creating one
 Bookmarks database appears to have skipped migration steps. Rerunning migration.
@@ -2001,7 +1991,7 @@ Clearing all DAV sync data, likely because the user is logging out
 Failed to mark bookmrks as added during clearing sync data. Sqlite error: %d
 Could not delete records recursively starting with localID: %d, error: %d
 Could not insert record with server ID: %{public}@ into parent with ID: %d, error: %d
-Refusing to save a bookmark with no address
+Refusing to save a bookmark with no address.
 Crashing since we can't save a bookmark with no address. Please file a bug.
 Failed to save bookmark %{public}@: Invalid parentID %d
 Could not update cached child count for parent ID %d in direction: %d, error: %d
@@ -2033,7 +2023,7 @@ Process %{public}@ did unlock bookmarks database
 Attempting to unlock sync since last requestor has unheld the lock in process %{public}@
 Setting sync notification type: %ld
 Posting com.apple.bookmarks.dbchanged to BookmarkDAV
-Could not construct WFUserSettings. Default values will be used
+Could not construct WFUserSettings. Default values will be used.
 Error reading bookmark extra attributes: %{public}@
 Error reading bookmark local attributes: %{public}@
 Setting bookmark with identifier %ld as its own parent
