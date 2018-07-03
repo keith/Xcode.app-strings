@@ -1,3 +1,6 @@
+svn_fs_fs__fixup_expanded_size
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/cached_data.c
+!svn_fs_fs__id_txn_used(&rep->txn_id)
 Corrupt node-revision '%s'
 No representation found at offset %s for item %s in revision %ld
 %llu
@@ -5,7 +8,6 @@ malformed property list for node-revision '%s' in '%s'
 malformed property list for node-revision '%s'
 Reference to non-existent node '%s' in filesystem '%s'
 get_fs_id_at_offset
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/cached_data.c
 svn_fs_fs__id_rev(*id_p) == rev
 (null)
 Corrupt representation '%s'
@@ -16,6 +18,7 @@ Reading one svndiff window read beyond the end of the representation
 get_window_key
 rs->revision <= APR_UINT32_MAX
 Malformed svndiff data in representation
+Directory representation corrupt in '%s'
 read_dir_entries
 hash
 Directory entry corrupt in '%s'
@@ -26,16 +29,16 @@ block_read
 entry->type >= SVN_FS_FS__ITEM_TYPE_FILE_REP && entry->type <= SVN_FS_FS__ITEM_TYPE_DIR_PROPS
 Low-level checksum mismatch while reading
 %s bytes of meta data at offset %s for item %s in revision %ld
-%lld
 fsfs:
 PACK-MANIFEST
 NODEREVS
 REPHEADER
 CHANGES
+REVPROP
 TEXT
-PROP
 MERGEINFO
 HAS_MERGEINFO
+PROP
 RAW_WINDOW
 TXDELTA_WINDOW
 COMBINED_WINDOW
@@ -47,6 +50,7 @@ TXNDIR
 fsfs-cache-namespace
 fsfs-cache-deltas
 fsfs-cache-fulltexts
+fsfs-cache-nodeprops
 Can't get entries of non-directory
 Attempted to set entry in non-directory node
 Attempted to set entry in immutable node
@@ -58,7 +62,7 @@ Can't set mergeinfo flag on *immutable* node-revision %s
 Attempted to clone child of non-mutable node
 Attempted to make a child clone with an illegal name '%s'
 Attempted to open non-existent child node '%s'
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/dag.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/dag.c
 !svn_fs_fs__id_eq(root_id, base_root_id)
 Attempted to delete entry '%s' from *non*-directory node
 Attempted to delete entry '%s' from immutable directory node
@@ -80,17 +84,17 @@ svn_subr
 svn_delta
 svn_fs_util
 Unsupported FS loader version (%d) for fsfs
-@(#)1.9.7 (r1800392)
-fsfs
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/fs.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/fs.c
 fs->uuid
 ffd->instance_id
 svn-fsfs-shared-
 Can't fetch FSFS shared data
 Can't store FSFS shared data
+@(#)1.10.0 (r1827917)
+fsfs
 Module for working with a plain file (FSFS) repository.
 current
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/fs_fs.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/fs_fs.c
 1 <= ffd->format && ffd->format <= SVN_FS_FS__FORMAT_NUMBER
 layout sharded %d
 layout linear
@@ -124,7 +128,6 @@ enable-dir-deltification
 enable-props-deltification
 max-deltification-walk
 max-linear-deltification
-compression-level
 packed-revprops
 compress-packed-revprops
 revprop-pack-size
@@ -133,12 +136,22 @@ l2p-page-size
 p2l-page-size
 debug
 pack-after-commit
+compression
+compression-level
+The 'compression' and 'compression-level' config options are mutually exclusive
+Compression type 'lz4' requires filesystem format 8 or higher
+verify-before-commit
 caches
 fail-stop
 %s is too small for fsfs.conf setting '%s'.
+%lld
 %s is too large for fsfs.conf setting '%s'.
 %s is invalid for fsfs.conf setting '%s' because it is not a power of 2.
+none
+zlib
+Invalid 'compression' value '%s' in the config
 fsfs-block-read
+no-flush-to-disk
 '%s' is not a regular file. Please move it out of the way and try again
 ### This file controls the configuration of the FSFS filesystem.
 [memcached-servers]
@@ -230,23 +243,29 @@ fsfs-block-read
 ### exclusive use of skip-deltas (as in pre-1.8).
 ### For 1.8, the default value is 16; earlier versions use 1.
 # max-linear-deltification = 16
-### After deltification, we compress the data through zlib to minimize on-
-### disk size.  That can be an expensive and ineffective process.  This
-### setting controls the usage of zlib in future revisions.
-### Revisions with highly compressible data in them may shrink in size
-### if the setting is increased but may take much longer to commit.  The
-### time taken to uncompress that data again is widely independent of the
-### compression level.
-### Compression will be ineffective if the incoming content is already
-### highly compressed.  In that case, disabling the compression entirely
-### will speed up commits as well as reading the data.  Repositories with
-### many small compressible files (source code) but also a high percentage
-### of large incompressible ones (artwork) may benefit from compression
-### levels lowered to e.g. 1.
-### Valid values are 0 to 9 with 9 providing the highest compression ratio
-### and 0 disabling it altogether.
-### The default value is 5.
-# compression-level = 5
+### After deltification, we compress the data to minimize on-disk size.
+### This setting controls the compression algorithm, which will be used in
+### future revisions.  It can be used to either disable compression or to
+### select between available algorithms (zlib, lz4).  zlib is a general-
+### purpose compression algorithm.  lz4 is a fast compression algorithm
+### which should be preferred for repositories with large and, possibly,
+### incompressible files.  Note that the compression ratio of lz4 is
+### usually lower than the one provided by zlib, but using it can
+### significantly speed up commits as well as reading the data.
+### lz4 compression algorithm is supported, starting from format 8
+### repositories, available in Subversion 1.10 and higher.
+### The syntax of this option is:
+###   compression = none | lz4 | zlib | zlib-1 ... zlib-9
+### Versions prior to Subversion 1.10 will ignore this option.
+### The default value is 'lz4' if supported by the repository format and
+### 'zlib' otherwise.  'zlib' is currently equivalent to 'zlib-5'.
+# compression = lz4
+### DEPRECATED: The new 'compression' option deprecates previously used
+### 'compression-level' option, which was used to configure zlib compression.
+### For compatibility with previous versions of Subversion, this option can
+### still be used (and it will result in zlib compression with the
+### corresponding compression level).
+###   compression-level = 0 ... 9 (default is 5)
 [packed-revprops]
 ### This parameter controls the size (in kBytes) of packed revprop files.
 ### Revprops of consecutive revisions will be concatenated into a single
@@ -258,9 +277,9 @@ fsfs-block-read
 ### latency and CPU usage reading and changing individual revprops.
 ### Values smaller than 4 kByte will not improve latency any further and 
 ### quickly render revprop packing ineffective.
-### revprop-pack-size is 4 kBytes by default for non-compressed revprop
-### pack files and 16 kBytes when compression has been enabled.
-# revprop-pack-size = 4
+### revprop-pack-size is 16 kBytes by default for non-compressed revprop
+### pack files and 64 kBytes when compression has been enabled.
+# revprop-pack-size = 16
 ### To save disk space, packed revprop files may be compressed.  Standard
 ### revprops tend to allow for very effective compression.  Reading and
 ### even more so writing, become significantly more CPU intensive.
@@ -309,6 +328,11 @@ fsfs-block-read
 ### Must be a power of 2.
 ### p2l-page-size is given in kBytes and with a default of 1024 kBytes.
 # p2l-page-size = 1024
+[debug]
+### Whether to verify each new revision immediately before finalizing
+### the commit.  This is disabled by default except in maintainer-mode
+### builds.
+# verify-before-commit = false
 PLAIN
 ENDREP
 id: 0.0.r0/2
@@ -340,7 +364,7 @@ rep-cache.db
 txn-current
 The hotcopy destination already contains more packed revisions (%lu) than the hotcopy source contains (%lu)
 min-unpacked-rev
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/hotcopy.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/hotcopy.c
 rev == src_min_unpacked_rev
 src_min_unpacked_rev == dst_min_unpacked_rev
 rev == src_youngest + 1
@@ -353,7 +377,7 @@ Error closing directory '%s'
 Error converting entry in directory '%s' to UTF-8
 malformed txn id '%s'
 Malformed node revision ID string
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/index.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/index.c
 offset >= -1
 item_index < UINT_MAX / 2
 L2P index page size  %s exceeds current limit of 2G entries
@@ -365,7 +389,7 @@ entry->item.revision >= 0 || entry->item.revision == SVN_INVALID_REVNUM
 P2L-INDEX
 result->nelts > 0
 APR_ARRAY_IDX(result, last_count, svn_fs_fs__p2l_entry_t).offset >= entry->offset + entry->size
-(eof && *eof) || read == sizeof(buffer)
+(eof && *eof) || bytes_read == sizeof(buffer)
 Index rev / pack file revision numbers do not match
 L2P index page size is not a power of two
 Invalid number of revisions in L2P index
@@ -408,9 +432,13 @@ Invalid item type in P2L index
 Changed path list must have item number 1
 Invalid FNV1 checksum in P2L index
 Empty regions must have item number 0 and checksum 0
+P2L index entry size overflow.
 Offset %s too large in revision %ld
 get_p2l_keys
 page_info.first_revision <= APR_UINT32_MAX
+New index data ends at %s, old index ended at %s
+Overlapping index data for offset %s
+Missing index data for offset %s
 No username is currently associated with filesystem '%s'
 Failed to lock '%s'
 opaquelocktoken:
@@ -440,7 +468,10 @@ Revision file (r%ld) lacks trailing newline
 Final line in revision file (r%ld) longer than 64 characters
 Final line in revision file r%ld missing space
 %lld %lld
-Invalid revision footer
+Invalid r%ld footer
+Invalid L2P offset in r%ld footer
+Invalid P2L offset in r%ld footer
+P2L offset %s must be larger than L2P offset %s in r%ld footer
 %lld %s %lld %s
 Malformed text representation offset line in node-rev
 Missing id field in node-rev
@@ -461,7 +492,6 @@ is-fresh-txn-root
 minfo-cnt
 minfo-here
 %ld %llu %lld %lld %s
-%ld %llu %lld %lld %s %s %s/_%s
 id: %s
 type: %s
 pred: %s
@@ -494,18 +524,19 @@ Invalid mergeinfo-mod flag in rev-file
 Invalid path in changes line
 Invalid copy-from path in changes line
 Invalid change type %d
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/low_level.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/low_level.c
 change->node_kind == svn_node_dir || change->node_kind == svn_node_file
 %s %s%s %s %s%s %s
 %ld %s
 Invalid character in revision number
 Found malformed header '%s' in revision file
 While reading representation offsets for node-revision '%s':
+%s/_%s
 manifest
 FSFS format (%d) too old to pack; please upgrade the filesystem.
 %lld.pack
 pack
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/pack.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/pack.c
 temp <= INT_MAX
 ffd->format >= SVN_FS_FS__MIN_LOG_ADDRESSING_FORMAT
 shard_rev % ffd->max_files_per_dir == 0
@@ -529,20 +560,21 @@ Expected current rev to be <= %ld but found %ld
 Revision %ld has a revs file but no revprops file
 Revision %ld has a revs file but the revprops file is inaccessible
 Revision %ld has a non-file where its revprops file should be
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/recovery.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/recovery.c
 !rev_file->is_packed
 Recovery encountered a non-directory node
 Recovery encountered a deltified directory representation
 malformed representation for node-revision '%s'
 Directory entry corrupt
 Couldn't open rep-cache database '%s'
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/rep-cache.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/rep-cache.c
 ffd->format >= SVN_FS_FS__MIN_REP_SHARING_FORMAT
 ffd->rep_sharing_allowed
 Only SHA1 checksums can be used as keys in the rep_cache table.
 Checksum '%s' in rep-cache is beyond HEAD
 siiii
 CREATE TABLE rep_cache (   hash TEXT NOT NULL PRIMARY KEY,   revision INTEGER NOT NULL,   offset INTEGER NOT NULL,   size INTEGER NOT NULL,   expanded_size INTEGER NOT NULL   ); PRAGMA USER_VERSION = 1; 
+CREATE TABLE rep_cache (   hash TEXT NOT NULL PRIMARY KEY,   revision INTEGER NOT NULL,   offset INTEGER NOT NULL,   size INTEGER NOT NULL,   expanded_size INTEGER NOT NULL   ) WITHOUT ROWID; PRAGMA USER_VERSION = 2; 
 SELECT revision, offset, size, expanded_size FROM rep_cache WHERE hash = ?1 
 INSERT OR FAIL INTO rep_cache (hash, revision, offset, size, expanded_size) VALUES (?1, ?2, ?3, ?4, ?5) 
 SELECT hash, revision, offset, size, expanded_size FROM rep_cache WHERE revision >= ?1 AND revision <= ?2 
@@ -551,9 +583,11 @@ DELETE FROM rep_cache WHERE revision > ?1
 BEGIN TRANSACTION; INSERT INTO rep_cache VALUES ('dummy', 0, 0, 0, 0) 
 ROLLBACK TRANSACTION; 
 ffd->rep_cache_db
+Failed to parse revprops for r%ld.
 Could not read revprops for revision %ld
 %ld.0
-Failed to parse revprops for r%ld.
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/revprops.c
+ffd->revprop_prefix
 No such packed revision %ld
 Failed to read revprop pack file for r%ld
 Revprop pack file for r%ld is corrupt
@@ -566,19 +600,21 @@ Header end not found
 Packed revprop size exceeds pack file size
 Packed file '%s' misses a tag
 %ld.%lld
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/revprops.c
 start < end
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/stats.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/stats.c
 revision_info->rev_file
 (none)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/temp_serializer.c
+!rep->chain_length
+base
+base->chain_length
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/temp_serializer.c
 data_len == sizeof(*copy)
 Attempted to write to non-transaction '%s'
 svn:client-date
 Transaction '%s' cleanup failed
 D %lu
 Can't set text contents of a directory
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/transaction.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/transaction.c
 footer_length == footer->len
 .txn
 No such transaction '%s'
@@ -596,11 +632,7 @@ Copying from transactions not allowed
 next-ids
 Internal error: a null transaction id was passed to get_txn_proplist()
 malformed property list in transaction '%s'
-props-final
 next-id file corrupt
-%s %s
-K %lu
-V %lu
 Cannot write to the prototype revision file of transaction '%s' because a previous representation is currently being written by this process
 Cannot write to the prototype revision file of transaction '%s' because a previous representation is currently being written by another process
 Can't get exclusive lock on file '%s'
@@ -609,8 +641,14 @@ Can't unlock unknown transaction '%s'
 Can't unlock nonlocked transaction '%s'
 Can't unlock prototype revision lockfile for transaction '%s'
 Can't close prototype revision lockfile for transaction '%s'
+ffd->format >= SVN_FS_FS__MIN_SVNDIFF2_FORMAT
+ffd->format >= SVN_FS_FS__MIN_SVNDIFF1_FORMAT
 ENDREP
+Rep size %s mismatches rep-cache.db value %s for SHA1 %s.
+You should delete the rep-cache.db and verify the repository. The cached rep will not be shared.
 SHA1 of reps '%s' and '%s' matches (%s) but contents differ
+Unexpected itemidx file length
+svn_fs_fs__use_log_addressing(fs)
 checksum->kind == svn_checksum_fnv1a_32x4
 Transaction out of date
 ! svn_fs_fs__is_packed_revprop(cb->fs, new_rev)
@@ -618,18 +656,22 @@ Truncated protorev file detected
 reps_to_cache && reps_pool
 rev > 0
 predecessor count for the root node-revision is wrong: found (%d+%ld != %d), committing r%ld
+ffd->svn_fs_open_
+root->is_txn_root == FALSE && root->rev == new_rev
+ft_ffd->youngest_rev_cache == new_rev
 r%ld's root node's predecessor is unexpectedly '%s'
 Transaction '%s''s root node's predecessor is unexpectedly NULL
 r%ld's root node's predecessor is r%ld but should be r%ld
 Transaction '%s''s root node's predecessor is r%ld but should be r%ld
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/tree.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/tree.c
 *path == '/'
 open_path
 svn_fs__is_canonical_abspath(path)
 File not found: transaction '%s', path '%s'
 File not found: revision %ld, path '%s'
+Failure opening '%s' in transaction '%s'
+Failure opening '%s' in revision %ld
 '%s' is not a directory in filesystem '%s'
-Failure opening '%s'
 cache_lookup_last_path
 strlen(path) == path_len
 root_txn_id
@@ -638,6 +680,8 @@ child && child->parent
 Bad merge; ancestor, source, and target not all in same fs
 Bad merge; target '%s' has id '%s', same as ancestor
 Conflict at '%s'
+history_prev
+reported
 Root object must be a transaction root
 The root directory cannot be deleted
 File is not mutable: filesystem '%s', revision %ld, path '%s'
@@ -668,7 +712,7 @@ write-lock
 pack-lock
 revprop-generation
 svn_fs_fs__path_rev_packed
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/util.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/util.c
 ffd->max_files_per_dir
 svn_fs_fs__is_packed_rev(fs, rev)
 svn_fs_fs__path_rev_shard
@@ -703,7 +747,9 @@ Empty P2L entry for PHYS %s refers to revision %ld outside the rev / pack file (
 l2p index entry PHYS %sdoes not match p2l index value LOG r%ld:i%ld for PHYS %s
 File size of %s for revision r%ld does not match p2l index size of %s
 p2l index entry for revision r%ld is non-contiguous between offsets  %s and %s
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-78/subversion/subversion/libsvn_fs_fs/verify.c
+p2l index entry for revision r%ld at offset %s contains invalid item type %d
+p2l index entry for changes in revision r%ld is item %ld of type %d at offset %s
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/subversion/subversion-81/subversion/subversion/libsvn_fs_fs/verify.c
 size <= STREAM_THRESHOLD
 Empty section in file %s contains non-NUL data at offset %s
 Checksum mismatch in item at offset %s of length %s bytes in file %s

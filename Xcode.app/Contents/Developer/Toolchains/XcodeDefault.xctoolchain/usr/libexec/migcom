@@ -10,6 +10,7 @@ Server.c
 _server
 _impl
 _subsystem
+Cannot use UseSpecialReplyPort in non ANSI mode
 #include <mach/port.h>
 #include <mach/machine/kern_return.h>
 #include <mach/mig_errors.h>
@@ -76,13 +77,11 @@ __END_DECLS
 /* sized, and less than the maximum is sent, the data    */
 /* will be packed tight in the actual message to reduce  */
 /* the presence of holes.                                */
-/* %s %s */
 %s %s
     (
 return 
 ); }
 #else /* %s */
-#else
     ();
 _server_
 WriteServerHeader(): bad statement_kind_t (%d)
@@ -95,6 +94,7 @@ Defines related to the Subsystem %s
 WriteDefinesHeader(): bad statement_kind_t (%d)
 #ifndef
 #define
+#ifdef AUTOTEST
 #ifndef FUNCTION_PTR_T
 #define FUNCTION_PTR_T
 typedef void (*function_ptr_t)
@@ -105,6 +105,7 @@ typedef struct {
 } function_table_entry;
 typedef function_table_entry   *function_table_t;
 #endif /* FUNCTION_PTR_T */
+#endif /* AUTOTEST */
 #ifndef
 %s_MSG_COUNT
 #define
@@ -274,8 +275,9 @@ Type of kernel processed data inconsistent
 |MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_CTX)
 |MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT)
 |MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)
+UseSpecialReplyPort option cannot be used with KernelUser / KernelServer
+|__MigSpecialReplyPortMsgOption
  - (
-_WALIGNSZ_(%s)
 /* union of all requests */
 #ifndef __RequestUnion__%s__defined
 #define __RequestUnion__%s__defined
@@ -345,6 +347,7 @@ OutP
 %s);
 %s->%s);
 /* %s */ %s(%s%s)
+/* %s */ %s%s
 TrailerP->
 In%dP->
 %s%s%s
@@ -401,6 +404,7 @@ MACH_MSG_VIRTUAL_COPY
 %saddress = (void *)%s%s;
 %sdeallocate = %s;
 %ssize = 
+%s%s
 OutP->%s%s
  * %d;
     }
@@ -440,7 +444,6 @@ msgh_size_delta =
     (msgh_size %s 
 return MIG_BAD_ARGUMENTS;
 (In%dP->__Present__%s ? _WALIGNSZ_(%s) : 0)
-_WALIGN_
 %d * 
 In%dP->%s
 #if __MigTypeCheck
@@ -476,6 +479,8 @@ __NDR_convert__Request__%s_subsystem__ 1
 #define novalue int
 #endif
 /* %s */
+#define msgh_request_port
+msgh_remote_port
 #define MACH_MSGH_BITS_REQUEST(bits)
 MACH_MSGH_BITS_REMOTE(bits)
 #define msgh_reply_port
@@ -500,8 +505,11 @@ mig_internal novalue _X%s
 mach_msg_header_t *InHeadP, *OutHeadP;
 typedef __Request__%s_t __Request;
 typedef __Reply__%s_t Reply __attribute__((unused));
+ * typedef struct {
+mach_msg_header_t Head;
+NDR_record_t NDR;
+kern_return_t RetCode;
  * } mig_reply_error_t;
-Declare
 Before
 OutP->msgh_body.msgh_descriptor_count = %d;
 Request *In0P = (Request *) InHeadP;
@@ -511,7 +519,6 @@ mach_msg_max_trailer_t *TrailerP;
 unsigned int trailer_size;
 #ifdef
 __MIG_check__Request__%s_t__defined
-kern_return_t check_result;
 #endif
 /* __MIG_check__Request__%s_t__defined */
 %s %s;
@@ -556,13 +563,12 @@ OutP->%s = %s;
 OutP->Head.msgh_size = 
 Reply
  + msgh_size_delta;
-msgh_size = 
+msgh_size += msgh_size_delta;
 OutP = (Reply *) ((pointer_t) OutP + msgh_size_delta - %d);
  + %d) & ~%d)
-#ifdef USING_MIG_STRNCPY_ZEROFILL
+if (mig_strncpy_zerofill != NULL) {
 OutP->%s = mig_strncpy_zerofill(OutP->%s, %s, %d);
 } else {
-#endif /* USING_MIG_STRNCPY_ZEROFILL */
 OutP->%s = mig_strncpy(OutP->%s, %s, %d);
 (void)memcpy((char *) OutP->%s, (const char *) %s, %d);
 (void)memcpy((char *) OutP->%s, (const char *) %s, 
@@ -576,7 +582,7 @@ OutP->%s = (mach_msg_type_number_t) strLength;
 OutP->%s = (mach_msg_type_number_t) strlen(OutP->%s) + 1;
 #endif /* __LP64__ */
 /* %d */ OutP->%s
-msgh_size += 
+ + (
 OutP = (Reply *) OutHeadP;
 OutP->Head.msgh_bits |= MACH_MSGH_BITS_COMPLEX;
 OutP->Head.msgh_size = msgh_size;
@@ -865,8 +871,25 @@ extern mach_port_t mig_get_reply_port();
 extern void mig_dealloc_reply_port();
 extern char *%s();
 extern void %s();
+#include <TargetConditionals.h>
+#include <mach/mach_sync_ipc.h>
+#ifndef __MigCanUseSpecialReplyPort
+#if TARGET_OS_SIMULATOR
+#define __MigCanUseSpecialReplyPort 0
+#define mig_get_special_reply_port() MACH_PORT_DEAD
+#define mig_dealloc_special_reply_port(port) __builtin_trap()
+#endif /* __MigCanUseSpecialReplyPort */
+#if TARGET_OS_OSX
+extern _Bool _os_xbs_chrooted;
+#define __MigCanUseSpecialReplyPort (!_os_xbs_chrooted)
+#define __MigCanUseSpecialReplyPort 1
+#ifndef __MigSpecialReplyPortMsgOption
+#define __MigSpecialReplyPortMsgOption (__MigCanUseSpecialReplyPort ? (MACH_SEND_SYNC_OVERRIDE|MACH_SEND_SYNC_USE_THRPRI|MACH_RCV_SYNC_WAIT) : MACH_MSG_OPTION_NONE)
+#endif /* __MigSpecialReplyPortMsgOption */
 __MachMsgErrorWithTimeout
 __MachMsgErrorWithoutTimeout
+__MachMsgErrorWithTimeoutSRP
+__MachMsgErrorWithoutTimeoutSRP
 #ifndef
 #define
 %s(_R_) { \
@@ -874,30 +897,30 @@ switch (_R_) { \
 case MACH_SEND_INVALID_DATA: \
 case MACH_SEND_INVALID_DEST: \
 case MACH_SEND_INVALID_HEADER: \
+if (!__MigCanUseSpecialReplyPort) { \
+mig_put_reply_port(InP->Head.msgh_reply_port); \
 mig_put_reply_port(InP->Head.msgh_reply_port); \
 break; \
 case MACH_SEND_TIMED_OUT: \
 case MACH_RCV_TIMED_OUT: \
 default: \
+if (__MigCanUseSpecialReplyPort) { \
+mig_dealloc_special_reply_port(InP->Head.msgh_reply_port); \
+} else { \
+mig_dealloc_reply_port(InP->Head.msgh_reply_port); \
 mig_dealloc_reply_port(InP->Head.msgh_reply_port); \
 _user
-#define msgh_request_port
-msgh_remote_port
 MACH_MSG_LOG_USER
 (mach_port_t, char *, mach_msg_type_number_t)
-#ifdef AUTOTEST
 extern void client_%s%s;
 function_table_entry %s_client_functions[] =
     { "%s", client_%s },
     { (char *) 0, (function_ptr_t) 0 }
-#endif /* AUTOTEST */
 OverwriteTemplate
- * typedef struct {
-mach_msg_header_t Head;
-NDR_record_t NDR;
-kern_return_t RetCode;
 InP->msgh_body.msgh_descriptor_count = %d;
+/* %s %s */
 mig_external %s %s
+#else
     kern_return_t rtn;
     const static struct
     {
@@ -960,8 +983,10 @@ Reply *Out0P = &Mess%sOut;
 mach_msg_return_t msg_result;
 #ifdef
 __MIG_check__Reply__%s_t__defined
+kern_return_t check_result;
 #endif
 /* __MIG_check__Reply__%s_t__defined */
+Declare
 #if LimitCheck
 if ((sizeof(Request) - %d) > %d)
     __RequestOnStackAbort(%d, "%s");
@@ -977,16 +1002,18 @@ if (%s) {
 ((mig_reply_error_t *)InP)->RetCode = %s;
 ((mig_reply_error_t *)InP)->NDR = NDR_record;
 goto ready_to_send;
-msgh_size += msgh_size_delta;
+msgh_size = 
 InP = (Request *) ((pointer_t) InP + msgh_size_delta - 
+_WALIGNSZ_(%s)
 (InP->__Present__%s ? _WALIGNSZ_(%s) : 0)
-%s%s
+_WALIGN_
 if (%s%s < %d)
 InP->%s = %s%s;
 else
 InP->%s = %d;
-if (mig_strncpy_zerofill != NULL) {
+#ifdef USING_MIG_STRNCPY_ZEROFILL
 InP->%s = mig_strncpy_zerofill(InP->%s, %s, %d);
+#endif /* USING_MIG_STRNCPY_ZEROFILL */
 InP->%s = mig_strncpy(InP->%s, %s, %d);
 (void)memcpy((char *) InP->%s, (const char *) %s%s, %d);
 if (%s%s > %d) {
@@ -995,8 +1022,7 @@ if (%s%s > %d) {
 if ((InP->__Present__%s = (%s != %s))) {
 InP->%s.__Real__%s
 /* %s%s */ %s%s
-/* %s */ %s%s
- + (
+msgh_size += 
 ready_to_send:
 InP = &MessRequest;
 InP = &Mess%sIn;
@@ -1008,6 +1034,7 @@ InP->Head.msgh_bits |= MACH_MSGH_BITS_COMPLEX;
 /* msgh_size passed as argument */
 InP->%s = %s;
 InP->%s = MACH_PORT_NULL;
+InP->%s = __MigCanUseSpecialReplyPort ? mig_get_special_reply_port() : mig_get_reply_port();
 InP->%s = mig_get_reply_port();
 InP->Head.msgh_id = %d;
 InP->Head.msgh_reserved = 0;
@@ -1053,8 +1080,8 @@ MACH_SEND_TIMEOUT|MACH_RCV_TIMEOUT|
 msg_result = mach_msg(&InP->Head, MACH_SEND_MSG|MACH_RCV_MSG|%s%s%s, %s, (mach_msg_size_t)sizeof(Reply), InP->Head.msgh_reply_port, %s, MACH_PORT_NULL);
 MACH_MSG_SUCCESS
 if (msg_result != %s) {
-__MachMsgErrorWithTimeout(msg_result);
-__MachMsgErrorWithoutTimeout(msg_result);
+__MachMsgErrorWithTimeout%s(msg_result);
+__MachMsgErrorWithoutTimeout%s(msg_result);
 msg_result = mach_msg(&InP->Head, MACH_SEND_MSG|%s%s, %s, 0, 
  MACH_PORT_NULL, %s, MACH_PORT_NULL);
 if (msg_result != MACH_MSG_SUCCESS)
@@ -1081,7 +1108,7 @@ Out%dP->%s);
 /* %s%s */ %s->%s
  * IDENTIFICATION:
  * stub generated %s
- * with a MiG generated by bootstrap_cmds-96.20.2
+ * with a MiG generated by bootstrap_cmds-96.20.2.200.3
  * OPTIONS: 
 KernelUser
 KernelServer
@@ -1352,16 +1379,16 @@ fatal error - scanner input buffer overflow
 input in flex scanner failed
 out of dynamic memory in yy_get_next_buffer()
 out of dynamic memory in yyensure_buffer_stack()
- !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQ
-$%&'
-)*+,-
- "(.owmnfghyxijklprqsutv]
-EFI01?8GC9
-:;=ab
-Hz{|c
-KXSTUVMN
-RSSTTTTTTTTTTTTTTTTTUVWWXXYZ[\]^^__`abcdeeeeefghiiiiiiijjjjjjjjkkkllmmnnopppqrssttuuuuuuvvwxyyzzzz{|}}}}}}}}}}}}}}}}}}}~~
-@(#)PROGRAM:migcom  PROJECT:mig-96.20.2
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQR
+&'()
++,-./
+"$*0qyophij{zklmnrtsuwvx_
+GHK23A:IE;
+<=?cd
+J|}~e
+MZUVWXOP
+STTUUUUUUUUUUUUUUUUUUVWXXYYZ[\]^_``aabcdefggggghijkkkkkkkllllllllmmmnnooppqrrrstuuvvwwwwwwxxyz{{||||}~
+@(#)PROGRAM:migcom  PROJECT:mig-96.20.2.200.3
 (defined(__STDC__) || defined(c_plusplus))
 defined(LINTLIBRARY)
 ReturnValue

@@ -1,4 +1,5 @@
 .memgraph
+%s[%d]: [fatal] unable to read input graph: %s
 %s[%d]: [fatal] unable to suspend target process: %s
 %s[%d]: task_stop_peeking failed. (%s)
 Command args:    %@
@@ -6,7 +7,6 @@ Target process:  %s [%u]
 Parent process:  %s [%u]
 Parent process:  unable to determine
 DYLD_INSERT_LIBRARIES=/usr/local/lib/libLeaksAtExit.dylib
-SAMPLING_TOOLS_TARGET_PID
 %s[%d]: [fatal] error acquiring target task port from parent.
 %s[%d]: %s cannot find any existing process %s a name like '%s'%s.
 you have access to which has
@@ -20,6 +20,7 @@ task_generate_corpse
 DYLD_ROOT_PATH
 SIMULATOR_UDID
 DT_NO_RESPAWN
+DT_FORCE_RESPAWN
 %s[%d]: [fatal] respawning is disabled (because DYLD_ROOT_PATH or DT_NO_RESPAWN is set), but analysis process does not match architecture of target process %d.
 DYLD_FRAMEWORK_PATH
 DYLD_SHARED_REGION
@@ -60,7 +61,7 @@ Thread
 error in % <region-description> pattern '%@': %s
 %s[%d]: [fatal] %s
 VMUOptionParserDomain
-/Library/Caches/com.apple.xbs/Sources/SamplingTools/SamplingTools-64034/VMUOptionParser.m
+/Library/Caches/com.apple.xbs/Sources/SamplingTools/SamplingTools-64240/VMUOptionParser.m
 <Unknown File>
 Invalid parameter not satisfying: %@
 block && (longName || shortName)
@@ -87,6 +88,15 @@ Tc,N,V_singleHyphenLongNames
 parametersShowAsAssignment
 Tc,N,V_parametersShowAsAssignment
 v24@?0@"NSString"8^@16
+rootNodeTypeDescription
+T@"NSString",C,N,V_rootNodeTypeDescription
+backtraceString
+T@"NSString",C,N,V_backtraceString
+v20@?0I8^c12
+-[DVT_VMUDirectedGraph(Extensions) isRootNode:]
+/Library/Caches/com.apple.xbs/Sources/SamplingTools/SamplingTools-64240/leaks/leaks.m
+self.inverted
+v28@?0I8I12I16^c20
 launchd
 coresymbolicationd
 coreservicesd
@@ -100,13 +110,16 @@ Search through a process for leaked memory.
 [-hq] [--nocontext] [--nostacks] [--outputGraph=<path>] [--fullContent] [--forkCorpse] [--trace=<address>] [--atExit] <pid | partial-process-name | memory-graph-file | -- process-and-arguments>
 exclude
 exclude leaked blocks whose backtraces include the specified symbol
-help
 show this helpful usage message!
 v8@?0
 showTiming
 initialization
 quiet
 suppress the process description header and footer
+list
+print the leaks as a list ("classic"-style) rather than as a tree
+groupByType
+in leak trees, group children by type rather than showing individual instances
 nocontext
 do not print the binary contexts of discovered leaks
 nostacks
@@ -125,6 +138,7 @@ physFootprint
 compress
 fullContent
 save allocation content descriptions into the memory graph file
+excludePersonalInformation
 nocontents
 show the hex content of leaked allocations, if there is no description of content
 systemTest
@@ -144,9 +158,9 @@ traceTree
 print a reverse tree of references, from the given block up to the process roots; can be imported into Instruments with Import Sampler Data
 -traceTree
 referenceTree
-groupByType
 virtual
 debug
+help
 Modes of 'leaks <process> -debug'.  More than one different mode flag can be passed,
 such as '-debug='.*Storage.*' -debug=references'.
     -debug            -- full output
@@ -179,8 +193,9 @@ vmPageStatistics
 checkAbandoned
 postprocessGraph
 unknown argument: %@
+Ignoring -fullContent flag because -excludePersonalInfo was specified.
+SAMPLING_TOOLS_TARGET_PID
 no process specified
-%s[%d]: [fatal] unable to read input graph: %s
 %s[%d]: Process %d is not debuggable.
 Due to security restrictions, leaks cannot show memory contents of restricted processes.
 -[scanner processSnapshotGraph]
@@ -188,9 +203,9 @@ v16@?0^v8
 completed setup of scanner and/or graph, proceeding to leaks analysis mode
 %s[%d]: [fatal] ignoring --outputGraph option as path provided would overwrite the source graph file
 leaks Report Version: 3.0
+leaks Report Version: 4.0
 , multi-line stacks
 v16@?0i8I12
-gather VM region data
 %s[%d]: [fatal] unable to instantiate a memory scanner.
 addRootNodesFromTask
 addMallocNodesFromTask
@@ -230,7 +245,6 @@ REFERENCES TO THIS: %u
    SELF: %u
   SELF-REF
    %s
-v28@?0I8I12I16^c20
 LAYOUT OF %s (%s)
 %llu bytes into 
 --> %@%@
@@ -267,20 +281,21 @@ Stack
 Stack of %@
 void printReferenceTree(DVT_VMUProcessObjectGraph *__strong)
 <Unknown Function>
-/Library/Caches/com.apple.xbs/Sources/SamplingTools/SamplingTools-64034/leaks/leaks.m
 Malloc blocks should not be root nodes of reference graph
 __DATA __objc
 %@ %@: '%@[]'
-VM: %@
-unaligned +%lld:  --> %@
- Storage)
- + %llu
-%@%s --> %@
 %@  dirty: %s  swapped: %s
+%@  purgableVolatile: %s
 printReferenceTree addChildCountsIntoNode
 printReferenceTree printing call tree
 printReferenceTree releasing tree
+malloc<%s>
 malloc-block
+VM: %@
+unaligned +%lld:  --> %@
+Storage)
+ + %llu
+%@%@%s --> %@
 %s: %#llx  size=%llu  
 VM: unknown region type
 zone: %s
@@ -296,8 +311,34 @@ Leak
 Abandoned
 v52@?0I8{?=Qb60b4@}12@"DVT_VMUVMRegion"36^c44
 %u leak%s excluded (not printed)
+  %@
 0x%08x 
 < content unavailable >
+printLeakTree identifying strongly-connected-components (cycles) in the graph
+v20@?0r^I8I16
+printLeakTree identifying root leaks and cycles
+Foundation
+CoreFoundation
+printLeakTree enumerate stack logs to populate rootLeakAddressToStackIDMap
+v36@?0I8Q12Q20Q28
+printLeakTree invert rootLeakAddressToStackIDMap to produce stackID --> {size,count,root-leak-call-tree-root} map
+ROOT LEAK: 
+printLeakTree building call tree from references
+%@<%@>
+%@  %@
+unsigned int printLeakTree(DVT_VMUProcessObjectGraph *__strong, DVT_VMUTaskMemoryScanner *__strong, __strong id<VMUStackLogReader>)_block_invoke
+Expected node name to have 'ROOT CYCLE' prefix
+CYCLE BACK TO 
+printLeakTree addChildCountsIntoNode
+printLeakTree printing call tree
+unsigned int printLeakTree(DVT_VMUProcessObjectGraph *__strong, DVT_VMUTaskMemoryScanner *__strong, __strong id<VMUStackLogReader>)
+expected exactly 1 top group child of leakTreeRoot due to -groupByType
+INSTANCES
+INSTANCE
+STACK OF %u %s OF '%s':
+NO STACK
+====
+printLeakTree releasing tree
 %5d: [%s]
 v32@?0i8r*12B20I24I28
 COUNT OF OWNING REFERENCES   NUMBER OF NODES WITH THAT COUNT
@@ -388,8 +429,20 @@ _shortOpts
 _spacing
 _singleHyphenLongNames
 _parametersShowAsAssignment
+rootNodeTypeDescription
+setRootNodeTypeDescription:
+backtraceString
+setBacktraceString:
+_rootNodeTypeDescription
+_backtraceString
+enumerateMembersOfGroupNode:withBlock:
+inverted
+enumerateEdgesOfNode:withBlock:
+isGroupNode:
+isRootNode:
 arrayWithObjects:count:
 mutableCopy
+sharedTimer
 startWithMessage:
 stringByExpandingTildeInPath
 boolValue
@@ -402,9 +455,8 @@ stackLogReader
 initWithTask:symbolicator:
 setExcludedFrames:
 setScanner:
-setSaveNodeLabelsInGraph:
 setScanningMask:
-processSnapshotGraphWithMallocStackLogs:
+processSnapshotGraphWithOptions:
 defaultOverlay
 refineTypesWithOverlay:
 refineEdges:withOptions:markingInvalid:
@@ -452,7 +504,6 @@ symbolicatedBacktraceForNode:nodeDetails:isLiteZone:options:
 referenceInfoWithName:
 nodeDescription:withDestinationNode:referenceInfo:
 stringByAppendingString:
-enumerateEdgesOfNode:withBlock:
 instanceSize
 pointerSize
 contentForNode:
@@ -494,19 +545,41 @@ addUniqueChildWithName:address:count:numBytes:toNode:
 rangeForLocation:
 regionSymbolNameForAddress:
 is64bit
-fieldAtOrBeforeOffset:
-ivarName
 addChildCountsIntoNode
 printCallTreeToFile:
+fieldAtOrBeforeOffset:
+ivarName
 descriptionWithOptions:maximumLength:
 binaryName
-labelForNode:
 copyUserMarked
 markReachableNodesFromRoots:inMap:
 enumerateMarkedObjects:withBlock:
+subgraphWithMarkedNodes:
+shortLabelForNode:
+labelForNode:
+addGroupNodeForNodes:count:
+stronglyConnectedComponentSearch:withRecorder:
+inspectingLiveProcess
+zoneCount
 containsObject:
+liteModeStackIDforAddress:size:
+enumerateRecords:
+symbolicatedBacktraceForStackID:isLiteZone:options:
+parentGroupForNode:
+parent
+name
+substringFromIndex:
+numChildren
+comparePuttingRetainCycleNodesAtTop:
+sortUsingSelector:
+sortedChildren
+firstObject
+sumOfChildCounts
+printCallTreeToFile:options:
 VMUClassPatternMatcher
 VMUOptionParser
+VMUCallTreeRootWithBacktrace
+Extensions
 @40@0:8@16@24^@32
 v16@0:8
 c32@0:8^{?=iQ*^{re_guts}}16@24
@@ -525,18 +598,19 @@ v20@0:8c16
 @"NSMutableDictionary"
 ^{__CFArray=}
 @"NSMutableString"
+c20@0:8I16
 MbP?
-@(#)PROGRAM:leaks  PROJECT:SamplingTools-64034
+@(#)PROGRAM:leaks  PROJECT:SamplingTools-64240
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>17E148</string>
+<string>18A265</string>
 <key>CFBundleDevelopmentRegion</key>
 <string>English</string>
 <key>CFBundleIdentifier</key>
-<string>com.apple.SamplingTools</string>
+<string>com.apple.SamplingTools.leaks</string>
 <key>CFBundleInfoDictionaryVersion</key>
 <string>6.0</string>
 <key>CFBundleName</key>
@@ -550,17 +624,17 @@ MbP?
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>9F1027a</string>
+<string>10L201x</string>
 <key>DTPlatformVersion</key>
 <string>GM</string>
 <key>DTSDKBuild</key>
-<string>17E158</string>
+<string>18A313</string>
 <key>DTSDKName</key>
-<string>macosx10.13internal</string>
+<string>macosx10.14internal</string>
 <key>DTXcode</key>
-<string>0940</string>
+<string>1000</string>
 <key>DTXcodeBuild</key>
-<string>9F1027a</string>
+<string>10L201x</string>
 <key>SecTaskAccess</key>
 <array>
 <string>allowed</string>

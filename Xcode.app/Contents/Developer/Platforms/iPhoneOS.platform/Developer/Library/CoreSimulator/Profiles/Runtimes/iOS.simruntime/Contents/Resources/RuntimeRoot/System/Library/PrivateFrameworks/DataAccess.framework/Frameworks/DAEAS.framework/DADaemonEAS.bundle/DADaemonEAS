@@ -511,6 +511,7 @@ policyValues
 stateString
 appendFormat:
 componentsJoinedByString:
+_refireBlacklistFolderIdsSync
 initWithArray:
 queuedTasks
 activeQueuedTask
@@ -559,22 +560,24 @@ initWithTimeIntervalSinceNow:
 reissuePingFromTimer:
 initWithFireDate:interval:target:selector:userInfo:repeats:
 addTimer:forMode:
-_refirePingAfterDelay:withGrowthAction:
-removeFolderIDFromPingHistoryBlacklist:
-folders
-objectForKey:
-initWithCount:
-setObject:forKey:
-setCount:
-addFolderIDToPingHistoryBlacklist:
-_foldersToSyncGivenResults:
+dateWithTimeIntervalSinceNow:
+_triggerFolderContentsChangedNotification
 dictionaryWithObjects:forKeys:count:
 notificationWithName:object:userInfo:
-inboxFolder
+_refirePingAfterDelay:withGrowthAction:
+removeFolderIDFromPingHistoryBlacklist:
+initWithCount:
 date
 startTime
 timeIntervalSinceDate:
+setCount:
 setStartTime:
+folders
+objectForKey:
+setObject:forKey:
+addFolderIDToPingHistoryBlacklist:
+_foldersToSyncGivenResults:
+inboxFolder
 heartbeat
 shouldClientScheduleReconnectDueToFailure
 resumeManagerWithAction:
@@ -846,6 +849,8 @@ _folderChangeHistory
 _pingHistoryBlacklistFolderIds
 _hierarchyChangeHistory
 _isHierarchyChangeBlackListed
+_noChangeHistory
+_isNoChangeBlackListed
 _safeToPing
 _hasScheduledWake
 _pcManager
@@ -853,6 +858,8 @@ _lastPingHeartBeat
 _lastPingFolders
 _eventsNumberOfPastDaysToSync
 _delayedPingTimer
+_pingBlacklistFolderSyncTimer
+_pingBlacklistRetrySyncCount
 _invitationActionsInFlight
 _curReplyMethod
 _noteObserver
@@ -987,7 +994,7 @@ isShuttingDown
 TB,N,V_isShuttingDown
 calUnitTestMergedRequestsBlock
 T@?,C,N,V_calUnitTestMergedRequestsBlock
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1628.4.7/ActiveSync/ASAgent_FolderContentsSync.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1684/ActiveSync/ASAgent_FolderContentsSync.m
 <Unknown File>
 Task lost its folderId
 %@%@%@
@@ -1013,7 +1020,7 @@ Todo
 ForcedHBI
 v16@?0@"NSNotification"8
 dataaccessd_ping_power_assertion-%@
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1628.4.7/ActiveSync/ASDaemonAccount.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1684/ActiveSync/ASDaemonAccount.m
 We should never generate a new ping task in repsonse to a cancellation, and the cancellation callback should nil out the _pingTask pointer.
 Last ping HBI %d
 _foldersToMonitorById: %@
@@ -1089,7 +1096,7 @@ isFirstSync
 TB,N,V_isFirstSync
 oldFolders
 T@"NSArray",&,N,V_oldFolders
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1628.4.7/ActiveSync/ASAgent_ChangeGatherer.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/DataAccessTools_Sim/DataAccess-1684/ActiveSync/ASAgent_ChangeGatherer.m
 OwningID count and Email count mismatch! OwningID count:%lu, Email count:%lu
 -[ASAgent(ChangeGatherer) _copyCalendarItemActionsInContainer:existingActions:dataHandler:wantPreserveActions:skippedDetachments:changeContext:]
 [dh dataclass] == DADataclassEvents
@@ -1241,11 +1248,14 @@ Clearing %@ changes in calendar %d to index %d
 Disabling early fire for Exchange account %@
 Setting _delayedPingTimer to nil
 Invoking _cancelPingTask
-Folder %@ added to the ping blacklist
+Current _pingBlacklistFolderIds after adding folderID %@: %@
 Folder %@ added to the ping history blacklist
-Folder %@ removed from the ping blacklist
+Current _pingBlacklistFolderIds after removing folderID %@: %@
+Invalidating _pingBlacklistFolderSyncTimer
 Remove folder hierarchy from ping history blacklist
 Clearing folder hierarchy ping history, after a successful sync
+Remove from ping no change blacklist
+Clearing ping no change history, after a successful sync
 Folder %@ removed from the ping history blacklist
 Clearing folder %@ from ping history, after it has a successful sync
 reacting to changed folder %@ with change type %lu
@@ -1261,6 +1271,10 @@ Invoking _refirePingAfterDelay
 _delayedPingTimer is %@
 Not going to ping, because there is no run loop mode to schedule our timer on
 Creating _delayedPingTimer
+Invoking _refireBlacklistFolderIdsSync
+Not going to trigger a _pingBlacklistFolderIds Sync, because there is no run loop mode to schedule our timer on
+Setting up timer (%@) for _pingBlacklistFolderIds Sync to fire at %@
+#EASTrafficPosting a FolderContents changed notification to refresh ping blacklist folders.
 Invoking setSafeToPing
 ping task is %@, and _pingTask task is %@. They should be the same.
 Ignoring response for old ping task %@
@@ -1268,6 +1282,11 @@ Ping task status %ld, resultHBInterval: %d
 Setting _pingTask to nil.
 Not refiring Ping request because it was canceled.
 Refiring Ping request because it was canceled due to task manager modal hold.
+Create no change history for no change responses.
+Refresh no change history for no change responses. Discard old data.
+Update no change ping count to %d
+Ping request has more than 10 no change responses since %@. Adding it to black list. User must manually refresh to get it to push again.
+Force fully specified ping since there were more than 5 ping responses with no changes in last 2 minutes.
 Create ping history for folder %@.
 Update ping history for folder %@. New count is %d.
 Folder %@ has more than 5 changes in ping history, without a successful sync. Adding it to black list. User must manually refresh to get it to push again.
@@ -1279,6 +1298,8 @@ Folder hierarchy has more than 10 changes since %@ in ping history. Adding it to
 Received status 3 (Ping command request omitted required parameters) from server for Ping request.
 Received status 111 (ServerErrorRetryLater) from server for Ping request.
 PingTask: unhandled status of %ld
+Remove from ping no change blacklist, after a ping response with status other than DAStatusNoChanges
+Clearing ping no change history, after a ping response with status other than DAStatusNoChanges
 Reissuing Ping request after 60 second delay
 %s invoked: mgr: %@, reason:%d
 Told to poll, but we're in manual PC mode.
@@ -1294,6 +1315,7 @@ In %s, we had an outstanding _delayedPingTimer.  Likely because a ping was queue
 _pingTask is %@. It should be nil.
 Asked to ping, but we're not currently pushing.  Not going to ping
 Not going to ping because server couldn't update folder hierarchy
+Not going to ping because server is rapidly returning no change responses
 Not including folder %@ to ping task because it is black listed
 Not including folder %@ to ping task because it is history black listed
 Not including folder %@ to ping task because it is with unacknowledged ping
