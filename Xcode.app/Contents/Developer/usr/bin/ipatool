@@ -37,9 +37,24 @@ class Object
     assert(self.kind_of?(t), "#{self.class} is not kind of #{t}: #{message}")
   end
   # Useful as a way to add type annotations to code.
+  def as(t, message = nil)
+    assert_kind_of(t, message)
+    self
+  end
+  # Useful as a way to add type annotations to code.
+  def optional_as(t, message = nil)
+    assert_kind_of(t, message)
+    self
+  end
+  # Useful as a way to add type annotations to code.
   def assert_array_of(t, message = nil)
     assert_kind_of(Array, message)
     each{|x| x.assert_kind_of(t, message) }
+  end
+class NilClass
+  # Useful as a way to add type annotations to code.
+  def optional_as(t, message = nil)
+    return nil
   end
 class Hash
   def self.from_tuples(array)
@@ -482,6 +497,12 @@ OptionParser.new do |opts|
   opts.on("--[no-]validate-output-zero-variants") do |v|
     OPTIONS.validateOutputZeroVariants = v
   end
+  opts.on("--app-store-tools-build-version=PATH") do |v|
+    OPTIONS.appStoreToolsBuildVersion = v
+  end
+  opts.on("--app-store-tools-build-version-plist-path=PATH") do |v|
+    OPTIONS.appStoreToolsBuildVersion = appStoreToolsBuildVersionFromPlist(Pathname(v))
+  end
   opts.on_tail("--json=OUTPUT",
                "Provide output in JSON format. Other programs invoking #{File.basename(__FILE__).shellescape} are expected to use this option instead",
                "of trying to parse the default format. The output is a sequence of JSON dictionaries representing operations and issues.") \
@@ -548,6 +569,10 @@ def EmitIPAStructureValidationError (desc)
 # Calls EmitError with a type of "malformed-payload" without exiting.
 def EmitIPAPayloadValidationError (desc)
   EmitError(0, desc, "malformed-payload")
+# Calls EmitError with a type of "malformed-payload" and exits
+def EmitFatalIPAPayloadValidationError (desc, exitCode = 1)
+  EmitIPAPayloadValidationError(desc)
+  exit(exitCode)
 # Calls EmitError with a type of "malformed-payload" without exiting.
 def EmitIPAOutputValidationError (desc)
   EmitError(0, desc, "malformed-output")
@@ -574,9 +599,12 @@ def LoadUserPlist(path, parentPathForDisplay = nil)
     return LoadPlist(path, parentPathForDisplay)
   rescue => ex
     $stderr.puts "exception: #{ex.to_log_s}"
-    EmitIPAPayloadValidationError("Failed to read property list: #{ex.message}")
-    exit(1)
+    EmitFatalIPAPayloadValidationError("Failed to read property list: #{ex.message}")
   end
+def appStoreToolsBuildVersionFromPlist(path)
+  data = LoadPlist(path)
+  native = CFPropertyList::native_types(data.value)
+  return native["ProductBuildVersion"].as(String)
 JsonOutputFormatting = { indent: '  ', space: ' ', object_nl: "\n", array_nl: "\n", max_nesting: false }
 at_exit {
   if $! && !$!.kind_of?(SystemExit)
@@ -635,6 +663,17 @@ if (OPTIONS.compileBitcode or !OPTIONS.thinDevices.empty? or OPTIONS.createAsset
 if !OPTIONS.skipThinDevices.empty? &&
    !(OPTIONS.thinDevices.size == 1 && OPTIONS.thinDevices[0].to_s == "all")
   FatalError(__LINE__, "--skip-thinned is only compatible with --create-thinned=all")
+if OPTIONS.appStoreToolsBuildVersion == nil
+  candidates = [
+    File.dirname(__FILE__) + "/../../version.plist",
+    File.dirname(__FILE__) + "/../../../version.plist",
+  path = candidates.detect { |p| File.exist?(p) }
+  FatalError(__LINE__, "Could not find version.plist. Expected at #{candidates}. To override, pass a version in --app-store-tools-build-version or a path to a version.plist in --app-store-tools-build-version-plist-path.") if path.nil?
+  $stderr.puts "Loading DTAppStoreToolsBuild via ProductBuildVersion from #{path}"
+  OPTIONS.appStoreToolsBuildVersion = appStoreToolsBuildVersionFromPlist(Pathname(path))
+APP_STORE_TOOLS_BUILD_VERSION_PATTERN = /^\d+\D+\d+\D*$/
+unless OPTIONS.appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTERN
+  FatalError(__LINE__, "Expected #{OPTIONS.appStoreToolsBuildVersion} to match #{APP_STORE_TOOLS_BUILD_VERSION_PATTERN}, e.g. 10A208 or 10A208a")
 #  Unpack Flattened IPA (If Needed)
 # The input path may be either a file or a directory; if it's a file, we unpack it into our temporary directory.
 OPTIONS.ipaName = OPTIONS.inputPath.basename
@@ -644,6 +683,10 @@ if OPTIONS.inputPath.file?
   unpackedDir = OPTIONS.tmpDir.join("ipa")
   CmdSpec.new("ditto", ["-x", "-k", "--noqtn", "--noacl", OPTIONS.inputPath, unpackedDir]).run(0, false)
   OPTIONS.inputPath = unpackedDir
+$stderr.puts "---"
+$stderr.puts "IPA contents:"
+$stderr.puts CmdSpec.new(locate_tool("find"), ["-s", "-f", OPTIONS.inputPath]).run(1, false, false)
+$stderr.puts "---"
 #  Allow us to annotate paths with architectures, when we know them
 class Pathname
   attr_accessor  :arch            # Architecture identifier, if applicable (see the arch(3) man page)
@@ -849,8 +892,7 @@ class FSMachOFileNode < FSFileNode
   def linkableImageForArchOrError(arch)
     machoImage = self.linkableImageForArch(arch)
     unless machoImage
-      EmitIPAPayloadValidationError("couldn't find suitable architecture for linking #{arch} in Mach-O file #{path.to_s.shellescape}")
-      exit(1)
+      EmitFatalIPAPayloadValidationError("couldn't find suitable architecture for linking #{arch} in Mach-O file #{path.to_s.shellescape}")
     end
     return machoImage
   end
@@ -987,8 +1029,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
       return self.enclosingBundle.statedPlatformIdentifier
     end
     if !supportedPlatformIdents.kind_of?(Array) || supportedPlatformIdents.count != 1
-      EmitIPAPayloadValidationError("#{path.basename.to_s.shellescape}/Info.plist should specify CFBundleSupportedPlatforms with an array containing a single platform, e.g. CFBundleSupportedPlatforms = [ iPhoneOS ], but it has CFBundleSupportedPlatforms = #{supportedPlatformIdents}")
-      exit(1)
+      EmitFatalIPAPayloadValidationError("#{path.basename.to_s.shellescape}/Info.plist should specify CFBundleSupportedPlatforms with an array containing a single platform, e.g. CFBundleSupportedPlatforms = [ iPhoneOS ], but it has CFBundleSupportedPlatforms = #{supportedPlatformIdents}")
     end
     platformIdent = supportedPlatformIdents.first.downcase
     # WatchKit 1 app bundle
@@ -1071,7 +1112,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
 # WatchKit extras
 class FSBundleDirectoryNode
   def isWatchKitStubApp
-    return plistBoolValue(infoDict["WKWatchKitApp"] || false)
+    return path.extname == ".app" && plistBoolValue(infoDict["WKWatchKitApp"] || false)
   end
   def isWatchKit1StubApp
     return isWatchKitStubApp && enclosingBundle.isWatchKitAppExtension
@@ -1080,7 +1121,9 @@ class FSBundleDirectoryNode
     return isWatchKitStubApp && enclosingBundle.platform.identifier == "iphoneos"
   end
   def isWatchKitAppExtension
-    return self.infoDict["NSExtension"].kind_of?(Hash) && self.infoDict["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.watchkit"
+    return path.extname == ".appex" &&
+           self.infoDict["NSExtension"].kind_of?(Hash) &&
+           self.infoDict["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.watchkit"
   end
   def isWatchKit1AppExtension
     return isWatchKitAppExtension && platform.identifier == "iphoneos"
@@ -1228,8 +1271,7 @@ class IPA
         result = CFPropertyList::native_types(LoadUserPlist(appThinningInfoPath, path).value)
         
         unless result.kind_of?(Hash)
-          EmitIPAPayloadValidationError("Expected dictionary in: #{appThinningInfoDisplayPath.to_s.shellescape}")
-          exit(1)
+          EmitFatalIPAPayloadValidationError("Expected dictionary in: #{appThinningInfoDisplayPath.to_s.shellescape}")
         end
         
         return result
@@ -1246,9 +1288,10 @@ class IPA
         bvalue = if value.nil? then true else plistBoolValue(value) end
         
         if bvalue.nil?
-          EmitIPAPayloadValidationError("Unexpected value for key #{keyName} in #{appThinningInfoDisplayPath.to_s.shellescape}: #{value}")
-          exit(1)
+          EmitFatalIPAPayloadValidationError("Unexpected value for key #{keyName} in #{appThinningInfoDisplayPath.to_s.shellescape}: #{value}")
         end
+        
+        return bvalue
       }.call
     end
     
@@ -1378,8 +1421,7 @@ This treats Assets.car as a
 reserved
  file name.
         displayPath = if parentPathForDisplay then path.relative_path_from(parentPathForDisplay) else path end
-        EmitIPAPayloadValidationError("Assets.car should be an asset catalog, but is \"#{magic_type}\": #{displayPath}")
-        exit(1)
+        EmitFatalIPAPayloadValidationError("Assets.car should be an asset catalog, but is \"#{magic_type}\": #{displayPath}")
       else
         # If the file name is not Assets.car and the file type is not BOM, then skip (i.e., the resource.car case).
         node = FSFileNode.new(path, enclosingBundle)
@@ -1510,7 +1552,7 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
         if !status.success?
           if status.exitstatus == 1
             EmitIPAPayloadValidationError("Failed to verify bitcode in #{machoFile.path.relative_path_from(machoFile.path.parent.parent)}:\n" + out_str)
-            else
+          else
             raise ("bitcode-build-tool failed with #{status}: " + out_str)
           end
         end
@@ -1525,6 +1567,21 @@ def ValidateOutputIPA (srcIPA, outputIPA, options)
   # There should be no AppThinning plist
   if outputIPA.appThinningInfoPath.exist?
     EmitIPAOutputValidationError("Should have been removed: #{outputIPA.appThinningInfoPath.to_s.shellescape}")
+  end
+  # If we've changed the deployment target, it should have 2+ components for binary compatibility
+  srcDeploymentTarget = srcIPA.mainBundle.infoDict["MinimumOSVersion"]
+  deploymentTarget = outputIPA.mainBundle.infoDict["MinimumOSVersion"]
+  if srcDeploymentTarget != deploymentTarget && (deploymentTarget.nil? || !deploymentTarget.kind_of?(String) || deploymentTarget.split('.').count < 2)
+    EmitIPAOutputValidationError("Expected a MinimumOSVersion with 2+ dot-separated components but got '#{deploymentTarget}' in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
+  end
+  # We should insert DTAppStoreToolsBuild
+  appStoreToolsBuildVersion = outputIPA.mainBundle.infoDict["DTAppStoreToolsBuild"]
+  if appStoreToolsBuildVersion == nil
+    EmitIPAOutputValidationError("Expected Info.plist:DTAppStoreToolsBuild in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
+  else
+    unless appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTERN
+      EmitIPAOutputValidationError(__LINE__, "Expected #{appStoreToolsBuildVersion} to match #{APP_STORE_TOOLS_BUILD_VERSION_PATTERN}, e.g. 10A208 or 10A208a")
+    end
   end
   # We should have no remaining bitcode
   for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) && n.machoImages.any?{|i| i.hasBitcode } }
@@ -1606,11 +1663,20 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
   dstInfoPlistPath = dstPath + "Payload" + srcIPA.mainBundle.name + "Info.plist"
   infoPlist = LoadPlist(dstInfoPlistPath)
   nativeInfoPlist = CFPropertyList::native_types(infoPlist.value) unless infoPlist == nil
+    
+  nativeInfoPlist[:DTAppStoreToolsBuild] = OPTIONS.appStoreToolsBuildVersion.as(String)
   nativeInfoPlist[:UISupportedDevices] = thinningContext.variants.collect{|x|x.device.productType}.sort.uniq if thinningContext.variants.nil_if_empty
   if thinningContext.variants.nil_if_empty
     inputDeploymentTarget = srcIPA.mainBundle.deploymentTarget
     variantDeploymentTarget = thinningContext.variants.min { |a,b| a.traits.deploymentTarget <=> b.traits.deploymentTarget }.traits.deploymentTarget
-    nativeInfoPlist[:MinimumOSVersion] = [inputDeploymentTarget, variantDeploymentTarget].max.to_s
+    deploymentTarget = [inputDeploymentTarget, variantDeploymentTarget].max
+    if deploymentTarget != inputDeploymentTarget
+      components = deploymentTarget.to_s.split('.')
+      if components.count < 2
+        components << [0]
+      end
+      nativeInfoPlist[:MinimumOSVersion] = components.join('.')
+    end
   end
   modifiedInfoPlist = CFPropertyList::List.new
   modifiedInfoPlist.value = CFPropertyList.guess(nativeInfoPlist)
@@ -2406,7 +2472,7 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
     candidates += cs2
   end
   # We need to check skipped variants after we've discarded unnecessary versions. Otherwise we might keep unnecessary versions because we've skipped what we would have normally selected.
-  candidates = platform.thinningVariants.reject { |v|
+  candidates = candidates.reject { |v|
     ThinningVariantCLISpec.any_matches(skipThinDevices, v)
   for thinningVariant in candidates
     # Otherwise we know that we want to thin for the device, but we check if we need to modify the device traits
@@ -2483,6 +2549,10 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
   end
   log_result(result, "makeThinningTraitsToThinningVariantsMap after AssetCatalog.eql_for_traits?")
   return result
+OS_VARIANTS_PLATFORM_VERSION = {
+  "iphoneos" => Gem::Version.new(12),
+  "watchos" => Gem::Version.new(5),
+  "appletvos" => Gem::Version.new(12),
 # Represents a platform, including its identifier, its path, its SDK path, etc.  Right now there's just one platform (iPhone OS),
 # since Mac OS X isn't supported.  But if we ever support any other platform, we want to be able to do so by merging in additional
 # directories into the Platforms directory and have it all work.
@@ -2549,6 +2619,12 @@ class Platform
   def self.platformForIdentifer (ident)
     return self.allKnownPlatforms[ident]
   end
+  # :: Gem:Version. Which OS version introduced support for OS Variants?
+  def osVariantsIntroducedInVersion()
+    result = OS_VARIANTS_PLATFORM_VERSION[identifier]
+    raise "Could not find OS Variants version for platform #{identifier}" if result.nil?
+    return result
+  end
   def initialize (platformIdent, mainPath, sdkPath)
     # Record the basic information.
     @identifier = platformIdent
@@ -2605,6 +2681,27 @@ class Platform
     rescue => exc
       EmitWarning(__LINE__, "Couldn't load device traits database for platform '#{platformIdent}' from #{deviceTraitsDBPath.to_s.shellescape}:\n#{exc.to_log_s}")
       return nil
+    end
+    # <rdar://problem/39511762> Omit unused pre-iOS 12 deployment variants
+    begin
+      minimumVersionPerProductType = {}
+      @thinningVariants.each { |variant|
+        current = variant.traits.deploymentTarget.as(Gem::Version)
+        
+        saved = minimumVersionPerProductType[variant.device.productType].optional_as(Gem::Version)
+        
+        if saved.nil? || current < saved
+          minimumVersionPerProductType[variant.device.productType] = current
+        end
+      }
+      
+      osVariantsVersion = self.osVariantsIntroducedInVersion.as(Gem::Version)
+      
+      @thinningVariants = @thinningVariants.select { |variant|
+        current = variant.traits.deploymentTarget.as(Gem::Version)
+        saved = minimumVersionPerProductType[variant.device.productType].as(Gem::Version)
+        current == saved || current >= osVariantsVersion
+      }
     end
   end
   def to_s

@@ -61,11 +61,12 @@ Accepting new private connection from client with bundle ID %{public}@
 Denying connection from bundle ID %{public}@ with pid %d as it is missing the private entitlement. Please contact the WatchConnectivity team before proceeding!
 updated IDS with list of services: %{public}@
 removing client: %{public}@ from list of clients %{public}@
+Updating other device that installed apps changed
 error: %{public}@
 called on WatchOS
-called on iOS
 %{public}@
 couldn't deserialize informationData due to %{public}@
+called on iOS
 identifier: %{public}@, isResponse: %s, clientID: %{public}@, clientPairingID: %{public}@
 error getting duet identifiers
 request: %{public}@, communicationID: %{public}@, client: %{public}@
@@ -151,6 +152,7 @@ unknown sync session identifier %{public}@
 %{public}@: delivering payload %p
 %{public}@: %{public}@
 Device Information: %{public}@
+%{public}s Updating installed apps list for request
 %{public}s Retrying initial setup
 initial set up failed. Awaiting trigger to try set up again
 complete
@@ -158,6 +160,7 @@ unpaired from all watches
 %s: %@
 iOSApplicationsContainingWatchApp: %{public}@
 iOSApplicationsWithWatchAppInstalled: %{public}@
+Installed watch app list didn't change from stored list
 isPaired: %s, pairingID: %{public}@, pairedDevicesPairingIDs: %{public}@, pairedDeviceInformation: '%{public}@'
 %s for bundleID: %{public}@
 %{public}@, numMonitored: %ld
@@ -166,6 +169,8 @@ removed %{public}@
 Notifying observers of UI state change
 no ID for bundleID %{public}@
 %{public}@ of %{public}@
+Copying voucher
+Releasing voucher
 Notifying any clients listening to reconnect
 %{public}@ downgrading Enabled topic %{public}@ to Ignored
 %{public}@ upgrading Ignored topic %{public}@ to Enabled
@@ -193,7 +198,7 @@ bundleID: %{public}@, acquired process assertion
 bundleID: %{public}@, failed to acquire process assertion
 invalidating assertion for client %{public}@
 InternalBuild
-Fri Jun 22 14:54:04 2018
+Sun Jul  1 14:30:26 2018
 com.apple.notifyd.matching
 v16@?0@"NSObject<OS_xpc_object>"8
 v8@?0
@@ -375,6 +380,8 @@ Clients:
 WCDPayloadSendTypeDaemonStarted
 _cat
 RDAR:28020134
+-[WatchConnectivityDaemon sendInstalledAppsChangedMessage]
+WCDPayloadSendTypeInstalledAppsUpdated
 WCDProtoCompanionFirstUnlockState
 WCDProtoCompanionFirstUnlockRequest
 WCDProtoCompanionFirstUnlockAck
@@ -400,6 +407,7 @@ FirstUnlockRequest
 FirstUnlockAck
 PairedSyncComplicationsStarted
 PairedSyncComplicationsStartedAck
+InstalledAppsUpdated
 UNKNOWN
 v24@?0@"NSString"8@"NSError"16
 RDAR:27304508
@@ -463,7 +471,9 @@ assertion
 T@"BKSProcessAssertion",&,N,V_assertion
 hasCommunicationID
 T@"NSString",&,N,V_communicationID
+WCDStoredInstalledWatchApps
 fake.bundleid.to.avoid.subscribing.to.all
+-[WCDSystemMonitor retryInstalledAppsUpdate]
 -[WCDSystemMonitor retrySetupInitialStateIfNeeded]
 -[WCDSystemMonitor setUpInitialState]
 v16@?0@"NSDictionary"8
@@ -532,6 +542,8 @@ deviceInformation
 T@"NSString",&,N,V_deviceInformation
 initialSetUpFailed
 TB,N,V_initialSetUpFailed
+notifyingOfInstalledAppsChange
+TB,N,V_notifyingOfInstalledAppsChange
 initialSetUpComplete
 TB,R,N,V_initialSetUpComplete
 activeDeviceConnected
@@ -688,6 +700,7 @@ systemObserverWatchAppUIStatesChanged:
 systemObserverAppDidSuspendForBundleID:
 systemObserverAppDidTerminateForBundleID:
 systemObserverProcessStateChangedForBundleID:
+systemObserverUpdatingInstalledApps
 handlLocalFirstUnlockStateChanged
 handleFirstUnlockAck:
 handleFirstUnlockState:
@@ -1026,6 +1039,7 @@ releaseCLInUseAssertionForIdentifier:
 iOSApplicationsContainingWatchApp
 allObjects
 updateSubServices:
+sendInstalledAppsChangedMessage
 watchConnectivityServiceAvailable
 numberWithDouble:
 setWithObject:
@@ -1088,6 +1102,7 @@ handleCounterpartDaemonDidStart
 handleDaemonClientsInformation:
 handlePairedSyncComplicationsStartedWithIdentifier:
 handlePairedSyncComplicationsStartedAck:identifier:
+handleInstalledAppsChangedMessage
 sendAckForMessageWithContext:
 handleIncomingFileURL:communicationID:pairingID:sendID:metadata:
 handleIncomingUserInfoURL:communicationID:pairingID:sendID:
@@ -1228,10 +1243,13 @@ resetInitialState
 setUpInitialState
 setUpApplicationStateMonitor
 startMonitoringWatchAppUIStates
+copyVoucher
+handleInstalledApplicationsChanged
 setQueuePriority:
 notifyObserversQueued:
 notifyOperationQueue
 setSuspended:
+releaseVoucher
 setCompletionBlock:
 cancelAllOperations
 monitoredBundleIDs
@@ -1251,7 +1269,6 @@ handlePairingChangedNotification:
 addObserver:selector:name:object:
 handleDeviceBecameInactiveNotification:
 handleSwitchCompletedNotification:
-handleInstalledApplicationsChanged
 handleActiveComplicationsChanged
 switchNotifiedByIDS
 handleSwitchStartedByNS
@@ -1266,6 +1283,9 @@ setIOSApplicationsContainingWatchApp:
 setIOSApplicationsWithWatchAppInstalled:
 setIOSApplicationsContainingComplications:
 setIOSApplicationsContainingActiveComplications:
+notifyObserversQueued:completion:
+loadInstalledWatchApps
+saveInstalledWatchApps:
 unsignedIntegerValue
 applicationStateStringForState:
 numberWithLong:
@@ -1278,6 +1298,7 @@ addExecutionBlock:
 setName:
 methodForSelector:
 deviceForBTDeviceID:
+retryInstalledAppsUpdate
 handleRemainingComplicationUserInfoTransfersReset
 addWatchAppBundleIDUIStateMonitoring:
 removeWatchAppBundleIDUIStateMonitoring:
@@ -1290,6 +1311,9 @@ setPairedDeviceInformation:
 setDeviceInformation:
 initialSetUpFailed
 setInitialSetUpFailed:
+notifyingOfInstalledAppsChange
+setNotifyingOfInstalledAppsChange:
+_appChangedVoucher
 _initialSetUpComplete
 _activeDeviceConnected
 _isPaired
@@ -1297,6 +1321,7 @@ _remoteFirstUnlocked
 _switchNotifiedByIDS
 _switchNotifiedByNR
 _initialSetUpFailed
+_notifyingOfInstalledAppsChange
 _pairingID
 _pairedDevicesPairingIDs
 _iOSApplicationsContainingWatchApp
@@ -1412,6 +1437,7 @@ WCDProtoFirstUnlockState
 WCDProtoDaemonClientsInformation
 WCDProtoFirstUnlockAck
 WatchConnectivity_Additions
+WCDProtoInstalledAppsChanged
 WCDPushKitManager
 APSConnectionDelegate
 WCDPKClientDelegate
@@ -1531,7 +1557,9 @@ v24@0:8@"NSSet"16
 v64@0:8@"NSDictionary"16@"NSSet"24@"NSDictionary"32@"NSSet"40@"NSDictionary"48@"NSSet"56
 I24@0:8@16
 @20@0:8I16
+@32@0:8:16@?24
 v24@0:8:16
+@"NSObject<OS_voucher>"
 @"NSDictionary"
 @"NSHashTable"
 @"BKSApplicationStateMonitor"
@@ -1549,8 +1577,7 @@ v28@0:8@"APSConnection"16B24
 v24@0:8@"APSConnection"16
 v24@0:8@"WCDPKClient"16
 @"APSConnection"
-@(#)PROGRAM:wcd  PROJECT:WatchConnectivity-168.1
-33333
+@(#)PROGRAM:wcd  PROJECT:WatchConnectivity-171
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1568,11 +1595,11 @@ v24@0:8@"WCDPKClient"16
 <key>CFBundlePackageType</key>
 <string>APPL</string>
 <key>CFBundleVersion</key>
-<string>168.1</string>
+<string>171</string>
 <key>CFBundleDisplayName</key>
 <string>wcd</string>
 <key>CFBundleShortVersionString</key>
-<string>168.1</string>
+<string>171</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>LSBackgroundOnly</key>

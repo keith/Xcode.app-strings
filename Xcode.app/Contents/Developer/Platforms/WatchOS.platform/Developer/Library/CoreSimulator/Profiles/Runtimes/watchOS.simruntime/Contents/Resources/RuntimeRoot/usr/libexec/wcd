@@ -56,6 +56,7 @@ Accepting new private connection from client with bundle ID %{public}@
 Denying connection from bundle ID %{public}@ with pid %d as it is missing the private entitlement. Please contact the WatchConnectivity team before proceeding!
 updated IDS with list of services: %{public}@
 removing client: %{public}@ from list of clients %{public}@
+Updating other device that installed apps changed
 called on WatchOS
 error: %{public}@
 for %{public}@
@@ -136,6 +137,7 @@ appContextDataSize: %ld, bundleID: %{public}@, pairingID: %{public}@
 error writing application context data to file %{public}@
 error creating application context folder %{public}@
 Device Information: %{public}@
+%{public}s Updating installed apps list for request
 %{public}s Retrying initial setup
 initial set up failed. Awaiting trigger to try set up again
 complete
@@ -153,8 +155,10 @@ Notifying observers of UI state change
 caching value %{public}@
 Using cached value %{public}@
 %{public}@ of %{public}@
+Copying voucher
+Releasing voucher
 InternalBuild
-Fri Jun 22 14:54:04 2018
+Sun Jul  1 14:30:26 2018
 com.apple.notifyd.matching
 v8@?0@"NSObject<OS_xpc_object>"4
 v4@?0
@@ -364,6 +368,7 @@ FirstUnlockRequest
 FirstUnlockAck
 PairedSyncComplicationsStarted
 PairedSyncComplicationsStartedAck
+InstalledAppsUpdated
 UNKNOWN
 v8@?0B4
 idsServiceIdentifier
@@ -404,8 +409,10 @@ SBUserNotificationDontDismissOnUnlock
 SBUserNotificationAllowLockscreenDismissalKey
 hasCommunicationID
 T@"NSString",&,N,V_communicationID
+WCDStoredInstalledWatchApps
 fake.bundleid.to.avoid.subscribing.to.all
 com.apple.wcd.watchProcessStates
+-[WCDSystemMonitor retryInstalledAppsUpdate]
 -[WCDSystemMonitor retrySetupInitialStateIfNeeded]
 -[WCDSystemMonitor setUpInitialState]
 v8@?0@"NSDictionary"4
@@ -471,6 +478,8 @@ deviceInformation
 T@"NSString",&,N,V_deviceInformation
 initialSetUpFailed
 TB,N,V_initialSetUpFailed
+notifyingOfInstalledAppsChange
+TB,N,V_notifyingOfInstalledAppsChange
 watchProcessStates
 T@"NSMutableDictionary",&,N,V_watchProcessStates
 watchProcessStatesQueue
@@ -599,6 +608,7 @@ systemObserverWatchAppUIStatesChanged:
 systemObserverAppDidSuspendForBundleID:
 systemObserverAppDidTerminateForBundleID:
 systemObserverProcessStateChangedForBundleID:
+systemObserverUpdatingInstalledApps
 handlLocalFirstUnlockStateChanged
 sendStateIfNeccessary
 handleFirstUnlockAck:
@@ -941,11 +951,13 @@ iOSApplicationsContainingWatchApp
 allObjects
 updateSubServices:
 enumerateKeysAndObjectsUsingBlock:
+sendInstalledAppsChangedMessage
 watchConnectivityServiceAvailable
 numberWithDouble:
 setInformationData:
 setWithObject:
 sendProtobuf:toDestinations:priority:options:identifier:error:
+retryInstalledAppsUpdate
 bundleIDForCommunicationID:
 insecureIDSService
 sendPairedSyncForComplicationsStartedAckWithIdentifier:success:
@@ -999,6 +1011,7 @@ handleIncomingUserInfoTransferProto:communicationID:pairingID:sendID:
 handleCounterpartDaemonDidStart
 handleDaemonClientsInformation:
 handlePairedSyncComplicationsStartedAck:identifier:
+handleInstalledAppsChangedMessage
 sendAckForMessageWithContext:
 handleIncomingFileURL:communicationID:pairingID:sendID:metadata:
 handleIncomingUserInfoURL:communicationID:pairingID:sendID:
@@ -1095,10 +1108,13 @@ resetInitialState
 setUpInitialState
 setUpApplicationStateMonitor
 startMonitoringWatchAppUIStates
+copyVoucher
+handleInstalledApplicationsChanged
 setQueuePriority:
 notifyObserversQueued:
 notifyOperationQueue
 setSuspended:
+releaseVoucher
 setCompletionBlock:
 cancelAllOperations
 monitoredBundleIDs
@@ -1115,7 +1131,6 @@ handlePairingChangedNotification:
 addObserver:selector:name:object:
 handleDeviceBecameInactiveNotification:
 handleSwitchCompletedNotification:
-handleInstalledApplicationsChanged
 switchNotifiedByIDS
 handleActiveComplicationsChanged
 handleSwitchStartedByNS
@@ -1127,6 +1142,7 @@ notifyObservers:
 setIsPaired:pairingID:pairedDeviceInformation:pairedDevicesPairingIDs:
 setCurrentInstalledApplicationsInformation:
 setIOSApplicationsContainingWatchApp:
+notifyObserversQueued:completion:
 unsignedIntegerValue
 applicationStateStringForState:
 unsignedIntValue
@@ -1148,8 +1164,11 @@ addExecutionBlock:
 setName:
 methodForSelector:
 deviceForBTDeviceID:
+setWithArray:
 handleRemainingComplicationUserInfoTransfersReset
 appInstallationIDForBundleID:
+saveInstalledWatchApps:
+loadInstalledWatchApps
 pairedDevicesPairingIDs
 setObservers:
 setMonitor:
@@ -1158,10 +1177,13 @@ setPairedDeviceInformation:
 setDeviceInformation:
 initialSetUpFailed
 setInitialSetUpFailed:
+notifyingOfInstalledAppsChange
+setNotifyingOfInstalledAppsChange:
 watchProcessStates
 setWatchProcessStates:
 watchProcessStatesQueue
 setWatchProcessStatesQueue:
+_appChangedVoucher
 _initialSetUpComplete
 _activeDeviceConnected
 _isPaired
@@ -1169,6 +1191,7 @@ _remoteFirstUnlocked
 _switchNotifiedByIDS
 _switchNotifiedByNR
 _initialSetUpFailed
+_notifyingOfInstalledAppsChange
 _pairingID
 _pairedDevicesPairingIDs
 _iOSApplicationsContainingWatchApp
@@ -1241,6 +1264,7 @@ WCDProtoFirstUnlockState
 WCDProtoDaemonClientsInformation
 WCDProtoFirstUnlockAck
 WatchConnectivity_Additions
+WCDProtoInstalledAppsChanged
 WCDProtoPairedSyncComplicationsStarted
 B12@0:4@8
 #8@0:4
@@ -1348,7 +1372,9 @@ v24@0:4B8@"NSString"12@"NSString"16@"NSSet"20
 v16@0:4@"NSDictionary"8@"NSSet"12
 I12@0:4@8
 @12@0:4I8
+@16@0:4:8@?12
 v12@0:4:8
+@"NSObject<OS_voucher>"
 @"NSSet"
 @"NSDictionary"
 @"NSHashTable"
@@ -1357,8 +1383,7 @@ v12@0:4:8
 {?="errorCode"b1"version"b1"dictionaryMessage"b1}
 {?="version"b1"firstUnlocked"b1}
 {?="version"b1"acknowledgedState"b1}
-@(#)PROGRAM:wcd  PROJECT:WatchConnectivity-168.1
-33333
+@(#)PROGRAM:wcd  PROJECT:WatchConnectivity-171
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1376,11 +1401,11 @@ v12@0:4:8
 <key>CFBundlePackageType</key>
 <string>APPL</string>
 <key>CFBundleVersion</key>
-<string>168.1</string>
+<string>171</string>
 <key>CFBundleDisplayName</key>
 <string>wcd</string>
 <key>CFBundleShortVersionString</key>
-<string>168.1</string>
+<string>171</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>LSBackgroundOnly</key>
