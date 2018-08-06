@@ -171,7 +171,6 @@ UserPresenceDetected
 #T:[%@%p] #Notice #%@ : Activate screen saver requested by %@ 
 #T:[%@%p] #Notice #%@ : Deactivate screen saver requested by %@ 
 #T:[%@%p] #Notice #%@ : Menu button event requested by %@ 
-#T:[%@%p] #Notice #%@ : Event data sent from %@ 
 Activate app if playing music after idle time:
 remote presence detection
 @"PBSUserActivityTrigger"8@?0
@@ -236,6 +235,7 @@ visibleMiniAlertCount
 audioCategoriesDisablingVolumeHUD
 T@"NSArray",R,N
 brightnessLevel
+disablesMirroring
 Display Change
 bluetoothRemoteKeepAliveTimer
 T@"NSTimer",&,N,V_bluetoothRemoteKeepAliveTimer
@@ -416,8 +416,8 @@ User requested reboot from slow update during clear prepare space.
 User requested reboot from slow update during apply.
 Ignoring manual check during cancel.
 Starting prior asset purge...
-v16@?0@"NSNumber"8
 Prior asset purge completed (purged %@ bytes).
+v16@?0@"NSNumber"8
 com.apple.MobileAsset.SoftwareUpdate
 com.apple.MobileAsset.MobileSoftwareUpdate.UpdateBrain
 Brain Server URL: %@
@@ -748,6 +748,8 @@ pendingAirPlayController
 T@"UIViewController",&,N,V_pendingAirPlayController
 presentingAirPlayWindow
 TB,N,V_presentingAirPlayWindow
+screenSaverState
+Tq,N,V_screenSaverState
 siriAssertionCheckedOut
 TB,N,V_siriAssertionCheckedOut
 dialogAssertionCheckedOut
@@ -1323,7 +1325,6 @@ _TVPreferDolbyLowLatency
 _TVInternalDebugAlwaysSaveMode
 _TVDisplayCableHistoryWindowSecondsOverride
 _TVCableErrorPollingIntervalOverride
-_TVMinimumScoreForGoodCableOverride
 _TVCableScoreOverride
 _TVDisplayCableAlertIntervalOverride
 v32@?0@8@16^B24
@@ -1470,17 +1471,16 @@ processingAssetRequest
 TB,N,VprocessingAssetRequest
 date
 cableCheckTime
-score
-%@ score: %i, cableCheckTime: %.0f, date: %@
+linkQuality
+%@ linkQuality: %i, cableCheckTime: %.0f, date: %@
 supportsSecureCoding
 TB,R
+Ti,N,V_linkQuality
 T@"NSDate",R,N,V_date
 Td,R,N,V_cableCheckTime
-Ti,R,N,V_score
--[PBDisplayManager(CableCheck) processCurrentCableInfo]
+cableStatus
 -[PBDisplayManager(CableCheck) resetCableInfoHistory]
--[PBDisplayManager(CableCheck) _actuallyStartMonitoringCable]
--[PBDisplayManager(CableCheck) _actuallyStopMonitoringCable]
+-[PBDisplayManager(CableCheck) _pollingInterval]
 customerTitleMessage
 deviceListUrl
 customerVerifyIdentityMessage
@@ -2800,7 +2800,7 @@ canHandleHighBandwidthModes
 shouldModeSwitchForDynamicRange
 shouldModeSwitchForFrameRate
 detectedPoorCableConnection
-detectedGoodCableOnLastPoll
+lastCablePollStatus
 userPreferredRefreshRate
 encodedPromotedDisplayModes
 sortedDisplayModes
@@ -2857,7 +2857,7 @@ TB,N,V_shouldModeSwitchForDynamicRange
 TB,N,V_shouldModeSwitchForFrameRate
 Tq,N,V_displayConnection
 TB,N,V_detectedPoorCableConnection
-TB,N,V_detectedGoodCableOnLastPoll
+Tq,N,V_lastCablePollStatus
 Td,N,V_userPreferredRefreshRate
 T@"NSArray",C,N,V_blackScreenRecoveryDisplayModes
 T@"NSSet",C,N,V_encodedPromotedDisplayModes
@@ -2871,10 +2871,6 @@ memoryStore
 T@"NSDictionary",&,N,V_memoryStore
 currentEDIDHash
 T@"NSString",C,N,V_currentEDIDHash
-lastModeSwitchTime
-Td,N,V_lastModeSwitchTime
-modeSwitchDeferredCableCheckTimer
-T@"NSObject<OS_dispatch_source>",&,N,V_modeSwitchDeferredCableCheckTimer
 cableCheckTimer
 T@"NSObject<OS_dispatch_source>",&,N,V_cableCheckTimer
 lastCableErrorInfo
@@ -3527,13 +3523,14 @@ wantsExclusiveForeground
 visibleMiniAlertCount
 audioCategoriesDisablingVolumeHUD
 brightnessLevel
+disablesMirroring
 client:setIdleTimerDisabled:
 hdrMode
 refreshRate
 pb_supportsHDR
 updateWallpaperWithTransitionContext:
 entitlementValueForKey:ofClass:
-performModeSwitchForRequestedDisplayModeIfNeeded:
+performModeSwitchForDisplayRequest:
 isApplicationProcess
 integerValue
 dismissBlackScreenRecoveryWindow
@@ -3555,6 +3552,7 @@ sceneManager:didCommitUpdateForScene:transactionID:success:
 sceneManager:didCommitUpdateForScene:transactionID:
 sceneManager:scene:didUpdateClientSettingsWithDiff:oldClientSettings:transitionContext:
 sceneManager:scene:didReceiveActions:
+sceneManager:hostingPolicyForDisplay:
 sceneManager:hostingPolicyForScene:
 sceneManager:createDefaultTransitionContextForScene:
 bulletinService:didDismissBulletin:withReason:
@@ -3653,6 +3651,7 @@ observers
 screenSaverManagerDidPresentScreenSaver:
 setNeedsDismissal:
 _dismissScreenSaver
+_forceDismissScreenSaver
 registerDefaultHandlerForEvent:withBlock:
 setShouldAcceptEvents:
 watchdogTimer
@@ -3662,10 +3661,14 @@ screenSaverManagerWillPresentScreenSaver:
 hideDialogWindowForClient:
 unhideDialogWindowForClient:
 presentScreenSaverWithOptions:completion:
+_notifyObserversScreenSaverWillDismiss
+_handleScreenSaverDismissalWithState:
+_notifyObserversScreenSaverDidDismiss
+dismissScreenSaverWithOptions:completion:
+forceDismissScreenSaver
+setScreenSaverViewController:
 screenSaverManagerWillDismissScreenSaver:
 screenSaverManagerDidDismissScreenSaver:
-setScreenSaverViewController:
-dismissScreenSaverWithOptions:completion:
 bounds
 drawViewHierarchyInRect:afterScreenUpdates:
 saveWallpaperForSnapshotImage:completion:
@@ -3955,6 +3958,7 @@ userConfirmedApplyAtCheckTime
 localizedDescription
 sharedProcess
 configureForAction:error:
+isInitializing
 isCheckingForUpdate
 setAssetDownloadIsDiscretionary:
 resumeAfterUpdateCheck
@@ -4276,6 +4280,8 @@ screenSaverWindow
 pendingDialogRequests
 _dialogRequestIsRemote:
 viewController
+screenSaverState
+setScreenSaverState:
 dismissRestrictionPINWindow
 endSiriSession
 _highestPriorityWindow
@@ -4283,7 +4289,7 @@ _lazyScreenSaverWindow
 checkOutScreenSaverAssertion
 rootViewController
 checkInScreenSaverAssertion
-_destroyScreenSaverWindow:
+_destroyScreenSaverWindow
 presentScreenSaverViewControllerWithOptions:completion:
 dismissScreenSaverViewControllerWithOptions:completion:
 setRootViewController:
@@ -4572,6 +4578,7 @@ _crdInstructionWindowGroup
 _siriViewController
 _siriSnapshotView
 _pendingAirPlayController
+_screenSaverState
 _recoveryIterator
 _viewController
 _timeoutInSeconds
@@ -5428,6 +5435,8 @@ pbs_enabled
 _simulatorDisabledBundleIdentifiers
 _checkApplicationIsRestricted:
 _provisioningExemptBundleIdentifiers
+disabledReasons
+unionSet:
 notifySharedAppStateDidChange
 _notifyAppStateDidChange
 sectionID
@@ -5769,7 +5778,6 @@ setDouble:forKey:
 doubleForKey:
 readCableAlertPresentationTimes
 readCableCheckCumulativeTime
-integerForKey:
 currentEDIDHash
 initWithDictionary:
 memoryStore
@@ -5805,7 +5813,6 @@ removeCableAlertPresentationTimes
 _shouldPreferDolbyVisionLowLatency
 readCableHistoryWindowOverride
 readCableErrorPollingIntervalOverride
-readMinimumScoreForGoodCableOverride
 readCableScoreOverride
 readCableAlertIntervalOverride
 failureClientInfo
@@ -5967,52 +5974,41 @@ startCatalogDownload:options:then:
 purgeSync
 descriptorForCurrentlyInstalledAssetWithCompletion:
 dateAtWhichDelayedUpdatesExpireWithCompletion:
-linkQuality
-_cableScore
-initWithDate:cableCheckTime:score:
+_linkQuality
+initWithDate:cableCheckTime:linkQuality:
 decodeObjectOfClass:forKey:
 decodeDoubleForKey:
-decodeInt32ForKey:
+decodeIntForKey:
 encodeObject:forKey:
 cableCheckTime
 encodeDouble:forKey:
-score
-encodeInt32:forKey:
+linkQuality
+encodeInt:forKey:
 setDateStyle:
 setTimeStyle:
 stringFromDate:
 currentInfoWithLastCableCheckTime:
 supportsSecureCoding
 encodeWithCoder:
-_score
+cableStatus
+setLinkQuality:
 _date
 _cableCheckTime
-_waitAndGateForMonitoringStart:
-baseCableCheckTimeInterval
-lastModeSwitchTime
-modeSwitchDeferredCableCheckTimer
-setModeSwitchDeferredCableCheckTimer:
-processCurrentCableInfo
 setBaseCableCheckTimeInterval:
-_minimumScoreForGoodCable
-setDetectedGoodCableOnLastPoll:
-detectedGoodCableOnLastPoll
-setLastCableErrorInfo:
-lastCableErrorInfo
-_historyWindowInterval
 setDetectedPoorCableConnection:
-_actuallyStopMonitoringCable
-_actuallyStartMonitoringCable
-setLastModeSwitchTime:
-_monitoringWaitTime
-displayConnection
-cableCheckTimer
-_pollingInterval
-setCableCheckTimer:
+setLastCableErrorInfo:
+_resetTimer
+_stopBackgroundMonitoring
 startMonitoringCable
+cableCheckTimer
+setCableCheckTimer:
 stopMonitoringCable
+_processCurrentCableInfo
 resetCableInfoHistory
 registerModeSwitch
+_startBackgroundMonitoring
+_pollingInterval
+_historyWindowInterval
 dataUsingEncoding:
 propertyListWithData:options:format:error:
 setURLs:
@@ -6500,6 +6496,7 @@ presentDisplayAssistantWithRequest:dismissCompletionHandler:
 dismissDisplayAssistantIfNeeded
 setLastSeenDisplayID:
 detectedPoorCableConnection
+lastCablePollStatus
 _cableAlertInterval
 disconnect
 seenDisplayIDs
@@ -7599,6 +7596,7 @@ preferredScale
 internalRepresentation
 pb_saveAsPreferred
 displayConnectionToNotify
+displayConnection
 notifyStateChangeForDisplayConnection:
 setDisplayConnectionToNotify:
 reloadState
@@ -7616,10 +7614,11 @@ update
 isMainThread
 treatDisplayModeAsFallback
 setCanHandleHighBandwidthModes:
-updateCurrentCADisplayFromDisplayMode:error:
-initWithSourceDisplayMode:destinationDisplayMode:kind:source:
+setLastCablePollStatus:
 useDisplayModeAsDefaultForNextWake
 nextEstablishModePerDisplays
+updateCurrentCADisplayFromDisplayMode:error:
+initWithSourceDisplayMode:destinationDisplayMode:kind:source:
 upgradeDisplayModeToNonVirtual
 writeDisplayModeToDisk
 setUserSelectedDisplayMode:
@@ -7657,6 +7656,7 @@ setObservingFocusedProcess:
 automaticallyNotifiesObserversForKey:
 isAdvertisingHDMI2
 filterModes:
+baseCableCheckTimeInterval
 setBlackScreenRecoveryDisplayModes:
 setNextEstablishModePerDisplays:
 setStateObservers:
@@ -7667,6 +7667,7 @@ setSeenDisplayIDs:
 setCurrentDisplayID:
 setDisplayConnection:
 setDefaults:
+lastCableErrorInfo
 setMatchContentRequestedModes:
 _filteredUsingdPineBoardPolicy
 _isPresentingDisplayAssistant
@@ -7674,7 +7675,6 @@ _canHandleHighBandwidthModes
 _shouldModeSwitchForDynamicRange
 _shouldModeSwitchForFrameRate
 _detectedPoorCableConnection
-_detectedGoodCableOnLastPoll
 _usesDolbyLowLatency
 _observingFocusedProcess
 _baseCableCheckTimeInterval
@@ -7691,13 +7691,12 @@ _userSelectedDisplayMode
 _seenDisplayIDs
 _currentDisplayID
 _displayConnection
+_lastCablePollStatus
 _userPreferredRefreshRate
 _encodedPromotedDisplayModes
 _defaults
 _memoryStore
 _currentEDIDHash
-_lastModeSwitchTime
-_modeSwitchDeferredCableCheckTimer
 _cableCheckTimer
 _lastCableErrorInfo
 _matchContentRequestedModes
@@ -7714,7 +7713,6 @@ openApplication:options:withResult:
 exitAndRelaunch:
 shutdownWithOptions:forSource:
 _foregroundScene
-disabledReasons
 scheme
 resourceSpecifier
 unionAutomaticDownloadKinds:withCompletionBlock:
@@ -8178,6 +8176,7 @@ v56@0:8@16@24@32@40@48
 q32@0:8@16@24
 v56@0:8@"FBSceneManager"16@"FBScene"24@"FBSSceneClientSettingsDiff"32@"FBSSceneClientSettings"40@"FBSSceneTransitionContext"48
 v40@0:8@"FBSceneManager"16@"FBScene"24@"NSSet"32
+q32@0:8@"FBSceneManager"16@"FBSDisplayIdentity"24
 q32@0:8@"FBSceneManager"16@"FBScene"24
 @"FBSSceneTransitionContext"32@0:8@"FBSceneManager"16@"FBScene"24
 v40@0:8@"<PBSBulletinServiceInterface>"16@"PBSBulletin"24Q32
@@ -8483,6 +8482,7 @@ v32@0:8q16q24
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 @36@0:8@16d24i32
+v20@0:8i16
 B36@0:8@16^@24B32
 @40@0:8@16@24^@32
 @24@0:8q16
@@ -8568,7 +8568,6 @@ B32@0:8Q16@24
 v36@0:8B16@20@?28
 @32@0:8@16I24i28
 B24@0:8q16
-v20@0:8i16
 @"PCSimpleTimer"
 v32@0:8@16I24i28
 @"<PBMediaRemoteObserverDelegate>"
@@ -8789,6 +8788,7 @@ setting IdleTimerDisabled to no for app '%@'
 >>> sendHIDButtonEventWithUsagePage: %u usage: %u type: %d senderID: 0x%llx to %@ (%d)
 Pre-blanking screen via BKS prior to sleep.
 Received AirPlay request to wake
+Event data sent from %{public}@, %{public}@
 Handling first boot
 Handling ATV restart
 received SnapshotRequestAction, type Perform, for scene of app %@
@@ -8846,11 +8846,16 @@ Volume Supported Changed (System Audio) to %d
 Volume Supported Changed (System Music) to %d
 Present Volume Bulletin (System Audio) with name: %{public}s volume: %f
 Present Volume Bulletin (System Music) with name: %{public}s volume: %f
+Failed to present screen saver, already in state %d
+Failed to present screen saver, window not created
 Present screen saver with options %{public}@
-Present screen saver complete
+Present screen saver complete; success=%s
 Failed to present screen saver, dismissing window
+Failed to dismiss screen saver, not currently presenting
 Dismiss screen saver with options %{public}@
 Dismiss screen saver complete
+Force dismissing screensaver
+Force dismiss screensaver complete
 Failed to mode switch for BSR: %{public}@
 Use snapshot for Siri %d
 Siri Showing Snapshot
@@ -9015,6 +9020,7 @@ Unblanking screen via BKS prior to wake.
 Scheduling restoration of normal HID event routers in %.1f sec
 Restoring normal HID event routers
 ---- ======== The background window has been made visible ======== ----
+Application '%{public}@' is not enabled, existing reasons are %{public}@)
 Application '%{public}@' is not enabled, but do not know why (%d, %ld, %{public}@)
 Setting badgeEnabled on %@ to %d
 Connected to server and requesting current section state
@@ -9070,17 +9076,8 @@ Saving in memory resolution for display %{public}@ : %{public}@
 Invalid mode %{public}@ for key: %{public}@ read from disk
 Retrying launch of %@...
 Killing %@ so that the launch test may begin
-There is no cable detected to poll info from
-%s - No displays attached, skip this cable poll
-%s - System time may have changed (ntp clock adjustments or DST changes for example), skip this cable poll
-%s - Delaying cable poll by %.0f seconds to make sure we wait longer than %.0f
-%s - Ignoring cable poll as it was just polled very recently
-%s - Ignoring this cable poll as do not have a valid cable signal result
-%s - Current cable connection is ok: %{public}@, pass score is %i
-%s - Bad cable connection detected: %{public}@, pass score is %i
 %s - Ressting cable history
-%s - Started monitoring cable with pollingInterval %.0f, minimumScoreForGoodCable %i, historyWindowInterval: %.0f
-%s - Stopped monitoring cable for pollingInterval %.0f, minimumScoreForGoodCable %i, historyWindowInterval: %.0f
+%s - Trying to set a polling override that is too low, using the min value: %.0f seconds
 #Critical #SYSTEM %{public}@: Store returned useless response
 Not starting now playing view service for %@ because now playing app is already focused
 installAppWithMetadata (service) will install app with metadata %@
@@ -9450,6 +9447,8 @@ setting app %@ scene to %sbackgrounded
 <true/>
 <key>com.apple.backboardd.launchapplications</key>
 <true/>
+<key>com.apple.bluetooth.system</key>
+<true/>
 <key>com.apple.bulletinboard.dataprovider</key>
 <true/>
 <key>com.apple.bulletinboard.observer</key>
@@ -9485,6 +9484,8 @@ setting app %@ scene to %sbackgrounded
 <key>com.apple.multitasking.termination</key>
 <true/>
 <key>com.apple.multitasking.unlimitedassertions</key>
+<true/>
+<key>com.apple.osanalytics.otatasking-service-access</key>
 <true/>
 <key>com.apple.otacrashcopier.allowSubmitDiagnosticLogPathsWithIdentifier</key>
 <true/>
