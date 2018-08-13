@@ -3663,6 +3663,7 @@ _tombstonesColumnsForEntity:
 createCleanupSQLForRelationship:existing:correlationTableTriggers:batchHistory:error:
 generateTriggerStatementsForEntity:usingRelationshipCleanupSQL:error:
 generateDeleteHistoryTriggerForEntity:error:
+setTempTableName:
 fetchRequestForObjectsToDelete
 affectedObjectIDs
 newSelectStatementWithFetchRequest:ignoreInheritance:
@@ -3671,6 +3672,9 @@ isImpossibleCondition
 setTrackChangedRowCount:
 bindIntarrays
 _cachedTriggersForEntity:
+storeIsInMemory
+_generateExternalDataRefStatementsForEntities:inRequestContext:
+setExernalDataReferenceStatements:
 _cacheTriggers:forEntity:
 generateSubselectForColumn:givenObjects:
 generateStatementForCheckingUniqueAttributesOnObjects:usingSQLCore:
@@ -3845,6 +3849,9 @@ _dropOldHistoryTrackingTablesV0
 _dropOldHistoryTrackingTablesV1
 _hasTempTableWithName:
 insertBatchDeleteChangesForTransactionID:
+exernalDataReferenceStatements
+setExternalDataReferencesToDelete:
+setFileBackedFuturesToDelete:
 generatePrimaryKeysForEntity:batch:
 prepareInsertStatementForAncillaryEntity:
 _lastInsertRowID
@@ -3891,6 +3898,8 @@ processSaveRequest:
 processUpdateRequest:withOIDs:forAttributes:
 hasHistoryTransactionWithNumber:
 processDeleteRequest:
+processExternalDataReferenceFilesDeletedByRequest:
+gatherUpdatedObjectIDs
 registerMigrationUpdateFunctionWithMigrator:
 _dropOldCloudKitTables
 _dropTableForCloudKitMetadataEntity:
@@ -4792,6 +4801,8 @@ setAffectedObjectIDs:
 _fetchRequestForObjectsToDelete
 _deleteStatements
 _fetchContext
+_externalDataReferenceTriggerStatements
+_tempTableName
 forConflictAnalysis
 notificationSourceObject
 shouldRegisterQueryGeneration
@@ -4802,6 +4813,7 @@ _useColoredLogging
 _useConcurrentFetching
 _hasHistoryTracking
 _transactionID
+_storeIsInMemory
 changeToken
 _success
 _madeChanges
@@ -4857,8 +4869,8 @@ _isSingleton
 _freeValueOnDealloc
 initWithResultType:andObject:
 updateStatement
-createFetchRequestContextForObjectsToUpdate
-createCountRequestContextForObjectsToUpdate
+createObjectIDCaptureStatements
+dropObjectIDCaptureStatements
 createDeleteTransactionsRequestContext
 createCountRequestContextForChanges
 fetchRequestContextForChanges
@@ -4988,6 +5000,7 @@ operationConfiguration
 _operationConfiguration
 fetchRequestDescribingObjectsToUpdate
 _createUpdateStatement
+createFetchRequestContextForObjectsToUpdate
 _updateStatement
 fetchRequestDescribingChanges
 _transactionFromResult:withChanges:
@@ -7486,6 +7499,12 @@ END
 (%@) %@ FROM %@ WHERE %@ = OLD.%@;
 CREATE TEMPORARY TRIGGER IF NOT EXISTS ZQ_%@_HISTORYBATCHDELETE_TRIGGER BEFORE DELETE ON %@ FOR EACH ROW BEGIN %@ END
 DROP TRIGGER IF EXISTS ZQ_%@_HISTORYBATCHDELETE_TRIGGER
+ZQ_BATCH_DELETE_MARSHALLING
+CREATE TEMPORARY TRIGGER IF NOT EXISTS ZQ_EDR_%@_%@ BEFORE DELETE ON %@ FOR EACH ROW WHEN OLD.%@ IS NOT NULL BEGIN INSERT INTO %@ VALUES (OLD.%@); END
+DROP TRIGGER ZQ_EDR_%@_%@
+CREATE TEMP TABLE ZQ_BATCH_DELETE_MARSHALLING(refToDelete)
+SELECT refToDelete FROM ZQ_BATCH_DELETE_MARSHALLING
+DROP TABLE ZQ_BATCH_DELETE_MARSHALLING
 Can't fetch source objects
 NSBatchDeleteRequest could not locate an Entity for entity name '%@'
 Model Configuration
@@ -7754,11 +7773,16 @@ ALTER TABLE %@ ADD Z%@ INTEGER;
 SELECT MAX(%@) FROM %@ WHERE %@ >= 16000
 DELETE FROM %@ WHERE Z_PK <= %@
 DELETE FROM %@ WHERE %@ <= %@
+externalRef
 unable to generate primary keys for transaction
 @"NSNumber"8@?0@"NSString"4
 unable to generate primary keys
 SELECT count(*) FROM 
 SELECT count(*) FROM %@ LIMIT 1
+TEMP_CDBATCHUPDATEOBJECTIDS
+SELECT ENTITYID, PrimeKey from TEMP_CDBATCHUPDATEOBJECTIDS
+ENTITYID
+PrimeKey
 %lld
 DELETE FROM %@ WHERE %@ IN %@
 UPDATE %@ SET Z%@ = %lld
@@ -8661,6 +8685,12 @@ fetchContext
 T@"NSSQLFetchRequestContext",R,&,N
 affectedObjectIDs
 T@"NSArray",&,N,V_deletedObjectIDs
+exernalDataReferenceStatements
+T@"NSArray",&,N,V_externalDataReferenceTriggerStatements
+tempTableName
+T@"NSString",&,N,V_tempTableName
+T@"NSArray",&,N,V_externalDataReferencesToDelete
+T@"NSArray",&,N,V_fileBackedFuturesToDelete
 API misuse: there shouldn't be a connection here
 Caught a non-object exception in the connectionManager
 *RequestContext connection may not be reset
@@ -8668,6 +8698,8 @@ sqlCore
 T@"NSSQLCore",R,N
 connection
 T@"NSSQLiteConnection",&,N,V_connection
+storeIsInMemory
+TB,R,N,V_storeIsInMemory
 transactionID
 T@"NSNumber",R,N,V_transactionID
 persistentStoreRequest
@@ -8761,10 +8793,6 @@ drop triggers during NSBatchDeleteRequest failed because %@ with userInfo %@
 rollback during NSBatchDeleteRequest failed because %@ with userInfo %@
 Unable to generate updateStatement for affected object IDs (cause unknown)
 Short-circuiting batch update: impossible condition in where clause (2)
-error: Unable to fetch affected object IDs : %@
-Unable to fetch affected affected object IDs
-Underlying issue
-Unknown
 Batch update did not affect any rows, not registering a query generation
 Persistent History Token is expired for store at %@
 Unhandled error encountered during change request %@ with userInfo %@
@@ -8956,6 +8984,10 @@ T@"CKOperationConfiguration",&,N,V_operationConfiguration
 qualityOfService
 allowsCellularAccess
 CKOperationConfiguration
+INSERT INTO TEMP_CDBATCHUPDATEOBJECTIDS (ENTITYID, PrimeKey) SELECT OLD.Z_ENT, OLD.Z_PK;
+CREATE TEMP TABLE IF NOT EXISTS TEMP_CDBATCHUPDATEOBJECTIDS (ENTITYID INTEGER, PrimeKey INTEGER)
+CREATE TEMPORARY TRIGGER IF NOT EXISTS ZQ_BATCHUPDATEOBJECTID_TRIGGER AFTER UPDATE ON %@ FOR EACH ROW BEGIN %@ END
+DROP TRIGGER IF EXISTS ZQ_BATCHUPDATEOBJECTID_TRIGGER
 T@"NSBatchUpdateRequest",R,N
 updateStatement
 T@"NSSQLiteStatement",R,N
@@ -10015,7 +10047,7 @@ B20@0:4@"NSManagedObjectModel"8@"NSPersistentStoreDescription"12^@16
 v20@0:4@"NSPersistentStoreCoordinator"8@"NSPersistentStore"12@"NSPersistentStoreDescription"16
 @333333
 41b5a6b5c6e848c462a8480cd24caef3
-@(#)PROGRAM:CoreData  PROJECT:PersistenceFramework-864.6
+@(#)PROGRAM:CoreData  PROJECT:PersistenceFramework-865
 %{public}s: %{public}s
 CoreData: %{public}s: %{public}s
 zPLR

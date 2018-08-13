@@ -232,15 +232,16 @@ replacing
 inserting new
 Allowed
 Denied
-INSERT OR REPLACE INTO access VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 'UNUSED', NULL, NULL)
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, indirect_object_identifier) VALUES (?, ?, ?, ?, ?, ?)
+UNUSED
 handle_TCCAccessCopyInformation
-SELECT client, client_type, allowed, last_used_time, csreq, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity FROM access NATURAL LEFT JOIN access_times WHERE service = ?
+SELECT client, client_type, allowed, csreq, last_modified, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity FROM access WHERE service = ?
 bundle_id
 com.apple.private.tcc.allow
 bundle
 path
 granted
-last_used
+last_modified
 code_requirement
 clients
 handle_TCCAccessSetInternal
@@ -262,7 +263,6 @@ WKAppBundleIdentifier
 v12@?0@"NSSet"4@"NSError"8
 SELECT client, client_type FROM access
 DELETE FROM access WHERE client = ? AND client_type = ?
-DELETE FROM access_times WHERE client = ? AND client_type = ?
 i4@?0
 SELECT value FROM admin WHERE key = 'sync_version'
 tccd_sync_get_version_block_invoke
@@ -289,9 +289,9 @@ com.apple.tcc.delegated-services
 allowed
 denied
 do_not_cache
-SELECT allowed, prompt_count, csreq FROM access WHERE service = ? AND client = ? AND client_type = ?
+SELECT allowed, prompt_count, csreq, strftime('%s','now') - last_modified AS age, flags FROM access WHERE service = ? AND client = ? AND client_type = ?
 preflight
-INSERT OR REPLACE INTO access VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'UNUSED', NULL, NULL)
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 com.apple.springboard
 SBParentalControlsCapabilities
 kTCCServiceAccessibility
@@ -306,8 +306,8 @@ problem_key
 REQUEST_ACCESS_INFO_SERVICE_%@
 REQUEST_ACCESS_ALLOW
 REQUEST_ACCESS_DENY
-INSERT OR REPLACE INTO access VALUES (?, ?, ?, 1, ?, ?, ?, NULL, 'UNUSED', NULL, NULL)
-INSERT OR REPLACE INTO access VALUES (?, ?, ?, 0, ?, ?, ?, NULL, 'UNUSED', NULL, NULL)
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier) VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier) VALUES (?, ?, ?, 0, ?, ?, ?, ?)
 com.apple.tcc.
 extension
 NSExtension
@@ -320,21 +320,17 @@ has_private_tcc_entitlement
 indirect_object_identifier
 indirect_object_code_requirement
 indirect_object_type
-INSERT OR REPLACE INTO access VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL)
-UNUSED
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 kTCCServiceAll
 SELECT service, client, client_type FROM access
 DELETE FROM access
-DELETE FROM access_times
 SELECT service FROM access WHERE client = ? AND client_type = ?
 SELECT client, client_type FROM access WHERE service = ?
 DELETE FROM access WHERE service = ?
-DELETE FROM access_times WHERE service = ?
 SELECT NULL FROM access WHERE service = ? AND client = ? AND client_type = ?
 DELETE FROM access WHERE service = ? AND client = ? AND client_type = ?
-DELETE FROM access_times WHERE service = ? AND client = ? AND client_type = ?
-VACUUM access; VACUUM access_times;
+VACUUM access
 TCCAccessRequest
 TCCAccessCopyInformation
 TCCAccessCopyInformationForBundle
@@ -349,18 +345,18 @@ TCCAccessSelectPolicyForExtensionWithIdentifier
 TCCAccessResetPoliciesExcept
 TCCTestInternal
 handle_TCCAccessRequest
-SELECT service, allowed, last_used_time, csreq, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity FROM access NATURAL LEFT JOIN access_times WHERE client = ? AND client_type = ?
+SELECT service, allowed, last_modified, csreq, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity FROM access WHERE client = ? AND client_type = ?
 services
 handle_TCCAccessCopyBundleIdentifiersForService
-SELECT client FROM access WHERE service = ? AND client_type = ? AND allowed != 0
+SELECT client, strftime('%s','now') - last_modified AS age FROM access WHERE service = ? AND client_type = ? AND allowed != 0
 handle_TCCAccessCopyBundleIdentifiersDisabledForService
-SELECT client FROM access WHERE service = ? AND client_type = ? AND allowed = 0
+SELECT client, strftime('%s','now') - last_modified AS age FROM access WHERE service = ? AND client_type = ? AND allowed = 0
 handle_TCCAccessSetOverride
 override
 handle_TCCAccessGetOverride
 policy
 display
-INSERT OR REPLACE INTO policies (bundle_id, uuid, display) VALUES (?, ?, ?);
+INSERT OR REPLACE INTO policies (bundle_id, uuid, display) VALUES (?, ?, ?)
 com.apple.private.tcc.policy-override
 SELECT id FROM policies WHERE bundle_id = ? AND uuid = ?
 INSERT OR REPLACE INTO active_policy VALUES (?, ?, ?)
@@ -379,7 +375,7 @@ SyncSet
 SyncMemoryPressureCritical
 SELECT DISTINCT client, client_type FROM access
 @"NSString"4@?0
--[TCCDAccessIdentity _initFromProcessStateAndBinaryPathURL:dynamicCodeRef:]
+-[TCCDAccessIdentity _initFromProcessStateAndBinaryPathURL:dynamicCodeRef:preferMostSpecificIdentifier:]
 client_type
 -[TCCDAccessIdentity initWithMessage:]
 -[TCCDAccessIdentity initWithIdentifier:type:executableURL:]
@@ -406,29 +402,32 @@ com.apple.tcc.access.changed
 com.apple.tcc.db_queue
 database error: %s (%d)
  aborting...
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 11);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT    NOT NULL,     client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     allowed        INTEGER    NOT NULL,     prompt_count    INTEGER    NOT NULL,     csreq        BLOB,     policy_id    INTEGER,     indirect_object_identifier_type        INTEGER,     indirect_object_identifier        TEXT,     indirect_object_code_identity        BLOB,     flags        INTEGER,     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_times (    service        TEXT    NOT NULL,     client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     last_used_time    INTEGER    NOT NULL,     policy_id    INTEGER,     PRIMARY KEY (service, client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 13);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     allowed        INTEGER     NOT NULL,     prompt_count   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT,     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
+DELETE FROM access_times
 DELETE FROM access WHERE service = 'kTCCServicePhotos' AND allowed = 0
 CREATE TABLE IF NOT EXISTS NEW_access (    service        TEXT    NOT NULL,     client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     allowed        INTEGER    NOT NULL,     prompt_count    INTEGER    NOT NULL,     csreq        BLOB,     policy_id    INTEGER,     PRIMARY KEY (service, client, client_type),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
 INSERT INTO NEW_access SELECT service, client, client_type, allowed, prompt_count, csreq, NULL FROM access
 DROP TABLE access
 ALTER TABLE NEW_access RENAME TO access
-CREATE TABLE IF NOT EXISTS NEW_access_times (    service        TEXT    NOT NULL,     client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     last_used_time    INTEGER    NOT NULL,     policy_id    INTEGER,     PRIMARY KEY (service, client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
-INSERT INTO NEW_access_times SELECT service, client, client_type, last_used_time, NULL FROM access_times
-DROP TABLE access_times
-ALTER TABLE NEW_access_times RENAME TO access_times
 DELETE FROM access WHERE ( service = 'kTCCServicePhotos' or service = 'kTCCServicePhotosAdd' )
 CREATE TABLE IF NOT EXISTS NEW_access (    service        TEXT    NOT NULL,     client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     allowed        INTEGER    NOT NULL,     prompt_count    INTEGER    NOT NULL,     csreq        BLOB,     policy_id    INTEGER,     indirect_object_identifier_type        INTEGER,     indirect_object_identifier        TEXT NOT NULL,     indirect_object_code_identity        BLOB,     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
-INSERT INTO NEW_access SELECT service, client, client_type, allowed, prompt_count, csreq, NULL, NULL, 'UNUSED', NULL FROM access
+INSERT INTO NEW_access SELECT service, client, client_type, allowed, prompt_count, csreq, policy_id, NULL, 'UNUSED', NULL FROM access
 ALTER TABLE access ADD COLUMN flags INTEGER
 duplicate column name: flags
-UPDATE admin SET value = 11 WHERE key = 'version'
+DROP TABLE access_times
+CREATE TABLE IF NOT EXISTS NEW_access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     allowed        INTEGER     NOT NULL,     prompt_count   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
+INSERT INTO NEW_access SELECT service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, CAST(strftime('%s','now') AS INTEGER) FROM access
+UPDATE admin SET value = 13 WHERE key = 'version'
 COMMIT
 BEGIN
 HOME
 %s/%s
+_db_eval
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/TCC_executables_Sim/TCC-221.200.77/tccd/libTCCD/TCCDDatabase.m
+sql != NULL
 %s/TCC.db
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
@@ -473,10 +472,16 @@ B12@?0r*4@"NSObject<OS_xpc_object>"8
 missing target audit token
 invalid size for target audit token
 Invalid Service Name: %s
+-[TCCDServer purgeExpiredAccessEntriesForService:]
+DELETE FROM access WHERE service = ? AND strftime('%s','now') - last_modified > ?
+SELECT changes()
+-[TCCDServer purgeExpiredAccessEntriesForService:]_block_invoke
+-[TCCDServer isAccessEntryWithAge:expiredForService:]
 IsTCCManager
 ServiceAllowsUnrestrictedCheck
 IsRoot
 IsRequestor
+SELECT allowed, prompt_count, csreq, strftime('%s','now') - last_modified AS age FROM access WHERE service = ? AND client = ? AND client_type = ?
 Composing Service: %@ is not valid on this platform.
 -[TCCDServer evaluateService:isComposedBy:forAccessSubject:authorizationResult:subjectCodeIdentityDataResult:]
 Valid
@@ -576,8 +581,8 @@ isAccessAllowedByDefault
 TB,V_isAccessAllowedByDefault
 shouldAllowUnrestrictedCheckAuditToken
 TB,V_shouldAllowUnrestrictedCheckAuditToken
-hasParnoidSecurityPolicy
-TB,V_hasParnoidSecurityPolicy
+hasParanoidSecurityPolicy
+TB,V_hasParanoidSecurityPolicy
 hasAdditionalPromptText
 TB,V_hasAdditionalPromptText
 sandboxOperationForDelegation
@@ -586,6 +591,8 @@ defaultAllowedIdentifiersList
 T@"NSArray",&,V_defaultAllowedIdentifiersList
 doNotStoreDefaultAllowAccess
 TB,V_doNotStoreDefaultAllowAccess
+expirySeconds
+T@"NSNumber",&,V_expirySeconds
 ios_minimumSDKVersionNumber
 T@"NSNumber",&,V_ios_minimumSDKVersionNumber
 macos_minimumSDKVersionNumber
@@ -980,6 +987,7 @@ serviceFromMessage:error:
 buildErrorString:forError:contextString:
 logHandle
 name
+isAccessEntryWithAge:expiredForService:
 stringWithUTF8String:
 applicationProxyForIdentifier:placeholder:
 bundleURL
@@ -991,6 +999,7 @@ makeError:withCode:infoText:
 isAccessAllowedByDefault
 evaluateAccessToService:defaultAccessAllowed:by:checkCodeRequirements:authorizationResult:subjectCodeIdentityDataResult:
 client_type
+currentPlatform
 arrayWithObjects:count:
 defaultHost
 attributes
@@ -998,16 +1007,18 @@ discoverPlugInsForAttributes:flags:found:
 setSet:
 intersectSet:
 setLogHandle:
-currentPlatform
 setPlatform:
 setAllowsInternalSecurityPolicies:
+purgeAllExpiredAccessEntries
 mainRunLoop
 shouldAllowUnrestrictedCheckAuditToken
-initWithPid:accessorToken:
+hasParanoidSecurityPolicy
+initWithPid:accessorToken:preferMostSpecificIdentifier:
 sandboxOperationForDelegation
 defaultAllowedIdentifiersList
 doNotStoreDefaultAllowAccess
 policy_id
+scheduleAccessEntryExpiryCheckForService:
 resetStandardUserDefaults
 standardUserDefaults
 persistentDomainForName:
@@ -1049,7 +1060,7 @@ appBundleURLContainingExecutableURL:
 bundleURLContainingExecutableURL:
 _makeDisplayNameBlockForURL:
 fileURLWithPath:
-_initFromProcessStateAndBinaryPathURL:dynamicCodeRef:
+_initFromProcessStateAndBinaryPathURL:dynamicCodeRef:preferMostSpecificIdentifier:
 requestingProcess
 responsibleProcess
 accessingProcess
@@ -1058,7 +1069,7 @@ responsiblePath
 bundleForAppWithBundleIdentifier:
 executablePath
 bundlePath
-initWithAttributionChain:
+initWithAttributionChain:preferMostSpecificIdentifier:
 initWithIdentifier:type:executableURL:
 attributionPath
 is_wk2_proxy
@@ -1080,6 +1091,10 @@ errorWithDomain:code:userInfo:
 stringFromErrorCode:
 appendString:
 boolValueForEntitlement:
+expirySeconds
+intValue
+purgeExpiredAccessEntriesForService:
+integerValue
 arrayValueForEntitlement:
 accessingProcessSpecified
 canProcess:manageService:
@@ -1121,18 +1136,18 @@ setShouldUseADefaultDescriptionString:
 setDefaultAllowedIdentifiersList:
 setShouldAllowUnrestrictedCheckAuditToken:
 setMacos_shouldIgnoreCodeRequirementWhitelist:
-setHasParnoidSecurityPolicy:
+setHasParanoidSecurityPolicy:
 setMacos_isPerSystem:
 setMacos_isComposedWithServiceName:
 setMacos_isComposedByServiceName:
 setDoNotStoreDefaultAllowAccess:
+setExpirySeconds:
 setMacos_hasIndirectObject:
 setMacos_shouldAllowSameTeam:
 setName:
 setValidOnPlatformNames:
 serviceAll
 disallowedOnPlatformSubtypeNameList
-hasParnoidSecurityPolicy
 ios_watchKitUserNotificationNumber
 setIos_watchKitUserNotificationNumber:
 macos_minimumSDKVersionNumber
@@ -1148,7 +1163,7 @@ _isRevocable
 _shouldDisableAlert
 _isAccessAllowedByDefault
 _shouldAllowUnrestrictedCheckAuditToken
-_hasParnoidSecurityPolicy
+_hasParanoidSecurityPolicy
 _hasAdditionalPromptText
 _doNotStoreDefaultAllowAccess
 _macos_shouldIgnoreCodeRequirementWhitelist
@@ -1161,6 +1176,7 @@ _secondaryUsageDescriptionKeyName
 _disallowedOnPlatformSubtypeNameList
 _sandboxOperationForDelegation
 _defaultAllowedIdentifiersList
+_expirySeconds
 _ios_watchKitUserNotificationNumber
 _ios_minimumSDKVersionNumber
 _macos_minimumSDKVersionNumber
@@ -1336,8 +1352,8 @@ v16@0:4Q8
 @"NSMapTable"
 @"NSMutableArray"
 @"NSObject<OS_os_transaction>"
-B16@0:4@8^v12
-@44@0:4i8{?=[8I]}12
+B20@0:4@8^v12B16
+@48@0:4i8{?=[8I]}12B44
 @16@0:4@8B12
 @20@0:4@8i12@16
 {?=[8I]}8@0:4
@@ -1349,6 +1365,7 @@ v20@0:4^@8i12@16
 B20@0:4^{?=[8I]}8@12^@16
 B16@0:4@8@12
 @16@0:4@8^@12
+B16@0:4i8@12
 v32@0:4@8@12@16Q20^Q28
 B24@0:4@8@12^Q16^@20
 B32@0:4@8B12@16B20^Q24^@28
@@ -1568,6 +1585,11 @@ Prompting for access to %{public}@ from %{public}s
 Using Localizable-D22 strings table
 Failure to construct localized request string for service %{public}@ and client %{public}s[%d]
 Refusing %{public}s for service %{public}@ and client %{public}s[%d] without %{public}@ key
+Failed to initialize notification_dictionary; service %{public}@ and client %{public}@
+Failed CFUserNotificationCreate(): status %d; service %{public}@ and client %{public}@
+Failed CFUserNotificationReceiveResponse(); service %{public}@ and client %{public}@
+UserNotification response: 0x%lx; service %{public}@ and client %{public}@
+Unhandled UserNotification response: 0x%lx; denying service %{public}@ and client %{public}@
 %s: Sending potential syncAccessUpdate for: %@, %@
 SecTaskCopyValueForEntitlement(%p, %{public}@) for %{public}@:  %{public}@
 Entitlement check for (%p, %{public}@) for %{public}@): contains ComposedByService: %{public}@
@@ -1639,14 +1661,19 @@ Failed to post com.apple.tcc.access.changed notification (%u)
 %{public}s%s
 using database version: %d
 Ignoring duplicate 'flags' column for version 10.
-Upgrading database from version %d to %s
-Downgrading database from version %d to %s
+Upgrading database from version %d to %d
+Downgrading database from version %d to %d
 Failed to remove old database
 Closing database.
+%{public}s failed
+sqlite3_expanded_sql failed on %{public}s
 Failed to create %{public}s (%d)
 Failed to open database: %{public}s
 using database: %{public}s
 Looking for boolean preference value: %{public}@
+%{public}s: invoked for %{public}@
+%{public}s: purged %d expired access records
+%{public}s for %{public}@: age = %d
 Entitlement check for (%{public}@, %{public}@) for %{public}@): contains ComposedByService: %{public}@
 WARNING: allowing root %{public}@ to check entitlments without being a TCC manager.
 Request message contains a target_token to accessing_process (%{public}@) but %{public}@ is not a TCC manager for service: %{public}@.
