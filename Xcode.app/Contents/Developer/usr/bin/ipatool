@@ -314,6 +314,8 @@ CPUArchitecture = Struct.new(
     return self.all.find{|a| a.name == arch } || (raise "Unknown arch #{arch}")
   end
 CPU_ARCHITECTURE_ALL =
+   CPUArchitecture.new("arm64e",  %w(arm64e), %w(arm64e arm64)),
+   CPUArchitecture.new("arm64_32", %w(arm64_32), %w(arm64_32)),
    CPUArchitecture.new("arm64",  %w(arm64), %w(arm64 armv7s armv7)),
    CPUArchitecture.new("armv7s", %w(armv7s armv7), %w(armv7s armv7)),
    CPUArchitecture.new("armv7k", %w(armv7k), %w(armv7k)),
@@ -393,6 +395,7 @@ OPTIONS.thinDevices = []
 OPTIONS.skipThinDevices = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
+OPTIONS.translateWatchOS = true
 OPTIONS.validateOutput = false
 OPTIONS.validateOutputZeroVariants = nil
 OPTIONS.bitcodeOptions = []
@@ -415,6 +418,10 @@ OptionParser.new do |opts|
           "If thinning is also enabled, the Bitcode won't be in any thinned IPAs") \
   do |v|
     OPTIONS.compileBitcode = v
+  end
+  opts.on("--[no-]translate-watchos") \
+  do |v|
+    OPTIONS.translateWatchOS = v
   end
   opts.on("--create-thinned=DEVICE", String,
           "Create thinned IPAs for devices with the given identifier",
@@ -903,6 +910,8 @@ class FSMachOFileNode < FSFileNode
     thinArch = nil
     if thinningContext.traits && self.shouldThin
       thinArch = thinningContext.traits.preferredArch
+    elsif self.platform.identifier == "watchos" && thinningContext.mainTraits && !thinningContext.mainTraits.supportsEmbeddedUniversalWatchApp
+      thinArch = "armv7k"
     end
     
     if thinArch
@@ -946,9 +955,28 @@ class FSAssetCatalogFileNode < FSFileNode
       super(dstPath, thinningContext, level)
     end
   end
+  def mayHaveCarPlayAssets
+    if not defined? @mayHaveCarPlayAssets
+      @mayHaveCarPlayAssets = lambda {
+        begin
+          output = CmdSpec.new(locate_tool("assetutil", [self.enclosingBundle.platform.toolsPath]), ["-I", path]).run(0, 0, true)
+          data = JSON.parse(output)
+          data.assert_array_of(Hash)
+          return data.any? { |entry| entry["Idiom"] == "car" }
+        rescue => exc
+          # If something goes wrong here, we need to conservatively assume it may have CarPlay assets
+          EmitWarning(__LINE__, "Failed to determine if asset catalog has CarPlay assets, assuming it does.\n#{exc.to_log_s}")
+          return true
+        end
+      }.call
+    end
+    return @mayHaveCarPlayAssets
+  end
   # Would traits a and b produce the same output when they thin this AssetCatalog? A return value of true is conclusive, whereas false is not. It would be too expensive to compute a conclusive no.
   def eql_for_traits?(a, b, level = 0)
     # - graphicsclassfallbacks and hostedidioms should not be passed to -T
+    return false if a.artworkHostedIdioms != b.artworkHostedIdioms && mayHaveCarPlayAssets
+    
     a_arg = a.to_assetutil_T_string
     b_arg = b.to_assetutil_T_string
     return true if a_arg == b_arg
@@ -1077,7 +1105,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningContext.traits and thinningContext.traits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove ).freeze
+      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove  , thinningContext.traits.supportsEmbeddedUniversalWatchApp ).freeze
       thinningContext = ThinningContext.new(traits, traits, thinningContext.variants)
       puts "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" if OPTIONS.verbosity >= 2
     end
@@ -1603,6 +1631,9 @@ def ValidateOutputIPA (srcIPA, outputIPA, options)
       
       for image in machO.machoImages
         correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == image.arch }
+        if correspondingInputImage.nil? && options.translateWatchOS
+          correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == "armv7k" && image.arch == "arm64_32" }
+        end
         assert(correspondingInputImage, "Couldn't find image for #{image.arch} among #{correspondingInputMachO.machoImages.map{|i|i.arch}}")
         
         if correspondingInputImage.shouldCompileBitcode(options)
@@ -1814,8 +1845,22 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
       machoImageOutputPath = machoImage.thinnedOutputPath(ipa, options)
       machoImageOutputPath.parent.mkpath()
       shouldCompileBitcode = nil
+      # Some Watch apps are missing bitcode in their payload Swift libs, but do have bitcode in the archive's SwiftSupport
+      if options.compileBitcode && !machoImage.hasBitcode && bundle.isWatchKitStubApp && machoFile.platform.identifier == "watchos" && machoFile.isSwiftRuntimeDylib
+        replacementFile = ipa.path + "SwiftSupport" + "watchos" + machoFile.path.basename
+        EmitFatalIPAPayloadValidationError("missing bitcode in #{machoFile.path.to_s.shellescape} : #{machoImage.arch} and no replacement found in SwiftSupport in #{replacementFile.to_s.shellescape}") unless File.exist?(replacementFile.to_s)
+        
+        replacementMachoFile = MakeFileSystemNode(replacementFile, nil, nil, nil).as(FSMachOFileNode, replacementFile.to_s)
+        replacementMachoImage = replacementMachoFile.machoImages.detect { |i| i.arch == machoImage.arch }
+        EmitFatalIPAPayloadValidationError("missing bitcode in both #{machoFile.path.to_s.shellescape} : #{machoImage.arch} and #{replacementMachoFile.path.to_s.shellescape} (missing arch)") unless replacementMachoImage
+        EmitFatalIPAPayloadValidationError("missing bitcode in both #{machoFile.path.to_s.shellescape} : #{machoImage.arch} and #{replacementMachoFile.path.to_s.shellescape} : #{replacementMachoImage.arch}") unless replacementMachoImage.hasBitcode
+        
+        replacementMachoImage.thinToPath(machoImageInputPath, level)
+        shouldCompileBitcode = true
+      else
         machoImage.thinToPath(machoImageInputPath, level)
         shouldCompileBitcode = machoImage.shouldCompileBitcode(options)
+      end
       
       # What we do next depends on whether or not the Mach-O has bitcode.
       if shouldCompileBitcode
@@ -1867,11 +1912,14 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
     # We have already copied bitcode-less executables into a single per-architecture directory, so the bitcode
     # compiler will be able to find them.
     archsToCompile = if options.compileBitcode then bundle.bitcodeCompilationRootMachO.machoImages.select{|i| i.hasBitcode}.map{|i| i.arch} else [] end
+    if options.compileBitcode && options.translateWatchOS && archsToCompile == ["armv7k"] && bundle.platform.identifier == "watchos"
+      archsToCompile << "arm64_32"
+    end
     
     for arch in archsToCompile
       # Get the list of Mach-O images that match the current architecture.
       puts "  #{"|  " * level}Compiling bitcode for #{arch}..." if options.verbosity >= 1
-      remainingMachoImagesForArch = machoImagesToCompile.select{ |img| img.arch == arch }
+      remainingMachoImagesForArch = machoImagesToCompile.select{ |img| img.arch == arch }.nil_if_empty || machoImagesToCompile.select{ |img| img.arch == "armv7k" && arch == "arm64_32" }
       # Find the first Mach-O image that doesn't link against any Mach-O images that we still need to compile.
       while not remainingMachoImagesForArch.empty?
         # We still have Mach-O images to compile, so we need to find the next one whose dependencies have all
@@ -1896,6 +1944,7 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
           # Determine the name of the dSYM file we want.  Initially we don't know its UUID, so we pass in a fixed name, and then we'll rename it once it's been created.
           dsymFile = Pathname(machoImageOutputPath.to_s + ".dSYM")
           
+          translating_watch = machoImage.arch == "armv7k" && arch == "arm64_32"
           # Invoke the bitcode-build-tool(1) tool to compile and link the bitcode in the thin Mach-O file.
           begin
             cmdln  = []
@@ -1912,6 +1961,9 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
             end
             if ipa.stripSwiftSymbols
               cmdln += [ "--strip-swift-symbols" ]
+            end
+            if translating_watch
+              cmdln += [ "--translate-watchos" ]
             end
             cmdln += [ machoImage.thinnedInputPath(ipa, options) ]
             CmdSpec.new(locate_tool("bitcode-build-tool", [machoImage.platform.toolsPath]), cmdln).run(level)
@@ -1980,6 +2032,26 @@ def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = 
       univMachoFilePath.parent.mkpath()
       # :: [[arch, path]]
       inputs = machoFile.machoImages.map { |img| [img.arch, img.thinnedOutputPath(ipa, options)] }
+      if options.compileBitcode && options.translateWatchOS && machoFile.enclosingBundle.platform.identifier == "watchos" && inputs.count == 1 && inputs[0][0] == "armv7k"
+        if machoFile.enclosingBundle.isWatchKitStubApp && (machoFile.enclosingBundle.mainMachoFile == machoFile || machoFile.path.relative_path_from(machoFile.enclosingBundle.path) == Pathname("_WatchKitStub/WK"))
+          sdkStubPath = machoFile.enclosingBundle.platform.sdkPath + "Library/Application Support/WatchKit/WK"
+          
+          archs = ["armv7k", "arm64_32"]
+          stubImgs = (GetMachOImagesFromOToolInfoForFile(sdkStubPath) || []).select { |i| archs.include?(i.arch) }
+          raise "Couldn't find #{archs} in #{sdkStubPath.to_s}" if stubImgs.count != archs.count
+          
+          # this has the side-effect of updating the machoFile parent pointer on each image, and we need that to call thinToPath
+          FSMachOFileNode.new(sdkStubPath, nil, stubImgs)
+          
+          inputs = stubImgs.collect {|stubImg|
+            thinnedStubPath = options.tmpDir + "WK_AST_stub_#{stubImg.arch}"
+            stubImg.thinToPath(thinnedStubPath, level+1)
+            [stubImg.arch, thinnedStubPath]
+          }
+        else
+          inputs << ["arm64_32", machoFile.machoImages[0].thinnedOutputPath(ipa, options, "arm64_32")]
+        end
+      end
       
       if inputs.count == 1
         # We have only a single Mach-O image, so we just copy the thin file instead of creating a universal Mach-O with a single image.
@@ -2189,6 +2261,7 @@ def ProcessIPA (ipaDir, options)
   end
 class ThinningTraits
   attr_accessor :deploymentTarget # :: Gem::Version (min OS version)
+  attr_accessor :passDeploymentTargetToAssetutil # :: Bool
   attr_accessor :preferredArch
   attr_accessor :artworkDevIdiom
   attr_accessor :artworkHostedIdioms
@@ -2200,9 +2273,11 @@ class ThinningTraits
   attr_accessor :gfxFeatureSetClass
   attr_accessor :gfxFeatureSetFallbacks
   attr_accessor :featuresToRemove
-  def initialize (deploymentTarget, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove )
+  attr_accessor :supportsEmbeddedUniversalWatchApp
+  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove , supportsEmbeddedUniversalWatchApp )
     deploymentTarget.assert_kind_of(Gem::Version)
     @deploymentTarget = deploymentTarget
+    @passDeploymentTargetToAssetutil = passDeploymentTargetToAssetutil
     
     @preferredArch = preferredArch
     @artworkDevIdiom = artworkDevIdiom
@@ -2215,6 +2290,7 @@ class ThinningTraits
     @gfxFeatureSetClass = gfxFeatureSetClass
     @gfxFeatureSetFallbacks = gfxFeatureSetFallbacks
     @featuresToRemove = featuresToRemove
+    @supportsEmbeddedUniversalWatchApp = supportsEmbeddedUniversalWatchApp
   end
   def artworkDynamicDisplayMode_1080pSDR
     return "1080pSDR"
@@ -2244,6 +2320,7 @@ class ThinningTraits
   def to_dict
     return {
       deploymentTarget: deploymentTarget,
+      passDeploymentTargetToAssetutil: passDeploymentTargetToAssetutil,
       architecture: preferredArch,
       artworkDevIdiom: artworkDevIdiom,
       artworkHostedIdioms: artworkHostedIdioms,
@@ -2255,17 +2332,22 @@ class ThinningTraits
       gfxFeatureSetClass: gfxFeatureSetClass,
       gfxFeatureSetFallbacks: gfxFeatureSetFallbacks,
       featuresToRemove: featuresToRemove,
+      supportsEmbeddedUniversalWatchApp: supportsEmbeddedUniversalWatchApp,
     }.reject { |k, v| v.nil? }
   end
   # [(assetutilFlagName: String, traitsPropertyName: Symbol, traitsPropertyValueTransformer: Any -> String)]
   # How do you translate a device traits object for use with assetutil? You need to know which traits correspond to which assetutil flags and how to convert their values to assetutil's representation. This specifies that with a list of triples: the assetutil flag name, the corresponding ThinningTraits property name, and the function needed to convert the property value into a string to be used as an assetutil argument.
-  def self.assetutil_translation_map
+  def assetutil_translation_map
     id = Proc.new { |value| value.to_s }
     join_colon = Proc.new { |value| value.join(':') }
     join_comma = Proc.new { |value| value.join(',') }
+    deploymentTargetTranslation = []
+    if passDeploymentTargetToAssetutil
+      deploymentTargetTranslation = [["deployment-target", :deploymentTarget, id]]
+    end
     
-    return [
-            ["deployment-target", :deploymentTarget, id],
+    return deploymentTargetTranslation +
+           [
             ["scale", :artworkScaleFactor, id],
             ["idiom", :artworkDevIdiom, id],
             ["subtype", :artworkDevSubtype, id],
@@ -2296,11 +2378,11 @@ class ThinningTraits
   end
   # Return a copy of self where traits which affect assetutil have been taken from `other`
   def take_assetutil_traits(other)
-    return ThinningTraits.new(other.deploymentTarget, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove).freeze
+    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedUniversalWatchApp).freeze
   end
   # { assetutilFlag: String => assetutilValue: String ]
   def to_assetutil_dict
-    return self.class.assetutil_translation_map.map{|flag,sym,transformer|
+    return assetutil_translation_map.map{|flag,sym,transformer|
       raw_value = self.send(sym)
       next unless raw_value
       
@@ -2433,8 +2515,10 @@ def bestTraitsForBundle(bundle, traits, device)
       bestArtworkDisplayGamut = "all"
     end
   end
+  # If there's no watch content, we can collapse this trait
+  supportsEmbeddedUniversalWatchApp = traits.supportsEmbeddedUniversalWatchApp && bundle.nestedBundles.any? { |b| b.isWatchKitStubApp || b.isWatchKitAppExtension }
   # If we get this far, we create a (possibly downshifted)
-  return ThinningTraits.new(traits.deploymentTarget, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove).freeze, nil
+  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedUniversalWatchApp).freeze, nil
 # :: [ThinningTraits: [ThinningVariant]]
 def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices, ipa)
   # We ask the bundle to figure out the supported platform; we are unable to proceed if we can't determine it.
@@ -2454,7 +2538,7 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
   # First we check if the device is even selected by the input options; if it isn't, we skip to the next one.
   candidates = platform.thinningVariants.select { |v|
     ThinningVariantCLISpec.any_matches(thinDevices, v)
-  # If we have variants for 9, 10, 11, ... and the app is 10.2, we want to discard 9
+  # For example: if we have variants for 9, 10, 11, 12, ... and the app is 10.2, we want to discard 9 (too low for deployment target) and 11 (because we can't vend specific OS variants to pre-iOS 12 devices). This is defined by OS_VARIANTS_PLATFORM_VERSION.
   perProductTypeCandidates = {}
   for c in candidates
     (perProductTypeCandidates[c.device.productType] ||= []) << c
@@ -2466,7 +2550,11 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
     
     cs2 = cs
     if topVariantLowerThanApp
-      cs2 = cs.select { |c| c.traits.deploymentTarget >= topVariantLowerThanApp.traits.deploymentTarget }
+      # Remove variants below topVariantLowerThanApp
+      cs2 = cs2.reject { |c| c.traits.deploymentTarget < topVariantLowerThanApp.traits.deploymentTarget }
+      
+      # Remove variants between topVariantLowerThanApp and osVariantsIntroducedInVersion
+      cs2 = cs2.reject { |c| topVariantLowerThanApp.traits.deploymentTarget < c.traits.deploymentTarget && c.traits.deploymentTarget < platform.osVariantsIntroducedInVersion }
     end
     
     candidates += cs2
@@ -2635,8 +2723,9 @@ class Platform
     deviceTraitsDBPath = mainPath + "usr" + "standalone" + "device_traits.db"
     begin
       SQLite3::Database.new(deviceTraitsDBPath.to_s, { readonly: true , results_as_hash: true } ) do |db|
-        deviceTraitsByID = {} # :: [String: Row]
+        deviceTraitsByID = {} # :: [Int: Row]
         devicesByTarget = {} # :: [String: DeviceType]
+        deviceTraitsIDByTarget = {} # :: [String: Int]
         @thinningVariants = [] # :: [ThinningVariant]
         
         # Load the traits
@@ -2651,17 +2740,28 @@ class Platform
           productType = row['ProductType']
           displayName = row['ProductDescription']
           devicesByTarget[target] = DeviceType.new(target, productType, displayName).freeze
+          deviceTraitsIDByTarget[target] = row['DeviceTraitSet']
         end
         
         # [ThinningVariant]
         db.execute("select * from DeploymentVariant") do |row|
           # rdar://38568729
           deploymentTarget = Gem::Version.new(row['DeploymentTarget'].split('.')[0])
+          target = row['DeviceTarget']
+          device = devicesByTarget[target]
           
-          device = devicesByTarget[row['DeviceTarget']]
+          traitsRow = nil
+          passDeploymentTargetToAssetutil = nil
+          if deploymentTarget < osVariantsIntroducedInVersion
+            traitsRow = deviceTraitsByID[deviceTraitsIDByTarget[target]]
+            passDeploymentTargetToAssetutil = false
+          else
+            traitsRow = deviceTraitsByID[row['DeviceTraitSet']]
+            passDeploymentTargetToAssetutil = true
+          end
           
-          traitsRow = deviceTraitsByID[row['DeviceTraitSet']]
           traits = ThinningTraits.new(deploymentTarget,
+                                      passDeploymentTargetToAssetutil,
                                       traitsRow['PreferredArchitecture'],
                                       traitsRow['ArtworkDeviceIdiom'],
                                       (traitsRow['ArtworkHostedIdioms'] || "").split(","),
@@ -2672,7 +2772,8 @@ class Platform
                                       traitsRow['DevicePerformanceMemoryClass'],
                                       traitsRow['GraphicsFeatureSetClass'],
                                       (traitsRow['GraphicsFeatureSetFallbacks'] || "").split(":"),
-                                      (traitsRow['FeaturesToRemove'] || "").split(":")
+                                      (traitsRow['FeaturesToRemove'] || "").split(":"),
+                                    (traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget >= Gem::Version.new("12"))
                                     ).freeze
         
         @thinningVariants << ThinningVariant.new(device, traits).freeze
@@ -2682,28 +2783,6 @@ class Platform
       EmitWarning(__LINE__, "Couldn't load device traits database for platform '#{platformIdent}' from #{deviceTraitsDBPath.to_s.shellescape}:\n#{exc.to_log_s}")
       return nil
     end
-    # <rdar://problem/39511762> Omit unused pre-iOS 12 deployment variants
-    begin
-      minimumVersionPerProductType = {}
-      @thinningVariants.each { |variant|
-        current = variant.traits.deploymentTarget.as(Gem::Version)
-        
-        saved = minimumVersionPerProductType[variant.device.productType].optional_as(Gem::Version)
-        
-        if saved.nil? || current < saved
-          minimumVersionPerProductType[variant.device.productType] = current
-        end
-      }
-      
-      osVariantsVersion = self.osVariantsIntroducedInVersion.as(Gem::Version)
-      
-      @thinningVariants = @thinningVariants.select { |variant|
-        current = variant.traits.deploymentTarget.as(Gem::Version)
-        saved = minimumVersionPerProductType[variant.device.productType].as(Gem::Version)
-        current == saved || current >= osVariantsVersion
-      }
-    end
-  end
   def to_s
     return identifier
   end
