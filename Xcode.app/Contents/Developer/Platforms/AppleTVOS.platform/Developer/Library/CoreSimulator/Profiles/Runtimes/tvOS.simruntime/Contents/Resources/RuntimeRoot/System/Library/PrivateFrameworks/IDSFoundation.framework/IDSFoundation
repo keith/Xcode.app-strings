@@ -186,11 +186,13 @@ wantsUserAgentInHeaders
 _wantsDeliveryStatus
 _deliveryStatusContext
 _version
-initWithGroupUUID:participantIdentifier:isKnown:participantURI:
+initWithGroupUUID:participantIdentifier:isKnown:participantURI:pushToken:
 participantURI
 isKnown
+participantPushToken
 _participantURI
 _isKnown
+_participantPushToken
 setWithObjects:
 decodeObjectOfClasses:forKey:
 initWithDestinations:
@@ -518,6 +520,8 @@ _sendStunMessage:sourceIfIndex:source:destination:stunTransport:token:
 setPrefix:
 synthesizeNat64WithPrefix
 candidatePairToken
+remote
+_addCandidate:isRemoteCandidate:
 setPropertiesWithRelaySessionInfo:sessionInfoDict:enableSKE:
 sendInfoRequest:
 _sendAllocbindRequest:stunMessage:isRealloc:
@@ -529,7 +533,6 @@ _removePacketNotificationFilter
 _handleDisconnectTimer
 _sendSessionDisconnectedCommand
 _startDisconnectTimer
-remote
 external
 channelNumber
 setIsActive:
@@ -701,7 +704,6 @@ hasNATIPv4External
 _startStunCheck:
 isLinkLocalStunCandidate
 selfAllocateStartTime
-_addCandidate:isRemoteCandidate:
 _addStunCheckPair:isRemoteCandidate:
 IPVersion
 _IsExtIPDiscoveryNeeded:candidatePairList:
@@ -1967,6 +1969,28 @@ initWithUnencryptedPayloadMessageSize:encryptedPayloadMessageSize:maxMessageSize
 _unencryptedPayloadMessageSize
 _encryptedPayloadMessageSize
 _maxMessageSize
+initWithTime:count:
+time
+_time
+_count
+encryption
+cleanupExpiredItems
+cacheMap
+limit
+_unlockedDescription
+timeLimit
+initWithLimit:timeLimit:
+underLimitForItem:
+noteItem:
+setLimit:
+setTimeLimit:
+setCacheMap:
+readWriteLock
+setReadWriteLock:
+_cacheMap
+_readWriteLock
+_timeLimit
+_limit
 unsignedLongValue
 _tokenToConnectionData
 _tokenToDeliveryStatus
@@ -2567,6 +2591,8 @@ IDSRemoteURLConnection
 IDSWRMMetricContainer
 IDSWRMExchange
 IDSEncryptedMessageSizeMetric
+IDSNegativeInfo
+IDSNegativeTTLCache
 IDSStunConnectionDataController
 IDSInterfaceAddress
 IDSStunCandidatePair
@@ -2649,7 +2675,7 @@ v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 @40@0:8@16@24@32
 @"NSNumber"
-@44@0:8@16Q24B32@36
+@52@0:8@16Q24B32@36@44
 Q40@0:8^{?=*QqqIBBBBBBI{sockaddr_storage=CC[6c]q[112c]}{sockaddr_storage=CC[6c]q[112c]}Si[8{?=*Si[12S]qCSCBBS{?=SSSSS}BI}]ccid[0C]}16@24@32
 Q44@0:8^^{?}16i24@28@36
 @28@0:8d16B24
@@ -2914,6 +2940,8 @@ v32@0:8d16@?24
 v40@0:8@16Q24@?32
 @"IDSWRMMetricContainer"
 @48@0:8q16q24q32@40
+@32@0:8d16q24
+@"NSMultiReadUniWriteLock"
 Q24@0:8@16
 v32@0:8@16Q24
 @40@0:8*16q24@32
@@ -3102,6 +3130,7 @@ failed to find default link for %@.
 failed to report AWD allocator event %d due to invalid extIPAddr [%s].
 report AWD allocator event %d for request %@, duration %u ms.
 %@ is in [%s] state, skip connecting to QR.
+%@ is in [%s] state, skip sending info request.
 relay session %@ already exists, ignore.
 skip %s for session %@, alloc reqID %@, link is connected.
 current available interfaces:%@.
@@ -3152,6 +3181,7 @@ Send link connected (%d) for IDSSessionID: %@ QRSessionID: %@ and %@.
 connection data is delayed, send it now.
 skip sending link disconnected with linkID 0 for %@.
 Send link disconnected for IDSSessionID: %@ QRSessionID: %@ and %@ linkID:%d linkUUID:%@
+default link is disconnected, reset default link %d.
 send default link changed (link:%d, error:%d).
 IDSGlobalLink %@ disconnected, error(%d).
 Received %@ response on %@ after %0.6lf ms over protocol: %ld family: %d IDSSessionID: %@ QRSessionID: %@
@@ -3374,10 +3404,12 @@ skip set up new relay link due to force relay is set.
 delay additional quick relay setup for %d seconds.
 all links are removed due to interface chagne, disconnect %@ immediately.
 all links are removed due to interface change, set up QR link now.
+default interface is not ready, skip setting up QR link.
 handleNetworkAddressChange (IPv4:%@, IPv6:%@).
 add delayed cell interfaces: %@.
 new local address list: %@
 removed local address list: %@.
+delay set up new QR link for %.3f sec
 process delayed cell interfaces:%@
 handle cellular RAT change (newRAT:%s).
 send didRATChange, newRAT:%s.
@@ -3415,6 +3447,7 @@ stop heart beat for linkIDs:%@
 ignore currentCellularSignalStrength, not a FaceTime call.
 currentCellularSignalStrength failed due to invalid parameter.
 request participants info using link %d for group %@, session %@.
+%@ is in [%s] state, skip sending info request for group %@, session %@.
 trying cached response for group %@, session %@.
 request session info (gc:%u, linkID:%1d, linkIDToQuery:%1d, relayLinkID:%04x, reqID:%08x) for group %@, session %@.
 linkID's server: %@ is different from linkIDToQuery's server: %@, return
@@ -3433,6 +3466,8 @@ current interface types L:%@, R:%@, link types: %@.
 set up new QR link is not needed.
 set up new QR link [%@] for %@, ids-sesion-id %@.
 found candidate pair for QR session %@.
+set up new QR link [%@] for group %@.
+request new QR session for group %@.
 set up new QR link [%@], accepted session %@, ids-session-id %@.
 start session convergence for session %@.
 disconnect session %@ for convergence.
@@ -3762,11 +3797,19 @@ Cancelling URL request: %@  (%p)
 Re-subscribe to WRM for link recommendations of type: %d
 Recommended link changed to '%s'
 Active link changed from '%s' to '%s'
+Setting up negative cache {limit: %ld, timeLimit: %f}
+Checking under limit {underLimit: %@, item: %@, cache: %@}
+Noting item {item: %@, cache: %@}
+Cleaning expired negative items {removeItems: %@, cache: %@}
+No expired items to clean
 skip candidate %@ due to invalid type.
 skip candidate %@ with invalid external address.
+IP buffer full, candidate: %@
+candidate buffer full, candidate: %@
 candidate %@, ip_index [%lu]
 invalid buffer length for IP list (%d).
 invalid buffer length for candidate list (%d).
+invalid total buffer length: %d %d
 IP list reached max number (%u).
 reached max number of candidate: %u.
 new connection data for %@ (V:%1d #IP:%d #CAN:%d LEN:%dB).
@@ -4771,16 +4814,20 @@ IDSGroupSessionActiveParticipantGroupUUIDKey
 IDSGroupSessionActiveParticipantIdentifierKey
 IDSGroupSessionActiveParticipantURIKey
 IDSGroupSessionActiveParticipantIsKnown
-<%@: %p groupUUID: %@, participantIdentifier: %lu, participantURI: %@, isKnown: %@>
+IDSGroupSessionActiveParticipantPushTokenKey
+<%@: %p groupUUID: %@, participantIdentifier: %lu, participantURI: %@, participantPushToken: %@, isKnown: %@>
 %@: %p {
 groupUUID: %@
 participantIdentifier: %lu
 participantURI: %@
+participantPushToken: %@
 isKnown: %@}
 isKnown
 TB,R,N,V_isKnown
 participantURI
 T@"NSString",R,N,V_participantURI
+participantPushToken
+T@"NSData",R,N,V_participantPushToken
 kIDSCompositeDestinationDestinations
 <%@: %p destinations: %@>
 T@"NSArray",R,N,V_destinations
@@ -5737,7 +5784,7 @@ IDSCloudKitKeyElectionStoreItem
 kGroupNameKey
 kGroupIDKey
 v24@?0@"IDSCKRecordID"8@"NSError"16
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IdentityServices_Sim/IdentityServices-1171.93.11/IDSFoundation/IDSCloudKitKeyElectionStore.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IdentityServices_Sim/IdentityServices-1172.20/IDSFoundation/IDSCloudKitKeyElectionStore.m
 <Unknown File>
 Invalid parameter not satisfying: %@
 item
@@ -6057,7 +6104,7 @@ use channel-number for info request.
 use relay-access-token for info request.
 channel-number mismatch (%04x != %04x).
 guest-device:
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IdentityServices_Sim/IdentityServices-1171.93.11/IDSFoundation/IDSDestination.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IdentityServices_Sim/IdentityServices-1172.20/IDSFoundation/IDSDestination.m
 Abstract Method
 Abstract method
 empty
@@ -6563,11 +6610,28 @@ encryptedPayloadMessageSize
 Tq,R,N,V_encryptedPayloadMessageSize
 maxMessageSize
 Tq,R,N,V_maxMessageSize
+<%@: %p> count: %ld time: %f
+time
+Td,R,N,V_time
+count
+Tq,R,N,V_count
+<%@: %p> limit: %ld timeLimit: %f map: %@
+limit
+Tq,N,V_limit
+timeLimit
+Td,N,V_timeLimit
+cacheMap
+T@"NSMutableDictionary",&,N,V_cacheMap
+readWriteLock
+T@"NSMultiReadUniWriteLock",&,N,V_readWriteLock
 skip candidate %@ due to invalid type.
 skip candidate %@ with invalid external address.
+IP buffer full, candidate: %@
+candidate buffer full, candidate: %@
 candidate %@, ip_index [%lu]
 invalid buffer length for IP list (%d).
 invalid buffer length for candidate list (%d).
+invalid total buffer length: %d %d
 IP list reached max number (%u).
 reached max number of candidate: %u.
 new connection data for %@ (V:%1d #IP:%d #CAN:%d LEN:%dB).
