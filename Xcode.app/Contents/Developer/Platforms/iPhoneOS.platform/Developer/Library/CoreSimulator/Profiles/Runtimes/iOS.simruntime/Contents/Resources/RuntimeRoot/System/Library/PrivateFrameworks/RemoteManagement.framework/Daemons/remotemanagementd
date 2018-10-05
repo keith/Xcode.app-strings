@@ -103,11 +103,15 @@ T@"NSDictionary",&,N,V_serverCapabilities
 clientCapabilities
 T@"NSDictionary",&,N,V_clientCapabilities
 com.apple.icloud-container.com.apple.remotemanagementd
+SCREENTIME_CLOUD_MIRROR_LAST_SYNC_ATTEMPT_DATE
+SCREENTIME_CLOUD_MIRROR_STALE_SYNC_SECONDS_TESTING_ONLY
 com.apple.remotemanagementd.cloud-kit-eval-export
 v16@?0@"NSError"8
 T@"RMDPersistenceController",R,N,V_persistenceController
 historyAnalyzerTimer
 T@"NSTimer",&,N,V_historyAnalyzerTimer
+safetySyncTimer
+T@"NSTimer",&,N,V_safetySyncTimer
 syncOperationQueue
 T@"CATSerialOperationQueue",&,N,V_syncOperationQueue
 evaluateChangesForExportQueue
@@ -517,10 +521,12 @@ system.webcontentfilter.basic
 needed
 not needed
 SCREENTIME_LAST_CD_EVENT_QUERY_DATE
+SCREENTIME_LAST_TIME_ZONE_NAME
 com.apple.rollup-usage-operation
 (%K < %@) || (%K > %@)
-(%K >= %@) AND (%K != NULL) AND (%K == %lld)
+(%K != NULL) || (%K < %@) || (%K > %@)
 usage.user.localUserDeviceState
+(%K >= %@) AND (%K != NULL) AND (%K == %lld)
 durationInMinutes
 startOfTomorrow
 T@"NSDate",&,N,V_startOfTomorrow
@@ -972,10 +978,12 @@ addTarget:selector:forOperationEvents:userInfo:
 syncOperationQueue
 mirroring
 _loadCloudPersistentStore
+_startSafetySyncChecks
 addOperationWithBlock:
 cancelAllOperations
 _unloadCloudPersistentStore
 _unregisterForNotificationsThatTriggerCloudKitSyncs
+_stopSafetySyncChecks
 persistentStoreDescriptionForConfigurationName:type:
 setShouldAddStoreAsynchronously:
 setUseZoneWidePCS:
@@ -1005,17 +1013,28 @@ initWithPersistentStoreCoordinator:
 isNewSchemaEnabled
 newAreLocalChangesInterestingWithError:
 areLocalChangesInterestingWithError:
-performCloudKitSync
+_performCloudKitSync
 performBackgroundTaskAndWait:
 _analyzeLocalChanges
 scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+standardUserDefaults
+setObject:forKey:
 addTarget:selector:forOperationEvents:
 error
 resultObject
+_checkForNextSync
+safetySyncTimer
+setSafetySyncTimer:
+removeObjectForKey:
+_nextSafetySyncInterval
+setTolerance:
+objectForKey:
+_safetySyncNeeded
+_setSafetySyncTimer
+_safetySyncStaleSeconds
 persistentStoreForIdentifier:
 configurationName
 _scheduleHistoryAnalyzerTimer
-persistence
 receivedToken:
 receivedNotification:
 startMirroringSyncWithCompletion:
@@ -1024,6 +1043,7 @@ setSyncOperationQueue:
 setEvaluateChangesForExportQueue:
 _cloudKitSyncingEnabled
 _historyAnalyzerTimer
+_safetySyncTimer
 _syncOperationQueue
 _evaluateChangesForExportQueue
 copy
@@ -1168,22 +1188,26 @@ _configurationData
 activationData
 initWithIdentifier:activationData:
 _activationData
-viewContext
-setMergePolicy:
 _createDataDirectoryAndRelocateDataIfNeededWithError:
+persistence
 _loadLocalPersistentStore
+viewContext
 newBackgroundContext
-_deleteIncompatibleStoreIfNeededAtURL:
+setMergePolicy:
 setAutomaticallyMergesChangesFromParent:
 setResourceValue:forKey:error:
+_loadPersistentStoreDescription:completionHandler:
+_hasModelChangedForStoreDescription:
+shouldMigrateStoreAutomatically
+_destroyPersistentStoreAndReloadAfterMigrationFailureWithStoreDescription:completionHandler:
 addPersistentStoreWithDescription:completionHandler:
-removePersistentStore:error:
 type
-destroyPersistentStoreAtURL:withType:options:error:
 metadataForPersistentStoreOfType:URL:options:error:
 managedObjectModel
+configuration
 isConfiguration:compatibleWithStoreMetadata:
-initWithManagedObjectModel:
+destroyPersistentStoreAtURL:withType:options:error:
+removePersistentStore:error:
 legacyLibraryDirectory
 persistentStoreDirectory
 defaultManager
@@ -1320,7 +1344,6 @@ cancel
 initWithStartDate:referenceDate:
 _fetchUsageOperationDidFinish:requestingAltURI:
 addTarget:selector:forOperationEvents:userInfo:delegateQueue:
-removeObjectForKey:
 unarchivedObjectOfClass:fromData:error:
 setResultType:
 unsignedIntegerValue
@@ -1594,8 +1617,6 @@ _screenTimeManager
 _notificationTimer
 topics
 delegates
-objectForKey:
-setObject:forKey:
 _updateAPNSConnection
 _connectToAPNS
 connection
@@ -1682,7 +1703,6 @@ _deviceUUID
 setTransactionAuthor:
 fetchRequestForConfigurationsBelongingToOrganizationWithIdentifier:
 appliedToUserDSID
-configuration
 request
 declarations
 setConfigurationPlist:
@@ -1950,7 +1970,6 @@ absoluteString
 title
 buildWithAddress:withPageTitle:
 buildWithIdentifier:withRestrictWeb:withUseContentFilter:withWhiteListEnabled:withSiteWhiteList:withFilterWhiteList:withFilterBlackList:
-standardUserDefaults
 integerForKey:
 unmodeled_setScreenTimeEnabled:
 fetchRequestMatchingBlueprintsForUserWithDSID:ofType:
@@ -1971,9 +1990,11 @@ minimumRangeOfUnit:
 setStartOfTomorrow:
 setRollingWeekAgo:
 setStartOfLastWeek:
+resetSystemTimeZone
+systemTimeZone
 setLastEventQueryDate:
+_runWithManagedObjectContext:purgePredicate:
 fetchRequestMatchingLocalUserDeviceState
-startOfLastWeek
 _purgeUsageBlocksWithPredicate:inManagedObjectContext:error:
 _computeStartDate
 _saveContextAndEndOperation:
@@ -1997,6 +2018,7 @@ startDateSortDescriptorAscending:
 eventQueryWithPredicate:eventStreams:offset:limit:sortDescriptors:
 knowledgeStore
 executeQuery:error:
+startOfLastWeek
 _firstTombstoneOrUsageEventDateSinceDate:
 _startOfTheHour:
 _lastUsageItemStartDateSinceDate:
@@ -2425,6 +2447,8 @@ B32@0:8@16^@24
 v24@0:8@"NSData"16
 v24@0:8@"APSIncomingMessage"16
 v24@0:8@?16
+d16@0:8
+q16@0:8
 @"RMDPersistenceController"
 @"NSTimer"
 @"NSObject<OS_dispatch_queue>"
@@ -2453,7 +2477,6 @@ v32@0:8@?16@24
 @"RMAskForTimeListenerDelegate"
 @"NSXPCListener"
 @"RMManagementStateServer"
-d16@0:8
 v24@0:8d16
 @"<RMDebouncerDelegate>"
 @24@0:8^{_NSZone=}16
@@ -2693,6 +2716,14 @@ Triggering mirroring operation
 Adding mirroring operation...
 Last mirroring operation hasn't had a chance to run, ignoring new request
 Mirroring failed: %{public}@; re-establishing cloud store
+Safety sync initiated
+Safety sync terminated
+Canceling old safety sync timer and scheduling a new one for %{public}@ seconds from now
+Scheduling safety sync timer for %{public}@ seconds from now
+Performing safety sync, last sync attempt was at: %{public}@
+No safety sync needed, last sync attempt was at: %{public}@
+Received store change notification
+Received push token notification
 Received push token, ignoring
 %@ : Resumed
 %@ : Invalidating
@@ -2733,13 +2764,17 @@ There wasn't enough screen time to show weekly notification report
 Failed posting weekly report! Error: %{public}@
 Posted weekly report with notification triggered at %{public}@
 Could not create data directory: %@
-%{public}@ adding persistent store %{public}@
-%{public}@ unable to load persistent store %{public}@: %{public}@
+%{public}@ loading persistent store %{public}@
 %{public}@ loaded persistent store %{public}@
 Could not exclude persistent store from backup: %{public}@
-%{public}@ removing persistent store
+Possible lightweight migration failure with %{public}@: %{public}@
+Unable to load persistent store %{public}@: %{public}@
 Unable to retrieve metadata for persistent store %{public}@: %{public}@
-Failed to remove the store file after a model change was detected with error: %{public}@
+Attempting to recover from migration failure, destroying persistent store at %{public}@
+Unable to recover from migration failure, could not destroy persistent store at %{public}@: %{public}@
+Attempting to recover from migration failure, destroyed persistent store attempting to reload: %{public}@
+%{public}@ removing persistent store
+Failed to load persistent local store: %{public}@
 RMEnqueuePayloadOperation start
 %{public}@ : Started
 Failed to fetch local user: %{public}@
@@ -3099,7 +3134,7 @@ Received event unknown event on stream %{public}@
 Rejecting admin store connection from 
 %{public}@
  without entitlement: %{public}@
-@(#)PROGRAM:remotemanagementd  PROJECT:RemoteManagement-2
+@(#)PROGRAM:remotemanagementd  PROJECT:RemoteManagement-5
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3131,7 +3166,7 @@ Rejecting admin store connection from
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>2</string>
+<string>5</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
@@ -3141,7 +3176,7 @@ Rejecting admin store connection from
 <key>DTPlatformVersion</key>
 <string>12.1</string>
 <key>DTSDKBuild</key>
-<string>16B57</string>
+<string>16B67a</string>
 <key>DTSDKName</key>
 <string>iphonesimulator12.1</string>
 <key>DTXcode</key>
