@@ -528,12 +528,8 @@ com.apple.rollup-usage-operation
 usage.user.localUserDeviceState
 (%K >= %@) AND (%K != NULL) AND (%K == %lld)
 durationInMinutes
-startOfTomorrow
-T@"NSDate",&,N,V_startOfTomorrow
 startOfLastWeek
 T@"NSDate",&,N,V_startOfLastWeek
-rollingWeekAgo
-T@"NSDate",&,N,V_rollingWeekAgo
 lastEventQueryDate
 T@"NSDate",&,N,V_lastEventQueryDate
 usageOperationQueue
@@ -589,6 +585,7 @@ didReadLocalPasscode
 TB,N,V_didReadLocalPasscode
 localPayloadUUID
 T@"NSString",R,C,N,V_localPayloadUUID
+IDS-SendFile-%@
 T@"RMUnifiedTransportPayload",&,N,V_payload
 T@"NSSet",R,C,N,V_destinations
 UUID
@@ -1317,7 +1314,9 @@ _enqueueOperationToPersistUsageForResponsePayload:
 sendFamilySettingsPayload
 sendCheckinRequest
 _sendCheckinResponseToDestination:afterVersions:
+_sendCheckinResponseToDestination:afterVersions:context:
 unmodeled_participatesInSharedLedger
+fetchRequestForFamilyMembers
 uniqueIdentifier
 initWithDataRepresentation:
 versionVector
@@ -1326,7 +1325,8 @@ dictionaryRepresentation
 blueprints
 initWithPayload:type:
 sendPayloads:
-unmodeled_versionVector
+performBlockAndWait:
+_sendCheckinRequestPayloadToDestination:context:
 setObject:forKeyedSubscript:
 initWithDSID:
 dictionaryWithCapacity:
@@ -1538,12 +1538,13 @@ initWithPayload:destinations:service:
 allObjects
 initWithServiceName:destinations:
 getProgressUpdateForIdentifier:error:
+transport:didReceivePayload:
 initWithDestinations:toLocal:organizationIdentifier:persistenceController:
 blockOperationWithBlock:
 addOperations:waitUntilFinished:
 outgoingResponseIdentifier
 fromServerStorage
-transport:didReceivePayload:
+_receivePayloadData:fromID:
 isActive
 postNotificationName:object:
 service:account:incomingMessage:fromID:context:
@@ -1786,6 +1787,7 @@ _userDSID
 _userDeviceStateID
 isDirty
 incrementNodeWithIdentifier:
+dataRepresentation
 setVersionVector:
 initWithPayload:type:userInfo:
 requestToInstall
@@ -1987,8 +1989,7 @@ hasMigratorRun
 performMigrationWithContext:error:
 usageOperationQueue
 minimumRangeOfUnit:
-setStartOfTomorrow:
-setRollingWeekAgo:
+_boundaryDateWithReferenceDate:
 setStartOfLastWeek:
 resetSystemTimeZone
 systemTimeZone
@@ -2019,19 +2020,17 @@ eventQueryWithPredicate:eventStreams:offset:limit:sortDescriptors:
 knowledgeStore
 executeQuery:error:
 startOfLastWeek
+_lastUsageItemStartDateSinceDate:
 _firstTombstoneOrUsageEventDateSinceDate:
 _startOfTheHour:
-_lastUsageItemStartDateSinceDate:
 initWithPersistenceController:usageGenesisDate:
-startOfTomorrow
-rollingWeekAgo
 setUsageOperationQueue:
 _usageGenesisDate
-_startOfTomorrow
 _startOfLastWeek
-_rollingWeekAgo
 _lastEventQueryDate
 _usageOperationQueue
+laterDate:
+earlierDate:
 mainQueue
 registerDefaults:
 createMandatoryEntitiesIfNeeded
@@ -2055,7 +2054,6 @@ setPersistentStoreCoordinator:
 setDeviceInfoPlist:
 localUser
 setCloudSyncEnabled:
-performBlockAndWait:
 startupCloud
 fetchOrCreateiCloudOrganizationWithContext:error:
 setCloudSettings:
@@ -2148,6 +2146,10 @@ localPayloadUUID
 _localPayloadUUID
 _sendData:toDestinations:payloadUUID:expectResponse:withError:
 sendData:toDestinations:priority:options:identifier:error:
+temporaryDirectory
+writeToURL:options:error:
+sendResourceAtURL:metadata:toDestinations:priority:options:identifier:error:
+removeItemAtURL:error:
 setPayload:
 initWithUUID:userInfo:
 initWithPayload:newUUID:userInfo:
@@ -2199,8 +2201,8 @@ sourceOrganizationPending
 recentPayloads
 anyObject
 setSourceOrganizationRecent:
-context
 setPayloadUUID:
+context
 _payloadState
 _context
 setPreregistered:
@@ -2502,6 +2504,7 @@ v24@0:8@"NSFetchedResultsController"16
 v24@0:8@"CATNetworkReachability"16
 @"<RMRequestManagerBlueprintSourceDelegate>"16@0:8
 v24@0:8@"<RMRequestManagerBlueprintSourceDelegate>"16
+v40@0:8@16@24@32
 @"<RMRequestManagerBlueprintSourceDelegate>"
 @"<RMConduit>"
 @"RMGroupFetchedResultsController"
@@ -2511,7 +2514,6 @@ v24@0:8@"<RMRequestManagerBlueprintSourceDelegate>"16
 @"CATNetworkReachability"
 @56@0:8@16Q24@32@40@48
 @"NSDateInterval"
-v40@0:8@16@24@32
 @"NSDate"
 @"USUsageReporter"
 @"NSMutableArray"
@@ -2807,7 +2809,9 @@ Received ask for time response
 Delivery acknowledgement of transport payload type: %{public}@
 Conduit did invalidate: %{public}@
 Local user cannot participate in sharing family settings
-Failed to fetch users: %{public}@
+Failed to fetch family users: %{public}@
+Can't send checkin response for user, missing family settings unique identifier: %{public}@ %{public}@
+Can't send checkin for user, missing family settings unique identifier: %{public}@ %{public}@
 Failed to fetch or create user-device state: %{public}@
 Failed to save checkin: %{public}@
 Failed to handle family settings: %{public}@
@@ -2873,12 +2877,14 @@ IDS account is not active when sending: %@
 Sending payload: %{public}@
 No reachable destinations
 SENDING CALLED: %@
-SEND WITH SUCCESS CALLED: %@  - %@ - %@
-HAS BEEN DELIVERED CALLED: %@, %@
-Received data: %@ FromServer: %@
 Refusing receipt of IDS message %{public}@, restrictions forbid Screen Time. Avoid being activated remotely
 Received payload of type: %{public}@
 Did receive unrecognizable data: %{public}@
+SEND WITH SUCCESS CALLED: %@  - %@ - %@
+HAS BEEN DELIVERED CALLED: %@, %@
+Received data: %@ FromServer: %@
+Received resource URL data: %@ FromServer: %@
+Could not read data from URL %{public}@: %{public}@
 Active accounts did change: %@
 posting management state did change notification
 Client %{public}@ does not have required com.apple.remotemanagementd.screentime entitlement
@@ -2943,6 +2949,7 @@ There was more than 1 user device state: %{public}@
 Unable to fetch the local identifier: %{public}@
 There was more than 1 usage for user and device found: %{public}@
 RMPrepareFamilySettingsPayloadOperation start
+Failed to fetch users: %{public}@
 Adding created/updated family settings to payload: %@
 No local family settings changes. Skipping send.
 Failed to save family settings: %{public}@
@@ -3024,10 +3031,12 @@ Migrator cleaned up old restrictions
 Content & Privacy migration starting
 Content & Privacy migration is %{public}@ - %d features -> %d configurations
 RMRollupUsageOperation start
-No significant events since the last time we rolled up, skipping rollup
 Checking if any new events to Core Duet since the last time we've asked: %{public}@
 There was an error query core duet: %{public}@
 There was an error fetching usage blocks: %{public}@
+Can't fetch usage, genesis date was set into the future: %{public}@
+Can't fetch usage, previously recorded usage start date was set into the future: %{public}@
+Ignoring Core Duet event date, it takes place into the future: %{public}@
 Resuming screen time organization controller
 Screen time organizaton controller could not create mandatory entities
 Creating / activating organization (%{public}@) with DMF
@@ -3083,6 +3092,12 @@ Declaration manager did prepare declaration request payloads: %@
 RMSendPayloadWithIDSTransportOperation start
 Failed to generate payload data: %{public}@
 Failed to send payload: %{public}@
+IDS sending as data size 
+ bytes
+IDS sending as file size 
+ bytes
+Failed to write temporary file for IDS sendResourceAtURL: %{public}@
+Failed to delete temporary file after IDS sendResourceAtURL: %{public}@
 Sent data with UUID 
  size 
  bytes
@@ -3134,7 +3149,7 @@ Received event unknown event on stream %{public}@
 Rejecting admin store connection from 
 %{public}@
  without entitlement: %{public}@
-@(#)PROGRAM:remotemanagementd  PROJECT:RemoteManagement-5
+@(#)PROGRAM:remotemanagementd  PROJECT:RemoteManagement-8
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3166,7 +3181,7 @@ Rejecting admin store connection from
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>5</string>
+<string>8</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
@@ -3176,7 +3191,7 @@ Rejecting admin store connection from
 <key>DTPlatformVersion</key>
 <string>12.1</string>
 <key>DTSDKBuild</key>
-<string>16B67a</string>
+<string>16B82</string>
 <key>DTSDKName</key>
 <string>iphonesimulator12.1</string>
 <key>DTXcode</key>
