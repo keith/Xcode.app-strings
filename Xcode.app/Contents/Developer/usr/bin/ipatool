@@ -277,6 +277,10 @@ class LinkageGraph
   #   rpathStack : [Pathname] - Stack of @rpath substitutions.
   def _expandPath(path, image, executablePath, rpathStack, rpathFallbackStack)
     s = path.dup
+    if s.start_with?("/")
+      # Need to use sdkPath.to_s because we want to make sure that /a + /b = /a/b instead of /b.
+      s = image.platform.sdkPath.to_s + s
+    end
     if s =~ /^@executable_path/
       raise "Could not resolve @executable_path for #{path} from #{image.machoFile.path.basename}" unless executablePath
       s.gsub!(/^@executable_path/, executablePath.to_s)
@@ -396,6 +400,7 @@ OPTIONS.skipThinDevices = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
 OPTIONS.translateWatchOS = true
+OPTIONS.xcodeVersionWithStableSwiftABI = Gem::Version.new("10.2")
 OPTIONS.validateOutput = false
 OPTIONS.validateOutputZeroVariants = nil
 OPTIONS.bitcodeOptions = []
@@ -422,6 +427,14 @@ OptionParser.new do |opts|
   opts.on("--[no-]translate-watchos") \
   do |v|
     OPTIONS.translateWatchOS = v
+  end
+  opts.on("--xcode-version-with-stable-swift-abi=VERSION") \
+  do |v|
+    v = Gem::Version.new(v)
+    assert(v.segments.count >= 1)
+    assert(v.segments.count <= 3)
+    assert(v.segments.all? {|s| s.kind_of?(Integer) })
+    OPTIONS.xcodeVersionWithStableSwiftABI = v
   end
   opts.on("--create-thinned=DEVICE", String,
           "Create thinned IPAs for devices with the given identifier",
@@ -909,6 +922,10 @@ class FSMachOFileNode < FSFileNode
   def copyToPath (dstPath, thinningContext, level = 0)
     thinArch = nil
     if thinningContext.traits && self.shouldThin
+      if thinningContext.traits.hasSwiftRuntime && self.isSwiftRuntimeDylib
+        return
+      end
+      
       thinArch = thinningContext.traits.preferredArch
     elsif self.platform.identifier == "watchos" && thinningContext.mainTraits && !thinningContext.mainTraits.supportsEmbeddedUniversalWatchApp
       thinArch = "armv7k"
@@ -1078,6 +1095,18 @@ class FSBundleDirectoryNode < FSDirectoryNode
   def deploymentTarget
     return @deploymentTarget ||= Gem::Version.new(infoDict["MinimumOSVersion"])
   end
+  # Gem::Version
+  def builtWithXcodeVersion
+    return @builtWithXcodeVersion if defined? @builtWithXcodeVersion
+    
+    v = infoDict["DTXcode"].to_i
+    major = v / 100
+    minor = (v % 100) / 10
+    update = v % 10
+    
+    @builtWithXcodeVersion = Gem::Version.new("#{major}.#{minor}.#{update}")
+    return @builtWithXcodeVersion
+  end
   def supportedArchitectures ()
     assert(initialized, path.to_s)
     return @supportedArchs ||= machoFiles.map{ |file| file.machoImages.map{ |mimg| mimg.arch } }.reduce(:&) || []
@@ -1105,7 +1134,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningContext.traits and thinningContext.traits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove  , thinningContext.traits.supportsEmbeddedUniversalWatchApp ).freeze
+      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime).freeze
       thinningContext = ThinningContext.new(traits, traits, thinningContext.variants)
       puts "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" if OPTIONS.verbosity >= 2
     end
@@ -2274,7 +2303,8 @@ class ThinningTraits
   attr_accessor :gfxFeatureSetFallbacks
   attr_accessor :featuresToRemove
   attr_accessor :supportsEmbeddedUniversalWatchApp
-  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove , supportsEmbeddedUniversalWatchApp )
+  attr_accessor :hasSwiftRuntime
+  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime)
     deploymentTarget.assert_kind_of(Gem::Version)
     @deploymentTarget = deploymentTarget
     @passDeploymentTargetToAssetutil = passDeploymentTargetToAssetutil
@@ -2291,6 +2321,7 @@ class ThinningTraits
     @gfxFeatureSetFallbacks = gfxFeatureSetFallbacks
     @featuresToRemove = featuresToRemove
     @supportsEmbeddedUniversalWatchApp = supportsEmbeddedUniversalWatchApp
+    @hasSwiftRuntime = hasSwiftRuntime
   end
   def artworkDynamicDisplayMode_1080pSDR
     return "1080pSDR"
@@ -2333,6 +2364,7 @@ class ThinningTraits
       gfxFeatureSetFallbacks: gfxFeatureSetFallbacks,
       featuresToRemove: featuresToRemove,
       supportsEmbeddedUniversalWatchApp: supportsEmbeddedUniversalWatchApp,
+      hasSwiftRuntime: hasSwiftRuntime
     }.reject { |k, v| v.nil? }
   end
   # [(assetutilFlagName: String, traitsPropertyName: Symbol, traitsPropertyValueTransformer: Any -> String)]
@@ -2378,7 +2410,7 @@ class ThinningTraits
   end
   # Return a copy of self where traits which affect assetutil have been taken from `other`
   def take_assetutil_traits(other)
-    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedUniversalWatchApp).freeze
+    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime).freeze
   end
   # { assetutilFlag: String => assetutilValue: String ]
   def to_assetutil_dict
@@ -2517,8 +2549,17 @@ def bestTraitsForBundle(bundle, traits, device)
   end
   # If there's no watch content, we can collapse this trait
   supportsEmbeddedUniversalWatchApp = traits.supportsEmbeddedUniversalWatchApp && bundle.nestedBundles.any? { |b| b.isWatchKitStubApp || b.isWatchKitAppExtension }
+  # If there's no Swift runtime lib content or this app was built before stable ABI, we can collapse this trait
+  hasSwiftRuntime = traits.hasSwiftRuntime
+  if hasSwiftRuntime
+    bundleUsesStableSwiftABI = bundle.builtWithXcodeVersion >= OPTIONS.xcodeVersionWithStableSwiftABI
+    bundleEmbedsSwiftRuntime = bundle.enumerateTree.any? { |node| node.kind_of?(FSMachOFileNode) && node.shouldThin && node.isSwiftRuntimeDylib }
+    unless bundleUsesStableSwiftABI && bundleEmbedsSwiftRuntime
+      hasSwiftRuntime = false
+    end
+  end
   # If we get this far, we create a (possibly downshifted)
-  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedUniversalWatchApp).freeze, nil
+  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime).freeze, nil
 # :: [ThinningTraits: [ThinningVariant]]
 def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices, ipa)
   # We ask the bundle to figure out the supported platform; we are unable to proceed if we can't determine it.
@@ -2650,6 +2691,7 @@ class Platform
   attr  :sdkPath           # path of the SDK to use for the platform
   attr  :toolsPath         # path of platform-specific command line tools
   attr  :thinningVariants # :: [ThinningVariant]
+  attr  :deploymentTargetWithSwiftRuntime # :: Gem::Version
   # Global mapping of platform identifiers to Platform objects.
   @@allKnownPlatformsByIdentifier = nil
   # Returns a hash that maps platform identifier to Platform objects for all known platforms.  Currently there's only iPhoneOS.
@@ -2743,10 +2785,11 @@ class Platform
           deviceTraitsIDByTarget[target] = row['DeviceTraitSet']
         end
         
+        @deploymentTargetWithSwiftRuntime = db.execute("select * from DeploymentTarget").select {|row| row["HasSwiftRuntime"] == 1 }.collect {|row| Gem::Version.new(row["TargetVersion"]) }.min
+        
         # [ThinningVariant]
         db.execute("select * from DeploymentVariant") do |row|
-          # rdar://38568729
-          deploymentTarget = Gem::Version.new(row['DeploymentTarget'].split('.')[0])
+          deploymentTarget = Gem::Version.new(row['DeploymentTarget'])
           target = row['DeviceTarget']
           device = devicesByTarget[target]
           
@@ -2759,6 +2802,7 @@ class Platform
             traitsRow = deviceTraitsByID[row['DeviceTraitSet']]
             passDeploymentTargetToAssetutil = true
           end
+          hasSwiftRuntime = @deploymentTargetWithSwiftRuntime && deploymentTarget >= @deploymentTargetWithSwiftRuntime
           
           traits = ThinningTraits.new(deploymentTarget,
                                       passDeploymentTargetToAssetutil,
@@ -2773,16 +2817,18 @@ class Platform
                                       traitsRow['GraphicsFeatureSetClass'],
                                       (traitsRow['GraphicsFeatureSetFallbacks'] || "").split(":"),
                                       (traitsRow['FeaturesToRemove'] || "").split(":"),
-                                    (traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget >= Gem::Version.new("12"))
+                                      (traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget >= Gem::Version.new("12")),
+                                      hasSwiftRuntime
                                     ).freeze
-        
-        @thinningVariants << ThinningVariant.new(device, traits).freeze
+          
+          @thinningVariants << ThinningVariant.new(device, traits).freeze
       end
     end
     rescue => exc
       EmitWarning(__LINE__, "Couldn't load device traits database for platform '#{platformIdent}' from #{deviceTraitsDBPath.to_s.shellescape}:\n#{exc.to_log_s}")
       return nil
     end
+  end
   def to_s
     return identifier
   end

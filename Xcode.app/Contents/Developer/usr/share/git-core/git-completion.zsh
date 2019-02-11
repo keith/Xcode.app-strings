@@ -25,7 +25,7 @@ $(dirname ${funcsourcetrace[1]%:*})/git-completion.bash
 for e in $locations; do
 test -f $e && script="$e" && break
 done
-ZSH_VERSION='' . "$script"
+GIT_SOURCING_ZSH_COMPLETION=y . "$script"
 __gitcomp ()
 emulate -L zsh
 local cur_="${3-$cur}"
@@ -58,6 +58,11 @@ __gitcomp_nl_append ()
 emulate -L zsh
 local IFS=$'\n'
 compadd -Q -S "${4- }" -p "${2-}" -- ${=1} && _ret=0
+__gitcomp_file_direct ()
+emulate -L zsh
+local IFS=$'\n'
+compset -P '*[=:]'
+compadd -Q -f -- ${=1} && _ret=0
 __gitcomp_file ()
 emulate -L zsh
 local IFS=$'\n'

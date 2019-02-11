@@ -257,6 +257,12 @@ User chose to always auto send logs
 User chose to show pop up before sending logs
 v8@?0@"IMUserNotification"4
 Can only message log dump on internal ios device
+For some reason we do not have the sync counts prior to syncing
+All items have been synced, noting down last complete synced DB date %@
+Could not log db sync date because not all items synced: chatsLeftToSync %@ | messagesLeftToSync %@ | attachmentsLeftToSync %@
+LogDump
+<StartSyncStats> syncedChatDifference %@ | syncedMessageDifference %@ | syncedAttachmentDifference %@ <EndSyncStats>
+Log dump needed -- didn't sync enough items | syncedMessages %@ | syncedChats %@ | syncedAttachments %@
 PCSReportManateeStatus
 Linked linkedPCSReportManateeStatus ok: %@
 Engram
@@ -476,6 +482,8 @@ payment-info
 is-self
 is-payment
 is-informal
+message-service
+notify-security
 MessageDictionary %@
 v16@?0@"NSString"4@"NSArray"8^B12
 Possibly more spam messages left, resetting everything
@@ -673,9 +681,22 @@ writeInitialSyncCompletedRecordIfNeeded We have already done this. Not doing aga
 IMDCKSubmitMetric
 Submitted metric with opGroupName %@ useManatee:%@ Error %@
 *** submitCloudKitMetricWithOperationGroupName not submitting as MOC is not ON
+Error creating analytic zone %@
+***** Timed out creating analytic zone *******
+analytic-zone-logging-not-allowed
+IMDCKSubmitAnalytic
+Request to submit dictionary (%@) opGroupName %@
+Analytic zone does not exist, so creating it before resubmitting metric.
+Successfully created analytic zone so trying to submit metric again.
+Issue, we created the zone and we got back same error again.
+Submitted metric with opName %@, dict: %@
+Failed to create analytic zone.
 ck-submit-metric
 server allows submitting metrics result %@ clientVersion %@ serverVersion %@
 Performing metric operation name %@ using Manatee %@ using DB %@
+Trying to submit CK metric operation with ID %@
+Completion called for submittion metric operation with ID %@. ignoreZoneNotFoundError %@ OperationError %@
+v16@?0@"NSArray"4@"NSArray"8@"NSError"12
 exitRecordID
 T@"CKRecordID",&,N,V_exitRecordID
 exitConfigurtation
@@ -701,9 +722,11 @@ Exit
 com.apple.Messages.IMDCKExitManagerErrorDomain
 CloudKitExitRecord
 SyncCompleteRecord
+AnalyticZoneRecord
 chatManateeZone
 attachmentManateeZone
 messageManateeZone
+analyticManateeZone
 RecordKeyManateeZone
 MetricsManateeZone
 We couldn't create the push connection for the IMDRecordZoneManager
@@ -730,7 +753,6 @@ Found zone %@
 Error initializing fetchOperation 
 Successfully created zone %@ 
 ***** Failed to createzone %@ %@ 
-v16@?0@"NSArray"4@"NSArray"8@"NSError"12
 Zone %@ already exists
 createRecordZoneIfNeededWithCompletionBlock zone %@ exists %@ error %@
 Attempting to create zone %@
@@ -761,6 +783,10 @@ messageRecordZoneID
 T@"CKRecordZoneID",R,N,V_messageRecordZoneID
 messageRecordZone
 T@"CKRecordZone",R,N,V_messageRecordZone
+analyticRecordZoneID
+T@"CKRecordZoneID",R,N,V_analyticRecordZoneID
+analyticRecordZone
+T@"CKRecordZone",R,N,V_analyticRecordZone
 deDupeSaltZoneID
 T@"CKRecordZoneID",R,N,V_deDupeSaltZoneID
 deDupeSaltRecordZone
@@ -917,6 +943,10 @@ Attempting to write %@ records to truth zone
 Error creating attachment zone %@
 ***** Timed out creating attachment zone *******
 ChangeTokenExpired
+IMDCKMessageSyncController
+Kicking off an attachment write after fetching messages
+Not kicking off a write because cachedSalt is not present.
+Not writing up messages as sync type does not allow it
 recordZoneChangeTokensUpdatedBlock recordZoneID %@ serverChangeToken %@ clientChangeToken %@ moreComing %@ recordZoneError %@
 Initial sync not saving sync token
 Done fetching attachments in initial fetch
@@ -1004,7 +1034,12 @@ TI,N,V_deviceConditionsToCheck
 activity
 T@"NSObject<OS_xpc_object>",V_activity
 IMDCKSyncState
-%@, isFeatureEnabled: %@, isSyncing: %@, isEligibleForTruthzone %@, isSyncingEnabled: %@, isRemovedFromBackup: %@, isInExitState: %@, exitDate: %@, isStartingDisabledDisableDevice: %@, lastSyncDate: %@, lastCompleteSyncedDBDate %@, isSyncingPaused: %@, startingChangingEnabledSetting: %@, isPaused: %@, syncControllerSyncState: %@, syncControllerRecordType: %@, syncType: %@, accountStatus: %@, syncErrors: %@
+%@-productBuildVersion
+Setting object %@ for key %@ in analyticDict.
+Setting productBuildVersion %@ for key %@ in analyticDict.
+Removing keys %@ %@ from analyticDict.
+Request to set analytic sync date for object %@ and key %@ shouldOverrideIfExists %@
+%@, isFeatureEnabled: %@, isSyncing: %@, isEligibleForTruthzone %@, isSyncingEnabled: %@, isRemovedFromBackup: %@, isInExitState: %@, exitDate: %@, isStartingDisabledDisableDevice: %@, lastSyncDate: %@, isSyncingPaused: %@, startingChangingEnabledSetting: %@, isPaused: %@, syncControllerSyncState: %@, syncControllerRecordType: %@, syncType: %@, accountStatus: %@, syncErrors: %@
 Account needs repair
 syncControllerSyncState
 TI,D,N
@@ -1022,6 +1057,9 @@ delegate
 T@"<IMDCKSyncStateDelegate>",W,N,V_delegate
 featureEnabled
 TB,D,N,GisFeatureEnabled
+createdChatZone
+TB,D,N
+deletedZones
 eligibleForTruthZone
 TB,D,N,GisEligibleForTruthZone
 syncingEnabled
@@ -1038,7 +1076,8 @@ disablingDevices
 TB,D,N,GisDisablingDevices
 startingEnabledSettingChange
 TB,D,N,GisStartingEnabledSettingChange
-lastCompleteSyncedDBDate
+analyticSyncDatesDictionary
+T@"NSDictionary",C,D,N
 lastSyncDate
 accountStatus
 syncErrors
@@ -1080,7 +1119,7 @@ markTransferAsNotSyncSuccessfullyDownloadedFromCloud transfer %@
 resetSyncStateForRecord transfer %@ toNewState:%ld
 Tried to clear the sync state for a transfer we don't have on disk transfer: %@ record: %@
 Couldn't get local asset URL from CKRecord: %@
-Failed to copy file from %@ to %@ error %@
+Failed to move file from %@ to %@ error %@
 IMFileTransfer+CKRecord
 Stored aux video for transfer %@, finalAssetPath %@
 contextStamp
@@ -1241,6 +1280,14 @@ loadOldStatusStore
 T@"NSDictionary",R,N
 CacheDelete
 IMDCKCacheDeleteManager
+Is already updating file sizes, returning
+attachment-filesize-update-not-allowed
+Server bag does not allow attachment filesize updating, retunring
+attachment-filesize-update-max-iterations
+Calling IMDAttachmentUpdateAttachmentFileSizeWithRowIDGreaterThanWatermark with rowID %@ iteration %@
+No more attachment fileSizes to fix up, got a -1 watermark
+Previous batch of attachment filesize updates completed, setting new watermark to be %@
+Current iteration count %@ is >= to maxIterations %@, stopping filesize update. Set state attachment filesizes updated activity result %d
 Registering with cache delete upon launch
 Setting up cache delete callbacks cache delete enabled %@
 com.apple.imagent.cache-delete
@@ -1294,6 +1341,8 @@ allowsWritingToDisk
 TB,N,V_allowsWritingToDisk
 deviceLowOnDiskSpace
 TB,N,GisDeviceLowOnDiskSpace,V_deviceLowOnDiskSpace
+isUpdatingAttachmentFileSizes
+TB,V_isUpdatingAttachmentFileSizes
 recordKeyZone
 SyncCompleteRecordType
 chatEncryptedv2
@@ -1372,6 +1421,9 @@ MessageStore
 Found chat guids: %@ for message guid: %@
 Couldn't find existing chat with guid: %@ in IMDChatRegistry for messageGUID: %@
    Found Chats: %@
+PNIsValidPhoneNumberForCountry
+CorePhoneNumbers
+Cleaning up symbols from unformatted phone number %@
 Deleted %d messages with guids: %@ in chat: %@
 Deleted %d messages with guids: %@
 Deleting batch %d of messages for chatIdentifiers %@ onServices %@. %d messages will be deleted.
@@ -1389,7 +1441,7 @@ Broadcasting lastFailedMessageDateChanged with new value: %lld
 Suppressed: Broadcasting lastFailedMessageDateChanged with new value: %lld 
 Broadcasting unreadCountChanged with new value: %lld 
 Suppressed: Broadcasting unreadCountChanged with new value: %lld 
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1979.13.4/IMDaemonCore/IMDMessageStore.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1980.15/IMDaemonCore/IMDMessageStore.m
 -[IMDMessageStore replaceMessageAcknowledgmentsWithNewMessageAcknowledgment:associatedMessageGUID:sender:]
 Unexpected nil '%@' in %s at %s:%d. %@
 newGUID
@@ -1510,6 +1562,8 @@ TB,V_createEngramGroupOnMessageSend
 pendingENGroupParticipantUpdate
 TB,V_pendingENGroupParticipantUpdate
 personCentricID
+wasReportedAsJunk
+TB,V_wasReportedAsJunk
 com.apple.private.Messages.IMDCKRecordSaltManager
 IMDCKRecordSaltManager
 Starting salt fetch on internal queue
@@ -1571,7 +1625,7 @@ Loading Chats...
 No service found, looking at name: %@
 No service found for name: %@: removing this chat [%@]
 No account: removing this chat [%@]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1979.13.4/IMDaemonCore/IMDChatRegistry.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1980.15/IMDaemonCore/IMDChatRegistry.m
 -[IMDChatRegistry loadChatsWithCompletionBlock:]
 generatedGroupID
    Updating chat identifier: %@, to: %@, chat guid: %@
@@ -1887,7 +1941,6 @@ No matching chat found, ignoring
 com.apple.Messages.MessageSyncErrorDomain
 com.apple.private.IMDCKMessageSyncController
 ck-max-number-of-message-batches
-IMDCKMessageSyncController
  overriding max number of message batches to fetch %@
 **** Message %lu CKRecord size exceeds max limit.
 **** We hit max number of attempts to creat CKRecords
@@ -1904,6 +1957,7 @@ Kicking off another batch of message writes to cloudKit
 We completed writing messages. isLastBatch %@, write error %@, writeSuccess %@
 PeriodicMessageSync
 BackFillMessageSync
+Got %@ records to sync, filtered to %@ unique records
 **** We completed writing up messages. No more messages to write up. ***
 Number of messages to upload %lu < max batch size. %lu 
 **** This is the last batch of messages we will write
@@ -1911,7 +1965,12 @@ Did not schedule a write. Device Conditions suitable to write:%@
 Fetched message record with GUID %@
 Found parentChatID: %@, updatedLastMessageCount: %d
 MessagesUpdated
-Message sync: device conditions allow sync: %@ deviceConditionsToCheck %@
+This is a coreduet sync at currentBatchCount %@, coreduet says to defer syncing
+This is a coreduet sync at currentBatchCount %@, coreduet says to continue syncing
+Message sync: device conditions allow sync: %@ deviceConditionsToCheck %@ currentBatchCount %@
+Message sync: Not checking device conditions for full sync at current batch count %@ isCoreDuetSync %@
+Message sync: Not checking device conditions for initial sync at current batchCount %@
+Message sync: Stop syncing because feature is not enabled.
 archivedMessagesChangeToken
 messagesChangeToken
 Resetting the archived message sync token to nil
@@ -1922,8 +1981,8 @@ There are more changes to fetch from archived zone. Kicking off another batch of
 No more archived records to fetch. Resetting defaults to fetch archived records
 Record Zone Error says that the change token has expired
 //---** Error fetching archived messages: %@
-Fetching archived currentBatchCount %@ maxNumberOfBatches %@
 ****** We are done fetching archived messages as max batch attempt limit reached ********
+Fetching archived currentBatchCount %@ maxNumberOfBatches %@
 ******** Fetching archived records ***** sync token is %@
 Fetch archived record %@ guid %@
 v12@?0@"CKRecordZoneID"4@"CKServerChangeToken"8
@@ -1946,15 +2005,18 @@ Messages zone does not exist. Attempting to create one
 //---** Error fetching messages: %@
 Failed fetching messages %@
 _processFetchRecordZoneChangesCompletionWithError with no error
-Fetching live messages, currentBatchCount %@ maxNumberOfBatches %@
 ****** We are done fetching live messages as max batch attempt limit reached ********
 shouldForceArchivedMessagesSync is YES, fetched max live record batches but will also fetch initial sync archived records if needed: %@
 Since we fetched max live batch records, we will not fetch archived records
+We completed fetching %@ batches of messages during a full sync, setting fullPartialSyncFirstCompletedDate to %@
+Fetching live messages, currentBatchCount %@ maxNumberOfBatches %@
 ***recordZoneChangeTokensUpdatedBlock should not get called
 *** Deleted recordID %@ type %@
 Scheduling a fetch operation from message zone, using token %@
 Did not fetch changes from message zone. Device condition allows sync %@. Disk Space Available %@
 _shouldMarkAllMessagesAsNeedingSync %@
+Kicking off a message write after fetching messages
+Completed message write %@ %@
 syncMessagesWithSyncType with type %ld deviceConditionsToCheck %@
 Message Sync
 *** We were called to do an initial sync. Let's only fetch the first set of messages ***
@@ -1962,8 +2024,6 @@ Marking any unsuccessfully synced messages as needing sync
 Finished Marking any unsuccessfully synced messages as needing sync
 Done fetching archived records.
  ****** This was an initial fetch. Not writing messages *****
-Kicking off a message write after fetching messages
-Completed message sync %@ %@
 Not calling write messages on second callback from fetch archived records
 ******** Failed fetching archived messages with CKError %@ completionBlockCalledWhenFetchFailed %@
 v16@?0B4B8@"NSError"12
@@ -2005,7 +2065,7 @@ Attempting location share update to chat guid GUID: %@  (%@:%@) %@ => %@
 save audio
 save video
 Attempting to add message action GUID: %@ (%@) %@ => %@
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1979.13.4/IMDaemonCore/IMDMessageStore_PersistenceUtilities.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1980.15/IMDaemonCore/IMDMessageStore_PersistenceUtilities.m
 IMDMessageRecordRef IMDCreateIMDMessageRecordRefFromIMMessageItem(IMItem *)
 IMDCreateIMDMessageRecordRefFromIMMessageItem
 Unexpected not equal '%@ (%@) != %@ (%@)' in %s at %s:%d. %@
@@ -2041,7 +2101,6 @@ Trying to create imfiletransfer ckrecord with guid %@ and filename %@
 Failed to move file from %@ to %@, error %@
 Created transfer %@, finalAssetPath %@
 Failed to write asset to disk because of nil path! Asset from ckrecord with guid %@ has path %@, finalAssetPath %@ and asset fileURL %@
-Failed to move file from %@ to %@ error %@
 Failed to write aux asset to disk because of nil path! Asset from ckrecord with guid %@ has path %@, finalAssetPath %@ and asset fileURL %@
 Failed to write record image asset to %@ GUID:%@
 Got IMFileTransfer record with guid %@ with no file name
@@ -2120,7 +2179,7 @@ InitialSync
 We aren't ready to perform an initial sync.  We've tried %ld times.  We'll try again in %ld seconds 
 We'e tried %ld times to begin an initail sync.  Giving up.
 NoManateeOnRestore
-*** Manatee keys not available not kicking off initial sync
+*** Manatee keys not available not kicking off initial sync.
 MissingTLK
 MissingTLKNoInitalSync
 Restore Fail
@@ -2187,7 +2246,8 @@ Deleted restore failures directory at path %@
 Failed to delete restore failures directory at path %@ with error %@
 Dumping restore failure logs
 Feature is on, time to send restore failure logdumps, found %@ to send
-Sending restore failure log at path %@ to recipient %@
+RestoreFailuresDump
+Sending restore failure log (guid %@) at path %@ to recipient %@
 Checking we whould send logs. allowedToSendLogs %@ withinAnHourOfLogDumpHour %@ hasDumpedRestoreFailureLogsInPastHour %@
 It is dump log time but feature is off, deleting restore failures directory
 Not auto dumping Restore Failure MOC logs withingLogDumpHour %@ hasDumpedLogsInPastHour %@ lastLogDumpTime %@
@@ -2211,10 +2271,12 @@ Failed synced chats error %@
  Not posting restore rate metrics for zone not present
 Failed syncing Messages Chats, please file a radar
 Not nuking CK Data from watch
+Attempting periodicSync for attemptCount %@ so setting fullSyncAttempted date.
 We need to dump logs after syncing
 LowSyncStats
 We don't need to dump logs
 Log metrics for successful sync if mic is enabled
+First full sync is complete, noting down date %@
 ****** Manatee keys not available. Not syncing %@ ******
 NoManateeOnFullSync
 MissingTLKNoSync
@@ -2291,6 +2353,28 @@ OK Button Title
 com.apple.IMDCKSyncController
 performOneTimeAccountUpgradeCheckIfNeeded
 Will performing MOIC account check on upgrade after %f seconds
+Clear analytic defaults and local sync state
+version
+daysSinceInitialSyncStarted
+User has completed a first full sync so device has started doing periodic syncs. Logging full periodic sync metric.
+daysSinceLastFullSync
+daysSinceFirstFullSync
+completedPeriodicSyncSinceFirstFullSync
+analytic-zone-restoring-user-logging-not-allowed
+analytic-zone-new-user-logging-not-allowed
+analytic-zone-periodic-sync-logging-not-allowed
+analytic-zone-daily-state-logging-not-allowed
+MiC is off, not logging metrics
+Device created zones, will be uploading dailySyncState-NewUser analytic dict %@ to CK.
+Server denies new user daily sync analytics.
+dailySyncState-NewUser
+Device restored CK content, uploading dailySyncState-RestoringUser analytic dict %@ to CK.
+Server denies restoring user daily sync analytics.
+dailySyncState-RestoringUser
+Not uploading daily sync state.
+Will be uploading dailySyncState-PeriodicSync analytic dict %@ to CK.
+dailySyncState-PeriodicSync
+Not uploading periodic sync activity.
 syncStartDate
 T@"NSDate",&,N,V_syncStartDate
 longRunningSyncTimer
@@ -2417,6 +2501,7 @@ Unable notify about message, no messages found for guid: %@
 Noting messages for chat GUID %@ marked as read
 Suppressed messages now marked as read: %@
 Cleared suppression flag for chat %@
+Watch has chat %@ with read timestamp  %@ in suppression beyond timer, removing from suppression
 %@ ending message suppression for all outstanding timers: %@
 v16@?0@4@8^B12
 %@ _endMessageSuppressionForChatGUID: %@
@@ -2511,7 +2596,7 @@ Incremented pending read receipt to %lu
 Decremented pending read receipt to %lu
 Setting pending read receipt to %lu
 Storing message: %@
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1979.13.4/IMDaemonCore/IMDServiceSession_Chat.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1980.15/IMDaemonCore/IMDServiceSession_Chat.m
 void _IMDStoreMessage(IMDService *, IMMessageItem *, BOOL, BOOL, BOOL, FZMessageFlags, _IMDMessageStoreShouldStoreBlock, _IMDMessageStoreDidStoreBlock, _IMDMessageStoreCompletionBlock)
 _IMDStoreMessage
 [resultMessage isKindOfClass:[inMessage class]]
@@ -2602,13 +2687,14 @@ Creating a fetch chat record operation using sync token %@ for zone %@ limit %@
 ** We got the lock record %@ **
 _processRecordChanged changed recordID:%@ for ChatGUID %@
 ChatsChanged
+Kicking off chat write
+Not writing up chats as sync type does not allow it
 We got a %@ error while fetching chats. %@
 Resetting local chat sync state & last sync date after receiving user deleted zone error
 Attempting to create chat zone
+Attempting to create chat zone so setting createdChatZone BOOL to YES
 ** Failed to create chat zone **
 We completed fetching changes from chat zone with no error
-Not writing up chats as we are restoring chats at this point
-Kicking off chat write
 We got an expired server change token back so resetting the sync token to nil and fetching the chats again %@
 ********* We got an error fetching changes from chat zone %@
 Resetting the sync token to nil
@@ -2630,8 +2716,7 @@ FailureReason
 Syncing chats in new device bring up scenario
 Chat sync error %@
 *********** we failed to sync Chats due to op lock %@, kicking off another chat sync
-Not syncing chats due to missing defaults or local recordID salt present?: %@. Please do following as mobile and try again - defaults write com.apple.madrid enableCKSyncingV2 YES
-Missing Salt
+Not syncing chats due to missing defaults. Please do following as mobile and try again - defaults write com.apple.madrid enableCKSyncingV2 YES
 Clearing chat zone sync token
 Marking all chats as dirty
 _handleChatDeletionCompletionForRecordIDs error %@
@@ -2682,7 +2767,7 @@ com.apple.private.IMDaemonCore.IMDStickerRegistry
 Tried to change property %@ with nil buddy ID
 Tried to change empty property for buddy ID: %@
 Tried to change IDProperty for buddy ID: %@   bailing
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1979.13.4/IMDaemonCore/IMDServiceSession_BuddyList.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/IMCore_Sim/IMCore-1980.15/IMDaemonCore/IMDServiceSession_BuddyList.m
 <Unknown File>
 Too many calls to [IMDService endBuddyChanges]!
 allBuddies
@@ -3252,6 +3337,7 @@ shouldRepairAccountWithDeviceAccountSecurityLevel:serverAccountStatus:
 setErrorToAccountNeedsRepair
 _primaryiCloudAccountSecurityLevel
 _checkIfEnabledByServerBagOrDefault:
+_isLogDumpAllowed
 logCollectorAddress
 reportMOCDebuggingErrorWithString:internalOnly:initialSync:sendToHandle:
 reportMOCDebuggingErrorWithString:internalOnly:initialSync:sendToHandle:reasonString:
@@ -3272,8 +3358,7 @@ errorIndicatesDeviceConditionsDontAllowSync:
 arrayWithObjects:
 objectForKeyedSubscript:
 recordName
-setLastSyncDate:
-setLastCompleteSyncedDBDate:
+removeObjectFromAnalyticSyncDatesDictionaryForKey:
 reportMOCDebuggingErrorWithString:internalOnly:initialSync:
 _accountStore
 aa_primaryAppleAccountWithCompletion:
@@ -3287,7 +3372,7 @@ _isSyncingPausedOverride
 isSyncingEnabled
 lastSyncDate
 isSyncing
-lastCompleteSyncedDBDate
+getAnalyticSyncDatesObjectForKey:
 initWithCapacity:
 recordID
 _deviceActive
@@ -3296,7 +3381,10 @@ timeIntervalSinceDate:
 userNotificationWithIdentifier:title:message:defaultButton:alternateButton:otherButton:
 response
 addUserNotification:listener:completionHandler:
+cachedSalt
 logDumpAndSendMessageTo:forHours:reason:isInitialSync:requirePreviousPrompt:willSendBlock:
+ckStatisticCalculations
+setAnalyticSyncDatesDictionaryObject:forKey:shouldOverrideIfExists:
 metricForPCSReportManateeStatusWithReason:
 submitCloudKitMetricWithOperationGroupName:useManatee:
 aa_primaryAppleAccount
@@ -3365,9 +3453,13 @@ deviceActiveString
 errorIndicatesIdentityWasLost:
 errorIndicateDeviceDoesNotHaveKeysToSync:
 _showCKLogNotificationWithCompletion:
+shouldKickOffWriteForSyncType:
+isLocalCachedSaltPresent
 logDumpAndSendMessageTo:forHours:reason:
 logDumpAndSendMessageTo:forHours:reason:requirePreviousPrompt:willSendBlock:
-ckStatisticCalculations
+logToPowerLogForLogDumpGUID:logDumpCompleted:logDumpSucceeded:logDumpSendingCompleted:logDumpSendingSucceeded:reason:
+logCloudKitSyncToPowerLogForSyncType:isCoreDuetSync:didStartSync:didFinishSync:didSucceedSyncing:
+logCloudKitSyncToPowerLogForSyncType:isCoreDuetSync:didCompleteChatSync:didSucceedSyncingChats:didCompleteMessageSync:didSucceedSyncingMessages:didCompleteAttachmentSync:didSucceedSyncingAttachments:syncAttemptCount:
 noteAllSyncedItemsPriorToSync
 logDumpIsNecessaryAfterSync
 submitPCSReportManateeStatuMetricWithPrefix:andReason:
@@ -3572,7 +3664,7 @@ enumerateKeysAndObjectsUsingBlock:
 messageContainsSurfDD:
 payloadData
 decodeObjectOfClasses:forKey:
-reportMessageDictionaryForMessages:withLastAddressedHandle:maxMessageLength:isAutoReport:withChat:maxMessagesToReport:totalMessageCount:
+reportMessageDictionaryForMessages:withLastAddressedHandle:maxMessageLength:isAutoReport:withChat:maxMessagesToReport:totalMessageCount:onlyReportForiMessageService:notifyInternalSecurity:
 object
 enumerateObjectsUsingBlock:
 removeObjectsInArray:
@@ -3679,7 +3771,7 @@ updateDisplayName:fromDisplayName:forChatID:identifier:style:
 eagerUploadTransfer:
 eagerUploadCancel:
 sendMessage:toChatID:identifier:style:
-sendLogDumpMessageAtFilePath:toRecipient:shouldDeleteFile:
+sendLogDumpMessageAtFilePath:toRecipient:shouldDeleteFile:withCompletion:
 sendReadReceiptForMessage:toChatID:identifier:style:
 sendPlayedReceiptForMessage:toChatID:identifier:style:
 sendSavedReceiptForMessage:toChatID:identifier:style:
@@ -3811,17 +3903,29 @@ isMainThread
 deDupeSaltZoneID
 initWithRecordName:zoneID:
 metricZoneID
+analyticRecordZoneID
 databaseManager
 createDeDupeSaltZoneIfNeededWithCompletionBlock:
 differenceFromDate:
 writeSyncCompletedRecordWithDate:useManatee:completion:
 submitCloudKitMetricWithData:operationGroupName:useManatee:completion:
+createAnalyticZoneIfNeededWithCompletionBlock:
+_allowAnalyticZoneSubmission
+_analyticZoneCreated
+submitCloudKitAnalyticWithDictionary:operationGroupName:useManatee:completion:
 manateeDataBase
 stingRayDatabase
 group
 name
 stringByAppendingString:
 _sharedCKUtilities
+initWithRecordsToSave:recordIDsToDelete:
+setName:
+setSavePolicy:
+setGroup:
+operationID
+setModifyRecordsCompletionBlock:
+_scheduleMetricOperation:useManate:
 setExitRecordDate:
 setErrorFetchingExitDate:
 handleNotificationForSubscriptionID:
@@ -3830,14 +3934,17 @@ _evalToggleiCloudSettingsSwitch
 deleteExitRecordWithCompletion:
 exitRecordID
 syncCompleteRecordID
+analyticZoneRecordID
 exitConfigurtation
 _scheduleOperation:
 _saltZoneCreated
 _subscriptionCreated
 writeInitialSyncCompletedRecordIfNeeded
+submitCloudKitAnalyticWithOperationGroupName:useManatee:analyticDictionary:
 _serverAllowsMetricSubmission
-_scheduleMetricOperation:useManate:
 _modifiedOpGroupName:useManatee:
+_submitCloudKitMetricWithOperationGroupName:record:useManatee:ignoreZoneNotFoundError:completion:
+_canSubmitCloudKitMetric
 sendCloudKitZoneFetchRequestToNoteFeatureIsOn
 setExitRecordID:
 setExitConfigurtation:
@@ -3878,7 +3985,6 @@ saveSubscription:completionHandler:
 _createSubscriptionForZoneID:subscriptionID:recordType:completionBlock:
 fetchSubscriptionWithID:completionHandler:
 initWithRecordZoneIDs:
-operationID
 recordZoneIDs
 setFetchRecordZonesCompletionBlock:
 initWithRecordZonesToSave:recordZoneIDsToDelete:
@@ -3893,6 +3999,7 @@ _createRecordZoneIfNeeded:completionBlock:
 _deleteZone:
 attachmentRecordZone
 messageRecordZone
+analyticRecordZone
 deDupeSaltRecordZone
 _createSubscriptionIfNeededForZoneID:subscriptionID:recordType:completionBlock:
 _deleteAllZonesForDatabase:
@@ -3915,6 +4022,7 @@ createAttachmentZoneIfNeededWithCompletionBlock:
 deleteAttachmentZone
 createMessageZoneIfNeededWithCompletionBlock:
 deleteMessageZone
+deleteAnalyticZone
 deleteDeDupeSaltZone
 deleteAllZones
 fetchChatZoneToCheckManateeStatus:
@@ -3926,6 +4034,8 @@ _attachmentRecordZoneID
 _attachmentRecordZone
 _messageRecordZoneID
 _messageRecordZone
+_analyticRecordZoneID
+_analyticRecordZone
 _deDupeSaltZoneID
 _deDupeSaltRecordZone
 _metricZoneID
@@ -3935,13 +4045,10 @@ setDesiredKeys:
 setPreviousServerChangeToken:
 setResultsLimit:
 setFetchNewestChangesFirst:
-setName:
 _messageFetchRecordZoneChangesOptionsDictionaryUsingToken:zoneID:resultsLimit:
 initWithRecordZoneIDs:optionsByRecordZoneID:
 _operationGroupWithName:
-setGroup:
 setFetchAllChanges:
-initWithRecordsToSave:recordIDsToDelete:
 setAtomic:
 setQuantity:
 updateEvent:addToCount:forKey:
@@ -4067,12 +4174,11 @@ numberWithLong:
 purgedAttachmentsForChat:services:limit:
 _numberOfAttachmentsToDownload
 deviceConditionsToCheck
-_updateDeviceCondictionsToCheckIfNeededForCurrentBatchCount:maxBatchCount:
+_updateDeviceConditionsToCheckIfNeededForCurrentBatchCount:maxBatchCount:
 _deviceConditionsAllowsMessageSync
 _ckUtilitiesInstance
 activity
 _recordKeyManagerSharedInstance
-cachedSalt
 updateLegacyTransferGUIDIfNeeded:
 attachmentWithGUID:
 _markAttachmentWithROWIDAsSyncedWithCloudKit:
@@ -4111,9 +4217,10 @@ setFetchRecordZoneChangesCompletionBlock:
 saveAttachmentsCKOperationUsingRecordsToSave:
 _processModifyPerRecordCallBack:error:
 _processModifyRecordCompletion:deletedRecordIDs:error:completionBlock:
-setModifyRecordsCompletionBlock:
 _resetSyncToken
+_kickOffWriteOnCKQueueWithCompletion:
 _kickOffAssetFetchForTransfersIfNeeded
+_kickOffWriteIfNeededForSyncType:completion:
 _attachmentZoneCreated
 recordChangeTag
 _updateTransferUsingCKRecord:wasFetched:
@@ -4190,6 +4297,12 @@ errorArrayForKey:
 addErrorToArray:forKey:
 _startBatchWrite
 _commitBatchWrite
+productBuildVersion
+analyticSyncDatesDictionary
+initWithDictionary:
+_removeObjectForKey:forDictionary:
+setAnalyticSyncDatesDictionary:
+_setObject:forKey:forDictionary:shouldSetBuild:
 isEligibleForTruthZone
 isRemovedFromBackup
 isInExitState
@@ -4217,10 +4330,15 @@ updateCloudKitStateWithDictionary:
 addSyncError:
 keyValueCollection:willUpdateValues:
 keyValueCollection:didUpdateValues:
+createdChatZone
+setCreatedChatZone:
+deletedZones
+setDeletedZones:
 setInExitState:
 isStartingPeriodicSyncSetByCloudKitHooks
 isStartingInitialSyncSetByCloudKitHooks
 setExitDate:
+setLastSyncDate:
 setSyncingFinished
 clearLocalCloudKitSyncState
 setStartingPeriodicSyncWithRecordType:
@@ -4358,7 +4476,7 @@ fileURL
 _setLocalPath:
 transferMetaDataFromRecord:
 mimeType
-copyItemAtPath:toPath:error:
+moveItemAtPath:toPath:error:
 fileCopierDidStart:
 fileCopierDidFinish:
 _progressForTransferGUID:allowCreate:path:
@@ -4415,6 +4533,7 @@ _sendDBVersionResponse:
 _sendQuickSwitchCompletedWithResult:
 _sendIDSFile:withCommand:
 stringByStandardizingPath
+copyItemAtPath:toPath:error:
 _sendZippedFileAtPath:withCommand:
 _notifyPSYDataSent
 _compressFileAtPath:toPath:withCompletionBlock:
@@ -4613,6 +4732,10 @@ resetSyncStateForMessage:toState:
 _legacy_parseAIMLString:
 _IMAgentObjectForKey:
 _superFormatFromAIML:
+isUpdatingAttachmentFileSizes
+setIsUpdatingAttachmentFileSizes:
+longLongValue
+_deviceConditionsAllowsAttachmentFileSizeUpdateForActivity:
 _cacheDeleteSetUp
 _ckUtilitiesSharedInstance
 __wrapperAroundCacheDeletePurgeableCallback:urgency:
@@ -4643,6 +4766,7 @@ _getIndexSetForBatch:indexOfTransfers:
 objectsAtIndexes:
 _indexOfNextBatch:totalTransfers:indexOfTransfers:
 _shouldFetchNextBatch:totalTransfers:
+updateAttachmentFileSizesWithActivity:
 registerWithCacheDelete
 metricAttachmentsToPurge:
 alreadyCapturedErrorWithAutoBugCapture
@@ -4651,6 +4775,7 @@ isDeviceLowOnDiskSpace
 _alreadyCapturedErrorWithAutoBugCapture
 _allowsWritingToDisk
 _deviceLowOnDiskSpace
+_isUpdatingAttachmentFileSizes
 _initWithContainer:scope:
 initWithIdentifier:
 _zoneManager
@@ -4662,7 +4787,6 @@ _chatSyncOperationGroupWithName:
 _chatFetchRecordZoneChangesOptionsDictionaryUsingToken:zoneID:resultsLimit:
 _chatFetchRecordZoneChangesCKConfiguration
 fetchChatZoneChangesCKOperationUsingToken:zone:resultsLimit:groupName:
-setSavePolicy:
 _chatWriteRecordsCKConfiguration
 _chatSyncOperationGroup
 fetchChatZoneChangesCKOperationUsingToken:zone:resultsLimit:
@@ -4711,6 +4835,7 @@ chatsForMessageGUID:
 chatsGUIDsForMessageWithGUID:
 countryCode
 unformattedID
+_cleanUnformattedPhoneNumber:countryCode:
 deleteMessageGUIDs:
 removeMessage:fromChat:
 deleteInteractionsWithMessageGUIDs:
@@ -4720,7 +4845,6 @@ _deleteMessagesWithGUIDs:chatIdentifiers:style:onServices:batchNumber:completion
 _performBlock:afterDelay:
 deleteMessagesWithChatIdentifiers:style:onServices:completion:
 messageWithReplaceMessageID:fromHandle:onService:
-longLongValue
 initWithLongLong:
 _suppressDBUpdateTimerFired
 __postDBUpdate
@@ -4763,6 +4887,7 @@ messageActionItemsForOriginalMessageGUID:
 frequentRepliesForForChatIdentifiers:onServices:limit:
 chatForMessage:
 chatsForMessage:
+_copyHandle:onService:
 resolveUnformattedRepresentationsForHandles:onService:message:completionBlock:
 deleteMessageGUIDs:inChat:
 deleteMessagesWithChatIdentifiers:style:onServices:
@@ -4822,6 +4947,7 @@ setLastReadMessageTimeStamp:
 setLastSentMessageDate:
 setLastMessageTimeStampOnLoad:
 setSrServerChangeToken:
+setWasReportedAsJunk:
 numberWithChar:
 handleInfo
 compareIDs:
@@ -4853,7 +4979,6 @@ engroupCreationDate
 copyDictionaryRepresentation:
 copyDictionaryRepresentation
 setLastMessage:
-initWithDictionary:
 chat:updated:
 sortedArrayUsingSelector:
 storeAndBroadcastChatChanges
@@ -4917,6 +5042,7 @@ tearDownToneNotificationSessionIfNeeded
 srCloudKitSyncState
 createEngramGroupOnMessageSend
 pendingENGroupParticipantUpdate
+wasReportedAsJunk
 _accountID
 _serviceName
 _properties
@@ -4946,6 +5072,7 @@ _pendingENGroupParticipantUpdate
 _isArchived
 _isFiltered
 _hasHadSuccessfulQuery
+_wasReportedAsJunk
 _cloudKitRecordID
 _srCloudKitRecordID
 _srServerChangeToken
@@ -5264,6 +5391,10 @@ _recordsToSave
 _syncOperationGroupName
 _processRecordWriteCompletionForRecord:NSError:
 _processModifyRecordsCompletion:deletedRecordIDs:operationError:isLastBatchOfWrite:writeCompletionBlock:
+_deviceConditionsAllowsMessageSyncForActivity:deviceConditionsToCheck:currentBatchCount:maxBatchCount:
+_isCoreDuetSyncForMaxBatchCount:
+_shouldDeferCoreDuetMessagesSync
+_numberOfBatchesOfMessagesToFetchInInitialSync
 setArchivedRecordSyncToken:
 _fetchArchivedRecordsIfNeeded:currentBatchCount:maxNumberOfBatches:WithCompletionBlock:
 _resetArvchivedRecordSyncToken
@@ -5278,14 +5409,14 @@ _messageZoneCreated
 recordZoneIDsWithPendingArchivedRecords
 _doesAnyRecordZoneIDHavePendingArchivedRecords:
 _numberOfRecordsToFetchForSyncType:
+_isDiskSpaceAvailableForSyncType:currentBatchCount:
 _shouldFetchArchivedRecords:
 _processRecordZoneFetchCompletionZoneID:serverChangeToken:clientChangeTokenData:moreComing:NSError:syncType:currentBatchCount:maxNumberOfBatches:shouldFetchArchivedRecords:completionBlock:
 _processFetchRecordZoneChangesCompletionWithError:completionBlock:
+_noteSyncEnded
 _shouldMarkAllMessagesAsNeedingSync
 _updateAllMessagesAsNotNeedingReUpload
-_numberOfBatchesOfMessagesToFetchInInitialSync
 _markAllUnsuccessFullSyncMessagesAsNeedingSync
-_noteSyncEnded
 _deleteStingRaySyncToken
 deleteMessageSyncToken
 _processRecordDeletionCompletion:error:completionBlock:
@@ -5341,7 +5472,6 @@ initWithFileURL:
 _setCKRecordAsset:forKey:
 _auxVideoPathIfItExists
 moveItemAtURL:toURL:error:
-moveItemAtPath:toPath:error:
 initWithContentsOfURL:
 writeToURL:atomically:
 _recordIsValid:
@@ -5425,6 +5555,7 @@ clearCKRelatedDefaults
 deletChatSyncToken
 _performLastSyncDateMetricForSuccessfulSync
 _performLastCompleteSyncedDBDateMetricForSuccessfulSync
+initWithTimeIntervalSince1970:
 lastLogDumpDate
 lastRestoreFailureLogDumpDate
 initWithCalendarIdentifier:
@@ -5479,6 +5610,18 @@ enforceAccountsMatchForMocAndShowDialogIfNeeded
 IMAKUserInfoChangedAltDSIDKey
 IMAKUserInfoChangedSecurityLevelKey
 updateSecurityLevelDowngradedIfNeeded:
+_addDatesDefaultsIfNeededToDictionary:keys:
+_addDatesDefaultsIfNeededToDictionary:
+_daysSinceSyncDate:
+_completedPeriodicSyncSinceFirstFullSyncForLastSyncDate:firstFullSyncCompletedDate:
+_serverDeniesDailySyncStateAnalytics
+_dailySyncStateDictionary
+_shouldReportNewUserIfCreatedChatZones:deletedZones:
+_serverDeniesNewUserAnalytics
+_submitCloudKitAnalyticWithOperationGroupName:analyticDictionary:
+_serverDeniesRestoringUserAnalytics
+_periodicSyncStateDictionary
+_serverDeniesPeriodicSyncAnalytics
 eventStreamHandler:didReceiveEventWithName:userInfo:
 _postMetricsToCloudKitOnAutomaticHistoryDeletionAgentLaunch
 _dateForNext24LogDumpAtHour:timeNow:dumpNow:
@@ -5488,6 +5631,8 @@ kickOffCloudKitSyncIfNeededOnImagentLaunch
 sendRestoreFailuresLogDumpsIfNeeded
 collectLogsIfNeeded
 syncChatsWithMessageContext:
+clearAnalyticDefaultsAndLocalSyncState
+logCloudKitAnalytics
 initialSyncAttempts
 cloudKitMetricsFetchOp
 setCloudKitMetricsFetchOp:
@@ -5568,6 +5713,7 @@ account:chat:style:chatProperties:groupID:chatPersonCentricID:messagesReceived:
 _autoReplier
 dateLastCallEnded
 _updateInputMessage:forExistingMessage:
+_suppressionExpiredForChat:
 _suppresionTimerFired:
 _setSuppressedMessage:inChatWithGUID:
 totalTimeForKey:
@@ -5717,7 +5863,9 @@ _writeCKRecordsToChatZone:isUsingStingRay:withCompletion:
 _chatZoneID
 _numberOfChatsToFetch
 setFetchedChatsDuringLastSync:
+_kickOffWriteOnCKQueueWithCompletion:isUsingStingRay:
 _chatZoneCreated
+_kickOffWriteIfNeededForSyncType:completion:isUsingStingRay:
 _fetchChatRecordOperation
 _processRecordChanged:isUsingStingRay:
 _processRecordZoneFetchCompletion:zoneID:clientChangeTokenData:moreComing:error:
@@ -6230,8 +6378,12 @@ v28@0:4@8B12B16@20@24
 @20@0:4@8B12@16
 I12@0:4i8
 B16@0:4@8^@12
+B12@0:4i8
 v20@0:4@8i12@16
 v28@0:4@8i12@16B20@?24
+v32@0:4@8B12B16B20B24@28
+v28@0:4i8B12B16B20B24
+v44@0:4i8B12B16B20B24B28B32B36I40
 v32@0:4@8i12@16B20B24@?28
 v16@0:4@8@?12
 @"IMDCKSyncState"
@@ -6254,7 +6406,7 @@ v16@0:4@"CKServerChangeToken"8@"NSString"12
 @"IMOneTimeCodeUtilities"
 v16@0:4d8
 @"<IMDMessagePTaskStore>"
-@36@0:4@8@12I16B20@24I28^I32
+@44@0:4@8@12I16B20@24I28^I32B36B40
 v24@0:4@8@12@16@20
 v12@0:4@"IMConnectionMonitor"8
 v16@0:4B8@12
@@ -6264,7 +6416,7 @@ v40@0:4@8@12@16C20@24@28@32@36
 v20@0:4@8@12C16
 v28@0:4@8@12@16@20C24
 v24@0:4@8@12@16C20
-v20@0:4@8@12B16
+v24@0:4@8@12B16@?20
 v12@0:4I8
 v32@0:4@8@12@16@20@24C28
 v28@0:4@8I12I16@20@24
@@ -6283,7 +6435,7 @@ v24@0:4@"NSDictionary"8@"NSString"12@"NSString"16C20
 v28@0:4@"NSString"8@"NSString"12@"NSString"16@"NSString"20C24
 v12@0:4@"NSURL"8
 v24@0:4@"IMMessageItem"8@"NSString"12@"NSString"16C20
-v20@0:4@"NSString"8@"NSString"12B16
+v24@0:4@"NSString"8@"NSString"12B16@?<v@?B>20
 v28@0:4@"NSDictionary"8@"NSString"12@"NSString"16@"NSString"20C24
 v12@0:4@"NSArray"8
 v16@0:4@"NSDictionary"8B12
@@ -6313,8 +6465,9 @@ v12@0:4@"<IMDAutoReplyDelegate>"8
 v20@0:4@8@12@?16
 v20@0:4d8@16
 v20@0:4@8B12@?16
+v20@0:4@8B12@16
 @16@0:4@8B12
-v24@0:4@8@12B16@?20
+v28@0:4@8@12B16B20@?24
 @"NSDate"
 @"NSError"
 @"CKRecordID"
@@ -6380,6 +6533,7 @@ B16@0:4i8i12
 B12@0:4B8
 v24@0:4@8i12B16@?20
 v36@0:4B8i12i16i20i24@28@?32
+B16@0:4i8@?12
 v52@0:4@8@12@16B20B24i28i32@36i40i44@?48
 v20@0:4@8d12
 v16@0:4@8i12
@@ -6388,6 +6542,8 @@ v16@0:4@8i12
 @"NSObject<OS_xpc_object>"
 v16@0:4@"IMKeyValueCollection"8@"NSDictionary"12
 v12@0:4i8
+v24@0:4@8@12@16B20
+v20@0:4@8@12B16
 v16@0:4I8i12
 @"IMKeyValueCollection"
 @"<IMDCKSyncStateDelegate>"
@@ -6420,7 +6576,6 @@ v16@0:4q8
 L20@0:4@8@12L16
 B16@0:4L8@12
 v20@0:4@8L12L16
-v24@0:4@8@12@16B20
 v20@0:4@?8d12
 @32@0:4@8B12B16B20Q24
 @36@0:4@8B12B16B20Q24B32
@@ -6429,6 +6584,7 @@ v20@0:4@?8d12
 @32@0:4@8@12@16d20@28
 @20@0:4i8@12@16
 @24@0:4@8@12@16I20
+^{_IMDHandleRecordStruct=}16@0:4@8@12
 v32@0:4@8@12C16@20I24@?28
 @24@0:4@8C12@16@?20
 @20@0:4@8C12@16
@@ -6472,10 +6628,10 @@ B24@0:4@8@12@16@20
 v24@0:4@8@12B16B20
 v28@0:4@8q12q20
 v28@0:4@8@12@16B20@?24
+B24@0:4@8I12i16i20
 v36@0:4@8@12B16i20i24@28@?32
 v24@0:4B8i12i16@?20
 v48@0:4@8@12@16B20@24i28i32i36B40@?44
-B12@0:4i8
 v24@0:4i8i12i16@?20
 @"CKServerChangeToken"
 @"IMDCKMessageSyncCKOperationFactory"
@@ -6492,6 +6648,7 @@ v20@0:4@8I12I16
 v28@0:4@8I12I16B20@?24
 v16@0:4@?8@12
 v20@0:4B8@?12@16
+B16@0:4B8B12
 @"CKFetchRecordZonesOperation"
 v16@0:4@8C12
 v20@0:4@8C12@16
@@ -6537,6 +6694,7 @@ v32@0:4@8@12C16@20@24@?28
 v60@0:4@8@12@16@20@24@28@32@36Q40B48@?52@?56
 @"<IMDMessageHistorySyncTask>"
 @"<IMDMessageHistorySyncTaskFactory>"
+v20@0:4i8@?12B16
 v24@0:4@8@?12B16i20
 v16@0:4i8@?12
 v20@0:4i8@12@?16

@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1336.220.5
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1336.250.6
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -79,6 +79,8 @@ cpu_intensive
 setCpu_intensive:
 may_reboot_device
 setMay_reboot_device:
+post_install
+setPost_install:
 requires_network_connectivity
 setRequires_network_connectivity:
 requires_inexpensive_network
@@ -117,6 +119,7 @@ _app_refresh
 _memory_intensive
 _cpu_intensive
 _may_reboot_device
+_post_install
 _requires_network_connectivity
 _requires_inexpensive_network
 _performs_network_upload
@@ -154,11 +157,19 @@ alloc
 init
 UTF8String
 removeObject:
+initWithSuiteName:
+arrayForKey:
+mutableCopy
+initWithCapacity:
+addObject:
+setObject:forKey:
 copy
 countByEnumeratingWithState:objects:count:
-addObject:
 stringWithUTF8String:
+stringForKey:
 isEqualToString:
+removeObjectForKey:
+containsObject:
 setDay:
 setMonth:
 setValue:forComponent:
@@ -184,11 +195,9 @@ _components
 _fireDate
 calendarWithIdentifier:
 numberWithUnsignedLongLong:
-setObject:forKey:
 currentLocale
 descriptionWithLocale:
 objectForKey:
-removeObjectForKey:
 objectForKeyedSubscript:
 compare:
 earlierDate:
@@ -346,6 +355,8 @@ cpu_intensive
 TB,N,V_cpu_intensive
 may_reboot_device
 TB,N,V_may_reboot_device
+post_install
+TB,N,V_post_install
 requires_network_connectivity
 TB,N,V_requires_network_connectivity
 requires_inexpensive_network
@@ -383,8 +394,11 @@ DisableSmartPowerNap
 name
 state
 eligible
+VersionSpecificActivitiesRun
 true
 false
+kern.osversion
+ProductBuildVersion
 Command
 Identifier
 List

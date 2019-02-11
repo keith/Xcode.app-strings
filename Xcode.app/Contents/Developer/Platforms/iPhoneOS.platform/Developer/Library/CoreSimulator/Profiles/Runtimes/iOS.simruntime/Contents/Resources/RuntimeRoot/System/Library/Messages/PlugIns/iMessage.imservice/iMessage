@@ -204,8 +204,10 @@ Logging
 v16@?0@"IMUserNotification"8
 Received generic notification to update chat properties
 Received generic notification to update global read receipt
-removing chat: %@
 groupID
+wasReportedAsJunk
+Blacklisted GroupID: %@
+removing chat: %@
 chat-clear
 guids
 clearing messages for chat IDS:%@ on services:%@
@@ -217,8 +219,8 @@ resetPreference
 Updated Keep Message Defaults Days:%@ Version:%@ resettingPreference: %@ currentKeepMessagesValue %@
 Received resetting keep messages preference. Writing default to show UI
 Received a delete command, but it was not from one of our own devices From: %@, ID:%@
-iCloudSync not enabled, dropping delete command: %@
-Handling delete command: %@
+iCloudSync not enabled and not reported as junk, dropping delete command: %@
+Handling delete command: %@ (cloudkitSyncEnabled: %d, wasReportedAsJunk: %d)
 deleteCommand block
 Received group message command: %@ from: %@   token: %@
 Using encrypted group payload
@@ -360,8 +362,8 @@ Failed Reflecting sending Delivery receipt for guid:
 IMDChat not found for forwarding a delivery receipt with messageID: %@
 Reflecting delivery receipt with chat properties: %@
 Forwarding delivery receipt with messageDictionary: %@
-iCloud syncing not enbabled droping delete command to all other devices, (command %@)
-Forwarding delete command to all other devices
+iCloud syncing not enbabled, and was not reported junk, dropping delete command to all other devices, (command %@) cloudkitSyncingEnabled: %d wasReportedJunk: %d
+Forwarding delete command to all other devices: cloudKitSyncingEnabled: %d wasReportedJunk: %d
 Finished sending delete command to all devices
 Failed Reflecting sending delete command
 Not enough information to forward delete command, idsAccount:%@ callerURI:%@ command:%@
@@ -547,6 +549,7 @@ Attachments
 disabling backwards compatibility from server bag
 com.apple.messages.MSMessageExtensionBalloonPlugin
 supports-biz-forward-compat-apps-v1
+supports-audio-messaging-v2
 Not adding required reg properties for typing message msg %@
 newFeature
 CKSparklesEffect
@@ -851,6 +854,7 @@ EAGER use -- previous upload failed, retrying: %@
 EAGER use -- wait for complete: %@
 EAGER use -- waited, use upload: %@, transfer %@
 EAGER use -- waited, failed: %@, error %@
+EAGER use -- Set overall status to fail %@
 Source URL: %@  Link: %@
 scaleFactorArray after transcoding %@ additionalContext %@
 Computed new transcoded hash %@ original hash %@ 
@@ -1194,6 +1198,7 @@ Trying to find chat
  ******* that failed, trying a simple decode now
  ******* BAD DATA: %@
 Found chat in second attempt %@
+GroupID %@ was found in blacklist, dropping message
 @16@?0@"NSString"8
 receiveMessageData localVersion: %ld, versionReceived:%ld, timeDifference: %lld, lastUpdated:%lld, timestamp:%lld, participants: %@, protocolVersion: %@, isIncomingParticipantSetSame %@, fromStorage %@
 Not converving participants. Message from legacy device
@@ -1245,6 +1250,7 @@ Group: ERROR sanity check failed: ChatRegistry returned chats that did not match
    Updating group from %@ => %@
    Found matching chat: %@
 Incoming group message payload from: %@   payload: %@  isReflection: %@  to: %@, timestamp: %@
+Ignoring group message payload because groupId(%@) is in the blacklist. Payload: %@
 Name update for %@ => %@
             Group ID: %@
    From participants: %@
@@ -1279,6 +1285,8 @@ We did not update the group -- add: %@
 Attempting to remove participants from legacy device: %@ for engram group id: %@
 Successfully removed participants from legacy device
 We did not update the group -- remove: %@
+md-max-chat-participants-incoming
+Incoming Group message has too many participants (%lu, max = %lu), should drop message
 Updating timestamp for chat gid: %@ to %lld
 _UniqueParticipantsFromChatExcludingFrom
 chat participants %@, from %@, IDs %@
@@ -1707,6 +1715,7 @@ addUserNotification:listener:completionHandler:
 existingChatWithGUID:
 account:buddyInfo:commandReceived:properties:
 objectForKeyedSubscript:
+blacklistGroupId:
 chatRegistry
 removeChat:
 leftChat:
@@ -1718,6 +1727,7 @@ historicalMessageGUIDsDeleted:chatGUIDs:queryID:
 messageStore
 deleteMessageGUIDs:
 idsDeviceFromPushToken:
+objectAtIndex:
 ckUtilities
 cloudKitSyncingEnabled
 _handleDeleteCommandWithMessageDictionary:
@@ -1803,6 +1813,7 @@ didSendBalloonPayload:forChat:style:messageGUID:account:completionBlock:
 _messageDictionaryToReflectWithDeliveryReceipt:
 sendMessageDictionary:encryptDictionary:fromID:fromAccount:toURIs:toGroup:priority:options:completionBlock:
 dictionaryWithCapacity:
+wasReportedAsJunk
 setName:fromName:forChat:fromID:fromAccount:session:completionBlock:
 updateDisplayName:fromDisplayName:forChatID:identifier:style:
 sendCloseSessionMessageDictionary:toBusinessURI:fromURI:fromAccount:completionBlock:
@@ -1817,7 +1828,6 @@ addRecentItemWithData:GUID:infoDictionary:forDomain:
 isSticker
 UTF8String
 activeAccountsForService:
-objectAtIndex:
 errorWithDomain:code:userInfo:
 resetTransferAndPostError:error:
 _setTransferState:
@@ -1852,7 +1862,7 @@ handlePayloadDataResponse:
 defaultManager
 fileExistsAtPath:
 removeItemAtPath:error:
-sendLogDumpMessageAtFilePath:fromAccount:fromID:toRecipient:shouldDeleteFile:
+sendLogDumpMessageAtFilePath:fromAccount:fromID:toRecipient:shouldDeleteFile:withCompletion:
 preWarmMMCSForOwnerID:
 self
 performSelector:
@@ -1939,7 +1949,7 @@ canMakeExpireStateChecks
 callerURI
 enqueReplayMessageCallback:
 scheduleTransactionLogTask:
-sendLogDumpMessageAtFilePath:toRecipient:shouldDeleteFile:
+sendLogDumpMessageAtFilePath:toRecipient:shouldDeleteFile:withCompletion:
 preWarm
 setChatRegistry:
 setMessageStore:
@@ -2014,6 +2024,7 @@ hasPrefix:
 forceBackwardsCompatibleMessageForBundleID:
 setWithSet:
 shouldSendBackwardsCompatibleMessageForBundleID:
+backwardsCompatibleVersion
 expressiveSendStyleID
 _propertyForExpressiveSendStyle:
 isAutoloopVideo
@@ -2037,6 +2048,7 @@ addEntriesFromDictionary:
 _enableBackwardsCompatibility
 _computeRegPropertiesForNewFeatures:currentRegProperties:currentInterestingProp:
 isRecipeBasedSticker
+isOpusAudioMessage
 _localizedBackwardsCompatibleExpressiveSendText
 minusSet:
 arrayByAddingObjectsFromArray:
@@ -2073,7 +2085,7 @@ initWithCharacters:length:
 guidForNewOutgoingTransferWithFilename:isDirectory:totalBytes:hfsType:hfsCreator:hfsFlags:
 _setLocalPath:
 __imHexString
-_sendIDSMessageWithTransferGUID:andTransfer:fromAccount:fromID:toRecipient:
+_sendIDSMessageWithTransferGUID:andTransfer:fromAccount:fromID:toRecipient:withCompletion:
 sendFilePath:topic:userInfo:transferID:encryptFile:progressBlock:completionBlock:
 _appendFilePathsWithGUIDs:
 _appearsToBeEmail
@@ -2395,6 +2407,8 @@ _serverAllowsMessageSend
 currentMessageSendServerVersion
 _canSendMessagesWithEngram
 __im_isEngramEnabledForGroups
+isGroupInBlacklist:
+shouldDropDueToGroupSize:
 receiveGroupUpdate:chat:service:
 isNewerThan:
 updateGroupIDForChat:newGroupID:
@@ -2483,6 +2497,7 @@ MessageEngramGroupController
 ENGroupContextObserverMiddleware
 ENGroupContextMiddleware
 MessageGroupController
+Internal
 MessageTranscodeController
 MessageActiveDevice
 MessageUtilities_MMCS
@@ -2581,7 +2596,7 @@ Q24@0:8@16
 @20@0:8I16
 I24@0:8@16
 v24@0:8@?16
-v36@0:8@16@24B32
+v44@0:8@16@24B32@?36
 @"NSMutableArray"
 @"IMMultiQueue"
 @"IMTimer"
@@ -2616,7 +2631,8 @@ v112@0:8q16@24@32@40@48@56@64@72@80d88@96@?104
 v80@0:8@16@24@32@40@48q56@64@?72
 v84@0:8@16B24@28@36@44@52q60@68@?76
 v56@0:8@16@24@32@40@?48
-v52@0:8@16@24@32@40B48
+v60@0:8@16@24@32@40B48@?52
+v64@0:8@16@24@32@40@48@?56
 @"IDSService"
 I16@0:8
 v20@0:8I16
@@ -2641,7 +2657,6 @@ v72@0:8@16@24@32@40@48@?56@?64
 v100@0:8@16@24@32@40@48@56@64B72@76@84@92
 v32@0:8@16@?24
 v48@0:8@16@24@32@?40
-v60@0:8@16@24@32@40B48@?52
 v104@0:8@16Q24@32@40@48@56@64@72Q80@?88@?96
 v36@0:8@16q24B32
 v32@0:8@16Q24
@@ -2654,7 +2669,6 @@ v40@0:8@"ENGroupContext"16@"ENGroup"24@"ENGroup"32
 v24@0:8@"ENGroupContext"16
 v88@0:8@16@24@32@40@48@56@64@72@?80
 v72@0:8@16@24@32@40@48Q56@?64
-v64@0:8@16@24@32@40@48@?56
 v72@0:8@16@24@32@40@48@56@?64
 v68@0:8@16@24@32@40@48B56@?60
 @64@0:8@16@24@32@40@48@56
