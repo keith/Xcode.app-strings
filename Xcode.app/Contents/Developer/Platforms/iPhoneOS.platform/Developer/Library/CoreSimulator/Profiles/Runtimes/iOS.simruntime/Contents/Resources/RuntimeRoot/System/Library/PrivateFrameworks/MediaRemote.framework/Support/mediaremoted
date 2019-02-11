@@ -61,7 +61,7 @@ localReceiverPairingIdentity
 name
 originClientForDeviceUID:
 object
-clearUserSelectedOutputDeviceUID:reason:
+clearUserSelectedOutputDeviceUIDWithReason:
 playerPath
 client
 processIdentifier
@@ -92,7 +92,7 @@ objectForKey:
 intValue
 enumerateKeysAndObjectsUsingBlock:
 updateUserSelectedOutputDeviceUID:reason:
-clearUserSelectedOutputDeviceUIDWithReason:
+clearUserSelectedOutputDeviceUID:reason:
 delegate
 setDelegate:
 _serialQueue
@@ -140,6 +140,9 @@ _handleSendCommandMessage:fromClient:
 _handleGetSupportedCommandsMessage:fromClient:
 _handleSetSupportedCommandsMessage:fromClient:
 _handleBroadcastCommandMessage:fromClient:
+_handlePrewarmMediaControlsCommandMessage:fromClient:
+_handlePresentMediaControlsCommandMessage:fromClient:
+_handleDismissMediaControlsCommandMessage:fromClient:
 setEnqueuedCommands:
 setRemoteControlContexts:
 data
@@ -151,6 +154,12 @@ error
 queryPlayerPathForXPCMessage:fromClient:
 nowPlayingClient
 setSupportedRemoteControlCommandsData:
+remoteUIService
+isValid
+initWithConfigurationData:endpoint:completion:
+setRemoteUIService:
+presentWithCompletion:
+displayName
 _sendQueuedCommandsForDestinationClient:
 _clearAllQueuedCommands
 resolveContextualCommandForCurrentNowPlaying:
@@ -160,7 +169,6 @@ routeUID
 length
 routingServer
 pickCachedRouteWithUID:
-displayName
 createNowPlayingClient
 _resolvedLocalDeviceDestinationAppDisplayIdentifierForCommand:
 _destinationClientForRemoteControlCommand:
@@ -183,7 +191,6 @@ _applicationIsRunning:
 senderID
 numberWithUnsignedInt:
 initWithType:bundleID:name:
-isValid
 invalidate
 _clearQueuedCommandsForApplicationWithDisplayID:
 setDestinationAppDisplayID:
@@ -1106,7 +1113,6 @@ setAlertHeader:
 setAlertMessage:
 setDefaultButtonTitle:
 initWithOptions:
-presentWithCompletion:
 _handleLayoutDidChangeNotification:
 _handleElectedPlayerDidChangeNotification:
 _onQueue_reevaluateShouldShowLockScreenForReason:
@@ -2100,6 +2106,26 @@ setVolumeTo:forCategory:
 _volumeValue
 _deviceEnforcesEUVolumeLimit
 _volumeLimitDataInitialized
+_createRemoteAlertHandleIfNeeded
+activateWithContext:
+initWithServiceName:viewControllerClassName:
+dictionaryWithObject:forKey:
+setUserInfo:
+setXpcEndpoint:
+newHandleWithDefinition:configurationContext:
+remoteAlertHandleDidActivate:
+remoteAlertHandleDidDeactivate:
+remoteAlertHandle:didInvalidateWithError:
+remoteAlertHandle
+setRemoteAlertHandle:
+completion
+setCompletion:
+configurationData
+setConfigurationData:
+setEndpoint:
+_remoteAlertHandle
+_completion
+_configurationData
 initWithConnection:queue:
 setMaxConcurrentOperationCount:
 _handleXPCMessage:
@@ -2137,6 +2163,7 @@ _messageHandler
 _currentTaskAssertion
 _canBeNowPlayingTimestamp
 _routeDiscoveryCount
+_remoteUIService
 _entitlements
 deviceProperties
 _newIOKitDeviceProperties
@@ -2175,7 +2202,6 @@ _displayOffDate
 _lastChangeDate
 eventID
 setEventID:
-setUserInfo:
 destination
 setDestination:
 _eventID
@@ -2312,6 +2338,8 @@ MRXPC_COMMAND_SEND_ERROR_KEY
 MRXPC_COMMAND_STATUSES_DATA_KEY
 @"NSData"16@?0@"_MRSendCommandResultMessageProtobuf"8
 v16@?0@"NSObject<OS_xpc_object>"8
+MRXPC_MEDIA_CONTROLS_CONFIGURATION_KEY
+MRXPC_MEDIA_CONTROLS_XPC_ENDPOINT_KEY
 v16@?0@"NSError"8
 v16@?0@"NSNotification"8
 com.apple.Fuse
@@ -3298,6 +3326,16 @@ AVSystemController_EUVolumeLimitNotificationParameter
 AVSystemController_EUVolumeLimitEnforcedNotificationParameter
 AVController_RouteDescriptionKey_RouteSubtype
 AVSystemController_FullMuteAttribute
+MusicUIServiceMediaControlsViewController
+com.apple.MusicUIService
+remoteAlertHandle
+T@"SBSRemoteAlertHandle",&,N,V_remoteAlertHandle
+completion
+T@?,C,N,V_completion
+configurationData
+T@"NSData",&,N,V_configurationData
+T@"NSObject<OS_xpc_object>",&,N,V_endpoint
+isValid
 MRDMediaRemoteClientCanBeNowPlayingAppDidChange
 MRDMediaRemoteClientDidInvalidateNotification
 com.apple.mediaremote.MRDMediaRemoteClient
@@ -3355,6 +3393,8 @@ outputDeviceDiscoveryMode
 TI,N,V_outputDeviceDiscoveryMode
 applicationPickedRoutes
 T@"NSArray",C,N
+remoteUIService
+T@"MRDMediaRemoteUIService",&,N,V_remoteUIService
 isActive
 keepAlive
 TB,N,V_keepAlive
@@ -3616,6 +3656,8 @@ MRDAVSystemEndpointControllerDelegate
 MRDSleepObserver
 MRDVirtualAudioInputServer
 MRDMediaServerVolumeController
+MRDMediaRemoteUIService
+SBSRemoteAlertHandleObserver
 NSCopying
 MRDMediaRemoteClient
 MRDVirtualTouchDevice
@@ -3994,11 +4036,16 @@ v28@0:8i16@20
 @"<MRDSleepObserverDelegate>"
 ^{IONotificationPort=}
 @"<MRDVirtualAudioInputServerDelegate>"
+v24@0:8@"SBSRemoteAlertHandle"16
+v32@0:8@"SBSRemoteAlertHandle"16@"NSError"24
+@40@0:8@16@24@?32
+@"SBSRemoteAlertHandle"
 v36@0:8@16B24@?28
 @"NSOperationQueue"
 @"<MRDXPCMessageHandling>"
 @"<MRDMediaRemoteClientDelegate>"
 @"MRXPCConnection"
+@"MRDMediaRemoteUIService"
 B48@0:8{_MRHIDTouchEvent=(_MRHIDPoint={?=ff}[2f])IQI}16
 ^{__IOHIDUserDevice=}16@0:8
 @"MRVirtualTouchDeviceDescriptor"
@@ -4028,6 +4075,7 @@ Clearing %lld context(s) for client %@
 Received command from client %{public}@: %{public}@
 Received broadcast command from client %{public}@: %{public}@
 ERROR: now playing client could not be found for setting supported commands
+Destroying remoteUIService for client: %@
 No destination client can be found for command %@, and the option to launch the app was not included. Dropping command.
 Command ignored because of device state: %{public}@
 The client that registered the custom origin %{public}@ no longer exists, so this command will be ignored.
@@ -4473,6 +4521,11 @@ POWER: Responding to power callback %{public}@-%{public}@ in %lf seconds
 [VirtualAudioInputServer] Recording state changed for device with ID %{public}d
 [VirtualAudioInputServer] Recording state change ignored: unknown device ID %{public}d
 [MediaServerVolumeController] AVAudioSessionMediaServicesWereReset notification received -- re-registering notifications
+Attempting to activate remote alert handle.
+Creating remote alert handle for remote view controller: %@
+Remote alert handle did activate.
+Remote alert handle did deactivate.
+Remote alert handle did invalidate with error: %@
 Client switched route discovery mode to: %lu
 Client switched output device discovery mode to: %lu
 Early replying to MRMediaRemoteCommandResetPlaybackTimeout command
@@ -4519,7 +4572,7 @@ Error blessing %@ for playback initialization. %@
 <key>DTPlatformVersion</key>
 <string>12.2</string>
 <key>DTSDKBuild</key>
-<string>16E180z</string>
+<string>16E5191b</string>
 <key>DTSDKName</key>
 <string>iphonesimulator12.2</string>
 <key>DTXcode</key>
@@ -4599,9 +4652,13 @@ Error blessing %@ for playback initialization. %@
 </array>
 <key>com.apple.springboard.CFUserNotification</key>
 <true/>
+<key>com.apple.springboard.activateRemoteAlert</key>
+<true/>
 <key>com.apple.springboard.launchapplications</key>
 <true/>
 <key>com.apple.springboard.lockScreenContentAssertion</key>
+<true/>
+<key>com.apple.springboard.remote-alert</key>
 <true/>
 <key>com.apple.telephonyutilities.callservicesd</key>
 <array>
