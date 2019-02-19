@@ -257,6 +257,10 @@ options
 T@"NSDictionary",C,N,V_options
 handler
 T@?,C,N,V_handler
+fileSize
+Tq,N,V_fileSize
+metadata
+T@"NSDictionary",C,N,V_metadata
 T@"NSString",C,N,V_requestID
 solo
 stereoleft
@@ -505,6 +509,8 @@ CLinkCnx-?
 , SiriInfo (%d)
 , CF <%s>
 , DF <%s>
+-[RPConnection setFlowControlReadEnabled:]
+Flow control read changed: %s -> %s
 -[RPConnection setPresent:]
 Peer present changed: %s -> %s
 Peer lost when not connected, invalidating
@@ -545,7 +551,7 @@ Client PairSetup retry
 Client immediate non-RPIdentity retry
 -[RPConnection _clientConnectStartBLE]_block_invoke
 BLE client connection invalidated
--[RPConnection _clientConnectStartTCP]_block_invoke_2
+-[RPConnection _clientConnectStartTCP]_block_invoke_3
 TCP client connection invalidated
 -[RPConnection _clientConnectCompleted:]
 ### Connect failed: %{error}
@@ -560,7 +566,7 @@ Peer appears missing, invalidating
 client no ack
 -[RPConnection _clientLinkError:]
 ### Client connection error: %{error}
-166.31
+166.34
 -[RPConnection _clientPreAuthStart]
 Send PreAuthRequest: %##@
 -[RPConnection _clientPreAuthResponseWithData:]
@@ -608,7 +614,7 @@ Peer missing after retry timer, invalidating
 -[RPConnection _serverRun]
 -[RPConnection _serverAcceptBLE]_block_invoke_2
 BLE server connection invalidated
--[RPConnection _serverAcceptTCP]_block_invoke_2
+-[RPConnection _serverAcceptTCP]_block_invoke_3
 TCP server connection invalidated
 server no ack
 -[RPConnection _serverError:]
@@ -643,7 +649,7 @@ OPACK encode failed
 Peer asleep with FailIfAsleep option
 -[RPConnection _sendEncryptedEventID:data:xid:options:completion:]
 Send encrypted event failed: '%@', %{error}
-Frame too big (%zu vs %zu)
+Frame too big (%zu vs %u)
 Encryption not setup
 SendEventID '%@', XID 0x%X, <%.16@> (%zu bytes)
 ### Send encrypted data (%zu bytes) failed: '%@', %{error}
@@ -658,6 +664,14 @@ Send request ID '%@', XID 0x%X, <%.16@> (%zu bytes)
 ### Sending response XID 0x%X, error: %{error}
 Send response XID 0x%X, <%.16@> (%zu bytes), %#m
 ### Send encrypted response XID 0x%X failed: %{error}
+_fSz
+_fMD
+_ftS
+_fDa
+_ftD
+-[RPConnection sendFileEnd:error:xpcID:options:responseHandler:]
+### File end error: %{error}
+_ftE
 -[RPConnection _sendFrameType:body:]
 Send frame 0x%02X (%s), <%.16@> (%zu bytes)
 ### Send frame type 0x%X failed: %{error}
@@ -666,6 +680,7 @@ Send frame 0x%02X (%s), <%.16@> (%zu bytes)
 -[RPConnection sendReachabilityProbe:]
 Peer may be unreachable, sending reachability probe (%s)
 -[RPConnection _receiveStart:]
+Flow control read suppress
 Start receiving header
 -[RPConnection _receiveCompletion:]
 ### Receive failed: %{error}
@@ -689,6 +704,25 @@ Bad object type %@
 ### Received event with no ID from %@: %#m
 Received event ID '%@', XID 0x%X, %d keys, from %@
 _systemInfoUpdate
+-[RPConnection _receivedFileStart:xid:requestID:]
+### Received file start with no handler: Peer %@, XID 0x%@
+No file start handler
+Receive file start: Peer %@, XID 0x%@, Size %lld
+-[RPConnection _receivedFileStart:xid:requestID:]_block_invoke
+### Receive file start ignoring response after invalidation: Peer %@, XID 0x%@
+-[RPConnection _receivedFileEnd:xid:requestID:]
+### Received file end with no handler: Peer %@, XID 0x%@
+No file end handler
+### Receive file end error: Peer %@, XID 0x%@, Size %lld, %{error}
+Receive file end: Peer %@, XID 0x%@, Size %lld
+-[RPConnection _receivedFileEnd:xid:requestID:]_block_invoke
+### Receive file end ignoring response after invalidation: Peer %@, XID 0x%@
+-[RPConnection _receivedFileData:xid:requestID:]
+### Received file data with no handler: Peer %@, XID 0x%@
+No file data handler
+Receive file data: Peer %@, XID 0x%@, Bytes %zu
+-[RPConnection _receivedFileData:xid:requestID:]_block_invoke
+### Receive file data ignoring response after invalidation: Peer %@, XID 0x%@
 -[RPConnection _receivedRequest:ctx:]
 ### Received request with no XID from %@: %#m
 ### Received request XID 0x%X with no ID from %@: %#m
@@ -753,8 +787,20 @@ T@"CUBonjourDevice",&,N,V_bonjourPeerDevice
 btPipe
 T@"CUBluetoothScalablePipe",&,N,V_btPipe
 T@,&,N,V_client
+clientMode
+TB,N,V_clientMode
 destinationString
 T@"NSString",C,N,V_destinationString
+flowControlReadEnabled
+TB,N,V_flowControlReadEnabled
+flowControlWriteChangedHandler
+T@?,C,N,V_flowControlWriteChangedHandler
+flowControlWriteState
+Ti,R,N
+forcedPeerIdentity
+T@"RPIdentity",&,N,V_forcedPeerIdentity
+forcedSelfIdentity
+T@"RPIdentity",&,N,V_forcedSelfIdentity
 identifierOverride
 T@"NSString",C,N,V_identifierOverride
 identityDaemon
@@ -787,6 +833,12 @@ pskData
 T@"NSData",C,N,V_pskData
 receivedEventHandler
 T@?,C,N,V_receivedEventHandler
+receivedFileStartHandler
+T@?,C,N,V_receivedFileStartHandler
+receivedFileDataHandler
+T@?,C,N,V_receivedFileDataHandler
+receivedFileEndHandler
+T@?,C,N,V_receivedFileEndHandler
 receivedRequestHandler
 T@?,C,N,V_receivedRequestHandler
 sessionStartHandler
@@ -829,6 +881,7 @@ FriendDevice
 PairedAccount
 PairedDevice
 SharedHomeDevice
+Temporary
 Ready
 RPIdentity
 HKOwner
@@ -953,12 +1006,14 @@ T@"NSString",R,C,N,V_homeKitUserIdentifier
 hotspotInfo
 TI,R,N,V_hotspotInfo
 RPFileTransferSession
+fileID
+TQ,N,V_fileID
+item
+T@"RPFileTransferItem",&,N,V_item
 completionHandler
 T@?,C,N,V_completionHandler
 itemURL
 T@"NSURL",C,N,V_itemURL
-metadata
-T@"NSDictionary",C,N,V_metadata
 peerPK
 selfPK
 selfSK
@@ -970,18 +1025,18 @@ targetID
 Prepared: targetID %@, PK %{mask}
 Prepared: source, PK %{mask}
 -[RPFileTransferSession activate]_block_invoke
-Activate: TargetID %@, Flags %#{flags}
+Activate: Flags %#{flags}, TargetID %@, SPK %{mask}, PPK %{mask}
 No target ID
-No peer public key
 No self public key
 No self secret key
+No peer public key
 -[RPFileTransferSession invalidate]_block_invoke
 Invalidated
 -[RPFileTransferSession _invalidated]
 Invalidated: %@
 -[RPFileTransferSession addItem:]_block_invoke
 AddItem: %@
--[RPFileTransferSession finish]
+-[RPFileTransferSession finish]_block_invoke
 Finish
 -[RPFileTransferSession _reportCompletion:]
 ### Completed: %{error}
@@ -993,13 +1048,76 @@ _rpft._tcp
 v16@?0@"CUBonjourDevice"8
 v20@?0@"CUBonjourDevice"8I16
 -[RPFileTransferSession _handleDeviceFound:]
-Found: %@
+Found raw: %@
+Found target: %@
 -[RPFileTransferSession _handleDeviceLost:]
-Lost: %@
--[RPFileTransferSession _handleDeviceChanged:]
-Changed: %@
+Lost raw: %@
+Lost target: %@
+-[RPFileTransferSession _controlCnxStartIfNeeded]
+Control cnx start: %@
+RPFileCnx-%@-C-%u
+v32@?0@"NSString"8@"NSDictionary"16@"NSDictionary"24
+v40@?0@"NSString"8@"NSDictionary"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">32
+v12@?0i8
+-[RPFileTransferSession _sendStartEntry:]_block_invoke
+### File send start failed: %{error}
+No item URL
+Bad item path
+Open failed: '%s'
+-[RPFileTransferSession _sendStartEntry:]
+File send start: ID %llu, '%s'
+File send start response: %##@, %{error}
+### File send start with outstanding I/O: ID %llu
+### File send I/O error: ID %llu, %#m
+v24@?0B8@"NSObject<OS_dispatch_data>"12i20
+-[RPFileTransferSession _sendNextData:done:ioError:entry:]
+### File read error: ID %llu, %#m
+Read failed
+File read next: ID %llu
+-[RPFileTransferSession _sendNextData:done:ioError:entry:]_block_invoke_2
+File send data response: %##@, %{error}
+B40@?0@"NSObject<OS_dispatch_data>"8Q16r^v24Q32
+File read done: ID %llu
+-[RPFileTransferSession _sendNextData:done:ioError:entry:]_block_invoke
+File send end response: %##@, %{error}
 v16@?0@"CUTCPConnection"8
 Start TCP server failed
+RPFileCnx-%@-I-%u
+v32@?0@"RPFileTransferInfo"8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">24
+v40@?0@"RPFileTransferInfo"8@"NSError"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">32
+v40@?0@"RPFileTransferInfo"8@"NSData"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">32
+-[RPFileTransferSession _handleIncomingConnectionStarted:]
+Incoming cnx start: %@
+-[RPFileTransferSession _handleIncomingConnectionEnded:]
+Incoming cnx ended: %@
+-[RPFileTransferSession _receivedFileStart:responseHandler:]_block_invoke
+### File start failed: %{error}
+/tmp/RPFileTransfer/%@
+%@/%llu.rpft
+Bad file path UTF-8
+Create parent failed
+Open file failed
+-[RPFileTransferSession _receivedFileStart:responseHandler:]
+### File receive start with outstanding I/O: ID %llu
+### File receive I/O error: ID %llu, %#m
+File start: ID %llu, %lld bytes, '%s'
+-[RPFileTransferSession _receivedFileEnd:error:responseHandler:]_block_invoke
+### File end failed: %{error}
+-[RPFileTransferSession _receivedFileEnd:error:responseHandler:]
+### File end error: ID %llu, %lld bytes, %{error}
+File end: ID %llu, %lld bytes
+File not started
+-[RPFileTransferSession _receivedFileData:data:responseHandler:]_block_invoke
+### File data failed: %{error}
+-[RPFileTransferSession _receivedFileData:data:responseHandler:]
+File data: ID %llu, %lld bytes
+-[RPFileTransferSession _receivedFileNextData:done:ioError:fileID:responseHandler:]
+### File write error: ID %llu, %#m
+Write failed
+File write done: ID %llu
+### File write no I/O channel: ID %llu, %#m
+Write no I/O channel
+File write next: ID %llu
 selfPublicKey
 T@"NSData",C,N,V_selfPublicKey
 selfSecretKey
@@ -1011,8 +1129,11 @@ T@?,C,N,V_progressHandler
 receivedItemHander
 T@?,C,N,V_receivedItemHander
 T@"NSString",C,N,V_targetID
+temporaryDirectoryURL
+T@"NSURL",C,N,V_temporaryDirectoryURL
 RPFileTransferProgress: %s
-, %lld%% Files
+, %lld/%lld (%lld%%) Files
+, 0 Files
 Ti,N,V_type
 bytesPerSecond
 Td,R,N,V_bytesPerSecond
@@ -1552,6 +1673,7 @@ Send Siri audio: TS 0x%016llX, %d bytes, %d packets, %d channels, gain %f
 -[RPSiriSession voiceControllerMediaServicesWereReset:]
 RPStreamServer
 -[RPStreamServer _activateWithCompletion:]
+Activate: %#{flags}
 _streamStart
 v32@?0@"NSDictionary"8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">24
 _streamStop
@@ -1567,6 +1689,7 @@ No streamType
 No streamAcceptHandler
 -[RPStreamServer _handleStartRequest:options:responseHandler:]
 Stream session start: ID '%@', Type %s
+Stream prepare rejected
 -[RPStreamServer _handleStartRequest:options:responseHandler:]_block_invoke_3
 ### Stream accept failed: %{error}
 -[RPStreamServer _handleStartRequest:options:responseHandler:]_block_invoke_4
@@ -1582,6 +1705,8 @@ streamAcceptHandler
 T@?,C,N,V_streamAcceptHandler
 streamFlags
 TI,N,V_streamFlags
+streamPrepareHandlerEx
+T@?,C,N,V_streamPrepareHandlerEx
 streamPrepareHandler
 T@?,C,N,V_streamPrepareHandler
 UDPSocket
@@ -1606,21 +1731,24 @@ No socket
 ### Start server connection failed: %{error}
 Stream-%u
 Activate TCP failed
-v32@?0@"NSString"8@"NSDictionary"16@"NSDictionary"24
 -[RPStreamSession _invalidate]
 -[RPStreamSession _invalidated]
 Open socket failed
 -[RPStreamSession _clientUDPNWPathStartWithCompletion:]
 ### Client start failed: UDP NWPath, %{error}
-Activate: ID '%@', Type %s, Port %d
+Activate: ID '%@', Type %s, OurAddr %@, Port %d
+_streamAddr
 _streamPort
 -[RPStreamSession _clientUDPNWPathStartWithCompletion:]_block_invoke
 ### Session start failed: %{error}
 -[RPStreamSession _clientUDPNWPathStartResponse:options:completion:]_block_invoke
 ### Client start response failed: UDP NWPath, %{error}
+No peer address
+%awdl0
+%llw0
+Bad stream address
 _streamKey
 No stream port
-No peer address
 Bad peer address string '%s'
 Connect UDP failed: %##a
 Create local endpoint failed
@@ -1636,8 +1764,10 @@ No self address
 Bad self address string '%s'
 Open socket failed: %##a
 -[RPStreamSession _serverUDPNWPathStartRequest:options:responseHandler:]
+Session started: ID '%@', Type %s, NWClientID %@, %##a -> %##a
 -[RPStreamSession _clientUDPSocketStartWithCompletion:]
 ### Start failed: %{error}
+Activate: ID '%@', Type %s, Port %d
 -[RPStreamSession _clientUDPSocketStartWithCompletion:]_block_invoke
 -[RPStreamSession _clientUDPSocketStartResponse:options:completion:]
 Session started: ID '%@', Type %s, %##a -> %##a
@@ -1656,7 +1786,6 @@ Prepare completed: ID '%@', Type %s
 -[RPStreamSession _clientRPConnectionStartWithCompletion:]
 -[RPStreamSession _serverRPConnectionStartRequest:options:responseHandler:]_block_invoke
 No public key
-v12@?0i8
 -[RPStreamSession _serverRPConnectionStartRequest:options:responseHandler:]
 Session prepared: ID '%@', %##a
 -[RPStreamSession _serverRPConnectionHandleConnectionAccepted:]
@@ -1664,6 +1793,7 @@ Session connection accepted: ID '%@', FD %d
 ### Session connection with no accept handler: ID '%@', FD %d
 -[RPStreamSession _serverRPConnectionHandleConnectionStarted:]
 Session connection started: ID '%@', %@
+llw0
 No connection
 -[RPStreamSession sendEventID:event:options:completion:]
 ### Send event failed: ID '%@', %{error}
@@ -1895,6 +2025,12 @@ setHandler:
 _eventID
 _options
 _handler
+fileSize
+setFileSize:
+metadata
+setMetadata:
+_fileSize
+_metadata
 requestID
 setRequestID:
 _requestID
@@ -2091,6 +2227,8 @@ model
 mediaRemoteIdentifier
 mediaRouteIdentifier
 sourceVersion
+_receiveStart:
+flowControlState
 _invalidate
 sendReachabilityProbe:
 setStatusFlags:
@@ -2133,8 +2271,8 @@ setDataTimeoutSecs:
 setDestinationBonjour:
 setDestinationString:
 setKeepAliveSeconds:
+setFlowControlChangedHandler:
 _updateLinkInfo
-_receiveStart:
 _sendFrameType:unencryptedObject:
 setFixedPIN:
 numberWithInt:
@@ -2178,6 +2316,8 @@ _timeoutForXID:
 logRequestID:length:
 unsignedIntValue
 logSentResponseID:length:
+numberWithLongLong:
+sendEncryptedRequestID:request:xpcID:options:responseHandler:
 _sendFrameType:body:
 setBufferBytes:
 setBufferData:
@@ -2201,6 +2341,9 @@ _receivedRequest:ctx:
 _receivedResponse:ctx:
 numberWithBool:
 _sendEncryptedResponse:error:xid:requestID:
+_receivedFileData:xid:requestID:
+_receivedFileStart:xid:requestID:
+_receivedFileEnd:xid:requestID:
 logReceivedResponseID:length:rttMs:
 indexOfObject:
 saveIdentityWithIDSDeviceID:message:error:
@@ -2213,10 +2356,14 @@ setSourceVersion:
 _serverClientAllowed
 numberWithUnsignedLongLong:
 addSelfIdentityInfoToMessage:
+setFlowControlReadEnabled:
+flowControlWriteState
 setPresent:
 invalidateWithError:
 sendEncryptedEventID:event:options:completion:
-sendEncryptedRequestID:request:xpcID:options:responseHandler:
+sendFileStart:xpcID:options:responseHandler:
+sendFileData:xpcID:options:responseHandler:
+sendFileEnd:error:xpcID:options:responseHandler:
 bleConnection
 setBleConnection:
 blePeerIdentifier
@@ -2225,7 +2372,16 @@ bonjourPeerDevice
 setBonjourPeerDevice:
 btPipe
 setBtPipe:
+clientMode
+setClientMode:
 destinationString
+flowControlReadEnabled
+flowControlWriteChangedHandler
+setFlowControlWriteChangedHandler:
+forcedPeerIdentity
+setForcedPeerIdentity:
+forcedSelfIdentity
+setForcedSelfIdentity:
 identifierOverride
 setIdentifierOverride:
 identityDaemon
@@ -2255,6 +2411,12 @@ pskData
 setPskData:
 receivedEventHandler
 setReceivedEventHandler:
+receivedFileStartHandler
+setReceivedFileStartHandler:
+receivedFileDataHandler
+setReceivedFileDataHandler:
+receivedFileEndHandler
+setReceivedFileEndHandler:
 receivedRequestHandler
 setReceivedRequestHandler:
 sessionStartHandler
@@ -2287,6 +2449,8 @@ _readRequested
 _requests
 _sendArray
 _xidLast
+_clientMode
+_flowControlReadEnabled
 _invalidationHandled
 _preAuthEnabled
 _present
@@ -2298,6 +2462,9 @@ _blePeerIdentifier
 _bonjourPeerDevice
 _btPipe
 _destinationString
+_flowControlWriteChangedHandler
+_forcedPeerIdentity
+_forcedSelfIdentity
 _identifierOverride
 _identityDaemon
 _localDeviceInfo
@@ -2309,6 +2476,9 @@ _peerIdentifier
 _peerUpdatedHandler
 _pskData
 _receivedEventHandler
+_receivedFileStartHandler
+_receivedFileDataHandler
+_receivedFileEndHandler
 _receivedRequestHandler
 _sessionStartHandler
 _stateChangedHandler
@@ -2427,34 +2597,55 @@ _mediaRemoteIdentifier
 _mediaRouteIdentifier
 _sourceVersion
 _homeKitUserIdentifier
+fileID
+setFileID:
+item
+setItem:
+_fileID
+_item
 completionHandler
 itemURL
 setItemURL:
-metadata
-setMetadata:
 _completionHandler
 _itemURL
-_metadata
 _newZeroingDataWithBytes:length:
 _activateAndReturnError:
 _reportCompletion:
+setEdPKData:
+setEdSKData:
 _activateTargetAndReturnError:
 _activateSourceAndReturnError:
 _reportProgressType:
+_processSendArray
 setBrowseFlags:
 setChangeFlags:
 setDomain:
 setServiceType:
 _handleDeviceFound:
 _handleDeviceLost:
-_handleDeviceChanged:
-_handleIncomingConnection:
+identifierStr
+_controlCnxStartIfNeeded
+initWithFormat:
+_receivedEventID:event:options:
+_receivedRequestID:request:options:responseHandler:
+_sendStartEntry:
+fileSystemRepresentation
+_sendNextData:done:ioError:entry:
+_sendDone:entry:
+_handleIncomingConnectionStarted:
 setConnectionStartedHandler:
 activateDirectAndReturnError:
 setAdvertiseFlags:
 tcpListeningPort
 setPort:
 setTxtDictionary:
+_handleIncomingConnectionEnded:
+_receivedFileStart:responseHandler:
+_receivedFileEnd:error:responseHandler:
+_receivedFileData:data:responseHandler:
+defaultManager
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+_receivedFileNextData:done:ioError:fileID:responseHandler:
 prepareTemplateAndReturnError:
 addItem:
 finish
@@ -2468,17 +2659,29 @@ selfPublicKey
 setSelfPublicKey:
 targetID
 setTargetID:
+temporaryDirectoryURL
+setTemporaryDirectoryURL:
 selfSecretKey
 setSelfSecretKey:
 _bonjourAdvertiser
 _bonjourBrowser
-_currentProgress
+_cnxIDLast
+_connections
+_controlCnx
+_fileParentPath
+_fileIDLast
+_fileIO
+_peerIdentity
+_progressCurrent
+_selfIdentity
+_sendCurrent
 _tcpServer
 _peerPublicKey
 _progressHandler
 _receivedItemHander
 _selfPublicKey
 _targetID
+_temporaryDirectoryURL
 _selfSecretKey
 bytesPerSecond
 remainingSeconds
@@ -2531,6 +2734,7 @@ verifyAuthTagPtr:authTagLen:dataPtr:dataLen:type:error:
 signDataPtr:dataLen:signatureBytes:error:
 verifySignaturePtr:signatureLen:dataPtr:dataLen:error:
 nullIdentity
+initWithType:
 compareWithRPIdentity:
 updateWithKeychainItem:error:
 authTagForData:type:error:
@@ -2543,8 +2747,6 @@ setDateAdded:
 dateRemoved
 setDateRemoved:
 setDeviceIRKData:
-setEdPKData:
-setEdSKData:
 featureFlags
 setFeatureFlags:
 setIdsDeviceID:
@@ -2725,7 +2927,6 @@ bytesDataSize
 packetDescriptionCount
 channels
 packetDescriptions
-numberWithLongLong:
 self
 performSelector:
 performSelector:withObject:
@@ -2890,11 +3091,14 @@ acceptedByServer
 activateForServerRequest:options:responseHandler:
 streamAcceptHandler
 setStreamFlags:
+streamPrepareHandlerEx
+setStreamPrepareHandlerEx:
 streamPrepareHandler
 setStreamPrepareHandler:
 _streamSessions
 _streamFlags
 _streamAcceptHandler
+_streamPrepareHandlerEx
 _streamPrepareHandler
 decodeXPCObjectOfType:forKey:
 encodeXPCObject:forKey:
@@ -2907,9 +3111,10 @@ _clientUDPNWPathStartWithCompletion:
 _serverUDPSocketStartRequest:options:responseHandler:
 _serverRPConnectionStartRequest:options:responseHandler:
 _serverUDPNWPathStartRequest:options:responseHandler:
-initWithFormat:
 setSocketFD:
+_lowLatencySelfAddressString
 _clientUDPNWPathStartResponse:options:completion:
+stringByAppendingString:
 _clientUDPSocketStartResponse:options:completion:
 _clientRPConnectionPrepareResponse:options:completion:
 setInterfaceAddress:
@@ -2923,7 +3128,6 @@ prepareWithCompletion:
 sendEventID:event:options:completion:
 delegatedProcessUPID
 setDelegatedProcessUPID:
-flowControlState
 nwClientID
 setNwClientID:
 streamID
@@ -2977,6 +3181,7 @@ RPCloudSession
 RPAuthenticatable
 RPMessageable
 RPEventRegistration
+RPFileTransferInfo
 RPRequestRegistration
 RPCompanionLinkXPCClientInterface
 RPCompanionLinkXPCServerInterface
@@ -2988,6 +3193,7 @@ RPSendEntry
 RPConnection
 RPDevice
 RPEndpoint
+RPFileTransferSendEntry
 RPFileTransferItem
 RPFileTransferSession
 RPFileTransferProgress
@@ -3081,6 +3287,8 @@ v44@0:8C16@20@28@?36
 @"CUPairingSession"
 @"NSError"
 @"NSDictionary"
+q16@0:8
+v24@0:8q16
 v24@0:8I16i20
 v28@0:8@16I24
 v48@0:8@16@24@32@?40
@@ -3118,6 +3326,7 @@ B44@0:8@16@24I32^@36
 v52@0:8@16@24I32@36@?44
 v60@0:8@16@24I32@36@44@?52
 v48@0:8@16@24@32@40
+v44@0:8@16I24@28@?36
 v28@0:8C16@20
 v24@0:8r*16
 v40@0:8r^{?=C[3C]}16@24^{?=QB}32
@@ -3128,6 +3337,7 @@ v32@0:8@16^{?=QB}24
 @"CUBLEConnection"
 @"CUBonjourDevice"
 @"CUBluetoothScalablePipe"
+@"RPIdentity"
 @"RPIdentityDaemon"
 @"RPMetrics"
 @"CUNetLinkManager"
@@ -3138,14 +3348,19 @@ C16@0:8
 @"CUMobileDevice"
 @"CUPairedPeer"
 @"SFDevice"
+@"RPFileTransferItem"
 @"NSURL"
 B24@0:8^@16
+v40@0:8@16B24i28@32
+v48@0:8@16B24i28Q32@?40
 @"CUBonjourAdvertiser"
 @"CUBonjourBrowser"
+@"RPConnection"
+@"NSObject<OS_dispatch_io>"
 @"RPFileTransferProgress"
+@"RPFileTransferSendEntry"
 @"CUTCPServer"
 d16@0:8
-q16@0:8
 v36@0:8i16@20@?28
 v40@0:8i16i20@24@?32
 @"<RPMessageable>"
@@ -3232,7 +3447,6 @@ v24@0:8@"NSDictionary"16
 @"RPSiriSession"
 @"NSObject<OS_nw_path_evaluator>"
 [32C]
-@"RPConnection"
 @"CUWiFiManager"
 v24@0:8@"RTIDataPayload"16
 @"RTIInputSystemSourceSession"
@@ -3272,6 +3486,8 @@ NoAWDL
 Cloud
 NonCellular
 NonExpensive
+AppSignIn
+HKResolved
 BTPipe
 iWiFi
 AWDL
@@ -3290,6 +3506,7 @@ Friend
 Touch
 Owner
 Cloud
+AppSignIn
 BTPipe
 iWiFi
 AWDL
@@ -3308,6 +3525,7 @@ Friend
 Touch
 Owner
 Cloud
+AppSignIn
 NoIPv6
 iWiFi
 AWDL
@@ -3332,6 +3550,8 @@ NoAWDL
 Cloud
 NonCellular
 NonExpensive
+AppSignIn
+HKResolved
 RPIdentity
 Unauth
 Speaker
@@ -3371,6 +3591,7 @@ Friend
 Touch
 Owner
 Cloud
+AppSignIn
 Target
 Absolute
 Display
@@ -3434,6 +3655,7 @@ Friend
 Touch
 Owner
 Cloud
+AppSignIn
 NotSignedIn
 BluetoothOff
 WiFiOff
@@ -3442,6 +3664,9 @@ KeychainOff
 NonHSA2
 HomeKitNotConfigured
 WiFiHostAP
+DontStart
+LowLatency
+Handoff
 NeedsInfra
 NoHijack
 Background
