@@ -48,8 +48,14 @@ function
 indirect_object_identifier
 indirect_object_code_requirement
 indirect_object_type
-INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+modDate
+INSERT OR REPLACE INTO access   (service, client, client_type, allowed, prompt_count, csreq, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 UNUSED
+Setting %@ for %@ to %s at %lld (%@)
+Allowed
+Denied
+ Indirect UNUSED
+noKill
 Access to service %@ changed.
 kTCCServiceAll
 SELECT service, client, client_type FROM access
@@ -74,6 +80,8 @@ TCCAccessResetInternal
 TCCAccessDeclarePolicy
 TCCAccessSelectPolicyForExtensionWithIdentifier
 TCCAccessResetPoliciesExcept
+TCCExpirationCopyInformationForService
+TCCExpirationReset
 TCCTestInternal
 handle_TCCAccessRequest
 service
@@ -135,6 +143,15 @@ B24@?0Q8@"NSObject<OS_xpc_object>"16
 INSERT INTO _exceptions VALUES (?)
 DELETE FROM policies WHERE bundle_id = ? AND uuid NOT IN (SELECT uuid FROM _exceptions)
 DROP TABLE IF EXISTS _exceptions
+handle_TCCExpirationCopyInformationForService
+SELECT client, client_type, csreq, last_modified, expired_at FROM expired WHERE service = ?
+expired_at
+handle_TCCExpirationReset
+DELETE FROM expired
+DELETE FROM expired WHERE client = ? AND client_type = ?
+DELETE FROM expired WHERE service = ?
+DELETE FROM expired WHERE service = ? AND client = ? AND client_type = ?
+VACUUM expired
 operation
 TestDBAbort
 kTCCBogusService
@@ -168,7 +185,7 @@ com.apple.tcc.access.changed
 com.apple.tcc.db_queue
 database error: %s (%d)
  aborting...
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 13);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     allowed        INTEGER     NOT NULL,     prompt_count   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT,     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 15);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     allowed        INTEGER     NOT NULL,     prompt_count   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT,     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
@@ -186,13 +203,14 @@ duplicate column name: flags
 DROP TABLE access_times
 CREATE TABLE IF NOT EXISTS NEW_access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     allowed        INTEGER     NOT NULL,     prompt_count   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
 INSERT INTO NEW_access SELECT service, client, client_type, allowed, prompt_count, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, CAST(strftime('%s','now') AS INTEGER) FROM access
-UPDATE admin SET value = 13 WHERE key = 'version'
+CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type))
+UPDATE admin SET value = 15 WHERE key = 'version'
 COMMIT
 BEGIN
 HOME
 %s/%s
 _db_eval
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/TCC_executables_Sim/TCC-221.250.4/tccd/libTCCD/TCCDDatabase.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/TCC_executables_Sim/TCC-221.250.5/tccd/libTCCD/TCCDDatabase.m
 sql != NULL
 %s/TCC.db
 allocation failed
@@ -211,8 +229,6 @@ Entitled
 <Unknown Reason>
 Auth:{Invalid}
 Auth:{Access:Unknown}
-Denied
-Allowed
 Unknown Access Type!
 Auth:{Access:%s, reason:%s}
 Library/TCC
@@ -242,10 +258,14 @@ missing target audit token
 invalid size for target audit token
 Invalid Service Name: %s
 -[TCCDServer purgeExpiredAccessEntriesForService:]
-DELETE FROM access WHERE service = ? AND strftime('%s','now') - last_modified > ?
-SELECT changes()
+FROM access WHERE service = ? AND strftime('%s','now') - last_modified > ?
+ AND allowed = 1
 -[TCCDServer purgeExpiredAccessEntriesForService:]_block_invoke
--[TCCDServer isAccessEntryWithAge:expiredForService:]
+INSERT OR REPLACE INTO expired (service, client, client_type, csreq, last_modified) SELECT  service, client, client_type, csreq, last_modified %@
+DELETE %@
+SELECT changes()
+-[TCCDServer purgeExpiredAccessEntriesForService:]_block_invoke_2
+-[TCCDServer isAccessEntryWithAge:authorizationValue:expiredForService:]
 IsTCCManager
 ServiceAllowsUnrestrictedCheck
 IsRoot
@@ -300,6 +320,7 @@ kTCCServiceWillow
 NSHomeKitUsageDescription
 kTCCServiceMediaLibrary
 NSAppleMusicUsageDescription
+expiration.kTCCServiceMediaLibrary
 kTCCServiceSiri
 NSSiriUsageDescription
 kTCCServiceBluetoothPeripheral
@@ -364,6 +385,10 @@ doNotStoreDefaultAllowAccess
 TB,V_doNotStoreDefaultAllowAccess
 expirySeconds
 T@"NSNumber",&,V_expirySeconds
+expireOnlyAllowedEntries
+TB,V_expireOnlyAllowedEntries
+saveExpiredEntries
+TB,V_saveExpiredEntries
 ios_minimumSDKVersionNumber
 T@"NSNumber",&,V_ios_minimumSDKVersionNumber
 macos_minimumSDKVersionNumber
@@ -401,10 +426,13 @@ com.apple.security.personal-information.photos-library
 com.apple.security.device.camera
 com.apple.security.device.audio-input
 com.apple.security.automation.apple-events
+tccd-config.plist
 name
 T@"NSString",R,V_name
 server
 T@"TCCDServer",W,V_server
+configurationDictionary
+T@"NSDictionary",R,V_configurationDictionary
 servicesByName
 T@"NSDictionary",&,V_servicesByName
 init
@@ -430,7 +458,7 @@ buildErrorString:forError:contextString:
 logHandle
 name
 UTF8String
-isAccessEntryWithAge:expiredForService:
+isAccessEntryWithAge:authorizationValue:expiredForService:
 stringWithUTF8String:
 applicationProxyForIdentifier:placeholder:
 bundleURL
@@ -447,11 +475,17 @@ isAccessAllowedByDefault
 evaluateAccessToService:defaultAccessAllowed:by:checkCodeRequirements:authorizationResult:subjectCodeIdentityDataResult:
 client_type
 setLogHandle:
+setAllowsInternalSecurityPolicies:
 currentPlatform
 setPlatform:
-setAllowsInternalSecurityPolicies:
+platform
+loadConfigurationDictionary
 purgeAllExpiredAccessEntries
 mainRunLoop
+dateWithTimeIntervalSinceNow:
+timeIntervalSince1970
+dateWithTimeIntervalSince1970:
+appendFormat:
 scheduleAccessEntryExpiryCheckForService:
 isRevocable
 stringWithFormat:
@@ -461,7 +495,6 @@ countByEnumeratingWithState:objects:count:
 bundleIdentifier
 bundleVersion
 isEqualToString:
-platform
 serviceByName:
 descriptionForMessage:
 shouldAllowUnrestrictedCheckAuditToken
@@ -537,17 +570,17 @@ _path
 _bundle
 _plugin
 _accessorAuditToken
-allowsInternalSecurityPolicies
 dictionaryWithObjects:forKeys:count:
 errorWithDomain:code:userInfo:
-appendFormat:
-localizedDescription
 code
 stringFromErrorCode:
 appendString:
 boolValueForEntitlement:
 expirySeconds
 intValue
+initWithString:
+expireOnlyAllowedEntries
+saveExpiredEntries
 purgeExpiredAccessEntriesForService:
 integerValue
 arrayValueForEntitlement:
@@ -588,6 +621,10 @@ setSecondaryUsageDescriptionKeyName:
 numberWithUnsignedInteger:
 setIos_minimumSDKVersionNumber:
 setSandboxOperationForDelegation:
+numberWithUnsignedLongLong:
+setExpirySeconds:
+setExpireOnlyAllowedEntries:
+setSaveExpiredEntries:
 setHasAdditionalPromptText:
 setDisallowedOnPlatformSubtypeNameList:
 setShouldUseADefaultDescriptionString:
@@ -600,7 +637,6 @@ setMacos_isComposedWithServiceName:
 setMacos_isComposedByServiceName:
 setDoNotStoreDefaultAllowAccess:
 numberWithInt:
-setExpirySeconds:
 setMacos_hasIndirectObject:
 setMacos_shouldAllowSameTeam:
 setName:
@@ -626,6 +662,8 @@ _shouldAllowUnrestrictedCheckAuditToken
 _hasParanoidSecurityPolicy
 _hasAdditionalPromptText
 _doNotStoreDefaultAllowAccess
+_expireOnlyAllowedEntries
+_saveExpiredEntries
 _macos_pardonMissingUsage
 _macos_shouldIgnoreCodeRequirementWhitelist
 _macos_isPerSystem
@@ -648,6 +686,12 @@ _macos_hardenedRuntimeEntitlementName
 setWithObjects:
 initWithName:
 arrayWithObjects:count:
+allowsInternalSecurityPolicies
+homeRelativePathToDatabase
+stringByAppendingPathComponent:
+dataWithContentsOfFile:options:error:
+propertyListWithData:options:format:error:
+localizedDescription
 allServices
 validOnPlatformNames
 setServicesByName:
@@ -668,7 +712,6 @@ iosFamilyPlatformNames
 macOSPlatformNames
 allTCCEntitlements
 description
-homeRelativePathToDatabase
 sendMessageSync:toTCCDForTargetUID:
 sendMessageAsync:toTCCDForTargetUID:withReplyBlock:
 forwardMessage:toUserTCCDFromAttributionChain:forService:andMergeReplyInto:forConnnection:
@@ -676,7 +719,9 @@ handleCompositionType:forComposingService:withComposedService:forRequest:intoRep
 getAccessValue:forClientAuditToken:usingComposingService:error:
 evaluatePolicyForPromptingforService:byIdentity:attributionChain:
 notifyUserOfPostEventAccessBy:
+configurationDictionary
 setServer:
+_configurationDictionary
 _name
 _server
 _servicesByName
@@ -701,6 +746,7 @@ Handling SIGTERM...
 Handling language change...
 %{public}s: invalid entitlement requested - %{public}s
 pid %d attempted to call %{public}s without the %{public}s entitlement
+%{public}@
 Unable to terminate_with_reason() %{public}s[%d]: %d (%{public}s) for service %{public}@
 Terminating %{public}s[%d] because access to the %{public}@ service changed.
 Unable to kill %{public}@ (%d)
@@ -750,6 +796,9 @@ No usage string found (key:%s) for client[%d] in bundle:%s
 Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x
 Secondary Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x: usage string: '%@'
 Per-App Default Purpose String key: %{public}@, client[%d](%{public}s) sdk version: 0x%x: usage string: '%{public}@'
+handle_TCCExpirationCopyInformationForService(): failed to allocate clientInfo dictionary.
+handle_TCCExpirationCopyInformationForService(): unexpected client_type: %d for query for service %{public}@.
+VACUUM expired after DELETE of (%@ : %@)
 Handling internal test operation: %s
 Generating bogus DB query in %u seconds...
 ... Generating bogus DB query
@@ -797,9 +846,10 @@ Failed to create %{public}s (%d)
 Failed to open database: %{public}s
 using database: %{public}s
 Looking for boolean preference value: %{public}@
-%{public}s: invoked for %{public}@
-%{public}s: purged %d expired access records
-%{public}s for %{public}@: age = %d
+%{public}s: invoked for %{public}@; expiry: %d
+%{public}s: Recording %{public}@ clients in expired table.
+%{public}s: purged %d expired access records for service: %{public}@
+%{public}s for %{public}@ expiry time: %d, client age = %d
 Entitlement check for (%{public}@, %{public}@) for %{public}@): contains ComposedByService: %{public}@
 WARNING: allowing root %{public}@ to check entitlments without being a TCC manager.
 Request message contains a target_token to accessing_process (%{public}@) but %{public}@ is not a TCC manager for service: %{public}@.
@@ -809,6 +859,10 @@ Query for current DB state returns error: %d; Service: %{public}@), client: %{pu
 %{public}s: For %{public}@ access to composing Service: %{public}@ is %{public}s
 %{public}s: For %{public}@ access to composed by Service: %{public}@ is %{public}s
 PolicyOverride: For %{public}@: policy_id:%{public}@, policy_client: %{public}@, display_name: %{public}@
+For %{public}@ set expirySeconds: %{public}@
+configurationDictionary:  found a config file at %{public}@ but could not get a plist from it: %{public}@
+Using config file at %{public}@: contents:
+%{public}@
 method not valid on this platform.
 Failed to get NSURLIsApplicationKey for %@: %{public}@
 Identified outer-most app bundle for %@ as %@
@@ -848,7 +902,7 @@ v40@0:8@16@24@32
 B40@0:8^{?=[8I]}16@24^@32
 B32@0:8@16@24
 @32@0:8@16^@24
-B28@0:8i16@20
+B36@0:8i16Q20@28
 v56@0:8@16@24@32Q40^Q48
 B48@0:8@16@24^Q32^@40
 B56@0:8@16B24@28B36^Q40^@48

@@ -26,6 +26,7 @@ Cannot use UseSpecialReplyPort in non ANSI mode
 #if __has_include(<mach/mig_voucher_support.h>)
 #ifndef USING_VOUCHERS
 #define USING_VOUCHERS
+#endif
 #ifndef __VOUCHER_FORWARD_TYPE_DECLS__
 #define __VOUCHER_FORWARD_TYPE_DECLS__
 #ifdef __cplusplus
@@ -329,6 +330,7 @@ return MACH_MSG_SUCCESS;
 defined(__MIG_check__Request__%s_t__defined)
 check_result = __MIG_check__Request__%s_t((__Request *)In0P
 , (__Request **)&In%dP
+if (check_result != MACH_MSG_SUCCESS)
 { MIG_RETURN_ERROR(OutP, check_result); }
 #endif
 /* defined(__MIG_check__Request__%s_t__defined) */
@@ -383,7 +385,6 @@ UseStaticTemplates
 %sname = %s%s%s;
 %sdisposition = OutP->%s;
 OutP->%s.disposition = %s;
-__MigKernelSpecificCode
 if (%s == MACH_MSG_TYPE_PORT_RECEIVE)
   if (IP_VALID((ipc_port_t) In0P->Head.msgh_reply_port) &&
     IP_VALID((ipc_port_t) OutP->%s.name) &&
@@ -443,10 +444,13 @@ msgh_size_delta =
 return MIG_BAD_ARGUMENTS;
 (In%dP->__Present__%s ? _WALIGNSZ_(%s) : 0)
 _WALIGN_
+%d * 
 In%dP->%s
 #if __MigTypeCheck
 %sif (%ssize 
 != In%dP->%s%s)
+^^^###_MIG_NOTICE_###^^^ (server) %s, line %d uses OOL_PORTS_DESCRIPTOR
+!= In%dP->%s)
 #endif
 /* __MigTypeCheck */
 #if __MigTypeCheck
@@ -467,13 +471,20 @@ memchr_limit = min((msg_limit - In%dP->%s),  %d);
 __MIG_check__Request__%s_subsystem__ 1
 #define
 __NDR_convert__Request__%s_subsystem__ 1
+#include "%s"
+#include <mig_debug.h>
+#endif
+/* __MigKernelSpecificCode */
 #if  MIG_DEBUG
 #include <mach/mig_log.h>
-#endif /* MIG_DEBUG */
 #define novalue void
 #define novalue int
+#endif
+/* %s */
 #define MACH_MSGH_BITS_REQUEST(bits)
 MACH_MSGH_BITS_REMOTE(bits)
+#define msgh_reply_port
+msgh_local_port
 #define MACH_MSGH_BITS_REPLY(bits)
 MACH_MSGH_BITS_LOCAL(bits)
 #define msgh_request_port
@@ -496,11 +507,14 @@ typedef __Request__%s_t __Request;
 typedef __Reply__%s_t Reply __attribute__((unused));
  * } mig_reply_error_t;
 Declare
+Before
 OutP->msgh_body.msgh_descriptor_count = %d;
 After
 Request *In0P = (Request *) InHeadP;
 Request *In%dP;
 Reply *OutP = (Reply *) OutHeadP;
+mach_msg_max_trailer_t *TrailerP;
+unsigned int trailer_size;
 #ifdef
 __MIG_check__Request__%s_t__defined
 kern_return_t check_result;
@@ -517,6 +531,7 @@ OutP->%s =
 ((mig_reply_error_t *)In0P)->RetCode
 (%s)(0)
 return;
+KERN_SUCCESS
 OutP->
 %s = 
 if (%s < %s)
@@ -553,6 +568,7 @@ OutP = (Reply *) ((pointer_t) OutP + msgh_size_delta - %d);
 #ifdef USING_MIG_STRNCPY_ZEROFILL
 if (mig_strncpy_zerofill != NULL) {
 OutP->%s = mig_strncpy_zerofill(OutP->%s, %s, %d);
+} else {
 #endif /* USING_MIG_STRNCPY_ZEROFILL */
 OutP->%s = mig_strncpy(OutP->%s, %s, %d);
 (void)memcpy((char *) OutP->%s, (const char *) %s, %d);
@@ -841,6 +857,9 @@ _WALIGN_(
 Out%dP->%s
  * %d
 != Out%dP->%s%s)
+^^^###_MIG_NOTICE_###^^^ (user) %s, line %d uses OOL_PORTS_DESCRIPTOR
+if (%scount 
+!= Out%dP->%s)
 Send
 #define
 __MIG_check__Reply__%s_subsystem__ 1
@@ -848,10 +867,8 @@ __MIG_check__Reply__%s_subsystem__ 1
 __NDR_convert__Reply__%s_subsystem__ 1
 #define
 __NDR_convert__mig_reply_error_subsystem__ 1
-#include "%s"
-#include <mig_debug.h>
-#endif
-/* __MigKernelSpecificCode */
+__MigKernelSpecificCode
+#endif /* MIG_DEBUG */
 /* LINTLIBRARY */
 #else
 /* %s */
@@ -859,8 +876,6 @@ extern mach_port_t mig_get_reply_port();
 extern void mig_dealloc_reply_port();
 extern char *%s();
 extern void %s();
-#endif
-/* %s */
 #include <TargetConditionals.h>
 #include <mach/mach_sync_ipc.h>
 #ifndef __MigCanUseSpecialReplyPort
@@ -868,7 +883,6 @@ extern void %s();
 #define __MigCanUseSpecialReplyPort 0
 #define mig_get_special_reply_port() MACH_PORT_DEAD
 #define mig_dealloc_special_reply_port(port) __builtin_trap()
-#endif
 #endif /* __MigCanUseSpecialReplyPort */
 #if TARGET_OS_OSX
 extern _Bool _os_xbs_chrooted;
@@ -877,6 +891,13 @@ extern _Bool _os_xbs_chrooted;
 #ifndef __MigSpecialReplyPortMsgOption
 #define __MigSpecialReplyPortMsgOption (__MigCanUseSpecialReplyPort ? (MACH_SEND_SYNC_OVERRIDE|MACH_SEND_SYNC_USE_THRPRI|MACH_RCV_SYNC_WAIT) : MACH_MSG_OPTION_NONE)
 #endif /* __MigSpecialReplyPortMsgOption */
+/* TODO: #include <mach/mach.h> */
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+extern void mach_msg_destroy(mach_msg_header_t *);
+#ifdef __cplusplus
+#endif /* __cplusplus */
 __MachMsgErrorWithTimeout
 __MachMsgErrorWithoutTimeout
 __MachMsgErrorWithTimeoutSRP
@@ -903,8 +924,6 @@ mig_dealloc_reply_port(InP->Head.msgh_reply_port); \
 _user
 #define msgh_request_port
 msgh_remote_port
-#define msgh_reply_port
-msgh_local_port
 MACH_MSG_LOG_USER
 (mach_port_t, char *, mach_msg_type_number_t)
 #ifdef AUTOTEST
@@ -919,7 +938,6 @@ mach_msg_header_t Head;
 NDR_record_t NDR;
 kern_return_t RetCode;
 InP->msgh_body.msgh_descriptor_count = %d;
-Before
 mig_external %s %s
     kern_return_t rtn;
     const static struct
@@ -981,8 +999,6 @@ Request In;
 Request *InP = &Mess%sIn;
 Reply *Out0P = &Mess%sOut;
 mach_msg_return_t msg_result;
-mach_msg_max_trailer_t *TrailerP;
-unsigned int trailer_size;
 #ifdef
 __MIG_check__Reply__%s_t__defined
 #endif
@@ -1005,14 +1021,12 @@ goto ready_to_send;
 msgh_size += msgh_size_delta;
 InP = (Request *) ((pointer_t) InP + msgh_size_delta - 
 (InP->__Present__%s ? _WALIGNSZ_(%s) : 0)
-%d * 
 %s%s
 if (%s%s < %d)
 InP->%s = %s%s;
 else
 InP->%s = %d;
 InP->%s = mig_strncpy_zerofill(InP->%s, %s, %d);
-} else {
 InP->%s = mig_strncpy(InP->%s, %s, %d);
 (void)memcpy((char *) InP->%s, (const char *) %s%s, %d);
 if (%s%s > %d) {
@@ -1089,7 +1103,9 @@ MACH_RCV_TIMEOUT|
 defined(__MIG_check__Reply__%s_t__defined)
 check_result = __MIG_check__Reply__%s_t((__Reply__%s_t *)Out0P
 , (__Reply__%s_t **)&Out%dP
-if (check_result != MACH_MSG_SUCCESS)
+if (check_result != MACH_MSG_SUCCESS) {
+mach_msg_destroy_from_kernel(&Out0P->Head);
+mach_msg_destroy(&Out0P->Head);
 check_result
 #endif
 /* defined(__MIG_check__Reply__%s_t__defined) */
@@ -1106,10 +1122,9 @@ if (Out%dP->%s
 (void)memcpy((char *) %s%s, (const char *) Out%dP->%s, 
 Out%dP->%s);
 /* %s%s */ %s->%s
-KERN_SUCCESS
  * IDENTIFICATION:
  * stub generated %s
- * with a MiG generated by bootstrap_cmds-96.20.2.200.4
+ * with a MiG generated by bootstrap_cmds-96.20.2.250.2
  * OPTIONS: 
 KernelUser
 KernelServer
@@ -1389,7 +1404,7 @@ GHK23A:IE;
 J|}~e
 MZUVWXOP
 STTUUUUUUUUUUUUUUUUUUVWXXYYZ[\]^_``aabcdefggggghijkkkkkkkllllllllmmmnnooppqrrrstuuvvwwwwwwxxyz{{||||}~
-@(#)PROGRAM:migcom  PROJECT:mig-96.20.2.200.4
+@(#)PROGRAM:migcom  PROJECT:mig-96.20.2.250.2
 (defined(__STDC__) || defined(c_plusplus))
 defined(LINTLIBRARY)
 ReturnValue
