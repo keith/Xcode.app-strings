@@ -75,6 +75,8 @@ Unable to find class %s
 /System/Library/PrivateFrameworks/Accessibility.framework/Frameworks//AccessibilityUI.framework/AccessibilityUI
 TTYSupport
 00000000-0000-0000-0000-000000000001
+testUuid
+T@"NSUUID",&,N,V_testUuid
 AXTTYPreferredTransportMethodChangedNotification
 v32@?0@"CTXPCContextInfo"8Q16^B24
 Error getting active contexts: %@
@@ -117,10 +119,12 @@ TTYRelayNumber
 Media
 Checking IMSConfig for relay number %@
 -[RTTTelephonyUtilities relayNumberForContext:]
+Did change outgoing relay caller ID
+-[RTTTelephonyUtilities didChangeOutgoingRelayCallerID]
 Cloud relay updated
+-[RTTTelephonyUtilities iCloudRTTRelayDidChange:]
+Relay supported? %d
 -[RTTTelephonyUtilities iCloudRTTRelayDidChange:]_block_invoke
-iCloud changed
--[RTTTelephonyUtilities iCloudAccountDidChange:]
 RTTCloudRelayNumberKey
 Checking %@ in %@
 -[RTTTelephonyUtilities relayRTTIsSupported]
@@ -133,6 +137,8 @@ telephonyUpdateQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_telephonyUpdateQueue
 defaultVoiceContext
 T@"CTXPCServiceSubscriptionContext",&,N,V_defaultVoiceContext
+allVoiceContexts
+T@"NSSet",&,N,V_allVoiceContexts
 activeContextCount
 TQ,N,V_activeContextCount
 contactStore
@@ -384,12 +390,23 @@ Sending to action completion: %@ for calltype: %d
 Asking to show call prompt: %@
 Received reply %@, forwarding back to %@
 Send message error: %@
-%{private}s
+Received remote string %@ for utterance: %@
+Sending remote string %@ for utterance: %@
+HW No active subscriptions, falling back to default voice context
+SW No active subscriptions, falling back to default voice context
+iCloud changed
+Storing relay phones: %@
 Got result for action sheet: %@
 Contact matching emergency number, dialing through RTT immediately: %@
 Display call prompt for %@
-Taking out assertion so that InCallService doesn't go to sleep on us: %@
-@@(#)PROGRAM:RTTUtilities  PROJECT:Hearing-1
+Taking out assertion so that InCallService doesn't go to sleep on us: %@ (aquird: %d)
+Send string for remote call: %@
+%{private}s
+Getting remote call send job: %@
+Looking for conversation asynchronously: %@
+Looking for conversation: %@
+Received conversation: %@
+?@(#)PROGRAM:RTTUtilities  PROJECT:Hearing-1
 RTTController
 AXUIClientDelegate
 NSObject
@@ -577,13 +594,16 @@ bundleForClass:
 localizedStringForKey:value:table:
 bundleURL
 initWithUUIDString:
+setTestUuid:
+testUuid
 uuid
+_testUuid
 isMainThread
 telephonyClient
 getActiveContexts:
 subscriptions
-context
 TTYHardwareEnabledForContext:
+context
 TTYSoftwareEnabledForContext:
 isTTYSupportedForContext:
 isTTYOverIMSSupportedForContext:
@@ -591,6 +611,8 @@ isOnlyRTTSupportedForContext:
 shouldUseRTTForContext:
 relayPhoneNumber
 length
+allVoiceContexts
+countByEnumeratingWithState:objects:count:
 hardwareTTYIsSupportedForContext:
 softwareTTYIsSupportedForContext:
 isRTTSupportedForContext:
@@ -608,6 +630,7 @@ setTelephonyUpdateQueue:
 initWithQueue:
 setTelephonyClient:
 reloadDefaultVoiceContext
+initWithTargetSerialQueue:
 registerNotifications
 updateHeadphoneState
 storeWithOptions:
@@ -656,6 +679,7 @@ slotID
 firstObject
 setDefaultVoiceContext:
 setActiveContextCount:
+setAllVoiceContexts:
 getCarrierValueForKeyHierarchy:andContext:
 context:getCarrierBundleValue:error:
 getCarrierValueForKey:andContext:
@@ -666,8 +690,11 @@ synchronize
 iCloudAccountDidChange:
 accountTypeWithAccountTypeIdentifier:
 accountsWithAccountType:
+cancel
 relayRTTIsSupported
 setContinuityRTTIsSupported:
+afterDelay:processBlock:
+_icloudAccountChanged
 dictionaryForKey:
 dictionaryWithDictionary:
 setObject:forKey:
@@ -705,9 +732,12 @@ activeSubscriptionsDidChange
 simLessSubscriptionsDidChange
 activeContextCount
 _accountStore
+_icloudAccountConsolidator
+_icloudRelayConsolidator
 _headphoneJackSupportsTTY
 _defaultVoiceContext
 _activeContextCount
+_allVoiceContexts
 _contactStore
 _telephonyClient
 _telephonyUpdateQueue
@@ -735,7 +765,6 @@ setName:
 lock
 beginDownloadWithOptions:
 wait
-countByEnumeratingWithState:objects:count:
 attributes
 initWithAssetType:
 setQueriesLocalAssetInformationOnly:
@@ -760,6 +789,7 @@ isEmergencyNumberForDigits:senderIdentityUUID:
 initWithPID:flags:reason:name:withHandler:
 setAssertion:
 assertion
+acquire
 invalidate
 registerResponseBlock:forUUID:
 handleMessageWithPayload:forIdentifier:
@@ -798,12 +828,9 @@ addUtterance:
 sendText:
 characterAtIndex:
 sendCharacter:
-initWithTargetSerialQueue:
 string
 appendString:
-cancel
 device:didReceiveText:
-afterDelay:processBlock:
 utterances
 _handleInitialGarbageTextFromTTY:device:
 substitutions
@@ -985,6 +1012,7 @@ enumerateObjectsWithOptions:usingBlock:
 stringByTrimmingCharactersInSet:
 indexSet
 addIndex:
+conversationWithCall:withCallback:
 conversationWithID:andUtterances:
 supportsSecureCoding
 encodeWithCoder:
@@ -1046,13 +1074,16 @@ v20@0:8B16
 @"NSObject<OS_dispatch_queue>"
 @"NSMutableArray"
 @"<HCHeardControllerProtocol>"
+@"NSUUID"
 v24@0:8@"CTXPCServiceSubscriptionContext"16
 v24@0:8@"NSUUID"16
 Q24@0:8@16
 @32@0:8@16@24
 v24@0:8Q16
 @"ACAccountStore"
+@"AXDispatchTimer"
 @"CTXPCServiceSubscriptionContext"
+@"NSSet"
 @"CNContactStore"
 @"CoreTelephonyClient"
 @20@0:8B16
@@ -1076,7 +1107,6 @@ v32@0:8@"AVCVirtualTTYDevice"16^{NSString=#}24
 B32@0:8^{NSString=#}16@24
 ^{NSString=#}32@0:8^{NSString=#}16@24
 @"NSMutableString"
-@"AXDispatchTimer"
 @"<RTTCallDelegate>"
 @"RTTConversation"
 @"TUCall"

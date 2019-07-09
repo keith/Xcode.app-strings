@@ -43,13 +43,16 @@ RPCloudSession
 data
 T@"NSData",&,N,V_data
 DestID %@
+ClSI %@
 PeerSID %@
 SelfSID %@
 %s-%s
 -[RPCloudSession activateDirectAndReturnError:]
 Activate client: peer %@
 Activate server: peerSID %@, selfSID %@, peer %@
--[RPCloudSession invalidate]_block_invoke
+-[RPCloudSession _invalidateWithError:]
+Invalidating: %{error}
+Invalidated (I)
 -[RPCloudSession _invalidated]
 -[RPCloudSession _receivedSessionStartResponse:error:]
 Ignoring duplicate start response
@@ -66,12 +69,15 @@ Abort reads: %{error}
 -[RPCloudSession _completeReadRequest:error:]
 Read completed: %zu byte(s), %{error}
 Invalidated (W)
+Session stopped
 -[RPCloudSession _abortWritesWithError:]
 Abort writes: %{error}
 -[RPCloudSession _completeWriteRequest:error:]
 Write completed: %{error}
 cloudDaemon
 T@"RPCloudDaemon",&,N,V_cloudDaemon
+cloudServiceID
+T@"NSString",C,N,V_cloudServiceID
 destinationID
 T@"NSString",C,N,V_destinationID
 errorHandler
@@ -92,6 +98,8 @@ Remote
 DuckAudio
 ImminentUse
 KeepAlive
+com.apple.private.alloy.coreduet.sync
+com.apple.private.alloy.nearby
 rapport:rdid:ActivePhone
 rapport:rdid:ActiveWatch
 rapport:rdid:DirectPeer
@@ -108,6 +116,7 @@ allowUnauthenticated
 eventID
 failIfAsleep
 interest
+length
 moreComing
 peerAddr
 requestID
@@ -129,17 +138,21 @@ T@"NSDictionary",C,N,V_options
 handler
 T@?,C,N,V_handler
 T@"NSString",C,N,V_requestID
+cnxHandler
+T@?,C,N,V_cnxHandler
 solo
 stereoleft
 stereoright
 CLinkClient
 appID
+clSI
 ddID
 flags
 pwTy
 siriInfo
 CLinkClient, CID 0x%X, FL %#{flags}, CF %#ll{flags}
 , AppID '%@'
+, ClSI '%@'
 , ST '%@'
 , %@
 No device
@@ -317,6 +330,7 @@ role
 %sPI %@
 , Nm '%@'
 , Md '%@'
+, LT %s
 , UI Triggered
 , Cl '%@'
 , Rm '%@'
@@ -340,8 +354,6 @@ role
 , STA %##@
 rpFl
 rpBA
-btPipeConnected
-TB,N,V_btPipeConnected
 changed
 TB,N,V_changed
 daemon
@@ -387,6 +399,14 @@ synchSetupStateFromStereoCounterpart
 _hidT
 _laData
 _siA
+BTPipe
+AWDL
+WiFi
+Enet
+Direct
+Cloud
+AudioAccessory1,
+HomePod
 responseHandler
 T@?,C,N,V_responseHandler
 sendTicks
@@ -439,9 +459,9 @@ Activate for client: CF %#ll{flags}, BLE peer %@, %s
 Activate for server: CF %#ll{flags}, %@, %s
 Activate for %s: CF %#ll{flags}, %@, %s
 server
+Activate for client: CF %#ll{flags}, %@, %@, %s
 ### Activate without role?
 -[RPConnection _invalidateWithError:]
-Invalidating: %{error}
 -[RPConnection _invalidate]
 Connection invalidated
 -[RPConnection _invalidateCore:]
@@ -497,7 +517,7 @@ OnDemand connection failed, invalidating
 Peer appears present, retrying
 Peer appears missing, invalidating
 client no ack
-174.20.2
+180.4
 -[RPConnection _clientPreAuthStart]
 Send PreAuthRequest: %##@
 -[RPConnection _clientPreAuthResponseWithData:]
@@ -687,6 +707,11 @@ IdentityProofsVerify check HKU: ID %@
 IdentityProofsVerify find failed HKU: ID %@, %{error}
 IdentityProofsVerify verify HKU: ID %@, %{error}
 v24@?0@"CUPairedPeer"8@"NSError"16
+-[RPConnection _idleTimerStart:repeat:]
+Idle timer start: %u/%u seconds, %llu frames
+-[RPConnection _idleTimerFired]
+Idle timer check: %llu -> %llu frames
+Idle disconnect
 _appID
 _appInfo
 _clFl
@@ -762,8 +787,6 @@ linkType
 Ti,R,N,V_linkType
 localDeviceInfo
 T@"RPCompanionLinkDevice",&,N,V_localDeviceInfo
-metrics
-T@"RPMetrics",&,N,V_metrics
 netLinkManager
 T@"CUNetLinkManager",&,N,V_netLinkManager
 pairVerifyCompletion
@@ -819,12 +842,6 @@ SSessionWait
 SMsg
 SError
 Unknown
-BTPipe
-AWDL
-WiFi
-Enet
-Direct
-Cloud
 Unspecified
 Self
 SameAccountDevice
@@ -1015,6 +1032,7 @@ T@"CUBonjourDevice",&,N,V_bonjourDevice
 idsDevice
 T@"IDSDevice",&,N,V_idsDevice
 T@"NSString",C,N,V_idsDeviceIdentifier
+Ti,N,V_linkType
 mediaRemoteIdentifier
 T@"NSString",C,N,V_mediaRemoteIdentifier
 mediaRouteIdentifier
@@ -1185,6 +1203,7 @@ RPFileCnx-%@-In-%u
 Incoming cnx start: %@
 -[RPFileTransferSession _handleIncomingConnectionEnded:]
 Incoming cnx ended: %@
+Incoming cnx resume: %@
 Add item after invalidate
 -[RPFileTransferSession addItem:]_block_invoke
 ### AddItem failed: URL %{mask}, %{error}
@@ -1234,7 +1253,7 @@ SmallFiles receive complete: TID %llu
 LargeFile send task start: TID %llu, FID %llu, FSize %llu, MDSize %zu
 -[RPFileTransferSession _largeFileSendTaskStart:]_block_invoke
 ### LargeFile start failed: URL %{mask}, %{error}
--[RPFileTransferSession _largeFileSendTaskSend:data:end:]
+-[RPFileTransferSession _largeFileSendTaskSend:data:end:xid:]
 ### Compress failed: LargeFile, TID %llu, %{error}
 -[RPFileTransferSession _largeFileSendTaskEnd:error:]
 ### LargeFile send task already ended: TID %llu, %{error}
@@ -1336,7 +1355,6 @@ RPFileTransferProgress: %s
 , 0 Files
 , %.2f MiB/sec
 , Cmp %d%%
-, LT %s
 bytesPerSecond
 Td,N,V_bytesPerSecond
 remainingSeconds
@@ -1346,7 +1364,6 @@ Td,N,V_compressionRate
 currentFilename
 T@"NSString",C,N,V_currentFilename
 T@"NSError",C,N,V_error
-Ti,N,V_linkType
 transferredByteCount
 Tq,N,V_transferredByteCount
 totalByteCount
@@ -1406,6 +1423,7 @@ edSK
 , EdSK %d B
 , AID '%{mask}'
 , Nm '%{mask}'
+, MRtI ~
 , Req %@
 , Ack %@
 , Removed %@
@@ -1416,6 +1434,8 @@ dateAdded
 dateRemoved
 dateReq
 idsDeviceID
+mediaRemoteID
+mediaRouteID
 userAdded
 No DeviceIRK
 Bad DeviceIRK length (%zu bytes)
@@ -1445,6 +1465,8 @@ T@"NSData",C,N,V_edSKData
 featureFlags
 TQ,N,V_featureFlags
 T@"NSString",C,N,V_idsDeviceID
+T@"NSString",C,N,V_mediaRemoteID
+T@"NSString",C,N,V_mediaRouteID
 TB,N,V_userAdded
 Unknown identity type (%d)
 RPIdentity-FamilyAccount
@@ -1618,68 +1640,6 @@ promptForPINHandler
 T@?,C,N,V_promptForPINHandler
 SFDeviceDiscovery
 /System/Library/PrivateFrameworks/Sharing.framework/Sharing
-RPLiveAudioSession
--[RPLiveAudioSession _activateWithCompletion:]
-No messenger
--[RPLiveAudioSession _invalidate]
-v32@?0@"NSString"8@"RPLiveAudioPeerSession"16^B24
--[RPLiveAudioSession _invalidated]
-AVAudioFormat init failed: %{asbd}
-No audio format settings
-AVVoiceController init failed
--[RPLiveAudioSession voiceControllerSetupAndReturnError:]
-AVVoiceController PrepareRecord: %{asbd}, %.0f ms buffer
-AVVoiceController PrepareRecord failed
--[RPLiveAudioSession voiceControllerTearDown]
-Recording stop
--[RPLiveAudioSession _voiceControllerStart]
-Recording start
-### Recording start failed: %{error}
--[RPLiveAudioSession voiceControllerDidStartRecording:successfully:error:]_block_invoke
-### DidStartRecording failed: %{error}
-Recording started
--[RPLiveAudioSession voiceControllerDidStopRecording:forReason:]_block_invoke
-Recording stopped: %#m
--[RPLiveAudioSession voiceControllerRecordBufferAvailable:buffer:]_block_invoke
-Send LiveAudio data: TS 0x%016llX, %d bytes, %d packets, %d channels
--[RPLiveAudioSession voiceControllerDidDetectStartpoint:]
-Detected startpoint
--[RPLiveAudioSession voiceControllerDidDetectEndpoint:ofType:atTime:]
-Detected endpoint: type %d, time %f
--[RPLiveAudioSession voiceControllerEncoderErrorDidOccur:error:]
-### Encoder error: %{error}
--[RPLiveAudioSession voiceControllerMediaServicesWereReset:]
-### mediaserverd crashed
-hash
-TQ,R
-superclass
-T#,R
-description
-T@"NSString",R,C
-debugDescription
-destinationIDs
-T@"NSSet",C,N,V_destinationIDs
--[RPLiveAudioPeerSession activateWithCompletion:]
-### Start session failed without destinationID
-No destinationID
-### Start session failed without messenger
-LiveAudio start to %@
-_laStart
--[RPLiveAudioPeerSession activateWithCompletion:]_block_invoke
-### LiveAudio start failed to %@, %{error}
-LiveAudio started to %@
--[RPLiveAudioPeerSession invalidate]
-### Stop session failed without destinationID
-### Stop session failed without messenger
-LiveAudio stop to %@
-_laStop
--[RPLiveAudioPeerSession invalidate]_block_invoke
-### LiveAudio stop failed to %@, %{error}
-LiveAudio stopped to %@
-AVAudioFormat
-/System/Library/Frameworks/AVFoundation.framework/AVFoundation
-AVVoiceActivationModeKey
-AVVoiceController
 RPMediaControlSession
 -[RPMediaControlSession _activateWithCompletion:]
 _iMC
@@ -1831,21 +1791,6 @@ T@"NSNumber",C,N,V_sessionID
 xpcCnx
 T@"NSXPCConnection",&,N,V_xpcCnx
 T@"RPRemoteDisplayDevice",&,N,V_destinationDevice
-RPRemoteXPC
--[RPRemoteXPCConnection _activateWithCompletion:]
--[RPRemoteXPCConnection _invalidate]
--[RPRemoteXPCConnection _invalidated]
-endpoint
-T@"RPEndpoint",&,N,V_endpoint
-serviceName
-T@"NSString",R,C,N,V_serviceName
-xpcConnection
-T@"NSXPCConnection",R,N
--[RPRemoteXPCListener _activateWithCompletion:]
--[RPRemoteXPCListener _invalidate]
--[RPRemoteXPCListener _invalidated]
-acceptHandler
-T@?,C,N,V_acceptHandler
 RPServer
 RPServer: ST '%@'
 -[RPServer activate]_block_invoke
@@ -1856,7 +1801,11 @@ RPServer: ST '%@'
 -[RPServer _interrupted]
 -[RPServer invalidate]_block_invoke
 -[RPServer _invalidated]
+acceptHandler
+T@?,C,N,V_acceptHandler
 RPSession
+RPSession: ST '%@', SID 0x%llX
+, Peer %@
 -[RPSession activateWithCompletion:]_block_invoke
 -[RPSession _activateWithCompletion:reactivate:]
 -[RPSession _activateWithCompletion:reactivate:]_block_invoke
@@ -1885,12 +1834,15 @@ com.apple.rapport.siri-audio
 ### Ignoring Siri audio message when not Siri not started
 T@"NSString",C,N,V_sessionID
 RPSiriSession
+No destinationID
 -[RPSiriSession _activateWithCompletion:]
+No messenger
 Already activated
 Activate with destination %@
 Send SiriStart
 _siriStart
 -[RPSiriSession _activate2]
+Recording start
 Recording start failed
 -[RPSiriSession _activateCompletedWithError:]
 -[RPSiriSession _invalidate]
@@ -1902,18 +1854,39 @@ _siriStop
 AVAudioFormat init failed
 -[RPSiriSession voiceControllerSetupAndReturnError:]
 AVVoiceController init with %{asbd}
+AVVoiceController init failed
+No audio format settings
 AVVoiceController PrepareRecord with %{asbd}
+AVVoiceController PrepareRecord failed
 -[RPSiriSession voiceControllerTearDown]
+Recording stop
 Recording start 2 failed
 -[RPSiriSession voiceControllerDidStartRecording:successfully:error:]_block_invoke
+Recording started
 -[RPSiriSession voiceControllerDidStopRecording:forReason:]_block_invoke
+Recording stopped: %#m
 -[RPSiriSession voiceControllerRecordBufferAvailable:buffer:]_block_invoke
 Send Siri audio: TS 0x%016llX, %d bytes, %d packets, %d channels, gain %f
 -[RPSiriSession voiceControllerDidDetectStartpoint:]
+Detected startpoint
 -[RPSiriSession voiceControllerDidDetectEndpoint:ofType:atTime:]
+Detected endpoint: type %d, time %f
 -[RPSiriSession voiceControllerEncoderErrorDidOccur:error:]
+### Encoder error: %{error}
 -[RPSiriSession voiceControllerMediaServicesWereReset:]
+### mediaserverd crashed
+hash
+TQ,R
+superclass
+T#,R
+description
+T@"NSString",R,C
+debugDescription
 T@"NSString",&,N,V_destinationID
+AVAudioFormat
+/System/Library/Frameworks/AVFoundation.framework/AVFoundation
+AVVoiceActivationModeKey
+AVVoiceController
 RPStreamServer
 -[RPStreamServer _activateWithCompletion:]
 Activate: %#{flags}
@@ -2019,6 +1992,7 @@ Bad peer address string '%s'
 Create remote endpoint failed
 Create nw_parameters USB failed
 Copy protocol stack USB failed
+v16@?0@"NSObject<OS_nw_protocol_options>"8
 Create path evaluator failed
 Session started: Client, ID '%@', Type %s, Flags %#{flags}, NWClientID %@, %@ (%@) -> PeerAddr %##a, PeerMAC %@
 -[RPStreamSession _serverUDPNWPathStartRequest:options:responseHandler:]_block_invoke
@@ -2346,7 +2320,6 @@ RSSI
 SSID
 Prox
 RLoc
-supo
 Play
 Pause
 NextTrack
@@ -2430,7 +2403,6 @@ zPLR
 zPLR
 zPLR
 zPLR
-zPLR
 RPDaemonXPCClientInterface
 RPDaemonXPCServerInterface
 RPClient
@@ -2469,10 +2441,6 @@ RPLegacyDeviceDiscovery
 RPDeviceContext
 RPLegacyService
 RPLegacySession
-RPLiveAudioSession
-AVVoiceControllerRecordDelegate
-NSObject
-RPLiveAudioPeerSession
 RPMediaControlSession
 RPPeopleXPCDaemonInterface
 RPPeopleXPCClientInterface
@@ -2484,14 +2452,14 @@ RPRemoteDisplayXPCDaemonInterface
 RPRemoteDisplayDiscovery
 RPRemoteDisplayServer
 RPRemoteDisplaySession
-RPRemoteXPCConnection
-RPRemoteXPCListener
 RPServer
 RPSession
 RPSiriAudioXPCClientInterface
 RPSiriAudioXPCPluginInterface
 RPSiriAudioSession
 RPSiriSession
+AVVoiceControllerRecordDelegate
+NSObject
 RPStreamServer
 RPStreamSession
 RPTextInputSession
@@ -2553,14 +2521,15 @@ UTF8String
 activateDirectAndReturnError:
 _heartbeatTimerFired
 _run
-_invalidate
+_invalidateWithError:
+_abortReadsWithError:
+_abortWritesWithError:
+sessionStop:error:
 _receivedSessionStartResponse:error:
 _reportError:
 bytes
 length
 _processReads
-_abortReadsWithError:
-_abortWritesWithError:
 _runSessionStart
 _processWrites
 sessionStart:error:
@@ -2580,21 +2549,27 @@ removeAllObjects
 completion
 setCompletion:
 _completeWriteRequest:error:
+setEndOfData:
+error
+writeWithRequest:
 _processWriteRequest:
 dataArray
 appendData:
 bytesIOCount
 appendBytes:length:
 sessionSendData:session:error:
+endOfData
 readWithRequest:
-writeWithRequest:
 description
 setLabel:
 activateWithCompletion:
 receivedSessionStartResponse:error:
 receivedSessionData:
+writeEndOfDataWithCompletion:
 cloudDaemon
 setCloudDaemon:
+cloudServiceID
+setCloudServiceID:
 destinationID
 setDestinationID:
 errorHandler
@@ -2619,6 +2594,7 @@ _ucat
 _writeRequests
 _responseReceived
 _cloudDaemon
+_cloudServiceID
 _destinationID
 _errorHandler
 _label
@@ -2644,7 +2620,10 @@ _options
 _handler
 requestID
 setRequestID:
+cnxHandler
+setCnxHandler:
 _requestID
+_cnxHandler
 setIdentifier:
 identifier
 publicIdentifier
@@ -2732,6 +2711,7 @@ sendEventID:event:options:completion:
 registerRequestID:options:handler:
 deregisterRequestID:
 sendRequestID:request:options:responseHandler:
+setControlFlags:
 setSiriInfo:
 activateAssertionID:destinationID:options:completion:
 _invalidateAssertion:
@@ -2745,7 +2725,6 @@ deregisterProfileID:completion:
 appID
 setAppID:
 controlFlags
-setControlFlags:
 destinationDevice
 setDestinationDevice:
 setFlags:
@@ -2796,6 +2775,7 @@ _client
 _identifier
 updateWithBonjourDevice:
 txtDictionary
+updateWithSFDevice:
 effectiveIdentifier
 deviceColor
 setDeviceColor:
@@ -2821,8 +2801,6 @@ roomName
 setRoomName:
 role
 setRole:
-btPipeConnected
-setBtPipeConnected:
 changed
 setChanged:
 daemon
@@ -2838,7 +2816,6 @@ setServersChangedState:
 uiTriggered
 setUiTriggered:
 _personal
-_btPipeConnected
 _changed
 _daemon
 _uiTriggered
@@ -2865,6 +2842,7 @@ encodeInt64:forKey:
 encodeInteger:forKey:
 decodeBoolForKey:
 encodeBool:forKey:
+hasPrefix:
 responseHandler
 setResponseHandler:
 sendTicks
@@ -2901,10 +2879,10 @@ serviceTypes
 sourceVersion
 _receiveStart:
 flowControlState
-_invalidateWithError:
 sendReachabilityProbe:
 setTrafficFlags:
 setStatusFlags:
+_invalidate
 _invalidateCore:
 _abortRequestsWithError:
 _pairSetupInvalidate
@@ -2935,6 +2913,7 @@ _clientPairSetupStart
 _clientPairVerifyStart
 _pskPrepare:
 _clientStartSession
+_clientStarted
 _processSends
 _clientError:
 _clientRetryStart
@@ -2983,6 +2962,7 @@ _systeminfo
 _receivedSystemInfo:xid:
 _sendEncryptedRequestID:request:xpcID:options:sendEntry:responseHandler:
 _clientRetryFired
+_idleTimerStart:repeat:
 _serverAccept
 _serverStarted
 _serverError:
@@ -3007,15 +2987,11 @@ numberWithUnsignedInt:
 sendEncryptedEventID:data:xid:options:completion:
 peerHostState
 encryptData:aadData:error:
-error
 arrayWithObjects:count:
 setDataArray:
-logEventID:length:
 _timeoutForSendEntry:
 _timeoutForXID:
-logRequestID:length:
 unsignedIntValue
-logSentResponseID:length:
 _sendFrameType:body:
 setBufferBytes:
 setMinLength:
@@ -3034,9 +3010,9 @@ _receivedObject:ctx:
 _receivedEvent:ctx:
 _receivedRequest:ctx:
 _receivedResponse:ctx:
+numberWithUnsignedLong:
 numberWithBool:
 _sendEncryptedResponse:error:xid:requestID:
-logReceivedResponseID:length:rttMs:
 indexOfObject:
 deriveKeyWithSaltPtr:saltLen:infoPtr:infoLen:keyLen:outputKeyPtr:
 _newZeroingDataWithBytes:length:
@@ -3047,6 +3023,7 @@ resolveIdentityTypesForSignature:data:typeFlags:
 verifySignature:data:error:
 initWithUUIDString:
 findPairedPeer:options:completion:
+_idleTimerFired
 _identityProofsVerify:
 saveIdentityWithIDSDeviceID:message:error:
 setIdsDeviceIdentifier:
@@ -3056,12 +3033,13 @@ setModel:
 setName:
 setServiceTypes:
 setSourceVersion:
-addSelfIdentityInfoToMessage:
+addSelfIdentityInfoToMessage:flags:
 setFlowControlReadEnabled:
 flowControlWriteState
 setPresent:
 invalidateWithError:
 homeKitIdentityUpdated
+sessionStopped:
 sendEncryptedRequestID:request:xpcID:options:responseHandler:
 appInfoSelf
 bleConnection
@@ -3101,8 +3079,6 @@ keepAliveSeconds
 linkType
 localDeviceInfo
 setLocalDeviceInfo:
-metrics
-setMetrics:
 netLinkManager
 setNetLinkManager:
 pairVerifyCompletion
@@ -3134,6 +3110,7 @@ setTcpConnection:
 trafficFlags
 _peerAddrString
 _selfAddrString
+_idleTimer
 _probeTimer
 _retryFired
 _retryTicks
@@ -3161,6 +3138,8 @@ _readRequested
 _requests
 _sendArray
 _xidLast
+_receivedFrameCountCurrent
+_receivedFrameCountLast
 _flowControlReadEnabled
 _invalidationHandled
 _preAuthEnabled
@@ -3187,7 +3166,6 @@ _identityDaemon
 _identityResolved
 _identityVerified
 _localDeviceInfo
-_metrics
 _netLinkManager
 _pairVerifyCompletion
 _peerDeviceInfo
@@ -3317,13 +3295,15 @@ modelIdentifier
 operatingSystemVersion
 supportsApplePay
 uniqueIDOverride
+mediaRemoteID
+mediaRouteID
+rapportIdentifier
 duetSync
 wifiP2P
 nullEndpoint
 removeBonjourDevice:
 updateWithIDSDevice:
 removeIDSDevice
-updateWithSFDevice:
 removeSFDevice:
 homeKitUserIdentifier
 hotspotInfo
@@ -3332,6 +3312,7 @@ bonjourDevice
 setBonjourDevice:
 idsDevice
 setIdsDevice:
+setLinkType:
 _bleDevice
 _bonjourDevice
 _hotspotInfo
@@ -3361,6 +3342,7 @@ outstandingSends
 setOutstandingSends:
 remainingSize
 setRemainingSize:
+_failed
 _fileFD
 _outstandingSends
 _remainingSize
@@ -3382,6 +3364,7 @@ path
 _activateTargetAndReturnError:
 _activateSourceAndReturnError:
 _reportProgressType:
+_completeItemDirect:error:
 setCompressionRate:
 compressionRate
 setBytesPerSecond:
@@ -3399,7 +3382,6 @@ browseFlags
 setBrowseFlags:
 advertiseFlags
 setAdvertiseFlags:
-setLinkType:
 infraDisabled
 setInfraDisabled:
 _receivedPeerUpdate:
@@ -3429,6 +3411,7 @@ tcpListeningPort
 setPort:
 setTxtDictionary:
 _handleIncomingConnectionEnded:
+anyObject
 _prepareItem:error:
 itemURL
 completionHandler
@@ -3448,7 +3431,6 @@ _smallFilesSendTaskRun:
 _largeFileSendTaskStart:
 _smallFilesSendTaskCreate
 _largeFileSendTaskCreate
-_completeItemDirect:error:
 _processFinish
 completed
 estimatedSize
@@ -3457,7 +3439,6 @@ _smallFilesSendTaskReadItem:error:
 _completeItem:error:
 _smallFilesSendTaskEnd:error:
 _encodeAndCompressObject:originalSize:error:
-numberWithUnsignedLong:
 _readPath:size:error:
 setSha256HashData:
 filename
@@ -3476,14 +3457,15 @@ fileData
 _openWriteFileItem:size:error:
 _writeFD:buffer:size:error:
 _processReceivedItems:responseHandler:
-_largeFileSendTaskEnd:error:
+_largeFileSendTaskFailed:error:
 _openReadPath:error:
-_largeFileSendTaskNext:
+_largeFileSendTaskNext:xid:
 _readFD:size:error:
-_largeFileSendTaskSend:data:end:
+_largeFileSendTaskSend:data:end:xid:
 _compressData:error:
 numberWithLongLong:
-_largeFileSendTaskResponse:error:end:
+_largeFileSendTaskResponse:error:end:xid:
+_largeFileSendTaskEnd:error:
 _decompressData:originalSize:error:
 _largeFileReceiveTaskInvalidate:
 _largeFileReceiveTaskRun:data:sendFlags:responseHandler:
@@ -3493,7 +3475,6 @@ initWithBytesNoCopy:length:freeWhenDone:
 popFirstObject
 stringByAppendingPathComponent:
 stringByStandardizingPath
-hasPrefix:
 initFileURLWithPath:isDirectory:
 setItemURL:
 _openWritePath:size:error:
@@ -3666,6 +3647,8 @@ setDeviceIRKData:
 featureFlags
 setFeatureFlags:
 setIdsDeviceID:
+setMediaRemoteID:
+setMediaRouteID:
 userAdded
 setUserAdded:
 dateAcknowledged
@@ -3682,6 +3665,8 @@ _edPKData
 _edSKData
 _featureFlags
 _idsDeviceID
+_mediaRemoteID
+_mediaRouteID
 _dateAcknowledged
 _dateRequested
 setRemovedMetadata:
@@ -3819,72 +3804,6 @@ _mdState
 _securityFlags
 _peerDevice
 _promptForPINHandler
-voiceControllerSetupAndReturnError:
-_voiceControllerStart
-voiceControllerTearDown
-initWithStreamDescription:
-settings
-initWithContext:error:
-setRecordDelegate:
-setRecordBufferDuration:
-prewarmAudioSession
-prepareRecordWithSettings:error:
-stopRecording
-startRecording:
-timeStamp
-bytesDataSize
-packetDescriptionCount
-channels
-packetDescriptions
-class
-self
-performSelector:
-performSelector:withObject:
-performSelector:withObject:withObject:
-isProxy
-isKindOfClass:
-isMemberOfClass:
-conformsToProtocol:
-respondsToSelector:
-retain
-release
-autorelease
-retainCount
-zone
-hash
-superclass
-debugDescription
-voiceControllerDidStartRecording:successfully:
-voiceControllerDidStartRecording:successfully:error:
-voiceControllerDidStopRecording:forReason:
-voiceControllerDidDetectStartpoint:
-voiceControllerDidDetectEndpoint:ofType:
-voiceControllerDidDetectEndpoint:ofType:atTime:
-voiceControllerEncoderErrorDidOccur:error:
-voiceControllerDidFinishAlertPlayback:ofType:error:
-voiceControllerRecordHardwareConfigurationDidChange:toConfiguration:
-voiceControllerBeginRecordInterruption:
-voiceControllerBeginRecordInterruption:withContext:
-voiceControllerEndRecordInterruption:
-voiceControllerMediaServicesWereLost:
-voiceControllerMediaServicesWereReset:
-voiceControllerWillSetAudioSessionActive:willActivate:
-voiceControllerDidSetAudioSessionActive:isActivated:
-voiceControllerRecordBufferAvailable:buffer:
-voiceControllerLPCMRecordBufferAvailable:buffer:
-voiceControllerWirelessSplitterRouteAvailable:devices:
-voiceControllerDidStartRecording:forStream:successfully:error:
-voiceControllerDidStopRecording:forStream:forReason:
-voiceControllerAudioCallback:forStream:buffer:
-voiceControllerStreamInvalidated:forStream:
-destinationIDs
-setDestinationIDs:
-_selfRef
-_peerSessionMap
-_startRecordingState
-_stopRecordingState
-_voiceController
-_destinationIDs
 _handleMediaControlEvent:
 mediaCaptionSettingGetFromDestinationID:completion:
 mediaCaptionSettingSet:destinationID:completion:
@@ -3989,17 +3908,10 @@ _needsAWDL
 _daemonDevice
 _server
 _sessionID
-xpcConnection
-endpoint
-setEndpoint:
-serviceName
-_xpcConnection
-_endpoint
-_serviceName
+_activateWithReactivate:
 acceptHandler
 setAcceptHandler:
 _acceptHandler
-_activateWithReactivate:
 peerEndpoint
 setPeerEndpoint:
 setCnx:
@@ -4016,12 +3928,73 @@ xpcSiriAudioReceived:
 receivedSiriAudioEvent:
 _activateCompletedWithError:
 _activate2
+voiceControllerSetupAndReturnError:
+startRecording:
+voiceControllerTearDown
+initWithStreamDescription:
+initWithContext:error:
+setRecordDelegate:
+setRecordBufferDuration:
 setMeteringEnabled:
+prewarmAudioSession
+settings
+prepareRecordWithSettings:error:
+stopRecording
 updateMeters
 averagePowerForChannel:
+timeStamp
+bytesDataSize
+packetDescriptionCount
+channels
+packetDescriptions
 numberWithFloat:
+class
+self
+performSelector:
+performSelector:withObject:
+performSelector:withObject:withObject:
+isProxy
+isKindOfClass:
+isMemberOfClass:
+conformsToProtocol:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+hash
+superclass
+debugDescription
+voiceControllerDidStartRecording:successfully:
+voiceControllerDidStartRecording:successfully:error:
+voiceControllerDidStopRecording:forReason:
+voiceControllerDidDetectStartpoint:
+voiceControllerDidDetectEndpoint:ofType:
+voiceControllerDidDetectEndpoint:ofType:atTime:
+voiceControllerEncoderErrorDidOccur:error:
+voiceControllerDidFinishAlertPlayback:ofType:error:
+voiceControllerRecordHardwareConfigurationDidChange:toConfiguration:
+voiceControllerBeginRecordInterruption:
+voiceControllerBeginRecordInterruption:withContext:
+voiceControllerEndRecordInterruption:
+voiceControllerMediaServicesWereLost:
+voiceControllerMediaServicesWereReset:
+voiceControllerWillSetAudioSessionActive:willActivate:
+voiceControllerDidSetAudioSessionActive:isActivated:
+voiceControllerRecordBufferAvailable:buffer:
+voiceControllerLPCMRecordBufferAvailable:buffer:
+voiceControllerWirelessSplitterRouteAvailable:devices:
+voiceControllerDidStartRecording:forStream:successfully:error:
+voiceControllerDidStopRecording:forStream:forReason:
+voiceControllerAudioCallback:forStream:buffer:
+voiceControllerStreamInvalidated:forStream:
 _activateState
 _audioFormat
+_selfRef
+_startRecordingState
+_stopRecordingState
+_voiceController
 _handleStartRequest:options:responseHandler:
 _handleStopRequest:options:responseHandler:
 setStreamID:
@@ -4186,13 +4159,13 @@ v24@0:8@?<v@?Ii>16
 v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSDictionary">32
 v48@0:8@"NSString"16@"NSDictionary"24@"NSDictionary"32@?<v@?@"NSError">40
 v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSDictionary"@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">>32
+v24@0:8Q16
 v28@0:8@?16B24
 @48@0:8@16@24@32@?40
 B24@0:8@16
 v36@0:8@16@24B32
 v36@0:8@16B24@?28
 Q16@0:8
-v24@0:8Q16
 ^{NSMutableSet=#}
 ^{NSMutableDictionary=#}
 @"NSMutableOrderedSet"
@@ -4212,6 +4185,7 @@ v28@0:8C16@20
 v24@0:8r*16
 v40@0:8r^{?=C[3C]}16@24^{?=QB}32
 v32@0:8@16^{?=QB}24
+v24@0:8I16I20
 @"NSError"
 {?="frameType"C"frameLen"[3C]}
 @"CUPairingStream"
@@ -4224,7 +4198,6 @@ v32@0:8@16^{?=QB}24
 @"RPIdentity"
 @"CUHomeKitManager"
 @"RPIdentityDaemon"
-@"RPMetrics"
 @"CUNetLinkManager"
 @"CUTCPConnection"
 I28@0:8@16I24
@@ -4242,6 +4215,7 @@ v24@0:8^{NSMutableArray=#}16
 v24@0:8q16
 B32@0:8@16^@24
 @32@0:8@16^@24
+v40@0:8@16@24B32I36
 v44@0:8@16@24I32@?36
 v44@0:8@16@24B32@?36
 @40@0:8@16Q24^@32
@@ -4295,6 +4269,30 @@ v20@0:8C16
 @"NSMutableDictionary"
 ^{BonjourAdvertiserPrivate=}
 @"CUMobileDeviceSession"
+v40@0:8d16@24@?32
+v32@0:8@"RPPeopleDiscovery"16@?<v@?@"NSArray"@"NSError">24
+v24@0:8@"RPPeopleDiscovery"16
+v24@0:8@"RPPerson"16
+v28@0:8@"RPPerson"16I24
+^{NSMutableDictionary=#}16@0:8
+v24@0:8^{NSMutableDictionary=#}16
+v24@0:8I16i20
+v56@0:8@16@24@32@?40@48
+v28@0:8@"NSString"16I24
+v24@0:8@"RPRemoteDisplayDevice"16
+v28@0:8@"RPRemoteDisplayDevice"16I24
+v40@0:8@"NSNumber"16@"RPRemoteDisplayDevice"24@?<v@?@"NSError">32
+v24@0:8@"NSNumber"16
+v48@0:8@"NSString"16@"NSDictionary"24@"NSDictionary"32@"NSNumber"40
+v56@0:8@"NSString"16@"NSDictionary"24@"NSDictionary"32@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">40@"NSNumber"48
+v32@0:8@"RPRemoteDisplayDiscovery"16@?<v@?Q@"NSError">24
+v32@0:8@"RPRemoteDisplayServer"16@?<v@?@"NSError">24
+v32@0:8@"RPRemoteDisplaySession"16@?<v@?@"NSError">24
+@"RPRemoteDisplayDevice"
+@"RPRemoteDisplayServer"
+@"RPEndpoint"
+v32@0:8@"RPSiriAudioSession"16@?<v@?@"NSError">24
+v24@0:8@"NSDictionary"16
 #16@0:8
 @24@0:8:16
 @32@0:8:16@24
@@ -4329,33 +4327,9 @@ v44@0:8@"AVVoiceController"16Q24B32@"NSError"36
 v40@0:8@"AVVoiceController"16Q24q32
 v40@0:8@"AVVoiceController"16Q24@"AVVCAudioBuffer"32
 v32@0:8@"AVVoiceController"16Q24
-@"AVVoiceController"
-v40@0:8d16@24@?32
-v32@0:8@"RPPeopleDiscovery"16@?<v@?@"NSArray"@"NSError">24
-v24@0:8@"RPPeopleDiscovery"16
-v24@0:8@"RPPerson"16
-v28@0:8@"RPPerson"16I24
-^{NSMutableDictionary=#}16@0:8
-v24@0:8^{NSMutableDictionary=#}16
-v24@0:8I16i20
-v56@0:8@16@24@32@?40@48
-v28@0:8@"NSString"16I24
-v24@0:8@"RPRemoteDisplayDevice"16
-v28@0:8@"RPRemoteDisplayDevice"16I24
-v40@0:8@"NSNumber"16@"RPRemoteDisplayDevice"24@?<v@?@"NSError">32
-v24@0:8@"NSNumber"16
-v48@0:8@"NSString"16@"NSDictionary"24@"NSDictionary"32@"NSNumber"40
-v56@0:8@"NSString"16@"NSDictionary"24@"NSDictionary"32@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">40@"NSNumber"48
-v32@0:8@"RPRemoteDisplayDiscovery"16@?<v@?Q@"NSError">24
-v32@0:8@"RPRemoteDisplayServer"16@?<v@?@"NSError">24
-v32@0:8@"RPRemoteDisplaySession"16@?<v@?@"NSError">24
-@"RPRemoteDisplayDevice"
-@"RPRemoteDisplayServer"
-@"RPEndpoint"
-v32@0:8@"RPSiriAudioSession"16@?<v@?@"NSError">24
-v24@0:8@"NSDictionary"16
 @"AVAudioFormat"
 @"RPSiriSession"
+@"AVVoiceController"
 v52@0:8@16@24@32B40@?44
 v68@0:8@16@24@32@40@48B56@?60
 v88@0:8@16@24@32(?={sockaddr=CC[14c]}{sockaddr_in=CCS{in_addr=I}[8c]}{sockaddr_in6=CCSI{in6_addr=(?=[16C][8S][4I])}I})40@68B76@?80

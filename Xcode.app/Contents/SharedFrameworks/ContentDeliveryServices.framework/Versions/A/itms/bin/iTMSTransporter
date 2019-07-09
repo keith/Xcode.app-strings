@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 export PATH
 PATH=/usr/xpg4/bin:${PATH}:/bin:/usr/bin
 # if the user has run the script via symlink (xcrun)
@@ -8,13 +8,26 @@ PATH=/usr/xpg4/bin:${PATH}:/bin:/usr/bin
 # otherwise, we have to get the path from $0
 if [ -L "$0" ] && [ -f "$0" ]
 then
-  SCRIPT_PATH=$(readlink -n $0)
-elif [ "$0" = "iTMSTransporter" ] ; then
+  ACTUAL_PATH="$(readlink -n "$0")"
+  SCRIPT_NAME="$(basename -- "${ACTUAL_PATH}")"
+  if  [[ $ACTUAL_PATH =~ \.\.* ]] ; # relative link if it starts with ..
+  then
+    ACTUAL_DIR="$(dirname -- "${ACTUAL_PATH}")"
+    CMD_DIR="$(dirname -- "$0")"
+    SCRIPT_DIR="$(cd -P -- "${CMD_DIR}/${ACTUAL_DIR}" && pwd -P)"
+  else
+    SCRIPT_DIR="$(dirname -- "${ACTUAL_PATH}")"
+  fi 
+  SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_NAME}"
+elif [ "$0" = "iTMSTransporter" ]
+then
   SCRIPT_PATH=$(which iTMSTransporter)
+  SCRIPT_NAME="$(basename -- "${SCRIPT_PATH}")"
+  SCRIPT_DIR=$(dirname -- "${SCRIPT_PATH}")
 else
-  SCRIPT_PATH=$0
-# get the script's directory
-SCRIPT_DIR=$(echo "$SCRIPT_PATH" | awk -F"/" '{print substr($0,1,length($0)-length($NF))}')
+  SCRIPT_NAME="$(basename -- "$0")"
+  SCRIPT_DIR="$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
+  SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_NAME}"
 # Declare variables.
 export APPLICATION_CLASS
 export COMMAND_LINE_ARGS
@@ -38,13 +51,11 @@ export RELATIVE_JVM
 # Initialize variables.
 # the actual working directory
 CURRDIR="$(pwd)"
-SCRIPT_NAME=$(basename "$0" .sh)
 # Our working directory is the top-level directory of the bundle, so cd to
 # there.
-RELATIVE_WOADIR="${SCRIPT_DIR}/.."
-WOA_TOP_LEVEL=$(cd "${RELATIVE_WOADIR}" || exit; pwd)
+RELATIVE_WOADIR=$(dirname "${SCRIPT_DIR}")
+WOA_TOP_LEVEL=$(cd "${RELATIVE_WOADIR}" || exit; pwd -P)
 RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java"
-#RELATIVE_JVM_HOME=`/usr/libexec/java_home -v 11`
 RELATIVE_JVM_BIN="${RELATIVE_JVM_HOME}/bin"
 RELATIVE_JVM_LIB="${RELATIVE_JVM_HOME}/lib"
 RELATIVE_JVM_LIB_EXT="${RELATIVE_JVM_LIB}/ext"
@@ -84,11 +95,15 @@ case "${PLATFORM_NAME}" in
 esac
 # Define some arguments that we always want to pass to the JVM.  These can be
 # overridden on the command line.
-DEFAULT_JVM_OPTIONS="-DWORootDirectory=\"${WOROOT}\" -DWOLocalRootDirectory=\"${LOCALROOT}\" -DWOUserDirectory=\"${CURRDIR}\" -DWOEnvClassPath=\"${CLASSPATH}\" -DWOApplicationClass=${APPLICATION_CLASS} -DWOPlatform=${PLATFORM_DESCRIPTOR} -Dcom.webobjects.pid=$$"
+DEFAULT_JVM_OPTIONS="${CONTAINER_JAVA_TOOL_OPTIONS} -DWORootDirectory=\"${WOROOT}\" -DWOLocalRootDirectory=\"${LOCALROOT}\" -DWOUserDirectory=\"${CURRDIR}\" -DWOEnvClassPath=\"${CLASSPATH}\" -DWOApplicationClass=${APPLICATION_CLASS} -DWOPlatform=${PLATFORM_DESCRIPTOR} -Dcom.webobjects.pid=$$"
 JVM_OPTIONS="-Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.1,TLSv1.2"
 JVM_EXECUTABLE=java
 APPLICATION_CLASS=com.apple.transporter.launcher.Application
 JAVA_MODULES=""
+if [ "${PLATFORM_NAME}" = "Linux" ]
+then
+    JVM_EXECUTABLE="${RELATIVE_JVM}"
+    JAVA_EXT_OVERRIDE="${RELATIVE_JVM_LIB_EXT}"
 if [ "${PLATFORM_DESCRIPTOR}" = "MacOS" ]
 then
     JVM_EXECUTABLE="${RELATIVE_JVM}"
@@ -110,13 +125,13 @@ JAVA_EXECUTABLE=${JVM_EXECUTABLE}
 JAVA_EXECUTABLE_ARGS="${DEFAULT_JVM_OPTIONS:+$DEFAULT_JVM_OPTIONS }${JVM_OPTIONS:+$JVM_OPTIONS }"
 # We need to make sure they are running the correct version of java
 # get the version
-"${JAVA_EXECUTABLE}" -jar ./lib/itmstransporter-launcher.jar java-version > /dev/null 2> /dev/null
+"${JAVA_EXECUTABLE}" -jar ./lib/itmstransporter-launcher.jar java-version > /dev/null 2>&1
 JAVA_VERSION_MAJOR="${?}"
 # echo "JAVA MAJOR VERSION NUMBER: ${JAVA_VERSION_MAJOR}"
 if [ "${JAVA_VERSION_MAJOR}" -ge 11 ]
 then
     # user is running on JDK 11+ (NO J2EE Packages), so add in activation, and JAXB
-    JAVA_MODULES="-p ${WOA_TOP_LEVEL}/modules --add-modules=java.activation,java.sql,java.xml,java.xml.bind"
+    JAVA_MODULES="-p ${WOA_TOP_LEVEL}/modules --add-modules=java.activation,java.sql,java.xml,java.xml.bind --illegal-access=deny --add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED"
     #echo "JAVA-MODULES = ${JAVA_MODULES}"
 elif [ "${JAVA_VERSION_MAJOR}" -ge 9 ]
 then

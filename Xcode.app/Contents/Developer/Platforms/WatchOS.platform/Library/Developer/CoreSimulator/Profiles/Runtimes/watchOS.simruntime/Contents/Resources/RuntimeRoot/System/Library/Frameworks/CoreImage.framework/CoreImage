@@ -41,7 +41,7 @@ originalImageSize
 T{CGSize=dd},N,VoriginalImageSize
 -[CIBilateralGridHash createWithSurface:region:cropRect:sigma_s:sigma_r_luma:sigma_r_chroma:]
 -[CIBilateralGridHash _computeBilateralSpaceYCC444:region:cropRect:sigma_s:sigma_r_luma:sigma_r_chroma:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/AutoEnhance/Portrait/FBS/BilateralGridHash.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/AutoEnhance/Portrait/FBS/BilateralGridHash.m
 t == kCVPixelFormatType_32BGRA
 region.size.width == surfaceW
 region.size.height == surfaceH
@@ -49,7 +49,7 @@ w > 0 && h > 0
 w <= surfaceW
 h <= surfaceH
 -[CIBilateralSolverGPU _setupPipelineCache]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/AutoEnhance/Portrait/FBS/BilateralSolverGPU.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/AutoEnhance/Portrait/FBS/BilateralSolverGPU.m
 [pipelineArray count] == COMPUTE_COUNT
 v24@?0@"<MTLComputePipelineState>"8@"NSError"16
 useTrilinearInterpolation
@@ -489,7 +489,7 @@ CIAreaHistogram area width or height is greater than 32768.
 CIAreaHistogram outputData requires inputCount >= 1 and <= 256
 CIExposureAdjust
 CIAreaHistogram failed to allocate memory.
-kernel vec4 CIAreaHistogramScale(__sample p, float s) { 
+kernel vec4 _CIAreaHistogramScale(__sample p, float s) { 
  return floor(s * p * 255.0) / 255.0; 
 CIAreaHistogram_%dbins
 {CGRect={CGPoint=dd}{CGSize=dd}}40@?0{CGRect={CGPoint=dd}{CGSize=dd}}8
@@ -507,7 +507,7 @@ T@"NSNumber",&,N,VinputNormalize
 T@"NSNumber",&,N,VinputClip
 T@"NSNumber",&,N,VinputHard
 processHistogram
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIAreaHistogram.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIAreaHistogram.mm
 !hist8
 hist8
 false
@@ -1856,7 +1856,7 @@ Use Inverse Look Up Table
 lookUpTableLength
 lookUpTable
 opticalCenter
-kernel vec4 radialLensDistortion(sampler src, sampler lut, vec4 params) { vec2 opticalCenter = vec2(params.x, params.y); float r_max = params.z; float lutSize = params.w - 1.0; float r_point = distance(destCoord(), opticalCenter); float mag = sample(lut, samplerTransform(lut, vec2(lutSize*r_point/r_max + .5, .5))).x; vec2 v_point = destCoord() - opticalCenter; vec2 warpedCoord = (v_point + mag*v_point) + opticalCenter; vec4 c = sample(src, samplerTransform(src, warpedCoord)); return c; }
+kernel vec4 _radialLensDistortion(sampler src, sampler lut, vec4 params) { vec2 opticalCenter = vec2(params.x, params.y); float r_max = params.z; float lutSize = params.w - 1.0; float r_point = distance(destCoord(), opticalCenter); float mag = sample(lut, samplerTransform(lut, vec2(lutSize*r_point/r_max + .5, .5))).x; vec2 v_point = destCoord() - opticalCenter; vec2 warpedCoord = (v_point + mag*v_point) + opticalCenter; vec4 c = sample(src, samplerTransform(src, warpedCoord)); return c; }
 kernel vec4 _cheapBlur(sampler src, vec2 parms) 
  vec2 dc = destCoord(); 
  vec2 offA = parms * vec2(-1.0, 4.0); 
@@ -2152,6 +2152,35 @@ kernel vec4 _colorPosterize (__sample src, vec2 factors)
  src.rgb = floor(src.rgb * factors.x + 0.5) * factors.y; 
  return src; 
 T@"NSNumber",&,N,VinputLevels
+kernel vec4 _fusionDelta(__sample image,vec3 addBlur,vec3 removeBlur,float apertureScaling) {
+ float additiveTerm = clamp( addBlur.x * image.x + addBlur.y , 0.0, 1.0 ); 
+ float subtractiveTerm = clamp( removeBlur.x * image.x + removeBlur.y, 0.0, 1.0 ); 
+ float delta = additiveTerm - subtractiveTerm; 
+ delta *= (delta > 0.0 ? abs(addBlur.z) : abs(removeBlur.z)) * apertureScaling; 
+ return vec4(delta,delta,delta,1.0);
+inputApertureScaling
+kernel vec4 _fusionTwoImages(__sample person,__sample hair, 
+ vec3 additive,vec3 subtractive, 
+ float protectBodyStrength,float apertureScaling) 
+ float additiveTerm = clamp( additive.x * hair.x + additive.y, 0.0f, 1.0f); 
+ float subtractiveTerm = clamp( subtractive.x * hair.x + subtractive.y, 0.0f, 1.0f); 
+ float delta = additiveTerm - subtractiveTerm; 
+ float nonHairAlpha = protectBodyStrength * max(0.0f, (person.x - hair.x)); 
+ float fusionData = delta * (1.0f - nonHairAlpha); 
+ fusionData *= (fusionData > 0.0f ? abs(additive.z) : abs(subtractive.z)) * apertureScaling; 
+ return vec4(fusionData,fusionData,fusionData,1.0f); 
+T@"CIImage",&,VinputImage
+inputSecondaryImage
+T@"CIImage",&,VinputSecondaryImage
+inputProtectStrength
+T@"NSNumber",&,VinputProtectStrength
+T@"NSNumber",&,VinputApertureScaling
+inputAdditive
+T@"CIVector",&,VinputAdditive
+inputSubtractive
+T@"CIVector",&,VinputSubtractive
+inputMaxBlur
+T@"NSNumber",&,VinputMaxBlur
 kernel vec4 _sobelEdges(sampler src, float scale) 
  vec2 coord = destCoord(); 
  vec2 sc = samplerTransform(src, coord); 
@@ -2353,7 +2382,7 @@ Orientation
 nose
 faceContour
 -[CIContext(CIDepthBlurEffect) _performFaceDetection:image:orientation:filter:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/CIContext_SDOF.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/CIContext_SDOF.mm
 nGoodFaces <= DBE_MAX_NUM_GOOD_FACES
 inputLeftEyePositions
 inputRightEyePositions
@@ -3235,7 +3264,6 @@ Metal
 i16@?0@"NSDictionary"8
 inputDisparityImage
 T@"CIImage",&,VinputDisparityImage
-T@"CIImage",&,VinputImage
 T@"NSNumber",C,VinputPropagateKernel
 T@"NSNumber",C,VinputSmoothSigma
 inputPropagateMinWeightSum
@@ -3280,6 +3308,9 @@ kernel vec4 _CIBoxBlur5Min(sampler i) __attribute__((outputFormat(kCIFormatRh)))
 T@"NSNumber",C,VinputNumIterations
 CIDisparitySmoothing
 Failed to initialize CIDisparitySmoothing: %@; %@
+logNT
+Td,R,N,V_logNT
+nfa: wrong n, k or p values.
 kernel vec4 _displaceFromImage (sampler src, sampler image, float k)
   vec2 dc = destCoord(); 
   float E = sample(image, samplerTransform(image,dc+vec2(1.0,0.0))).r; 
@@ -3431,7 +3462,7 @@ T@"NSNumber",&,N,VinputFalloff
 inputAnisotropic
 T@"NSNumber",&,N,VinputAnisotropic
 +[PercentileClipProcessor_RGBA8_CPU formatForInputAtIndex:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIDualRedEyeFilters.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIDualRedEyeFilters.mm
 threshold
 area
 centerOffsetLeft
@@ -3569,11 +3600,56 @@ WouldAutoFlashTurnOn
 PortType
 DeviceModelName
 NormalizedSNR
--[CIDualRedEyeRepairSession setPrimary:observations:metadata:]
+TuningParametersByPortType
+imageOrientation
+Ti,N,V_imageOrientation
+faceOrientation
+Tf,N,V_faceOrientation
+junkiness
+Tf,N,V_junkiness
+areaMax
+Tf,N,V_areaMax
+observation
+T@"VNFaceObservation",&,N,V_observation
+landmarks
+T@"VNFaceLandmarks2D",&,N,V_landmarks
+segmentationSkin
+T@"CIImage",&,N,V_segmentationSkin
+segmentationSclera
+T@"CIImage",&,N,V_segmentationSclera
+segmentationIris
+T@"CIImage",&,N,V_segmentationIris
+uvLeft
+T@"NSArray",&,N,V_uvLeft
+uvRight
+T@"NSArray",&,N,V_uvRight
+T@"CIVector",&,N,V_faceRect
+roiRenderOriginLeft
+T@"CIVector",&,N,V_roiRenderOriginLeft
+roiRenderOriginRight
+T@"CIVector",&,N,V_roiRenderOriginRight
+roiRenderSize
+T@"CIVector",&,N,V_roiRenderSize
+pupilLeft
+T@"CIVector",&,N,V_pupilLeft
+pupilRight
+T@"CIVector",&,N,V_pupilRight
+@"<MTLTexture>"8@?0
+-[CIDualRedEyeRepairSession prewarm]_block_invoke
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/CIDualRedEyeRepair.m
+-[CIDualRedEyeRepairSession prewarm]
+CIRedEyeRaw
+inputPrimary
+inputSecondary
+kUseFaceSegmentationMask
+inputUseFaceSegmentationMask
+-[CIDualRedEyeRepairSession dumpInputs]
+-[CIDualRedEyeRepairSession validateRenderState]
+-[CIDualRedEyeRepairSession validateSetPrimary]
 kMinPrimaryDimension
-%@-%d
--observation
-.archive
+-[CIDualRedEyeRepairSession validateRepair]
+not nil
+-[CIDualRedEyeRepairSession redEyeFaceFromObservation:exifOrientation:]
 kMinLandmarkConfidenceThreshold
 kMaxFaceJunkinessThreshold
 kMinIsotropy
@@ -3581,26 +3657,8 @@ kMinLandmarkArea
 kSessionTuningOutsetROILong
 kSessionTuningOutsetROIShort
 kRegionOutset
-kUseFaceSegmentationMask
 kUseFaceSegmentation
 kMinLaplacianVariance
-kImageOrientation
-kLandmarks
-kObservation
-kFaceSegments
-kFaceRect
-kEyeArea
-kEyeAxes
-kEyeRenderROIs
-kEyePupil
-kMaxFaceCount
-q24@?0@8@16
--[CIDualRedEyeRepairSession _repairPrimaryWithSecondary:to:]
--raw
-CIRedEyeRaw
-inputPrimary
-inputSecondary
-inputUseFaceSegmentationMask
 inputOriginLeft
 inputOriginRight
 inputSize
@@ -3611,17 +3669,29 @@ inputAxisShortLeft
 inputAxisShortRight
 inputPupilCenterLeft
 inputPupilCenterRight
-inputImageOrientation
-inputIrisMask
-inputScleraMask
 inputSkinMask
+inputScleraMask
+inputIrisMask
+-[CIDualRedEyeRepairSession repairFace:filter:]
 kRenderFullRect
+-[CIDualRedEyeRepairSession setPrimary:observations:metadata:]
+kMaxFaceCount
+q24@?0@8@16
+-[CIDualRedEyeRepairSession _repairPrimaryWithSecondary:to:]
 -repair
-primary
-T^{__CVBuffer=},&,N,Vprimary
+-[CIDualRedEyeRepairSession dumpSecondary]
+-raw
+-[CIDualRedEyeRepairSession dumpObservation:index:]
+%@-%d
+-observation
+.archive
+observations
+T@"NSArray",&,N,Vobservations
 T@"CIRenderDestination",&,N,Vdestination
 primaryImage
-T@"CIImage",&,N,V_primaryImage
+T@"CIImage",&,N,VprimaryImage
+secondaryImage
+T@"CIImage",&,N,VsecondaryImage
 metadata
 T@"NSDictionary",&,N,Vmetadata
 imageProperties
@@ -3631,7 +3701,17 @@ T@"NSArray",&,N,Vfaces
 T@"CIDualRedEyeRepairTuning",&,N,Vtuning
 T@"NSDate",&,N,Vtimestamp
 tuningParametersByPortType
-T@"NSDictionary",&,N,V_tuningParametersByPortType
+T@"NSDictionary",&,N,VtuningParametersByPortType
+commandBuffer
+T@"<MTLCommandBuffer>",&,N,VcommandBuffer
+commandQueue
+T@"<MTLCommandQueue>",&,N,VcommandQueue
+primaryTexture
+T@"<MTLTexture>",&,N,VprimaryTexture
+secondaryTexture
+T@"<MTLTexture>",&,N,VsecondaryTexture
+outputTexture
+T@"<MTLTexture>",&,N,VoutputTexture
 kernel vec4 _drr_extract_iris(__sample iris, __sample sclera, __sample skin, float thresholdIris, float thresholdSclera, float thresholdSkin) { float i = step(thresholdIris, iris.r); float s = 1.0 - step(thresholdSclera, sclera.r); float k = 1.0 - step(thresholdSkin, skin.r); iris.rgb = vec3(i*s*k); return iris; }
 kernel vec4 _drr_extract_skin(__sample skin, float threshold) { float s = 1.0 - smoothstep(threshold, threshold + 0.05, skin.r); skin.rgb = vec3(s); return skin; }
 -[CIRedEyeRaw outputImage]
@@ -3664,7 +3744,6 @@ T@"CIVector",&,N,VinputAxisLongLeft
 T@"CIVector",&,N,VinputAxisLongRight
 T@"CIVector",&,N,VinputPupilCenterLeft
 T@"CIVector",&,N,VinputPupilCenterRight
-T@"NSNumber",&,N,VinputImageOrientation
 inputRepairSource
 T@"NSNumber",&,N,VinputRepairSource
 inputRepairDarken
@@ -3830,7 +3909,6 @@ D331
 D331p
 PortTypeBackTelephoto
 Tuning
-TuningParametersByPortType
 RedEye
 +[CIDualRedEyeRepairTuning repairParametersForTuning:]
 +[CIDualRedEyeRepairTuning sessionParametersForTuning:]
@@ -3843,7 +3921,7 @@ T@"NSDictionary",&,N,VrepairTuning
 sessionTuning
 T@"NSDictionary",&,N,VsessionTuning
 updatedTuningFromSetup
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/CIDualRedEyeRepairTuning.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/CIDualRedEyeRepairTuning.mm
 %@%@%@
 kernel vec4 _resp_previs(__sample iris, __sample sclera, float thresholdSclera) { float s = 1.0 - (sclera.r > thresholdSclera ? 1.0 : 0.0); float p = iris.r; iris.rgb = vec3(s * p); return iris; }
 repairROIforEyePoints
@@ -4085,7 +4163,7 @@ inputEV
 T@"NSNumber",&,N,VinputEV
 inputOrigI
 inputOrigQ
-kernel vec4 facebalance (__sample pix, vec2 delta) 
+kernel vec4 _facebalance (__sample pix, vec2 delta) 
  pix.rgb = pix.r * vec3(0.299, 0.595716, 0.211456) + 
  pix.g * vec3(0.587, -0.274453, -0.522591) + 
  pix.b * vec3(0.114, -0.321263, 0.311135); 
@@ -4179,62 +4257,9 @@ inputK4
 T@"NSNumber",C,N,VinputK4
 inputTuningParameters
 T@"NSDictionary",C,N,VinputTuningParameters
-kernel vec4 _CIFaceMaskDelta(vec4 cx,vec4 cy,
-                             vec4 cdx,vec4 cdy,float blurMapAspectRatio,
-                             sampler paramImage,vec2 imageSizeInverted,vec2 p, vec4 p0,float maxBlur) 
-vec4 chinThetaLimit = vec4(p.x);
-float chinThetaMultip = p.y;
-float distanceAdd = p0.x; 
-float additiveMaxBlur = p0.y;
-float subtractiveMaxBlur = p0.z;
-float apertureScaling = p0.w;
-    vec4 k0 = sample(paramImage, samplerTransform(paramImage,vec2(0.5,0.5)));
-    vec4 k1 = sample(paramImage, samplerTransform(paramImage,vec2(1.5,0.5)));
-    vec4 k2 = sample(paramImage, samplerTransform(paramImage,vec2(2.5,0.5)));
-    vec4 k3 = sample(paramImage, samplerTransform(paramImage,vec2(3.5,0.5)));
-    float k4 = sample(paramImage, samplerTransform(paramImage,vec2(4.5,0.5))).x * maxBlur;
-    
-    vec2 samplePos = destCoord() * imageSizeInverted;
-    
-    vec4 faceDistX = samplePos.x - cx;
-    vec4 faceDistY = blurMapAspectRatio * (samplePos.y - cy);
-    vec4 faceDist = sqrt(faceDistX * faceDistX + faceDistY * faceDistY);
-vec4 faceDistXr = cdx * faceDistX + cdy * faceDistY;
-vec4 faceDistYr = cdx * faceDistY - cdy * faceDistX;
-vec4 faceDistRatio = abs(faceDistYr) / (abs(faceDistXr) + 1e-10);
- vec4 approxTheta = 1.066 * faceDistRatio - 0.276 * faceDistRatio * faceDistRatio;
-approxTheta = max(chinThetaLimit, approxTheta);
-bool chinMaskX = false, chinMaskY = false, chinMaskZ = false, chinMaskW = false;
-chinMaskX =  (faceDistRatio.x < 1.5574) && (faceDistXr.x >= 0.0) && ((cdx.x != 0.0) || (cdy.x != 0.0));
-chinMaskY =  (faceDistRatio.y < 1.5574) && (faceDistXr.y >= 0.0) && ((cdx.y != 0.0) || (cdy.y != 0.0));
-chinMaskZ =  (faceDistRatio.z < 1.5574) && (faceDistXr.z >= 0.0) && ((cdx.z != 0.0) || (cdy.z != 0.0));
-chinMaskW =  (faceDistRatio.w < 1.5574) && (faceDistXr.w >= 0.0) && ((cdx.w != 0.0) || (cdy.w != 0.0));
-vec4 blurAddScaling = vec4(0.0); 
-blurAddScaling.x = chinMaskX ? chinThetaMultip * approxTheta.x : 1.0;
-blurAddScaling.y = chinMaskY ? chinThetaMultip * approxTheta.y : 1.0;
-blurAddScaling.z = chinMaskZ ? chinThetaMultip * approxTheta.z : 1.0;
-blurAddScaling.w = chinMaskW ? chinThetaMultip * approxTheta.w : 1.0;
-vec4 blurAddPerFace = faceDist * k0 + k1;
-blurAddPerFace.x += faceDist.x >= k3.x ?  faceDist.x * k2.x - k2.x* k3.x: 0.0;
-blurAddPerFace.y += faceDist.y >= k3.y ?  faceDist.y * k2.y - k2.y* k3.y: 0.0;
-blurAddPerFace.z += faceDist.z >= k3.z ?  faceDist.z * k2.z - k2.z* k3.z: 0.0;
-blurAddPerFace.w += faceDist.w >= k3.w ?  faceDist.w * k2.w - k2.w* k3.w: 0.0;
-blurAddPerFace.x *= blurAddPerFace.x > 0.0 ? blurAddScaling.x : 1.0;
-blurAddPerFace.y *= blurAddPerFace.y > 0.0 ? blurAddScaling.y : 1.0;
-blurAddPerFace.z *= blurAddPerFace.z > 0.0 ? blurAddScaling.z : 1.0;
-blurAddPerFace.w *= blurAddPerFace.w > 0.0 ? blurAddScaling.w : 1.0;
-float blurAdd = min(min(blurAddPerFace.x, blurAddPerFace.y), min(blurAddPerFace.z, blurAddPerFace.w));
-vec2 minMax = vec2(1.0, 0.0); 
-minMax.x = min( min( k1.x, k1.y ), min( k1.z, k1.w ) ); 
-minMax.y = k4; 
-vec2 scalingFactors = max(1e-4, abs(minMax)); 
-float normalizedFaceMask = blurAdd > 0.0 ? 
-                           distanceAdd * abs(additiveMaxBlur) / scalingFactors.y : 
-                           abs(subtractiveMaxBlur) / scalingFactors.x; 
-float faceMask = normalizedFaceMask * apertureScaling * blurAdd; 
-faceMask = sqrt(faceMask);
- return vec4(faceMask, 0.0, 0.0, 1.0);
-/tmp/outputFaceDelta-CI.tiff
+_modifyFaceMask
+-[CIFaceMaskDelta outputImage]
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CIFaceMask.m
 inputImageSize
 T@"CIVector",&,N,VinputImageSize
 inputFacesLeftEyeX
@@ -4251,9 +4276,7 @@ inputAdditiveMaxBlur
 T@"NSNumber",C,N,VinputAdditiveMaxBlur
 inputSubtractiveMaxBlur
 T@"NSNumber",C,N,VinputSubtractiveMaxBlur
-inputApertureScaling
 T@"NSNumber",C,N,VinputApertureScaling
-inputMaxBlur
 T@"NSNumber",C,N,VinputMaxBlur
 inputSubjectDistanceMinimumFocusDistance
 T@"NSNumber",C,N,VinputSubjectDistanceMinimumFocusDistance
@@ -4264,14 +4287,14 @@ T@"NSNumber",C,N,VinputSubjectDistanceScalingFactor
 inputSubjectDistanceOffset
 T@"NSNumber",C,N,VinputSubjectDistanceOffset
 T@"CIVector",C,N,VinputFocusRect
-float selectFFF(float a,float b,float c) { return bool(c) ? b : a; }
+float __selectFFF(float a,float b,float c) { return bool(c) ? b : a; }
         
-vec4 select(vec4 a,vec4 b,vec4 c) { 
+vec4 __select(vec4 a,vec4 b,vec4 c) { 
    vec4 r;
-   r.x = selectFFF(a.x, b.x, c.x);
-   r.y = selectFFF(a.y, b.y, c.y);
-   r.z = selectFFF(a.z, b.z, c.z);
-   r.w = selectFFF(a.w, b.w, c.w);
+   r.x = __selectFFF(a.x, b.x, c.x);
+   r.y = __selectFFF(a.y, b.y, c.y);
+   r.z = __selectFFF(a.z, b.z, c.z);
+   r.w = __selectFFF(a.w, b.w, c.w);
    return r;
 vec4 _computeFaceMaskParams(vec4 facesLeftEyeX,
 vec4 facesLeftEyeY,
@@ -4349,7 +4372,7 @@ vec4 chinDeltaNorm2 = sqrt(chinDeltaX*chinDeltaX + chinDeltaY*chinDeltaY);
 vec4 chinDeltaNormR = chinDeltaNorm0 / max(chinDeltaNorm2, 1e-10);
 vec4 chinVectorInhibition = 1.0 - clamp( chinVectorSnapping * ( 1.0 - 3.4142 * (chinDeltaNormR - 0.70711) ), 0.0, 1.0 );
     vec4 maxBlurToAdd = compare(facesValid, vec4(1.0), chinVectorInhibition *( facesLinearBlurGrowthM * faceRadius + facesLinearBlurGrowthC));
-        maxBlurToAdd = select( vec4(1.0),chinVectorInhibition *( facesLinearBlurGrowthM * faceRadius + facesLinearBlurGrowthC), facesValid );
+        maxBlurToAdd = __select( vec4(1.0),chinVectorInhibition *( facesLinearBlurGrowthM * faceRadius + facesLinearBlurGrowthC), facesValid );
     vec4 blur2AddOnLeftEye = min( maxBlurToAdd , faceRadius * facesDistToBlurScaling * ( leftEyeDistance - faceRadius ) );
     vec4 blur2AddOnRightEye = min( maxBlurToAdd , faceRadius * facesDistToBlurScaling * ( rightEyeDistance - faceRadius ) );
     vec4 multip = min( vec4(facesCapMultip), max( abs(leftEyeBlur / blur2AddOnLeftEye), abs(rightEyeBlur / blur2AddOnRightEye)) );
@@ -4361,11 +4384,11 @@ vec4 chinVectorInhibition = 1.0 - clamp( chinVectorSnapping * ( 1.0 - 3.4142 * (
     vec4 facesK3 = faceRadius;
     float  facesK4 = apertureScaling * min(min(maxBlurToAdd.x, maxBlurToAdd.y), min(maxBlurToAdd.z, maxBlurToAdd.w));
     if ( dc.x < 1.0 )
-            return select(vec4(0.0), facesK0 / maxBlur, facesValid);
+            return __select(vec4(0.0), facesK0 / maxBlur, facesValid);
     else if ( dc.x < 2.0 )
-            return select(vec4(1.0), facesK1 / maxBlur, facesValid);
+            return __select(vec4(1.0), facesK1 / maxBlur, facesValid);
     else if ( dc.x < 3.0 )
-            return select(vec4(0.0), facesK2 / maxBlur, facesValid);
+            return __select(vec4(0.0), facesK2 / maxBlur, facesValid);
     else if ( dc.x < 4.0 )
     
 return compare(facesValid, vec4(0.0), facesK3);
@@ -4470,7 +4493,6 @@ face3RightEyeY
 face3ChinX
 face3ChinY
 v16@?0@"<MTLCommandBuffer>"8
-kernel vec4 _fu_normalize_segment(__sample s, __sample norm) { s.rgb = exp(s.rgb) / norm.r; return s; }
 inputRegion
 T@"NSNumber",&,N,VinputRegion
 inputOrientation
@@ -4490,7 +4512,6 @@ Face
 Rectangle
 QRCode
 Text
-landmarks
 T@"NSDictionary",R,Vlandmarks
 T{CGRect={CGPoint=dd}{CGSize=dd}},R,Vbounds
 hasLeftEyePosition
@@ -4576,7 +4597,7 @@ input%@
 CIAffineTransform
 CICrop
 +[CIFilter(Private) _propertyArrayFromFilters:inputImageExtent:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/CIFilter.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/CIFilter.mm
 affineFilter != nil || cropFilter != nil
 CropAngle
 CropTop
@@ -4838,6 +4859,7 @@ CIRadialGradient
 CIRectangleGenerator
 CIRippleTransition
 CIRingBlur
+CIRoundedRectangleGenerator
 CISaliencyMapFilter
 CISaturationBlendMode
 CIScreenBlendMode
@@ -4971,6 +4993,98 @@ inputExponent
 inputMinFactor
 inputMaxFactor
 kernel vec4 _disparityRefinementPreprocessing(__sample alpha,__sample disparity,__sample lm,vec4 config0,vec4 config1) { float alpha_val = alpha.x; float d = disparity.x; float zeroShift = lm.x; float d_factor = clamp( config0.x * exp( -pow(d - zeroShift , config0.y) / config0.z ) , config0.w, config1.x); if ( alpha_val > config1.y ) { d -= (d - zeroShift) * d_factor; } return vec4(d, 0.0, 0.0, 1.0); }
+CIBlurmapRefinementDistanceDelta
+inputDistance
+inputScalingFactor
+CIFusionDelta
+inputAddBlur
+inputRemoveBlur
+CIFusionTwoImagesDelta
+_eyeProtectionFaceCalculator
+_modifyBlurmap
+_combineAllDeltas
+-[CIModifyBlurmap outputImage]
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CIBlurMapRefinement.m
+calculatorKernel
+modifyBlurmapKernel
+combineAllDeltasKernel
+inputEyeProtectionMaxFaces.intValue <= 4
+eyeProtectionFaceCalculatorImage
+inputPersonAlpha
+T@"CIImage",&,VinputPersonAlpha
+inputHairAlpha
+T@"CIImage",&,VinputHairAlpha
+inputFaceMaskDeltaImage
+T@"CIImage",&,VinputFaceMaskDeltaImage
+T@"NSNumber",&,VinputDistanceAdd
+inputRelativeApertureScalingStrength
+T@"NSNumber",&,VinputRelativeApertureScalingStrength
+inputSmoothstepMin
+T@"NSNumber",&,VinputSmoothstepMin
+inputSmoothstepMax
+T@"NSNumber",&,VinputSmoothstepMax
+inputPersonDistance
+T@"NSNumber",&,VinputPersonDistance
+inputPersonThreshold
+T@"NSNumber",&,VinputPersonThreshold
+inputPersonAdditive
+T@"CIVector",&,VinputPersonAdditive
+inputPersonSubtractive
+T@"CIVector",&,VinputPersonSubtractive
+inputPersonMaxBlur
+T@"NSNumber",&,VinputPersonMaxBlur
+inputHairDistance
+T@"NSNumber",&,VinputHairDistance
+inputHairThreshold
+T@"NSNumber",&,VinputHairThreshold
+inputHairAdditive
+T@"CIVector",&,VinputHairAdditive
+inputHairSubtractive
+T@"CIVector",&,VinputHairSubtractive
+inputHairMaxBlur
+T@"NSNumber",&,VinputHairMaxBlur
+inputProtectBodyStrength
+T@"NSNumber",&,VinputProtectBodyStrength
+inputLeftEyeX
+T@"CIVector",&,VinputLeftEyeX
+inputLeftEyeY
+T@"CIVector",&,VinputLeftEyeY
+inputRightEyeX
+T@"CIVector",&,VinputRightEyeX
+inputRightEyeY
+T@"CIVector",&,VinputRightEyeY
+inputFaceMidPointX
+T@"CIVector",&,VinputFaceMidPointX
+inputFaceMidPointY
+T@"CIVector",&,VinputFaceMidPointY
+inputEyeProtectionMaxFaces
+T@"NSNumber",&,VinputEyeProtectionMaxFaces
+inputEyeProtectionFaceWeightsSmoothStepMin
+T@"NSNumber",&,VinputEyeProtectionFaceWeightsSmoothStepMin
+inputEyeProtectionFaceWeightsSmoothStepMax
+T@"NSNumber",&,VinputEyeProtectionFaceWeightsSmoothStepMax
+inputEyeProtectionOvalDimsDistanceScale
+T@"NSNumber",&,VinputEyeProtectionOvalDimsDistanceScale
+inputEyeProtectionOvalDimsDistanceOffset
+T@"NSNumber",&,VinputEyeProtectionOvalDimsDistanceOffset
+inputEyeProtectionOvalDimsRadiusHorizontal
+T@"NSNumber",&,VinputEyeProtectionOvalDimsRadiusHorizontal
+inputEyeProtectionOvalDimsRadiusVertical
+T@"NSNumber",&,VinputEyeProtectionOvalDimsRadiusVertical
+inputEyeProtectionOvalFallOffSmoothStepMin
+T@"NSNumber",&,VinputEyeProtectionOvalFallOffSmoothStepMin
+inputEyeProtectionOvalFallOffSmoothStepMax
+T@"NSNumber",&,VinputEyeProtectionOvalFallOffSmoothStepMax
+inputEyeProtectionPersonMaskSmoothStepMin
+T@"NSNumber",&,VinputEyeProtectionPersonMaskSmoothStepMin
+inputEyeProtectionPersonMaskSmoothStepMax
+T@"NSNumber",&,VinputEyeProtectionPersonMaskSmoothStepMax
+inputEyeProtectionPreventStrength
+T@"NSNumber",&,VinputEyeProtectionPreventStrength
+inputEyeProtectionSubtractiveMaxBlur
+T@"NSNumber",&,VinputEyeProtectionSubtractiveMaxBlur
+inputEyeProtectionSubtractiveApertureScaling
+T@"NSNumber",&,VinputEyeProtectionSubtractiveApertureScaling
 inputPower
 T@"NSNumber",&,N,VinputPower
 T@"NSNumber",&,N,VinputSigmaX
@@ -5151,7 +5265,7 @@ kernel vec4 _hsvwheel (vec4 params)
  c.a = 1.0; 
  c.rgb *= value; 
  return c * clamp(radius - len, 0.0, 1.0); 
-float noise(float seed, vec2 dc) 
+float __noise(float seed, vec2 dc) 
  float x = (13.0*dc.x + 1111.0)/(17.0 + seed); 
  float y = (11.0*dc.y + 7777.0)/(19.0 - seed); 
  float m = 37.0; 
@@ -5176,10 +5290,10 @@ float noise(float seed, vec2 dc)
  c = mix(vec4(1.0), c, S); 
  c.a = 1.0; 
  c.rgb *= value; 
- c.rgb += (noise(0.0, floor(destCoord())) - 0.5)*dither; 
+ c.rgb += (__noise(0.0, floor(destCoord())) - 0.5)*dither; 
  return c * clamp(radius - len, 0.0, 1.0); 
 +[CIHueSaturationValueGradient customAttributes]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIGradient.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIGradient.mm
 inputValue
 T@"NSNumber",&,N,VinputValue
 inputEpsilon
@@ -5799,7 +5913,7 @@ T@"CIFilter",&,VinputOriginalFilter
 kernel vec4 _yccCombiner (__sample imY, __sample imCC)
   return vec4(imY.r, imCC.rg, imY.a);
 integral_image_manual
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIIntegralImage.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIIntegralImage.mm
 input.region.size.width == output.region.size.width
 input.region.size.height == output.region.size.height
 compute_integral_image
@@ -6240,10 +6354,10 @@ kernel vec4 _torusRefraction(sampler src, vec2 center, float a, float b, float c
 %d, 
 focus = 
 zeroShiftPercentile
-float dummyDoNothing() { return 10.0; }
-int myMAX(int a,int b) { return a > b ? a : b; }
-int myMIN(int a,int b) { return a < b ? a : b; }
-vec2 calcPosition(vec2 index,vec4 rect) {
+float __dummyDoNothing() { return 10.0; }
+int __myMAX(int a,int b) { return a > b ? a : b; }
+int __myMIN(int a,int b) { return a < b ? a : b; }
+vec2 __calcPosition(vec2 index,vec4 rect) {
   vec2 step = rect.zw / 64.0;
   vec2 pos  = rect.xy + step * index + step / 2.0;
   return pos;
@@ -6262,10 +6376,10 @@ kernel vec4 _ciLensModelCalculator(sampler image, vec4 focusRect, sampler minMax
    for(int j = 0; j < 64; j++) {
        for ( int i = 0; i <  64; i++ ) {
             vec2 location = vec2(float(i),float(j));
-            vec2 focusLocation  = calcPosition(location,focusRect);
+            vec2 focusLocation  = __calcPosition(location,focusRect);
             float shiftVal = sample(image, samplerTransform(image, focusLocation)).r;
             int index = int( min( 256.0f * shiftRecipRange * ( shiftVal - shiftMin ), 255.0f ) );
-            index = myMIN(myMAX(index,0),255);
+            index = __myMIN(__myMAX(index,0),255);
             histBuf[index]++;
         }
     }
@@ -6285,11 +6399,12 @@ binCount += histBuf[zeroShiftBinIndex];
     float maxFGBlur     = cpuParams.z;
     float shiftDeadZone = cpuParams.w;
     return vec4(zeroShift, radiusScale, maxFGBlur, shiftDeadZone);
+disparityScalingFactor
 maxBlur
 maxFGBlur
 shiftDeadZone
 -[CILensModelCalculator outputImage]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/PortraitBlur/CILensModel.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CILensModel.m
 calc
 inputMinMaxImage
 T@"CIImage",&,VinputMinMaxImage
@@ -6443,7 +6558,7 @@ kernel vec4 _polyKernel(__sample im, __sample adj, float str)
  im.rgb = clamp(im.rgb, 0.0,1.0)+pos+neg; 
  return im; 
 -[CILocalLightFilter outputImage]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CILocalLight.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CILocalLight.mm
 CGRectEqualToRect([guideImage extent], [inputImage extent])
 inputImage != nil
 guideImage != nil
@@ -7085,7 +7200,7 @@ originalObject
 @"CIFilter"
 @"CIImage"
 metaFilterForFilter
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/CIMetaFilter.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/CIMetaFilter.mm
 s0 && s1 && s2 && s3 && s4
 ivar is nil for key %@
 Not adding new key to class because types are inconsistent (%s & %s)
@@ -7118,7 +7233,7 @@ filterParameters
 inputImages
 inputImageKeys
 +[CIMetalProcessor processWithInputs:arguments:output:error:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIMetalWrapper.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIMetalWrapper.m
 filter
 +[CIMetalProcessor roiForInput:arguments:outputRect:]
 inputFilterName
@@ -7216,17 +7331,12 @@ kernel vec4 _morphmax (sampler i, float n, vec2 d)
  s = max(s, sample(i, samplerTransform(i, dc + d*x))); 
  return s; 
 kernel vec4 _motionBlur (sampler src, vec4 parms) 
- vec2 delta = parms.xy; 
- vec2 delt2 = delta * 2.0; 
- vec2 p0 = samplerTransform (src, destCoord() - delt2); 
- vec2 p1 = samplerTransform (src, destCoord() - delta); 
- vec2 p3 = samplerTransform (src, destCoord() + delta); 
- vec2 p4 = samplerTransform (src, destCoord() + delt2); 
- vec4 s0 = sample (src, p0); 
- vec4 s1 = sample (src, p1); 
- vec4 s2 = sample (src, samplerCoord(src)); 
- vec4 s3 = sample (src, p3); 
- vec4 s4 = sample (src, p4); 
+ vec2 dc = destCoord(); 
+ vec4 s0 = sample (src, samplerTransform(src, dc - parms.xy * 2.0)); 
+ vec4 s1 = sample (src, samplerTransform(src, dc - parms.xy)); 
+ vec4 s2 = sample (src, samplerTransform(src, dc)); 
+ vec4 s3 = sample (src, samplerTransform(src, dc + parms.xy)); 
+ vec4 s4 = sample (src, samplerTransform(src, dc + parms.xy * 2.0)); 
  vec2 w = parms.zw; 
  return w.x * s2 + w.y * (s3 + s1 + (w.y * (s4 + s0))); 
 kernel vec4 _zoomBlur (sampler src, vec2 center, vec4 parms, vec4 w0, float w1) 
@@ -7493,7 +7603,7 @@ kernel vec2 _pinchDistortionScaleGE1(vec2 c, vec4 param)
   return (r <= 1.0) ? p : pRGT;
 Invalid scale %g in CIPinchDistortion, must be less than 2
 map_point_inv
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/PhotoBooth/CIPinchDistortion.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PhotoBooth/CIPinchDistortion.m
 scale < 2.0
 kernel vec2 _pixellate (vec2 c, vec2 params) { return (floor((destCoord() - c) * params.x) + 0.5) * params.y + c; }
 kernel vec4 _hexagonalPixellate(sampler src, vec2 center, vec2 skew_to_unit, vec2 unit_to_skew, float sqrt3inv) 
@@ -7599,7 +7709,7 @@ localMinimumBlurValueT1
 T@"NSNumber",&,VinputScale
 T@"NSDictionary",&,VinputTuningParameters
 T@"NSNumber",&,N,VinputDraftMode
-vec2 pseudo_randKY( vec2 pos )
+vec2 __pseudo_randKY( vec2 pos )
 float rand1 = mod(12.63 * pos.x - 57.3 * pos.y * pos.y, 0.01369) 
 + mod(75.833 * pos.y - 37.135 * pos.x * pos.x, 0.014) 
 + mod(39.7 * pos.x * pos.y + 21.7 * pos.x * pos.y * pos.y, 0.0879);
@@ -7609,7 +7719,7 @@ return rand3;
 kernel vec4 _CIPortraitBlurNoise(__sample pixBlurred, vec4 params)
     float lumaNoiseAmpl = params.x;
     float lumaNoiseModelCoeff = params.y;
-    vec2 randVal = pseudo_randKY( destCoord() / params.zw );
+    vec2 randVal = __pseudo_randKY( destCoord() / params.zw );
     float noiseLuma = clamp( sqrt( -2.0 * log(randVal.x) ) * cos( 6.2832 * randVal.y ), -5.0, 5.0 );
     vec4 kRGB_to_Y = vec4( 0.299 , 0.587, 0.114, 0.0);
     float outLuma = dot( pixBlurred, kRGB_to_Y );
@@ -7906,7 +8016,7 @@ CIPortraitBlurV2
 CI_ENABLE_NEW_PORTRAIT
 Version
 -[CIPortraitBlur outputImage]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/PortraitBlur/CIPortraitBlur.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CIPortraitBlur.m
 0 && "unreachable"
 T@"CIImage",&,VinputBlurmapImage
 T@"CIImage",&,VinputMatteImage
@@ -7926,7 +8036,7 @@ warp
 lens1
 lens2
 +[CIHighlightRecoveryProcessor compilePipelineForDevice:functionName:constantValues:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/PortraitBlur/CIPortraitBlurV2.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CIPortraitBlurV2.m
 !error
 library
 function
@@ -7954,9 +8064,7 @@ inputBlurRadius
 inputMaxIntensity
 inputMinIntensity
 scale
-T@"NSNumber",&,VinputApertureScaling
 T@"NSNumber",&,VinputIterations
-T@"NSNumber",&,VinputMaxBlur
 T@"CIVector",&,VinputBlurRadius
 T@"CIVector",&,VinputMaxIntensity
 T@"CIVector",&,VinputMinIntensity
@@ -8070,6 +8178,7 @@ inputNeutralTint
 inputNeutralLocation
 inputScaleFactor
 inputIgnoreOrientation
+inputImageOrientation
 inputLinearSpaceFilter
 inputDecoderVersion
 supportedDecoderVersions
@@ -8142,7 +8251,7 @@ subsampling
 nativeSize
 T{CGSize=dd},R
 -[CIRAWFilterImpl(CustomAccessors) inputImage]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/Raw/CIRAWFilterImpl.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/Raw/CIRAWFilterImpl.m
 _inputImage != nil
 -[CIRAWFilterImpl(CustomAccessors) setInputDecoderVersion:]
 kCGImageSourceVendorLensCorrectionFeatures
@@ -8379,6 +8488,10 @@ parallel
 /tmp/hLines_vpCluster_%lu_%lu_%s.png
 /tmp/hLines_vpCluster_final.png
 /tmp/guides.png
+C40@?0{CGPoint=dd}8{CGPoint=dd}24
+/tmp/edge-drawing-gradient-mag.png
+/tmp/edge-drawing-anchors.png
+/tmp/edge-drawing-edges.png
 saliencyHeatMap
 focalLength
 lineSearchRangeV
@@ -8393,6 +8506,7 @@ inputRoll
 com.apple.coreimage
 signpost_perspectiveAC
 kernel float4 _gradientMagnitude(sample_f G) { return float4(float3(length(G.xy)), 1); }
+com.apple.CoreImage.AutoPerspectiveV2
 CI_AUTOPERSPECTIVE_GRADMAP_SIZE
 CI_AUTOPERSPECTIVE_DEBUG
 kernel float4 _gradientDirection(sample_f G) { return float4(G.xy, 0, 1); }
@@ -8404,6 +8518,12 @@ kernel vec4 _rectangle (vec4 parms1, vec4 parms2, __color color)
  d0 = clamp(max(d0, d0.yxwz), 0.0, 1.0); 
  d0 = 1.0 - smoothstep(0.0, 1.0, d0); 
  return d0.x * d0.z * color; 
+kernel vec4 _roundedrect(vec4 bounds, float radius, __color color) 
+ vec2 p = destCoord(); 
+ vec2 lo = bounds.xy; 
+ vec2 hi = bounds.zw; 
+ p = max(min(p-(lo+radius),0.0),p-(hi-radius)); 
+ return color * clamp((radius - length(p) + 0.5)*1.5, 0.0, 1.0); 
 convexHull
 pointX
 undefined
@@ -8453,7 +8573,6 @@ fullImageHeight
 RedEyeISV
 imageSpecialValue
 RedEyeOrt
-imageOrientation
 RedEyeSNR
 imageSignalToNoiseRatio
 RedEyeModel
@@ -8706,7 +8825,7 @@ _drr_detect_specs
 _drr_mmv
 _drr_mmi
 RRradialEllipticalMask
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIRedEyeUtils.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIRedEyeUtils.mm
 _drr_puncture2
 _drr_puncture2_hard
 _drr_rcsoft
@@ -8916,7 +9035,7 @@ kernel vec4 _minMaxRedNormalize(__sample c, __sample minmaxc) __attribute__((out
   c.r = (c.r - minmaxc.r) / max(minmaxc.g - minmaxc.r, 0.00001); 
   return c; 
 -[CIKMeans _combine:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/CIReduction.mm
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/CIReduction.mm
 typeMeans < 0 || typeMeans == 0
 typeMeans < 0 || typeMeans == 1
 v.count == 3 || v.count == 4
@@ -10153,7 +10272,7 @@ kernel vec2 _twirl(vec4 param)
  vec2 p = vec2(dot(d, cs), dot(d, vec2(-cs.y, cs.x))); 
  return (r >= 1.0) ? destCoord() : p + param.xy; 
 kernel vec4 _unsharpmask (__sample s, __sample b, float k) { s.rgb += (s.rgb - b.rgb * (s.a/max(b.a, 0.0001))) * k; return s; }
-vec2 clampToRect(vec2 point,vec4 rect) {
+vec2 __clampToRect(vec2 point,vec4 rect) {
   return clamp(point,rect.xy,rect.xy + rect.zw);
 vec4 sampleBilinear(sampler image,vec2 p) {
     vec2 xy0 = p - vec2(0.5);
@@ -10167,13 +10286,13 @@ vec4 sampleBilinear(sampler image,vec2 p) {
     vec4 bottom = mix(lr, ll, amount.x);
     vec4 top = mix(ur, ul, amount.x);
     return mix(top, bottom, amount.y);
-kernel vec4 variableBoxBlur(sampler integralImage,sampler radiusImage,float scale,vec4 e) {
+kernel vec4 _variableBoxBlur(sampler integralImage,sampler radiusImage,float scale,vec4 e) {
   vec4 v = unpremultiply(sample(radiusImage, samplerCoord(radiusImage)));
   float radius = scale * dot(v.rgb,vec3(0.2126, 0.7152, 0.0722));
  radius = max(radius, 0.5);
   vec2 c = destCoord();
-  vec2 lowerLeft = clampToRect(c + vec2(-radius-1.0, -radius), e);
-  vec2 upperRight = clampToRect(c + vec2(radius, radius+1.0), e);
+  vec2 lowerLeft = __clampToRect(c + vec2(-radius-1.0, -radius), e);
+  vec2 upperRight = __clampToRect(c + vec2(radius, radius+1.0), e);
   vec4 ul = sampleBilinear(integralImage, vec2(lowerLeft.x, upperRight.y));
   vec4 ur = sampleBilinear(integralImage, upperRight);
   vec4 ll = sampleBilinear(integralImage, lowerLeft);
@@ -10262,7 +10381,6 @@ leftEyebrow
 medianLine
 outerLips
 rightEyebrow
-junkiness
 kCIVNDetectOptionRequestLandmarks
 kCIVNDetectOptionRequestAttributes
 kCIVNDetectOptionRequestPose
@@ -10282,6 +10400,54 @@ kernel vec2 _vortexDistortion(vec2 center, vec2 params)
  vec2 sc = vec2(cos(a), sin(a)); 
  vec2 p = vec2(dot(d, sc), dot(d, vec2(-sc.y, sc.x))); 
  return (r >= 0.0) ? destCoord() : p+center; 
+EdgeDrawing failed. Image size exceeds allowed size (max length per side is %i).
+EdgeDrawing
+Failed to load metal library: %@
+gradientAndDirectionKernel
+Failed to create gradient compute function, error %@
+Failed to create gradient compute pipeline state, error %@
+anchorKernel
+Failed to create anchor compute function, error %@
+Failed to create anchor compute pipeline state, error %@
+hash
+superclass
+T#,R
+description
+T@"NSString",R,C
+debugDescription
+edgeCount
+TI,R,N
+longestEdgeLength
+T@"CIContext",R,N,V_context
+T@"<MTLDevice>",R,N,V_device
+gradientMap
+T^f,N,V_gradientMap
+gradientDirectionMap
+T^f,N,V_gradientDirectionMap
+directionalMap
+T^C,N,V_directionalMap
+anchorMap
+T*,N,V_anchorMap
+edgesXCoordinates
+T^S,N,V_edgesXCoordinates
+edgesYCoordinates
+T^S,N,V_edgesYCoordinates
+edgesOffsets
+T^I,N,V_edgesOffsets
+totalEdgesPointCount
+TI,N,V_totalEdgesPointCount
+helperBufferX
+T^S,N,V_helperBufferX
+helperBufferY
+T^S,N,V_helperBufferY
+gradientImage
+T@"CIImage",R,N,V_gradientImage
+TS,R,N,V_width
+TS,R,N,V_height
+minimumEdgeLength
+TI,N,V_minimumEdgeLength
+TI,R,N,V_edgeCount
+TI,R,N,V_longestEdgeLength
 ,vec2 samplePoint
 destCoord()
 samplePoint
@@ -10328,8 +10494,6 @@ additiveMaxBlur
 subtractiveLowerAlpha
 subtractiveUpperAlpha
 subtractiveMaxBlur
-inputAddBlur
-inputRemoveBlur
 disparity_refinement_slm_passthrough
 inputLensModelImage
 T@"CIImage",&,VinputLensModelImage
@@ -10338,7 +10502,7 @@ disparity_refinement_calcweightsY
 radius
 weightScaling
 -[CIDisparityWeightsV3 outputImage]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/filters/PortraitBlur/CIsDOF.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/filters/PortraitBlur/CIsDOF.m
 weightsXKernel
 weightsYKernel
 disparity_refinement_preproc
@@ -10385,7 +10549,6 @@ inputFaceMidPoint
 CGImageMetadataRef
 CILensModelCalculator
 CILensModelApply
-CIFaceMaskCalculator
 maxBlurOnEyes
 maxBlurDistFromFocus
 eyeToEyebrowRatio
@@ -10394,9 +10557,13 @@ linearBlurGrowthC
 distToBlurScaling
 capMultip
 gainMultip
+CIFaceMaskCalculator
 CIFaceMaskApply
-CIFaceMaskDelta
 inputFaceMaskAdditiveMaxBlur
+inputFaceMaskSubtractiveMaxBlur
+CIFaceMaskDelta
+-[CIDepthEffectMakeBlurMap faceMaskDelta:extent:parameters:distanceToAdd:]
+[filter isKindOfClass:NSClassFromString(@"CIFaceMaskDelta")]
 -[CIDepthEffectMakeBlurMap blurMapV2:]
 shiftMap
 slmParams
@@ -10433,25 +10600,24 @@ minimumFocusDistance
 maximumFocusDistance
 protectBodyStrength
 distanceAdd
-inputRelativeApertureScalingStrength
-inputFaceMaskSubtractiveMaxBlur
-inputSmoothstepMin
-inputSmoothstepMax
-inputPersonDistance
-inputPersonThreshold
-inputPersonAdditive
-inputPersonSubtractive
-inputPersonMaxBlur
-inputHairDistance
-inputHairThreshold
-inputHairAdditive
-inputHairSubtractive
-inputHairMaxBlur
-inputProtectBodyStrength
+relativeApertureScalingStrength
+subjectDistanceScalingFactor
+subjectDistanceOffset
+eyeProtectionMaxFaces
+eyeProtectionFaceWeightsSmoothStepMin
+eyeProtectionFaceWeightsSmoothStepMax
+eyeProtectionOvalDimsDistanceScale
+eyeProtectionOvalDimsDistanceOffset
+eyeProtectionOvalDimsRadiusHorizontal
+eyeProtectionOvalDimsRadiusVertical
+eyeProtectionOvalFallOffSmoothStepMin
+eyeProtectionOvalFallOffSmoothStepMax
+eyeProtectionPersonMaskSmoothStepMin
+eyeProtectionPersonMaskSmoothStepMax
+eyeProtectionPreventStrength
+eyeProtectionSubtractiveMaxBlur
+eyeProtectionSubtractiveApertureScaling
 faceDelta
-inputFaceMaskDeltaImage
-inputPersonAlpha
-inputHairAlpha
 CIModifyBlurmap
 -[CIDepthEffectMakeBlurMap outputImage]
 CIBlurmapSmoothing
@@ -10492,9 +10658,6 @@ SDOFParameterValue
 value
 Fusion
 BlurMapRefinement
-subjectDistanceScalingFactor
-subjectDistanceOffset
-relativeApertureScalingStrength
 depthBlurEffect:RenderingParameters
 faces.linearBlurGrowthC
 faces.linearBlurGrowthM
@@ -10510,9 +10673,7 @@ depthData:IntrinsicMatrixReferenceHeight
 RenderingParameters
 subjectDistanceMinimumFocusDistance
 subjectDistanceMaximumFocusDistance
-CI_SDOF_DICT
-sdofrendering_parameters
-true
+beyeProtectionOvalDimsDistanceOffset
 kernel vec4 _scaleClamp(__sample p, float scale) 
  return clamp(p * scale, 0.0, 1.0); 
 kernel vec4 _innerGorS (__sample b, __color color, float range) 
@@ -10661,7 +10822,7 @@ Td,R,VI
 Td,R,VQ
 Projections error %d:%s in %s @ %s:%d
 FastRegistration_status FastRegistration_computeSignatures(const vImage_Buffer *, _Bool, dispatch_queue_t, FastRegistration_Signatures *)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/Burst/Projections/FastRegistration_Core.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/Burst/Projections/FastRegistration_Core.c
 FastRegistration error %d:%s in %s @ %s:%d
 FastRegistration_status FastRegistration_register(const FastRegistration_Signatures *, const FastRegistration_Signatures *, float, dispatch_queue_t, float *, float *, float *, float *)
 FastRegistration_status FastRegistration_processProjections(float *, vImagePixelCount)
@@ -10681,12 +10842,12 @@ kernel vec4 _redEyeGaborToYAndVF(sampler src) { vec2 dc = destCoord(); vec2 pt, 
 projectionRows_planar8UtoF
 projectionCols_planar8UtoF
 Projections_status Projections_projectionRowsCols_planar8UtoF(const uint8_t *, int, int, size_t, float *, float *)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/Burst/Projections/Projections_Core.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/Burst/Projections/Projections_Core.c
 Projections_status Projections_computeProjectionDerivative(const float *, int, float *)
 function not implemented
 out of boundaries
 Projections_status Projections_computeShiftBruteForce(const float *, int, const Projections_meanStdTable *, const float *, int, const Projections_meanStdTable *, int, float, float *, float *, float *, float *)
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/api/Burst/Projections/Projections_Optimizer.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/api/Burst/Projections/Projections_Optimizer.c
 Projections_status Projections_computeCost(int, float, float, const float *, int, const Projections_meanStdTable *, const float *, int, const Projections_meanStdTable *, int, float *)
 sector %d:
  -- max %d min %d grad %d
@@ -10847,7 +11008,6 @@ seedFill: can not allocate span stack
 CoreImage
 CI_TRASH_SURFACES_ON_SETVOLATILE
 profileType
-description
 gammaR
 gammaG
 gammaB
@@ -10875,7 +11035,7 @@ bTRC
 .png
 .jpg
 providerGetBytesAtPositionCallback_HtoF_surface
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/misc/Surface.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/misc/Surface.c
 info
 providerGetBytesAtPositionCallback_2C08_surface
 providerGetBytesAtPositionCallback_YCbYCr_surface
@@ -11017,6 +11177,7 @@ ARGBf
 A2BGR10
 A2RGB10
 RGB10A2-WideGamut
+ARGB10-WideGamut
 RGBA14
 CbYCrY8
 CbYCrY8f
@@ -11043,10 +11204,13 @@ kSwizzleGBA1
 kPixelFormatXRGB8
 kSwizzleAGB1
 kPixelFormatXBGR8
+kSwizzleARGB10
+kPixelFormatARGB10WideGamut
+kPixelFormatRGBA16
 kSwizzleRGB14
 kPixelFormatRGBA14
-kPixelFormatRGBA16
 need a swizzler so that %s can be read.
+kSwizzleToARGB10
 kSwizzleToRGB14
 need a swizzler so that %s can be written.
 _i%d
@@ -11365,7 +11529,7 @@ affine %s
 loQ 
 hiQ 
 [%g %g %g %g %g %g]
-CGImageSurfaceCacheQueue
+CI_CGNode_SurfaceCacheQueue
 CGImageRef %p(%d) %s %ldx%ld 
  nearestsampling
  cache
@@ -12065,7 +12229,7 @@ vertex_transform_row0
 vertex_transform_row1
 set_roi_selector queue
 memstream_write
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/util/memstream.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/util/memstream.c
 ms->size < ms->capacity
 ms->contents[ms->size] == 0
 memstream_seek
@@ -12118,6 +12282,46 @@ crop
 curve gamma=%g a=%g b=%g c=%g d=%g e=%g f=%g
 curve
 fill
+kernel vec4 _thresholdRed(__sample s,float value) { float v = s.r >= value ? 1.0 : 0.0; return vec4(v,v,v,1.0); }
+T@"NSNumber",&,VinputThreshold
+kernel vec4 _linearMappingNoSecondaryImage(__sample s,float scalingFactor) 
+ float v = sqrt((1.0 - max(0.0, ((s.r - 0.5) * 2.0)))*scalingFactor); 
+ return vec4(v,v,v,1.0); 
+kernel vec4 _linearMapping(__sample s0,__sample s1,float scalingFactor) 
+ float v = sqrt((1.0 - max(0.0, ((s0.r - 0.5) * 2.0)))*(1.0 - s1.r)*scalingFactor); 
+ return vec4(v,v,v,1.0); 
+T@"NSNumber",&,VinputScalingFactor
+CIBlurmapRefinementThreshold
+CIBlurmapRefinementLinearMapping
+T@"NSNumber",&,VinputDistance
+lineSegments
+T^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff},R,N
+lineSegmentsCount
+edgeDrawingResult
+T@"<EdgeDrawingResult>",R,N
+edgeDrawing
+T@"EdgeDrawing",R,N,V_edgeDrawing
+nfaCalculator
+T@"NFACalculator",R,N,V_nfaCalculator
+verticalFlipTransform
+T{CGAffineTransform=dddddd},R,N,V_verticalFlipTransform
+minimumNFA
+Td,N,V_minimumNFA
+initialLineSegmentDetectionValidator
+T@?,C,N,V_initialLineSegmentDetectionValidator
+minimumLineSegmentLength
+TS,N,V_minimumLineSegmentLength
+lineSegmentRejectionInsets
+T{UIEdgeInsets=dddd},N,V_lineSegmentRejectionInsets
+postDetectionLineSegmentTransform
+T{CGAffineTransform=dddddd},N,V_postDetectionLineSegmentTransform
+cartesianCoordinates
+TB,N,V_cartesianCoordinates
+checkInsetsOnInitialDetection
+TB,N,V_checkInsetsOnInitialDetection
+T^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff},R,N,V_lineSegments
+TI,R,N,V_lineSegmentsCount
+T@"<EdgeDrawingResult>",R,N,V_edgeDrawingResult
 builtin_sqr
 builtin_pow4
 builtin_sqrt
@@ -12269,6 +12473,7 @@ RenderToMTLTextureProvider
 [infinite]
 [null]
 [empty]
+true
 bitmap: %p
 pixelbuffer: %p
 Could not allocate memory for intermediate 444 buffer.
@@ -12290,7 +12495,7 @@ render_to_texture
 v36@?0^{GraphObject=^^?{atomic<unsigned int>=AI}}8^{GraphObject=^^?{atomic<unsigned int>=AI}}16i24i28i32
 v36@?0r^{Image=^^?{atomic<unsigned int>=AI}{CGRect={CGPoint=dd}{CGSize=dd}}^{__CFURL}^v^vII}8r^{Image=^^?{atomic<unsigned int>=AI}{CGRect={CGPoint=dd}{CGSize=dd}}^{__CFURL}^v^vII}16i24i28i32
 %s:%d: Assertion failed: %s
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/internal/render.cpp
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/internal/render.cpp
 graph != NULL
 ^{TileTask=^^?{atomic<unsigned int>=AI}^{dispatch_group_s}Q^{ProgramNode}{CGRect={CGPoint=dd}{CGSize=dd}}{unordered_map<const CI::GraphObject *, CI::ProgramNode::Stats, std::__1::hash<const CI::GraphObject *>, std::__1::equal_to<const CI::GraphObject *>, std::__1::allocator<std::__1::pair<const CI::GraphObject *const, CI::ProgramNode::Stats> > >={__hash_table<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, std::__1::__unordered_map_hasher<const CI::GraphObject *, std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, std::__1::hash<const CI::GraphObject *>, true>, std::__1::__unordered_map_equal<const CI::GraphObject *, std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, std::__1::equal_to<const CI::GraphObject *>, true>, std::__1::allocator<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats> > >={unique_ptr<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> *[], std::__1::__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> *> > >={__compressed_pair<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> **, std::__1::__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> *> > >=^^{__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *>}{__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> *> >={__compressed_pair<unsigned long, std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *> *> >=Q}}}}{__compressed_pair<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *>, std::__1::allocator<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> > >={__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *>=^{__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, void *> *>}}}{__compressed_pair<unsigned long, std::__1::__unordered_map_hasher<const CI::GraphObject *, std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, std::__1::hash<const CI::GraphObject *>, true> >=Q}{__compressed_pair<float, std::__1::__unordered_map_equal<const CI::GraphObject *, std::__1::__hash_value_type<const CI::GraphObject *, CI::ProgramNode::Stats>, std::__1::equal_to<const CI::GraphObject *>, true> >=f}}}{unordered_map<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> >, std::__1::hash<CI::ProgramNode *>, std::__1::equal_to<CI::ProgramNode *>, std::__1::allocator<std::__1::pair<CI::ProgramNode *const, std::__1::vector<CGRect, std::__1::allocator<CGRect> > > > >={__hash_table<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, std::__1::__unordered_map_hasher<CI::ProgramNode *, std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, std::__1::hash<CI::ProgramNode *>, true>, std::__1::__unordered_map_equal<CI::ProgramNode *, std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, std::__1::equal_to<CI::ProgramNode *>, true>, std::__1::allocator<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > > > >={unique_ptr<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> *[], std::__1::__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> *> > >={__compressed_pair<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> **, std::__1::__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> *> > >=^^{__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *>}{__bucket_list_deallocator<std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> *> >={__compressed_pair<unsigned long, std::__1::allocator<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *> *> >=Q}}}}{__compressed_pair<std::__1::__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *>, std::__1::allocator<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> > >={__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *>=^{__hash_node_base<std::__1::__hash_node<std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, void *> *>}}}{__compressed_pair<unsigned long, std::__1::__unordered_map_hasher<CI::ProgramNode *, std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, std::__1::hash<CI::ProgramNode *>, true> >=Q}{__compressed_pair<float, std::__1::__unordered_map_equal<CI::ProgramNode *, std::__1::__hash_value_type<CI::ProgramNode *, std::__1::vector<CGRect, std::__1::allocator<CGRect> > >, std::__1::equal_to<CI::ProgramNode *>, true> >=f}}}^{dispatch_queue_s}}48@?0^{ProgramNode=^^?{atomic<unsigned int>=AI}I{SerialRectArray={vector<CI::SerialRectArray::roiData, std::__1::allocator<CI::SerialRectArray::roiData> >=^{roiData}^{roiData}{__compressed_pair<CI::SerialRectArray::roiData *, std::__1::allocator<CI::SerialRectArray::roiData> >=^{roiData}}}}QB^^?^{Node}^{SerialStringArray}^{SerialObjectPtrArray}{map<const CI::Object *, unsigned long, std::__1::less<const CI::Object *>, std::__1::allocator<std::__1::pair<const CI::Object *const, unsigned long> > >={__tree<std::__1::__value_type<const CI::Object *, unsigned long>, std::__1::__map_value_compare<const CI::Object *, std::__1::__value_type<const CI::Object *, unsigned long>, std::__1::less<const CI::Object *>, true>, std::__1::allocator<std::__1::__value_type<const CI::Object *, unsigned long> > >=^{__tree_end_node<std::__1::__tree_node_base<void *> *>}{__compressed_pair<std::__1::__tree_end_node<std::__1::__tree_node_base<void *> *>, std::__1::allocator<std::__1::__tree_node<std::__1::__value_type<const CI::Object *, unsigned long>, void *> > >={__tree_end_node<std::__1::__tree_node_base<void *> *>=^{__tree_node_base<void *>}}}{__compressed_pair<unsigned long, std::__1::__map_value_compare<const CI::Object *, std::__1::__value_type<const CI::Object *, unsigned long>, std::__1::less<const CI::Object *>, true> >=Q}}}^{MainProgram}^{SerialObjectPtrArray}B{IntermediateDescriptor=iCi}^{dispatch_queue_s}^{dispatch_group_s}}8{CGRect={CGPoint=dd}{CGSize=dd}}16
 CI_PRINT_TIME %s (%s%s context %d%s%s frame %lu) (%llux%llu) = %.3f seconds%s
@@ -12360,7 +12565,6 @@ _writeLoc
 texture2d<float, access::write> _outputTexture
 texture2d<float, access::write> _outputTexturePlane
 uint2 _wc
-outputTexture
 outputTexture1
  %s1,
 kernel void
@@ -12395,7 +12599,7 @@ GetSurfaceFromCacheAndFill was passed contextIndex=%d and imageIndex=%d.  Ignori
 GetValidSurfaceFromCache was passed contextIndex=%d and imageIndex=%d.  Ignoring imageIndex.
 GetSurfaceFromCache was passed contextIndex=%d and imageIndex=%d.  Ignoring imageIndex.
 AddReleaseSurfaceBlock_block_invoke
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/internal/surface-cache.cpp
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/internal/surface-cache.cpp
 CI::gReleaseSurfaceBlockMap().find(queue) == CI::gReleaseSurfaceBlockMap().end()
 CISurfaceCacheQueue
 SurfaceCache:
@@ -12431,7 +12635,7 @@ TextureManager::remove_lru() did not find an info struct!
 [node%d %s %s %s]
 [node%d %s %s]
 edge_black
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.120/Framework/internal/vector.cpp
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/EmbeddedCoreImage_Sim/EmbeddedCoreImage-800.3.190/Framework/internal/vector.cpp
 values != NULL
 <CI::Vector %p>[]
 <CI::Vector %p>[%g]
@@ -12542,6 +12746,7 @@ Dfff?
 MbP?
 ff&?ff&
 @@'%
+H7%I
 Mbp?q
 ?ffffff
 ?333333
@@ -12552,12 +12757,13 @@ Mb`?
 ?ffffff
 :gUU
 |?5^
-                
+?                
 MbP?
 MbP?Q
 ;ZC:33
 333333
 ?333333
+8&@s
 ?UUUUUU
 ?UUUUUU
 u@333333
@@ -12598,6 +12804,7 @@ curv
 XYZ 
 XYZ 
 XYZ 
+?es-8R
 <PwV=
 0123456789ABCDEF
 ?333333
@@ -12849,64 +13056,88 @@ CIContext kCIContextWorkingColorSpace must be [NSNull null], or a CGColorSpaceRe
 %{public}s [abort] Empty seed fill!
 %{public}s [abort] Convex fill reached upper bound: %zu > %d
 %{public}s [abort] Convex fill reached lower bound: %zu < %d
+%{public}s Prewarming failed: could not allocate CIRenderDestination
+%{public}s Prewarming failed: no context available
+%{public}s Prewarming failed: prepareRender failed with error %@
+%{public}s pixelformat of primary image is %c%c%c%c
+%{public}s primary image colorspace %@ and attachments %@
+%{public}s fail: should not provide both a command queue and Metal texture, and pixel buffers
+%{public}s fail: should provide either a command queue and Metal texture, or a primary pixel buffer
+%{public}s fail: nil primary
+%{public}s fail: no primary Metal texture was provided
+%{public}s fail: image too small (%lu)
+%{public}s fail: no landmarks found
+%{public}s fail: missing capture metadata
+%{public}s fail: flash was forced and the flash would not have normally fired.
+%{public}s fail: no faces to repair
+%{public}s fail: need to provide all required Metal textures (primary, secondary, output)
+%{public}s fail: primary %@ | secondary %@
+%{public}s setPrimary:landmarks:metadata must be called first.
+%{public}s fail: no CIContext available
+%{public}s skip: no landmarks for this face observation
+%{public}s skip: missing eye landmarks for this face observation
+%{public}s Left  Eye landmarks %@
+%{public}s Right Eye landmarks %@
+%{public}s Properties for primaryImage %@
+%{public}s skip: unexpected constellation size: %d != (6 or 8)
+%{public}s skip: unable to compute eye short and long axes
+%{public}s Confidence=%.3f | junk=%.3f | Anisotropy=%.3f | area=%.0f
+%{public}s skip: confidence too low (%f)
+%{public}s skip: junkiness too high (%f)
+%{public}s skip: eye isotropy too large (%f)
+%{public}s skip: eye constellation area too small (%f)
+%{public}s skip: left and right eyes should have exactly the same size
+%{public}s ERROR: VNObservation does not have face segments. Face segmentation will not be used.
+%{public}s Low confidence in segmentation map for this configuration
+%{public}s Probabilities for face segments returned nil. Skipping this face.
+%{public}s Probabilities for face segments returned not enough features (%d but expected 5). Skipping this face.
+%{public}s Inferring pupils from face segmentation
+%{public}s Probabilities for face segments of unknown size: %d != %d, %d != %d
+%{public}s Low confidence in this configuration: merging eye constellation with segmentation
+%{public}s Inferring pupils from eye constellation
+%{public}s Skipping focus check
+%{public}s Focus variance = %.3f, count = %ld
+%{public}s Time spent computing focus stats: %.3fms
+%{public}s skip: face out of focus: %.3f > %.3f
+%{public}s Intersection: %f,%f,%f,%f
+%{public}s Output image took %.3fms
+%{public}s Error in startTaskToRender: %@
+%{public}s Error in waitUntilCompletedAndReturnError: %@
+%{public}s startTaskToRender (composite) took %.3fms
+%{public}s startTaskToRender (left) took %.3fms
+%{public}s Error in startTaskToRender (left): %@
+%{public}s startTaskToRender (right) took %.3fms
+%{public}s Error in startTaskToRender (right): %@
+%{public}s Kernel execution took %.3fms
 eyeCount:%d
 setPrimary
 %{public}s setPrimary %d observations
 %{public}s setPrimary metadata:
 %{public}s setPrimary session tuning:
 %{public}s setPrimary repair tuning:
-%{public}s fail: nil primary
-%{public}s fail: image too small (%lu)
-%{public}s pixelformat of primateyImage is %c%c%c%c
-%{public}s primaryImage colorspace %@ and primary attachments %@
-%{public}s fail: no landmarks found
 %{public}s Landmarks computed from orientation %d and size %f, %f
-%{public}s Processing face observation %d
-%{public}s Failed to archive the observations: %@
-%{public}s Left  Eye landmarks %@
-%{public}s Right Eye landmarks %@
-%{public}s Properties for primaryImage %@
-%{public}s Confidence=%.3f | junk=%.3f | Anisotropy=%.3f | area=%.0f
-%{public}s skip: confidence too low (%f)
-%{public}s skip: junkiness too high (%f)
-%{public}s skip: eye isotropy too large (%f)
-%{public}s skip: eye constellation area too small (%f)
-%{public}s skip: flash was forced and the flash would not have normally fired.
-%{public}s ERROR: VNObservation does not have face segments. Face segmentation will not be used.
-%{public}s Low confidence in segmentation map for this configuration
-%{public}s Probabilities for face segments returned nil. Skipping this face.
-%{public}s Probabilities for face segments returned not enough features (%d but expected 5). Skipping this face.
-%{public}s Inferring pupils from face segmentation
-%{public}s Low confidence in this configuration: merging eye constellation with segmentation
-%{public}s Inferring pupils from eye constellation
-%{public}s Focus variance = %.3f, count = %ld
-%{public}s Time spent computing focus stats: %.3fms
-%{public}s skip: face out of focus: %.3f > %.3f
-%{public}s Good face %d/%lu: left %@ axes %@ | right %@ axes %@ 
+%{public}s Failed to validate inputs during set primary
+%{public}s Processing face observation %d / %d
+%{public}s Good face: size %@ | left %@ axes %@ | right %@ axes %@ 
+%{public}s Bad face, skipping
 %{public}s fail: no good landmarks found
 %{public}s Total time spent during setPrimary: %.3fms
 %{public}s setPrimary returning successfully
 repairPrimaryWithSecondary
 %{public}s repairPrimaryWithSecondary called
-%{public}s fail: primary %d | secondary %d
-%{public}s setPrimary:landmarks:metadata must be called first.
-%{public}s CVPixelBuffer size (primary) = %lu, %lu
-%{public}s CVPixelBuffer size (secondary) = %lu, %lu
+%{public}s repairPrimary session tuning:
+%{public}s repairPrimary repair tuning:
 %{public}s Forcing working format to RGBAh
+%{public}s CVPixelBuffer size (primary) = %d, %d
+%{public}s CVPixelBuffer size (secondary) = %d, %d
 face:%d
 repairFace
-%{public}s Intersection: %f,%f,%f,%f
-%{public}s Repair %d/%d: left %@ | right %@
-%{public}s Output image took %.3fms
-%{public}s startTaskToRender (composite) took %.3fms
-%{public}s startTaskToRender (left) took %.3fms
-%{public}s Error in left startTaskToRender: %@
-%{public}s startTaskToRender (right) took %.3fms
-%{public}s Error in right startTaskToRender: %@
-%{public}s Error while preparing renderTask
-%{public}s Error in waitUntilCompletedAndReturnError: %@
-%{public}s Last kernel execution took %.3fms
+%{public}s Repair %d/%d
+%{public}s Error while repairing face
 %{public}s Total time spent during repair: %.3fms = %.3fms/eye
+%{public}s pixelformat of secondary image is %c%c%c%c
+%{public}s secondary image colorspace %@ and attachments %@
+%{public}s Failed to archive the observations: %@
 %{public}s Eye size: major axis %.0f -> %@
 %{public}s Convex area threshold range for radius %d = [%d, %d]
 %{public}s Masking centroid with face segmentation
@@ -13333,6 +13564,8 @@ CIColorInvert
 CIColorPolynomial
 CIColorCrossPolynomial
 CIColorPosterize
+CIFusionDelta
+CIFusionTwoImagesDelta
 CILineOverlay
 CISpotColor
 CIComicEffect
@@ -13380,6 +13613,7 @@ CIDisintegrateWithMaskTransition
 CIDisparityRefinement
 CIDisparitySmoothing
 CIDisparitySmoothingProcessor
+NFACalculator
 CIDisplacementDistortion
 CIDissolveTransition
 CIDocumentEnhancer
@@ -13398,6 +13632,7 @@ CICircularityDescriptor
 RedEyeSpecular
 RedEyeRecolor
 RedPupilLocalizer
+RedEyeFace
 CIDualRedEyeRepairSession
 CIRedEyeRaw
 CIDualRedEyeRepairTuning
@@ -13434,6 +13669,7 @@ CIFlashTransition
 CIFocalPlanePreprocessorInternal
 CIFocalPlaneNative
 CIFocalPlane
+CIModifyBlurmap
 CIGammaAdjust
 CIGaussianBlur
 CIGaussianBlurXY
@@ -13522,7 +13758,6 @@ CIPseudoMedian
 CIMorphologyRectangle
 CIMorphologyRectangleMaximum
 CIMorphologyRectangleMinimum
-CILinearBlur
 CIMotionBlur
 CIZoomBlur
 CIOpTile
@@ -13588,6 +13823,7 @@ PerspectiveAutoCalc
 CIRandomGenerator
 CIRectangleDetector
 CIRectangleGenerator
+CIRoundedRectangleGenerator
 CIRedEyeCorrection
 CIRedEyeCorrections
 CIRedEyeRepair2
@@ -13673,6 +13909,9 @@ CIVibrance
 CIVignette
 CIVignetteEffect
 CIVortexDistortion
+EdgeDrawing
+EdgeDrawingResult
+NSObject
 AutoROI
 CIWrapMirror
 MetalAdditions
@@ -13690,6 +13929,7 @@ CIDisparityRefinementV3
 CIDepthEffectMakeBlurMap
 CIDepthEffectApplyBlurMap
 CIDepthEffect
+PrivateDepthUtilities
 Utilities
 CUIScaleClampFilter
 CUIInnerGlowOrShadowFilter
@@ -13710,6 +13950,11 @@ CIRedEyeRepair3Analyze
 RedEyeChannel
 CIRedEyeRepair
 CIKernelLibrary
+CIBlurmapRefinementThreshold
+CIBlurmapRefinementLinearMapping
+CIBlurmapRefinementDistanceDelta
+EDLines
+EDLinesResult
 CIPerspectiveRotate
 CIKeystoneCorrection
 CIKeystoneCorrectionCombined
@@ -14029,12 +14274,6 @@ _internalContext
 _outputColorSpace
 defaultGrayColorSpace
 defaultRGBColorSpace
-initWithBitmapData:width:height:bytesPerRow:format:
-setColorSpace:
-setAlphaMode:
-setClamped:
-startTaskToRender:fromRect:toDestination:atPoint:error:
-waitUntilCompletedAndReturnError:
 contextWithOptions:
 contextWithBitmap:rowBytes:bounds:format:
 contextWithBitmap:rowBytes:bounds:format:options:
@@ -14680,6 +14919,23 @@ vectorWithValues:count:
 valueAtIndex:
 inputLevels
 setInputLevels:
+stringWithUTF8String:
+kernel
+applyWithExtent:arguments:options:
+inputAddBlur
+inputRemoveBlur
+inputApertureScaling
+inputMaxBlur
+inputSecondaryImage
+setInputSecondaryImage:
+inputProtectStrength
+setInputProtectStrength:
+setInputApertureScaling:
+inputAdditive
+setInputAdditive:
+inputSubtractive
+setInputSubtractive:
+setInputMaxBlur:
 _CIComicNoiseReduction
 _CISobelEdges
 _CIColorControls
@@ -14717,6 +14973,11 @@ lock
 unlock
 render:toCVPixelBuffer:bounds:colorSpace:
 initWithPixelBuffer:
+setColorSpace:
+setAlphaMode:
+setClamped:
+startTaskToRender:fromRect:toDestination:atPoint:error:
+waitUntilCompletedAndReturnError:
 _isGLBackedContext
 _isCGBackedContext
 createCGImage:fromRect:format:colorSpace:
@@ -14776,6 +15037,7 @@ _createCGImage:fromRect:format:colorSpace:deferred:
 _createClone
 createCGImage:fromRect:format:
 createCGImage:fromRect:format:colorSpace:deferred:
+initWithBitmapData:width:height:bytesPerRow:format:
 properties
 TIFFRepresentationOfImage:format:colorSpace:options:
 writeToURL:options:error:
@@ -14978,6 +15240,11 @@ compilePipelinesIfNeeded:
 metalTexture
 outputIsOpaque
 synchronizeInputs
+logNT
+alignmentTolerance
+initWithWidth:height:
+nfaForLineSegmentLength:alignedPointCount:
+_logNT
 _CIDisplaceFromImage
 inputDisplacementImage
 _fadeKernel
@@ -15099,48 +15366,126 @@ inputSearchAxisLong
 setInputSearchAxisLong:
 inputSearchAxisShort
 setInputSearchAxisShort:
+imageOrientation
+setImageOrientation:
+faceOrientation
+setFaceOrientation:
+junkiness
+setJunkiness:
+areaMax
+setAreaMax:
+observation
+setObservation:
+setLandmarks:
+segmentationSkin
+setSegmentationSkin:
+segmentationSclera
+setSegmentationSclera:
+segmentationIris
+setSegmentationIris:
+uvLeft
+setUvLeft:
+uvRight
+setUvRight:
+roiRenderOriginLeft
+setRoiRenderOriginLeft:
+roiRenderOriginRight
+setRoiRenderOriginRight:
+roiRenderSize
+setRoiRenderSize:
+pupilLeft
+setPupilLeft:
+pupilRight
+setPupilRight:
+_imageOrientation
+_faceOrientation
+_junkiness
+_areaMax
+_observation
+_landmarks
+_segmentationSkin
+_segmentationSclera
+_segmentationIris
+_uvLeft
+_uvRight
+_faceRect
+_roiRenderOriginLeft
+_roiRenderOriginRight
+_roiRenderSize
+_pupilLeft
+_pupilRight
 initWithTuning:
 setTuning:
 cleanupState
-setPrimary:
-setPrimaryImage:
 setDestination:
+setPrimaryImage:
+setSecondaryImage:
 setMetadata:
 setImageProperties:
 setFaces:
-prepareRepair
-tuning
-tuningParametersByPortType
-setTuningParametersByPortType:withCameraMetadata:
-sessionTuning
+numberWithUnsignedInteger:
+initWithWidth:height:pixelFormat:commandBuffer:mtlTextureProvider:
 repairTuning
-imageProperties
-imageWithCVPixelBuffer:options:
-primaryImage
+setValuesForKeysWithDictionary:
+sessionTuning
+customizeRepairFilter:forFace:
+prepareRender:fromRect:toDestination:atPoint:error:
 _contextRGBAh
-boundingBox
-archivedDataWithRootObject:requiringSecureCoding:error:
+setTuningParametersByPortType:
+prepareRepair
+commandQueue
+primaryTexture
+secondaryTexture
+outputTexture
+primaryImage
+renderUsingPixelBuffers
+renderUsingProvidedCommandQueue
+validateRenderState
+tuning
+observations
+metadata
+faces
 leftEye
 rightEye
+boundingBox
 confidence
 faceJunkinessIndex
 faceOrientationIndex
 faceSegments
+setBlendKernel:
+commandBuffer
+commit
+kernelExecutionTime
+setObservations:
+tuningParametersByPortType
+setTuningParametersByPortType:withCameraMetadata:
+imageProperties
+imageWithMTLTexture:options:
+imageWithCVPixelBuffer:options:
+dumpInputs
+validateSetPrimary
+dumpObservation:index:
+redEyeFaceFromObservation:exifOrientation:
 compare:
 sortUsingComparator:
-faces
-primary
 _repairPrimaryWithSecondary:to:
-setValuesForKeysWithDictionary:
-setBlendKernel:
-kernelExecutionTime
+dumpSecondary
+validateRepair
+secondaryImage
+setCommandBuffer:
+repairFace:filter:
+archivedDataWithRootObject:requiringSecureCoding:error:
+prewarm
 prepareRepairWithTuningParametersByPortType:
 setPrimary:observations:metadata:
 repairPrimaryWithSecondary:
-metadata
-setTuningParametersByPortType:
-_primaryImage
-_tuningParametersByPortType
+setCommandQueue:
+setPrimaryTexture:
+setSecondaryTexture:
+setOutputTexture:
+_primary
+_secondary
+_output
 inputIrisMask
 inputScleraMask
 inputSkinMask
@@ -15171,8 +15516,6 @@ inputPupilCenterLeft
 setInputPupilCenterLeft:
 inputPupilCenterRight
 setInputPupilCenterRight:
-inputImageOrientation
-setInputImageOrientation:
 inputOrientationHint
 setInputOrientationHint:
 inputOrientationScale
@@ -15406,6 +15749,8 @@ setInputTuningParameters:
 _isValidFace:
 findMostProminentFace
 _landmarksToDist:minimumDistance:maximumDistance:scalingFactor:offset:
+SDOFV2MetalKernelNamed:
+distanceToAdd
 inputImageSize
 setInputImageSize:
 inputFacesLeftEyeX
@@ -15422,10 +15767,6 @@ inputAdditiveMaxBlur
 setInputAdditiveMaxBlur:
 inputSubtractiveMaxBlur
 setInputSubtractiveMaxBlur:
-inputApertureScaling
-setInputApertureScaling:
-inputMaxBlur
-setInputMaxBlur:
 inputFocusRect
 setInputFocusRect:
 inputSubjectDistanceMinimumFocusDistance
@@ -15436,9 +15777,8 @@ inputSubjectDistanceScalingFactor
 setInputSubjectDistanceScalingFactor:
 inputSubjectDistanceOffset
 setInputSubjectDistanceOffset:
-SDOFV2MetalKernelNamed:
 metalKernel
-outputImage_NEW
+outputImage_V4
 inputFacesCapMultip
 setInputFacesCapMultip:
 inputFacesMaxBlurOnEyes
@@ -15464,10 +15804,8 @@ imageTransformForOrientation:
 createMaskImageOfFaceSegments:error:
 imageWithCVPixelBuffer:
 faceSegmentToSegmentMaskGrayLevelDictionary
-numberWithUnsignedInteger:
-createProbabilityImageOfFaceSegment:error:
+createProbabilityImageOfFaceSegment:region:normalize:error:
 imageBySettingProperties:
-imageWithCGImage:
 faceObservationWithRequestRevision:boundingBox:andAlignedBoundingBox:
 setInputFaceObservations:
 initWithCIImage:options:
@@ -15690,7 +16028,6 @@ setObject:atIndexedSubscript:
 superclass
 bundlePath
 stringByDeletingLastPathComponent
-stringWithUTF8String:
 fileURLWithPath:isDirectory:
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 pathExtension
@@ -15729,8 +16066,81 @@ inputExponent
 inputMinFactor
 inputMaxFactor
 _focalPlanePreProcessorKernel
-applyWithExtent:arguments:options:
 inputLensModelCalculatorImage
+inputPersonAlpha
+setInputPersonAlpha:
+inputHairAlpha
+setInputHairAlpha:
+inputFaceMaskDeltaImage
+setInputFaceMaskDeltaImage:
+inputSmoothstepMin
+setInputSmoothstepMin:
+inputSmoothstepMax
+setInputSmoothstepMax:
+inputRelativeApertureScalingStrength
+setInputRelativeApertureScalingStrength:
+inputPersonDistance
+setInputPersonDistance:
+inputPersonThreshold
+setInputPersonThreshold:
+inputPersonAdditive
+setInputPersonAdditive:
+inputPersonSubtractive
+setInputPersonSubtractive:
+inputPersonMaxBlur
+setInputPersonMaxBlur:
+inputHairDistance
+setInputHairDistance:
+inputHairThreshold
+setInputHairThreshold:
+inputHairAdditive
+setInputHairAdditive:
+inputHairSubtractive
+setInputHairSubtractive:
+inputHairMaxBlur
+setInputHairMaxBlur:
+inputProtectBodyStrength
+setInputProtectBodyStrength:
+inputLeftEyeX
+setInputLeftEyeX:
+inputLeftEyeY
+setInputLeftEyeY:
+inputRightEyeX
+setInputRightEyeX:
+inputRightEyeY
+setInputRightEyeY:
+inputFaceMidPointX
+setInputFaceMidPointX:
+inputFaceMidPointY
+setInputFaceMidPointY:
+inputEyeProtectionMaxFaces
+setInputEyeProtectionMaxFaces:
+inputEyeProtectionFaceWeightsSmoothStepMin
+setInputEyeProtectionFaceWeightsSmoothStepMin:
+inputEyeProtectionFaceWeightsSmoothStepMax
+setInputEyeProtectionFaceWeightsSmoothStepMax:
+inputEyeProtectionOvalDimsDistanceScale
+setInputEyeProtectionOvalDimsDistanceScale:
+inputEyeProtectionOvalDimsDistanceOffset
+setInputEyeProtectionOvalDimsDistanceOffset:
+inputEyeProtectionOvalDimsRadiusHorizontal
+setInputEyeProtectionOvalDimsRadiusHorizontal:
+inputEyeProtectionOvalDimsRadiusVertical
+setInputEyeProtectionOvalDimsRadiusVertical:
+inputEyeProtectionOvalFallOffSmoothStepMin
+setInputEyeProtectionOvalFallOffSmoothStepMin:
+inputEyeProtectionOvalFallOffSmoothStepMax
+setInputEyeProtectionOvalFallOffSmoothStepMax:
+inputEyeProtectionPersonMaskSmoothStepMin
+setInputEyeProtectionPersonMaskSmoothStepMin:
+inputEyeProtectionPersonMaskSmoothStepMax
+setInputEyeProtectionPersonMaskSmoothStepMax:
+inputEyeProtectionPreventStrength
+setInputEyeProtectionPreventStrength:
+inputEyeProtectionSubtractiveMaxBlur
+setInputEyeProtectionSubtractiveMaxBlur:
+inputEyeProtectionSubtractiveApertureScaling
+setInputEyeProtectionSubtractiveApertureScaling:
 inputPower
 setInputPower:
 inputSigmaX
@@ -15850,12 +16260,12 @@ yellowImage
 clearImage
 nullImage
 imageWithIOSurface:
+imageWithCGImage:
 imageWithCGImageSource:index:options:
 imageWithCGLayer:
 imageWithTexture:size:flipped:colorSpace:
 imageWithTexture:size:options:
 imageWithTexture:size:flipped:options:
-imageWithMTLTexture:options:
 imageWithCVImageBuffer:
 noiseImagePadded
 imageWithContentsOfFile:
@@ -16078,7 +16488,6 @@ _CITorusRefraction
 appendFormat:
 writeToFile:atomically:encoding:error:
 cpuParams
-kernel
 inputMinMaxImage
 setInputMinMaxImage:
 inputSimulatedAperture
@@ -16158,8 +16567,6 @@ newCommandQueue
 setBackgroundGPUPriority:
 setGPUPriority:
 commandBufferWithUnretainedReferences
-commandBuffer
-commandQueue
 setSamplerState:atIndex:
 addScheduledHandler:
 renderPassDescriptor
@@ -16183,7 +16590,6 @@ dispatchThreadsPerTile:
 presentDrawable:
 usage
 copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:
-commit
 status
 waitUntilScheduled
 waitUntilCompleted
@@ -16225,8 +16631,9 @@ inputCompression
 setInputCompression:
 regionOf:destRect:Offset:
 _doMinimum
-_blur:pass:weightsFactor:
+_blur:pass:weightsFactor:legacyExtent:
 _kernelNew
+_blur:pass:weightsFactor:
 _CIOpTile
 _CIPageCurlTransNoEmap
 _CIPageCurlTransition
@@ -16382,6 +16789,7 @@ setInputBoost:
 defaultBoostShadowAmount
 setInputBoostShadowAmount:
 defaultImageOrientation
+setInputImageOrientation:
 defaultDecoderVersion
 setInputDecoderVersion:
 defaultInputBaselineExposureAmount
@@ -16434,6 +16842,7 @@ inputNeutralLocation
 inputBoost
 inputScaleFactor
 inputIgnoreOrientation
+inputImageOrientation
 inputEnableSharpening
 inputEnableNoiseTracking
 inputEnableVendorLensCorrection
@@ -16539,8 +16948,19 @@ vGuide1
 hGuide0
 hGuide1
 pseudoRando
+initWithGradientImage:device:context:
+initWithEdgeDrawing:
+setMinimumNFA:
+setInitialLineSegmentDetectionValidator:
+lineSegmentsCount
+lineSegments
+edgeDrawingResult
+makeGradientMagnitudeImage
+makeAnchorPointImage
+makeEdgeImage
 autoPerspectiveFilterWithOptions:
 autoPerspectiveResultWithOptions:
+boolForKey:
 releaseResources
 pixelTransferSession
 interimScaleBuffer
@@ -16725,7 +17145,6 @@ _crashed_because_nonaddressable_memory_was_passed_to_initWithBitmapData:width:he
 _render:withContext:
 initWithWidth:height:pixelFormat:colorSpace:pixelBufferProvider:
 initWithWidth:height:pixelFormat:colorSpace:surfaceProvider:
-initWithWidth:height:pixelFormat:commandBuffer:mtlTextureProvider:
 alphaMode
 isFlipped
 isDithered
@@ -16749,7 +17168,6 @@ initWithInternalTask:
 rendertaskWithInternalTask:
 startTaskToRender:toDestination:error:
 _startTaskToRender:toDestination:forPrepareRender:error:
-prepareRender:fromRect:toDestination:atPoint:error:
 startTaskToClear:error:
 _CIRippleTransition
 firstObject
@@ -16961,6 +17379,68 @@ nose
 noseCrest
 outerLips
 rightEyebrow
+edgesXCoordinates
+edgesYCoordinates
+edgesOffsets
+helperBufferX
+helperBufferY
+computeGradientMapAndDirectionalMapAndAnchors
+computeEdges
+newLibraryWithURL:error:
+setConstantValue:type:atIndex:
+gradientImage
+dispatchThreads:threadsPerThreadgroup:
+setGradientMap:
+setDirectionalMap:
+setGradientDirectionMap:
+setAnchorMap:
+setHelperBufferX:
+setHelperBufferY:
+setEdgesXCoordinates:
+setEdgesYCoordinates:
+minimumEdgeLength
+setEdgesOffsets:
+anchorMap
+drawEgdeFromX:y:intoXBuffer:yBuffer:touchedEdge:
+setTotalEdgesPointCount:
+drawEgdeFromX:y:countFirst:intoXBuffer:yBuffer:writeReversed:continuingAtLastDirection:lastDirectionStreakLength:firstDirectionTaken:firstStreakLength:touchedOtherEdge:
+setEdgeDirectionAsConsumedAtX:y:
+gradientMagnitudeAtX:y:
+edgeDirectionAtX:y:
+directionalMap
+gradientDirectionMap
+gradientMap
+totalEdgesPointCount
+class
+self
+isProxy
+isKindOfClass:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+getEdgePointsOfEdgeAtIndex:xStart:yStart:length:
+gradientDirectiontAtX:y:
+edgeCount
+longestEdgeLength
+setGradientMagnitudeAtX:y:value:
+setMinimumEdgeLength:
+_longestEdgeLength
+_edgeCount
+_minimumEdgeLength
+_totalEdgesPointCount
+_gradientImage
+_gradientMap
+_gradientDirectionMap
+_directionalMap
+_anchorMap
+_edgesXCoordinates
+_edgesYCoordinates
+_edgesOffsets
+_helperBufferX
+_helperBufferY
 insertString:atIndex:
 replaceOccurrencesOfString:withString:options:range:
 generateGeneralKernelFromWarpKernel:args:
@@ -16970,8 +17450,6 @@ metalFilterWithName:withInputParameters:
 metalImageByApplyingFilter:withInputParameters:
 metalImageByApplyingFilter:
 SDOFV3MetalKernelNamed:
-inputAddBlur
-inputRemoveBlur
 inputLensModelImage
 setInputLensModelImage:
 weightsXKernel
@@ -17003,7 +17481,7 @@ needToRunFaceMask
 faceMaskParams:useNormalizedCoords:
 faceMaskApply:blurMap:
 refineShiftMapV3WithMainImage:shiftmap:lensModel:
-faceMaskDelta:blurMap:parameters:
+faceMaskDelta:extent:parameters:distanceToAdd:
 blurMapV2:
 blurMapV3:shiftmap:alphaImage:
 blurMapV4:shiftmap:alphaImage:hairImage:
@@ -17023,6 +17501,7 @@ tuningParameters
 simulatedAperture
 inputBlurMap
 setInputBlurMap:
+getMinMaxSimulatedApertureFrom:minValue:maxValue:version:
 _getFocusRect:focusRect:
 inputLeftEyePositions
 setInputLeftEyePositions:
@@ -17313,9 +17792,47 @@ newExternFunctionWithName:
 newFunctionWithName:device:
 _data
 _library
-newLibraryWithURL:error:
 internalLibraryWithName:device:
 newLibraryWithData:error:
+kernelNoSecondaryImage
+inputScalingFactor
+setInputScalingFactor:
+inputDistance
+setInputDistance:
+setLineSegmentRejectionInsets:
+edgeDrawing
+minimumLineSegmentLength
+extractLineSegmentsFromXCoordinates:yCoordimnates:length:into:usingTempBuffer1:tempBuffer2:tempBuffer3:from:
+leastSquaresLineFitWithXCoordinates:yCoordinates:length:equation:context:udpateFromContext:from:
+validateInitialLineSegment:yBuffer:length:relativeError:
+validateLineSegment:yBuffer:length:equation:relativeError:resultingLineSegment:from:
+lineSegmentRejectionInsets
+cartesianCoordinates
+verticalFlipTransform
+checkInsetsOnInitialDetection
+validateEndPointsAgainstRejectionInsets:endPoint:
+initialLineSegmentDetectionValidator
+nfaCalculator
+minimumNFA
+postDetectionLineSegmentTransform
+leastSquaresLineFitWithXCoordinates:yCoordinates:length:m:n:context:updateFromContext:
+setMinimumLineSegmentLength:
+setPostDetectionLineSegmentTransform:
+setCartesianCoordinates:
+setCheckInsetsOnInitialDetection:
+_cartesianCoordinates
+_checkInsetsOnInitialDetection
+_minimumLineSegmentLength
+_lineSegmentsCount
+_lineSegments
+_edgeDrawingResult
+_minimumNFA
+_initialLineSegmentDetectionValidator
+_edgeDrawing
+_nfaCalculator
+_lineSegmentRejectionInsets
+_postDetectionLineSegmentTransform
+_verticalFlipTransform
 computeCameraIntrinsics
 outputTransform
 inputFocalLength
@@ -17554,13 +18071,18 @@ v24@0:8^{__CVBuffer=}16
 @36@0:8{CGSize=dd}16B32
 @40@0:8@16^@24B32i36
 @20@0:8B16
+@24@0:8S16S20
+d24@0:8I16I20
 {CGPoint=dd}104@0:8@16{CGRect={CGPoint=dd}{CGSize=dd}}24{CGRect={CGPoint=dd}{CGSize=dd}}56{CGPoint=dd}88
+@"VNFaceObservation"
+@"VNFaceLandmarks2D"
 B40@0:8^{__CVBuffer=}16@24@32
 B24@0:8^{__CVBuffer=}16
 B32@0:8^{__CVBuffer=}16^{__CVBuffer=}24
 @"CIRenderDestination"
 @"CIDualRedEyeRepairTuning"
 @"NSDate"
+@"<MTLCommandQueue>"
 @28@0:8f16f20f24
 Q32@0:8@16@24
 d36@0:8I16f20f24f28f32
@@ -17676,6 +18198,7 @@ v80@0:8@16@24Q32@40Q48{?=QQQ}56
 @"<MTLFunction>"
 {Rectangle=dddd}68@0:8{vec2=ff}16{vec3=fff}24{vec4=ffff}36{vec4=ffff}52
 {CGRect={CGPoint=dd}{CGSize=dd}}60@0:8@16{CGRect={CGPoint=dd}{CGSize=dd}}24f56
+@40@0:8@16i24f28^{CGRect={CGPoint=dd}{CGSize=dd}}32
 @32@0:8@16i24f28
 {CGRect={CGPoint=dd}{CGSize=dd}}24@0:8f16f20
 @72@0:8@16@24@32{CGRect={CGPoint=dd}{CGSize=dd}}40
@@ -17819,9 +18342,34 @@ v44@0:8^d16i24d28r^{CGPoint=dd}36
 @32@0:8r^d16Q24
 (?="vec"[4d]"ptr"^d)
 ^d16@0:8
+#16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B24@0:8:16
+Vv16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
+v44@0:8I16^^S20^^S28^I36
+C24@0:8I16I20
+f24@0:8I16I20
+I48@0:8S16S20^S24^S32^B40
+I80@0:8S16S20B24^S28^S36B44C48S52^C56^S64^B72
+v24@0:8I16I20
+v28@0:8I16I20f24
+S16@0:8
+v20@0:8I16
+^C16@0:8
+v24@0:8^C16
+v24@0:8^S16
+^I16@0:8
+v24@0:8^I16
 @32@0:8^{WarpKernel=^^?{atomic<unsigned int>=AI}**B^{SerialIntArray}^{SerialStringArray}^{__CFString}ii{ISize=QQ}BBBBBB^^?}16^{SerialObjectPtrArray=iii^^v}24
 @56@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16i48i52
 {CGRect={CGPoint=dd}{CGSize=dd}}72@0:8^{WarpKernel=^^?{atomic<unsigned int>=AI}**B^{SerialIntArray}^{SerialStringArray}^{__CFString}ii{ISize=QQ}BBBBBB^^?}16^{SerialObjectPtrArray=iii^^v}24@32{CGRect={CGPoint=dd}{CGSize=dd}}40
+@72@0:8@16{CGRect={CGPoint=dd}{CGSize=dd}}24@56^f64
+i48@0:8^{__CFData=}16^f24^f32^i40
 ^{CGImageMetadata=}32@0:8^{CGImageMetadata=}16@24
 @24@0:8^{CGImageMetadata=}16
 ^{CGImageMetadata=}32@0:8@16^{CGImageMetadata=}24
@@ -17835,7 +18383,6 @@ v40@0:8d16d24d32
 i24@0:8^d16
 v36@0:8@16I24^d28
 v28@0:8@16I24
-v20@0:8I16
 {?="i"d"q"d}
 @"CIEnhancementHistogram"
 @24@0:8r^d16
@@ -17939,9 +18486,25 @@ v32@0:8^f16^f24
 [8[3i]]
 @"NSObject<OS_dispatch_data>"
 @"<MTLLibrary>"
+^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff}16@0:8
+@"<EdgeDrawingResult>"16@0:8
+I76@0:8^S16^S24I32^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff}36^d44^d52^d60@68
+B48@0:8{CGPoint=dd}16{CGPoint=dd}32
+C44@0:8^S16^S24I32d36
+C84@0:8^S16^S24I32{?=ddB}36d60^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff}68@76
+d64@0:8^S16^S24I32^{?=ddB}36^{?=[4d][2d]I^d^d^d}44B52@56
+d64@0:8^S16^S24I32^d36^d44^{?=[4d][2d]I^d^d^d}52B60
+v20@0:8S16
+{UIEdgeInsets=dddd}16@0:8
+v48@0:8{UIEdgeInsets=dddd}16
+^{DetectedLineSegment={CGPoint=dd}{CGPoint=dd}dfff}
+@"<EdgeDrawingResult>"
+@"EdgeDrawing"
+@"NFACalculator"
+{UIEdgeInsets="top"d"left"d"bottom"d"right"d}
+{CGAffineTransform="a"d"b"d"c"d"d"d"tx"d"ty"d}
 {?=[3]}16@0:8
 ?P$
-?0J8
 ?9EGr
 0014
 0015

@@ -368,44 +368,39 @@ CPU_ARCHITECTURE_ALL =
    CPUArchitecture.new("armv7",  %w(armv7), %w(armv7)),
 # Models the arg for --create-thinned and --skip-thinned
 class ThinningVariantCLISpec
-  # A device model identifier, product code, traits' artworkDevIdiom, or "all"
-  attr :device # :: String
+  # A device model identifier, product code, traits' artworkDevIdiom
+  attr :device # :: String?
   attr :deploymentTarget # :: Gem::Version?
   def initialize(device, deploymentTarget)
-    device.assert_kind_of(String)
-    FatalError("expected non-empty device name for requested thinning variant") if device.empty?
+    device.optional_as(String)
     @device = device
     
-    deploymentTarget.assert_kind_of(Gem::Version) unless deploymentTarget.nil?
+    deploymentTarget.optional_as(Gem::Version)
     @deploymentTarget = deploymentTarget
   end
   def to_s
-    deploymentTargetStr = if deploymentTarget.nil? then "" else "::#{deploymentTarget}" end
-    return "#{device}#{deploymentTargetStr}"
+    deviceStr = device || "*"
+    deploymentTargetStr = if deploymentTarget then "*" else deploymentTarget.to_s end
+    return [deviceStr, deploymentTargetStr].join("::")
   end
   # Parses a command-line arg
   def self.fromArg(str)
-    if str == "all"
-      return new(str, nil)
-    elsif str =~ /^([^:]+)::([0-9\.]+)$/
-      device = $1
-      vers = Gem::Version.new($2)
+    return new(nil, nil) if str == "all"
+    parts = str.split('::')
+    if parts.size == 1
+      return fromArg(parts[0])
+    elsif parts.size == 2
+      device = if ["all", "*"].include?(parts[0]) then nil else parts[0] end
+      vers = if ["all", "*"].include?(parts[1]) then nil else Gem::Version.new(parts[1]) end
       return new(device, vers)
     else
       raise "couldn't parse 'device::deploymentTarget' from: #{str}"
     end
-    # if str =~ /^([^:]+)(::([0-9\.]+))?$/
-    #   device = $1
-    #   vers = if $3.nil_if_empty.nil? then nil else Gem::Version.new($3) end
-    #   return new(device, vers)
-    # else
-    #   raise "couldn't parse 'device[::deploymentTarget]' from: #{str}"
-    # end
   end
   def matches(thinningVariant)
     thinningVariant.assert_kind_of(ThinningVariant)
     return \
-      (device == "all" || [thinningVariant.device.productType, thinningVariant.device.target, thinningVariant.traits.artworkDevIdiom].include?(device)) &&
+      (device.nil? || [thinningVariant.device.productType, thinningVariant.device.target, thinningVariant.traits.artworkDevIdiom].include?(device)) &&
       (deploymentTarget.nil? || deploymentTarget == thinningVariant.traits.deploymentTarget) &&
       true
   end
@@ -469,6 +464,7 @@ ENCRYPTION_FORMAT_2_PLATFORM_VERSION = {
 OPTIONS = OpenStruct.new()
 OPTIONS.thinDevices = []
 OPTIONS.skipThinDevices = []
+OPTIONS.coalescingGroups = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
 OPTIONS.translateWatchOS = true
@@ -587,6 +583,11 @@ OptionParser.new do |opts|
           "It can be passed multiple times") \
   do |v|
     OPTIONS.skipThinDevices << ThinningVariantCLISpec.fromArg(v)
+  end
+  opts.on("--coalescing-group=DEVICE;DEVICE;DEVICE;...") \
+  do |v|
+    variants = v.split(';').collect { |d| ThinningVariantCLISpec.fromArg(d) }
+    OPTIONS.coalescingGroups << variants
   end
   opts.on("--create-asset-packs",
           "Create asset packs from any on-demand resources",
@@ -1272,7 +1273,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningContext.traits and thinningContext.traits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedWatchApp, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime, thinningContext.traits.supportsEncryptionFormat2).freeze
+      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedWatchApp, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime, thinningContext.traits.supportsEncryptionFormat2, thinningContext.traits.coalescingGroup).freeze
       thinningContext = ThinningContext.new(traits, traits, thinningContext.variants, thinningContext.outputIPAPath, thinningContext.bitcodeContext, thinningContext.inputOutputMap)
       log { "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" }
     end
@@ -2537,7 +2538,8 @@ class ThinningTraits
   attr_accessor :supportsEmbeddedUniversalWatchApp
   attr_accessor :hasSwiftRuntime
   attr_accessor :supportsEncryptionFormat2
-  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, supportsEncryptionFormat2)
+  attr_accessor :coalescingGroup
+  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, supportsEncryptionFormat2, coalescingGroup)
     deploymentTarget.assert_kind_of(Gem::Version)
     @deploymentTarget = deploymentTarget
     @passDeploymentTargetToAssetutil = passDeploymentTargetToAssetutil
@@ -2557,6 +2559,7 @@ class ThinningTraits
     @supportsEmbeddedUniversalWatchApp = supportsEmbeddedUniversalWatchApp
     @hasSwiftRuntime = hasSwiftRuntime
     @supportsEncryptionFormat2 = supportsEncryptionFormat2
+    @coalescingGroup = coalescingGroup
   end
   def artworkDynamicDisplayMode_1080pSDR
     return "1080pSDR"
@@ -2602,6 +2605,7 @@ class ThinningTraits
       supportsEmbeddedUniversalWatchApp: supportsEmbeddedUniversalWatchApp,
       hasSwiftRuntime: hasSwiftRuntime,
       supportsEncryptionFormat2: supportsEncryptionFormat2,
+      coalescingGroup: coalescingGroup,
     }.reject { |k, v| v.nil? }
   end
   # [(assetutilFlagName: String, traitsPropertyName: Symbol, traitsPropertyValueTransformer: Any -> String)]
@@ -2646,7 +2650,7 @@ class ThinningTraits
   end
   # Return a copy of self where traits which affect assetutil have been taken from `other`
   def take_assetutil_traits(other)
-    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedWatchApp, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime, self.supportsEncryptionFormat2).freeze
+    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedWatchApp, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime, self.supportsEncryptionFormat2, self.coalescingGroup).freeze
   end
   # { assetutilFlag: String => assetutilValue: String ]
   def to_assetutil_dict
@@ -2762,8 +2766,8 @@ class DeviceType
     }
   end
 class ThinningVariant
-  attr :device # :: DeviceType
-  attr :traits # :: ThinningTraits
+  attr_accessor :device # :: DeviceType
+  attr_accessor :traits # :: ThinningTraits
   def initialize(device, traits)
     device.assert_kind_of(DeviceType)
     @device = device
@@ -2823,7 +2827,7 @@ def bestTraitsForBundle(bundle, traits, device)
     end
   end
   # If we get this far, we create a (possibly downshifted)
-  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, traits.supportsEncryptionFormat2).freeze, nil
+  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, traits.supportsEncryptionFormat2, traits.coalescingGroup).freeze, nil
 # :: [ThinningTraits: [ThinningVariant]]
 def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices, ipa)
   # We ask the bundle to figure out the supported platform; we are unable to proceed if we can't determine it.
@@ -3097,10 +3101,20 @@ class Platform
                                       supportsEmbeddedWatchApp,
                                       supportsEmbeddedUniversalWatchApp,
                                       hasSwiftRuntime,
-                                      supportsEncryptionFormat2
-                                    ).freeze
-          
-          @thinningVariants << ThinningVariant.new(device, traits).freeze
+                                      supportsEncryptionFormat2,
+                                      nil # coalescingGroup
+                                     )
+          variant = ThinningVariant.new(device, traits)
+          OPTIONS.coalescingGroups.each_with_index do |g,i|
+            if ThinningVariantCLISpec.any_matches(g, variant)
+              log { "Matched variant to coalescing group #{i}: variant = #{variant}, group = #{g}" }
+              traits.coalescingGroup = i
+              break
+            end
+          end
+            
+          variant.traits = traits.freeze
+          @thinningVariants << variant.freeze
       end
     end
     rescue => exc
