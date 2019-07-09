@@ -291,6 +291,9 @@ pushToken
 peerPaymentRegisterWithURL:pushToken:completion:
 registerDeviceWithCompletion:
 handleCompanionMigrationWithCompletion:
+defaultCenter
+mainQueue
+addObserverForName:object:queue:usingBlock:
 currentRunLoop
 queueTSMConnectionRequest:service:account:fromID:context:
 provisioningDataRequest:service:account:fromID:context:
@@ -334,6 +337,7 @@ markAllAppletsForDeletionRequest:service:account:fromID:context:
 handleCompanioniCloudSignoutRequest:service:account:fromID:context:
 remotePassUpgradeRequest:service:account:fromID:context:
 handleAssertionRequest:service:account:fromID:context:
+checkPasscodePolicyComplianceRequest:service:account:fromID:context:
 addDelegate:queue:
 setProvisioningService:
 initWithCallbackQueue:
@@ -477,6 +481,9 @@ provisioningServiceAgent:receivedCheckTLKsMissingWithCompletion:
 provisioningServiceAgent:receivedResetApplePayManateeViewWithCompletion:
 markAllAppletsForDeletionWithCompletion:
 provisioningServiceAgentReceivedHandleCompanioniCloudSignoutRequest:
+enforcedPolicy
+setPasscodeMeetsPolicy:
+provisioningServiceAgent:receivedCheckPasscodePolicyComplianceRequestForEnforcedPolicy:withCompletion:
 alloc
 setPending:
 provisioningService
@@ -518,7 +525,7 @@ setDarwinNotificationObservers:
 _distributedNotificationObservers
 _darwinNotificationObservers
 UTF8String
-_handleExpressModeRequestEnded
+_handleServiceModeRequestEnded
 dealloc
 setScheme:
 setHost:
@@ -529,7 +536,7 @@ takeAssertionWithIdentifier:reason:flags:timeoutSeconds:timeoutBlock:
 _launchNanoPassbookWithURL:completion:
 serviceModeCompletionHandlers
 setServiceModeCompletionHandlers:
-applicationInfoForApplication:completion:
+_invokeServiceModeCompletionHandlers
 openApplication:options:withResult:
 enableServiceModeForPassWithUniqueID:completion:
 cancelServiceMode
@@ -558,7 +565,6 @@ processRelevantPassesFromCompanion:
 relevantPassesPending:
 setRelevancyService:
 removeDelegate:
-defaultCenter
 notificationProvider
 postNotificationName:object:userInfo:
 hasOutstandingRelevantPassesRequest
@@ -639,29 +645,17 @@ setProvisioningCompletionBlocks:
 provisioningPeerPaymentCredential
 setProvisioningPeerPaymentCredential:
 _provisionPeerPaymentCredentialWithCompletion:
-paymentWebService
 peerPaymentWebService
-remoteCredential
-status
-downloadPassIfNecessaryWithCompletion:
 initWithPeerPaymentAccount:
-setPassDetailsResponse:
-initWithPaymentCredential:
+paymentWebService
 initWithWebService:
-setProvisioningController:
-requiredPaymentSetupFields
-acceptTerms
-initWithEligibilityResponse:
-requestProvisioning:withCompletionHandler:
-requestEligibility:withCompletionHandler:
-requestRequirements:withCompletionHandler:
-peerPaymentPassDetailsWithCompletion:
+targetDevice
+provisionPeerPaymentPassWithProvisioningController:credential:completion:
+associateCredentials:withCompletionHandler:
 handleExternalProvisionPeerPaymentPassRequestWithCompletion:
 setDataSource:
-provisioningController
 _provisioningPeerPaymentCredential
 _dataSource
-_provisioningController
 _provisioningCompletionBlocks
 _expressPassInformationWithPass:
 expressPassesInformation
@@ -710,7 +704,6 @@ _companionTransactionSyncBridge
 _relevancyCoordinator
 _appAvailabilityCoordinator
 _standaloneService
-targetDevice
 sequenceCounter
 paymentWebService:requestPassUpgrade:pass:completion:
 initWithPaymentWebService:passLibrary:
@@ -748,6 +741,8 @@ flushLoadedImageSets
 type
 accountPassProvisioningCoordinator
 remoteAssertionCoordinator
+sharedConnection
+isPasscodeCompliantWithNamedPolicy:outError:
 tapToRadarURL
 setProvisioningServiceAgent:
 setPeerPaymentPassProvisioningCoordinator:
@@ -860,6 +855,7 @@ Warning: Re-registering for peer payment failed: %@
 Notice: Peer payment web service needs registration; not re-registering due to migration
 Warning: Re-registering for regular payment failed: %@
 Notice: Payment web service needs registration; not re-registering due to migration
+Notice: Restarting due to locale change
 Notice: Sending transaction defaults needed to companion
 Error: Failed to send peer payment terms and conditions acceptance needed request to companion with error %@
 Notice: Provisioning service agent IDS service active accounts changed: %@
@@ -984,6 +980,9 @@ Notice: Got mark all applets for deletion request
 Notice: Mark all applets for deletion finished with success %d error %@
 Notice: Sending mark all applets for deletion response %@
 Notice: Got handle companion iCloud signout request
+Notice: Got enforce updated passcode policy request
+Notice: Enforce updated passcode policy finished: passcodeMeetsPolicy %d error %@
+Notice: Sending enforce updated passcode policy response %@
 Notice: Got request to remote upgrade pass with UniqueID:%@
 Warning: Invalid input arguments will not proceed with the upgrade
 Error: IDS failed to send protobuf %@
@@ -993,8 +992,8 @@ Notice: Received XPC events stream handler callback for darwin notification name
 Notice: Delivering Darwin notification to observer %@
 Notice: Sending request to open NanoPassbook for service mode for unique ID %@
 Notice: Opened NanoPassbook for service mode with error %@
-Notice: Open NanoPassbook suspended to exit service mode with error %@
-Notice: Handling express mode ended (completion handlers: %@
+Notice: Cancelling service mode (completion handlers: %@)
+Notice: Handling express mode ended (completion handlers: %@)
 Notice: Mark all payment applets for deletion with external authorization completion handler invoked (success %d)
 Notice: Deletion of applets progress updated: %.1f%% complete
 Notice: Deletion of Apple Pay applets finished with success
@@ -1018,10 +1017,8 @@ Notice: new_relevancy - fetching latest relevancy tuples
 Notice: new_relevancy - not fetching latest relevancy tuples
 Notice: new_relevancy - passes changed %@
 Notice: new_relevancy - will post relevant pass tuples received from companion %@
-Notice: Relevant Transit notification -  requesting passd to check Tansit Notifications
-Notice: Relevant Transit notification - SPI not available to request Transit Notifications check
+Notice: Relevant Transit notification - asking passd to check for transit notifications
 Notice: new_relevancy - Handling notification: %@
-Notice: Relevant Transit notification - request check relevant transit pass
 Notice: Setting balance reminder %@ for balance %@ with pass %@
 Notice: Failed to set balance reminder %@ for balance %@ due to failure fetching pass with uniqueID %@ from library
 Notice: Setting commute plan reminder %f for pass %@
@@ -1043,21 +1040,7 @@ Notice: Got account state change notification, but no peer payment account
 Notice: Already provisioning peer payment credential; waiting for current provisioning attempt to complete.
 Notice: Attempt to provision peer payment credential completed (success = %d, error = %@). Invoking %u completion handlers
 Notice: Provisioning peer payment credential
-Notice: Finished fetching peer payment pass details: response %@, error %@
-Notice: The peer payment pass is already provisioned. Trying to download the pass at the passURL
-Notice: The peer payment pass downloaded with success: %@
-Notice: Requesting requirements for peer payment pass
- regular web service is %@
-Notice: Finished fetching peer payment pass requirements: response %@, error %@
-Notice: Peer Payment pass requirements request returns required fields %@
-Notice: Finished fetching peer payment pass eligibility: response %@, error %@
-Notice: Finished requesting provisioning of peer payment pass credential: pass %@, error %@
-Notice: Successfully provisioned peer payment pass
-Error: Failed to request provisioning of peer payment pass: %@
-Warning: Peer Payment eligibility request failed with error: %@
-Warning: Peer Payment requirements request failed with error: %@
-Warning: The Peer Payment credential does not have the pass details response set correctly (error: %@)
-Warning: Web services not in appropriate state to provision peer payment card! Payment web service = %@ (needs registration %d), peer payment web service = %@ (needs registration %d)
+Notice: Provisioning peer payment completed with success %d error %@
 Notice: Got external request to provision peer payment pass
 Notice: Could not get express pass information for pass with uniqueID:%@
 Notice: Could not adqire assertion. Failt to set in express mode
@@ -1114,6 +1097,7 @@ Notice: updatedAccountsForProvisioningWithCompletion returning %lu accounts requ
 Notice: (account-pass-provisioning) Provisioning bridge handling account pass call %s
 Notice: (account-pass-provisioning) updatedAccountWithIdentifier %@ returned account %@ error %@
 Notice: Provisioning bridge handling assertion %s
+Notice: Provisioning bridge handling check passcode policy compliance request for enforced policy %lu with completion %@
 Notice: Provisioning bridge Request companion file radar with request: %@
 v8@?0
 v16@?0@"PKPaymentWebServiceContext"8
@@ -1204,6 +1188,7 @@ NPKNotificationProvider-AT_TIME
 v20@?0B8@"NSError"12
 v24@?0@"PKPeerPaymentServiceRegistrationResponse"8@"NSError"16
 v32@?0Q8Q16@"NSError"24
+v16@?0@"NSNotification"8
 NPKProvisioningServiceAgentErrorDomain
 NPKProvisioningServiceAgent
 com.apple.private.alloy.passbook.provisioning
@@ -1271,8 +1256,6 @@ card
 /%@/%@
 persistent_emulation
 com.apple.nanopassbook.servicemode.screenon
-passlist
-v16@?0@"NSDictionary"8
 v32@?0@?<v@?>8Q16^B24
 serviceModeCompletionHandlers
 T@"NSMutableArray",&,N,V_serviceModeCompletionHandlers
@@ -1314,14 +1297,6 @@ v32@?0@"NSArray"8@"NSArray"16@"NSError"24
 account
 T@"PKAccount",&,N,V_account
 v32@?0@?<v@?B@"NSError">8Q16^B24
-PEER_PAYMENT_DOWNLOAD_PASS_ERROR_TITLE
-PEER_PAYMENT_DOWNLOAD_PASS_ERROR_MESSAGE
-v24@?0@"PKPaymentPass"8@"NSError"16
-v24@?0@"PKPaymentEligibilityResponse"8@"NSError"16
-v24@?0@"PKPaymentRequirementsResponse"8@"NSError"16
-v24@?0@"PKPeerPaymentPassDetailsResponse"8@"NSError"16
-provisioningController
-T@"PKPaymentProvisioningController",&,N,V_provisioningController
 provisioningCompletionBlocks
 T@"NSMutableArray",&,N,V_provisioningCompletionBlocks
 provisioningPeerPaymentCredential
@@ -1414,6 +1389,10 @@ remoteAssertionCoordinator
 T@"NPKStandaloneRemoteAssertionCoordinator",&,N,V_remoteAssertionCoordinator
 tapToRadarCoordinator
 T@"NPKTapToRadarCoordinator",&,N,V_tapToRadarCoordinator
+kMCPasscodePolicyApplePayChinaKey
+/System/Library/PrivateFrameworks/ManagedConfiguration.framework/ManagedConfiguration
+MCProfileConnection
+Unable to find class %s
 NPKStandaloneCompanionWebServiceSyncBridge
 NPKStandaloneLaunchEventObserver
 NSObject
@@ -1546,7 +1525,6 @@ v48@0:8d16@24@32@?40
 @"PKPaymentService"
 @"PKAccount"
 @"<NPDPeerPaymentPassProvisioningCoordinatorDataSource>"
-@"PKPaymentProvisioningController"
 v36@0:8@16B24@?28
 v32@0:8q16@?24
 @"LAContext"
@@ -1565,6 +1543,7 @@ v44@0:8@16@24B32@?36
 v40@0:8@16q24@?32
 v56@0:8@16d24@32@40@?48
 v64@0:8@16@24@32@40B48B52@?56
+v40@0:8@16Q24@?32
 v40@0:8@"NPKProvisioningServiceAgent"16Q24@"NSUUID"32
 v32@0:8@"NPKProvisioningServiceAgent"16@"NSUUID"24
 v40@0:8@"NPKProvisioningServiceAgent"16@"NSString"24@?<v@?B>32
@@ -1590,6 +1569,7 @@ v32@0:8@"NPKProvisioningServiceAgent"16@?<v@?@"PKPeerPaymentAccount">24
 v64@0:8@"NPKProvisioningServiceAgent"16@"PKPassUpgradeRequest"24@"PKPaymentPass"32@"NSString"40B48B52@?<v@?@"PKPaymentPass"@"NSSet"q@"NSError">56
 v32@0:8@"NPKProvisioningServiceAgent"16@?<v@?@"NSArray"@"NSArray">24
 v40@0:8@"NPKProvisioningServiceAgent"16@"NSString"24@?<v@?@"PKAccount"@"NSError">32
+v40@0:8@"NPKProvisioningServiceAgent"16Q24@?<v@?B@"NSError">32
 @"PKPaymentWebService"16@0:8
 @"PKPeerPaymentWebService"16@0:8
 @"PDPeerPaymentWebServiceCoordinator"16@0:8
@@ -1655,6 +1635,10 @@ v40@0:8@"NPKTapToRadarCoordinator"16@"NPKTapToRadarRequest"24@"NSError"32
 <true/>
 <key>com.apple.locationd.usage_oracle</key>
 <true/>
+<key>com.apple.managedconfiguration.profiled.get</key>
+<array>
+<string>PasscodeCompliance</string>
+</array>
 <key>com.apple.nano.nanoregistry</key>
 <true/>
 <key>com.apple.nanopassbook.payment</key>

@@ -23,16 +23,11 @@ userDefaults
 T@"NSUserDefaults",&,V_userDefaults
 CFBundleIdentifier
 User-Agent
-v12@?0B8
 %@_WeatherFoundation[%@]_%@
 session
 T@"NSURLSession",&,N,V_session
 cacheClass
 T#,&,N,V_cacheClass
-retryManager
-T@"WFNetworkRetryManager",&,N,V_retryManager
-switchNetworkCallback
-T@?,C,N,V_switchNetworkCallback
 serviceConnectivityEvaluationURL
 T@"NSURL",&,N,V_serviceConnectivityEvaluationURL
 settingsManager
@@ -277,6 +272,7 @@ months
 days
 dayParts
 hours
+airQualityScale
 metadata
 read_time
 expire_time
@@ -404,6 +400,7 @@ remoteconfig_staging
 remoteconfig_production
 useInternalSettings
 fetchRemoteSettings
+clearConfigCacheOnLaunch
 aqiEnabled
 locationDecimalPrecision
 com.apple.WFLocationQueryGeocodeCache
@@ -445,6 +442,8 @@ rawAPIData
 T@"NSData",&,N,V_rawAPIData
 trackingParameter
 T@"NSString",&,N,V_trackingParameter
+%@.%@
+internal
 fallbackBundleId
 weatherBundleConfigs
 bundleId
@@ -452,10 +451,11 @@ fallbackCountryCode
 weatherCountryConfigs
 default
 countryCode
+apple-internal-install
 weatherApiVersionConfigs
-modMax
 minRange
 maxRange
+modMax
 AQI countries = %@, refresh rate = %lld, network fail limit = %lu, network switch expiration = %lu, API version = %@, API version fallback = %@, location precision = %ld
 aqiEnabledCountryCodes
 T@"NSSet",R,N
@@ -724,12 +724,11 @@ TQ,N,V_category
 T@"NSLocale",C,N,V_locale
 localizedAirQualityCategory
 T@"NSString",C,N,V_localizedAirQualityCategory
-airQualityScale
 T@"NSString",C,N,V_airQualityScale
 expired
 TB,R,N,GisExpired
 WFLogForCategory
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/WeatherFoundation_Sim/WeatherFoundation-218/WeatherFoundation/Utilities/WFLogging.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/WeatherFoundation_Sim/WeatherFoundation-222/WeatherFoundation/Utilities/WFLogging.m
 category < WFLoggingCategoryCount
 WeatherFoundation
 WF_Favorites
@@ -748,7 +747,6 @@ com.apple.WeatherFoundation.aggDictionary
 failures
 requests
 com.apple.Weather.accuracyOfLocalWeather
-%@.%@
 queue
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 domain
@@ -786,6 +784,8 @@ parseQueue
 T@"NSObject<OS_dispatch_queue>",&,V_parseQueue
 mapQueue
 T@"NSObject<OS_dispatch_queue>",&,V_mapQueue
+retryLock
+T{os_unfair_lock_s=I},V_retryLock
 UUIDToCallbackMap
 T@"NSMutableDictionary",&,V_UUIDToCallbackMap
 UUIDToURLMap
@@ -798,6 +798,8 @@ configuration
 T@"WFWeatherStoreServiceConfiguration",C,N,V_configuration
 cache
 T@"WFWeatherStoreCache",&,V_cache
+retryManager
+T@"WFNetworkRetryManager",&,N,V_retryManager
 forecastRequestStartingCallback
 T@?,C,N,V_forecastRequestStartingCallback
 locationGeocodeForCoordinateRequestStartingCallback
@@ -968,11 +970,11 @@ type
 T@"NSString",R,V_type
 T@"NSError",&,N,V_error
 numConsecutiveFails
-TQ,N,V_numConsecutiveFails
-lastAPISwitchTimeInSeconds
-TQ,N,V_lastAPISwitchTimeInSeconds
-useFallbackAPIVersion
-TB,R,N,V_useFallbackAPIVersion
+TQ,R,N,V_numConsecutiveFails
+lastFailTimeInSeconds
+TQ,R,N,V_lastFailTimeInSeconds
+failTrackerDict
+T@"NSMutableDictionary",&,N,V_failTrackerDict
 %.02f,%.02f
 WFTemperatureKelvinKey
 WFTemperatureCelsiusKey
@@ -1072,15 +1074,15 @@ T@"WFLocation",R,N,V_location
 types
 TQ,R,N,V_types
 T@?,R,C,N,V_completionHandler
+Configuration
+00000
+weatherConfigRequest
+weatherConfigurationWrapper
+configuration-weather-000000
 com.apple.news.public
 com.apple.news.public.staging
 com.apple.news.public.qa
-00000
 com.apple.weather.remote_config
-configuration-weather-000000
-Configuration
-weatherConfigRequest
-weatherConfigurationWrapper
 v40@?0@"NSData"8@"NSArray"16@"NSArray"24@"NSError"32
 https
 c.apple.news
@@ -1229,10 +1231,14 @@ WF Client Removed: %@
 (%@) Unable to dispatch response; Client does not exist!
 (%@) Received response.  Response contained an error: %@
 (%@) Received response.  Forwarding to Client
+no apiVersion dictionary to parse, use default source: %@
+user fell in range [%@,%@), use data source: %@
+user did not fall in any range, use default source: %@
 Invalid type for parsing Almanac data
 Network state changed: %@
 Unhandled forecast request type: %lu
 %{public}@ is unable to build %lu forecast request for %@.
+formatted WDS request forecast request: %@
 Logging Forecast Query Failure: %lu
 Logging Forecast Query Success: %lu
 Store service configuration is invalid - aborting initialization of %@
@@ -1277,7 +1283,11 @@ Missing string value for key: %{public}@ defaultValue: %@
 Invalid type for parsing historical 30 day data
 Failed to parse historical 30 day JSON data with error "%@"
 Unhandled %{public}@ request types: %lu
+initializing with internal app settings: %@
+initializing with remote app settings: %@
+cleared remote config cache: %d
 Error retrieving remote config: %{public}@
+updating remote app settings to: %@
 Error parsing remote config: %{public}@
 Using API: %@ is fallback: %@
 Temperature unit was changed from %@ to %@
@@ -1338,7 +1348,6 @@ WFForecastRequest
 WFRemoteAppSettings
 WFSettings
 WFTemperatureUnitRequest
-WFHistoricalForecastRequest
 WFRequestFormattingRules
 WFWeatherAlmanacParserV3
 WFGeocodeResponse
@@ -1358,7 +1367,6 @@ WFAggregateDictionary
 ParseCurrentObservations
 WFWeatherStoreService
 WFWeatherStore
-WFAlmanacForecastRequest
 WFAggregateCommonResponse
 WFWeatherDataServiceParserMetadataV1
 ParseMetadata
@@ -1400,6 +1408,7 @@ WFResourceManager
 ParseAirQuality
 WFWeatherChannelParserV3
 WFResponse
+WFNetworkFailTracker
 WFNetworkRetryManager
 WFTemperature
 WFReachabilityConfigurationRequest
@@ -1556,9 +1565,6 @@ setAggDictionary:
 setSettingsManager:
 defaultConfigurationWithSourceBundleIdentifier:
 setCacheClass:
-setRetryManager:
-switchNetwork:
-setSwitchNetworkCallback:
 settingsManager
 APIVersion
 apiVersion
@@ -1567,8 +1573,6 @@ configurationForAPIVersion:
 serviceConnectivityEvaluationURL
 hostUrl
 setServiceConnectivityEvaluationURL:
-setUseFallback:
-retryManager
 session
 cacheURL
 cacheClass
@@ -1583,12 +1587,6 @@ initWithSettings:
 forecastRequestForTypes:location:date:error:rules:
 parseForecast:data:location:locale:date:apiVersion:error:
 parseForecast:data:location:locale:date:error:rules:
-logRequestSuccess
-usesRemoteAppSettings
-switchNetworkCallback
-requestSuccess:switchNetworkCallback:
-logRequestFailure
-requestFailure:settings:switchNetworkCallback:
 processInfo
 processName
 stringWithString:
@@ -1601,15 +1599,11 @@ copyWithZone:
 isServiceAvailable
 forecastRequestForTypes:location:date:error:
 parseForecast:data:location:locale:date:error:
-reactToRequestSuccess
-reactToRequestFailure:
 _serviceConnectivityEvaluator
 _session
 _aggDictionary
 _cacheURL
 _cacheClass
-_retryManager
-_switchNetworkCallback
 _serviceConnectivityEvaluationURL
 _settingsManager
 timeIntervalSinceNow
@@ -1958,8 +1952,6 @@ allKeysForObject:
 internalService
 queryDispatcherDidReceiveResponse:identifier:
 forecastForLocation:locale:atDate:requestIdentifier:options:completionHandler:
-almanacForecastForLocation:locale:atDate:requestIdentifier:options:completionHandler:
-historicalForecastForLocation:locale:atDate:requestIdentifier:options:completionHandler:
 hourlyForecastForLocation:locale:requestIdentifier:completionHandler:
 dailyForecastForLocation:locale:requestIdentifier:completionHandler:
 forecast:forLocation:locale:requestIdentifier:completionHandler:
@@ -1981,8 +1973,6 @@ clientForPid:
 serviceDidReceiveResponse:
 sharedService
 forecastForLocation:locale:atDate:options:taskIdentifier:
-almanacForecastForLocation:locale:atDate:options:taskIdentifier:
-historicalForecastForLocation:locale:atDate:options:taskIdentifier:
 hourlyForecastForLocation:locale:taskIdentifier:
 dailyForecastForLocation:locale:taskIdentifier:
 forecast:forLocation:locale:taskIdentifier:
@@ -2225,6 +2215,8 @@ _queue_addValueForScalarKey:value:
 _queue_pushValue:forKey:
 requestSuccesses
 requestFailures
+logRequestFailure
+logRequestSuccess
 logLocationAccuracy:
 setRequestFailures:
 setRequestSuccesses:
@@ -2246,9 +2238,10 @@ setURLToTaskMap:
 setURLToCallbackMap:
 setUUIDToURLMap:
 setUUIDToCallbackMap:
+setRetryManager:
+setRetryLock:
 cache
 _cancelWithRequestIdentifier:
-completeErroneousForecastRequestWithHandler:requestIdentifier:error:
 initWithIdentifier:error:
 wf_weatherDataClosestToDate:inArray:
 setForecast:
@@ -2258,6 +2251,7 @@ _cachedHourlyForecastedConditionsForLocation:date:
 _cachedDailyForecastedConditionsForLocation:date:
 setAirQualityConditions:
 _cachedAirQualityConditionsForLocation:date:
+apiVersionForSettings:
 _cacheParsedForecastData:types:location:date:requestIdentifier:
 _submitRequest:withIdentifier:forLocation:forecastTypes:configuration:locale:date:apiVersion:completionHandler:
 setCurrentObservations:
@@ -2275,6 +2269,9 @@ parseQueue
 _isConnectivityAvailableForWeatherHost:
 mapQueue
 _taskForURL:
+statusCode
+requestSuccessForAPIVersion:
+requestFailureForAPIVersion:error:
 _executeCallbacksForURL:parsedForecastData:error:
 initWithData:encoding:
 dataTaskWithRequest:completionHandler:
@@ -2282,14 +2279,18 @@ _setTask:requestIdentifier:callback:forURL:
 forecastRequestStartingCallback
 resume
 _addCallback:requestIdentifier:forURL:
+retryManager
 URLToCallbackMap
 URLToTaskMap
 UUIDToCallbackMap
 UUIDToURLMap
 arrayWithObject:
 _cleanupCallbacksAndTasksForURL:
+completeErroneousForecastRequestWithHandler:requestIdentifier:error:
 setForecastRequestStartingCallback:
 setLocationGeocodeForCoordinateRequestStartingCallback:
+retryLock
+_retryLock
 _configuration
 _forecastRequestStartingCallback
 _locationGeocodeForCoordinateRequestStartingCallback
@@ -2300,6 +2301,7 @@ _UUIDToCallbackMap
 _UUIDToURLMap
 _URLToTaskMap
 _URLToCallbackMap
+_retryManager
 currentObservations
 hourlyForecastedConditions
 dailyForecastedConditions
@@ -2437,17 +2439,16 @@ _identifier
 _type
 _error
 _executionTime
-lastSwitchTimeExpired:
-switchAPIVersion:switchNetworkCallback:
-shouldSwitchFromFailingNetwork:
-useFallbackAPIVersion
+lastFailTimeInSeconds
+incrementFailCount
+lastFailTimeExpiredForSettings:
 numConsecutiveFails
-setNumConsecutiveFails:
-lastAPISwitchTimeInSeconds
-setLastAPISwitchTimeInSeconds:
-_useFallbackAPIVersion
 _numConsecutiveFails
-_lastAPISwitchTimeInSeconds
+_lastFailTimeInSeconds
+setFailTrackerDict:
+failTrackerDict
+defaultAPIVersionIsFailingForSettings:failTracker:
+_failTrackerDict
 distanceFromLocation:
 wf_isEquivalentToLocation:tolerance:
 _setValue:forUnit:
@@ -2564,7 +2565,9 @@ _supportedForecastTypes:
 types
 initWithLocation:types:completionHandler:
 _types
+clearConfigCache
 fetchAppConfigurationIfNeeded
+removeItemAtURL:error:
 _fetchAppConfigurationIfNeededWithCompletionQueue:completion:
 requestSerialQueue
 containerIdentifier
@@ -2586,6 +2589,7 @@ setHost:
 replaceOccurrencesOfString:withString:options:range:
 setValue:forKey:
 fetchAppConfigurationIfNeededWithCompletionQueue:completion:
+setUseFallback:
 setRequestSerialQueue:
 _useFallback
 _requestSerialQueue
@@ -2732,7 +2736,6 @@ v24@0:8#16
 @"NSURLSession"
 @"WFAggregateDictionary"
 @"NSURL"
-@"WFNetworkRetryManager"
 @"WFSettingsManager"
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
@@ -2843,8 +2846,12 @@ B56@0:8@16Q24@32@40@48
 v32@0:8Q16@?24
 v88@0:8@16@24@32Q40@48@56@64@72@?80
 v48@0:8@16@24@?32@40
+{os_unfair_lock_s=I}16@0:8
+v20@0:8{os_unfair_lock_s=I}16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"WFWeatherStoreServiceConfiguration"
 @"WFWeatherStoreCache"
+@"WFNetworkRetryManager"
 @"WFAQIScaleCategory"32@0:8Q16@"NSString"24
 @48@0:8@16@24@32^@40
 v32@0:8@16^@24
@@ -2860,7 +2867,6 @@ v48@0:8{CLLocationCoordinate2D=dd}16@32@?40
 v40@0:8@16@24@?32
 @40@0:8@16@?24@?32
 @"NSError"
-v28@0:8B16@?20
 B32@0:8@16d24
 @28@0:8i16d20
 d20@0:8i16

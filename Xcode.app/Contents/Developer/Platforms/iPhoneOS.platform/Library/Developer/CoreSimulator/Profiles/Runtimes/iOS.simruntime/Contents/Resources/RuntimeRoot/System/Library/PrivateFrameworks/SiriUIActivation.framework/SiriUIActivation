@@ -6,10 +6,11 @@
 %s #activation showing setup view controller
 %s #activation presenting Siri view controller
 %s PresentationViewController created without specifying a presentation frame, falling back to %@
+%s Not requesting presentation for UIFree, handling request directly
 %s #CarPlay: isForStark: %lu
 %s #rhodes: current state is: %lu
-%s Hiding our SiriView for UIFree presentation
 %s #activation presentationDismissalRequestedWithOptions:%@
+%s #activation Not visible, so tearing down immediately
 %s Activation service requests cancel of TTS
 %s Activation service requests preheat
 %s handleButtonDownFromButtonIdentifier:%@ timestamp:%@
@@ -26,13 +27,11 @@
 %s Dismissing Siri due to button tap
 %s Preheated without activation, cancel pending activation
 %s Not handled: _preheated=%d _activationHandled=%d [_siriViewController isVisible]=%d
-%s %s: Not visible, so tearing down immediately
 %s wantsDismissal
 %s cancelPendingActivationEventWithReason:%@
 %s SpringBoard did not call cancelPendingActivationEvent: in time before calling handleActivationEvent:eventSource:context: or handledButtonUpEventFromSource:
 %s cancelReason=%@
 %s Was not preparing for activation
-%s #activation Inform UICanvas to start connection
 %s Attempting to enable the SpringBoard idle timer because we are losing the SiriViewController
 %s _buttonTrigger=%@
 %s Siri view controller encountered an unexpected error; dismissing Siri: %{public}@
@@ -84,11 +83,11 @@ v16@?0@"<BSServiceConnectionConfiguring>"8
 Activation watchdog queue
 -[SiriPresentationViewController _presentationRequestedWithPresentationOptions:requestOptions:]
 -[SiriPresentationViewController _updateHostedPresentationFrame]
+-[SiriPresentationViewController _presentSiriViewControllerWithPresentationOptions:requestOptions:]
 reason
 Presentation rejected activation without error
 v20@?0B8@"NSError"12
 -[SiriPresentationViewController _prepareSiriViewControllerWithRequestOptions:]
--[SiriPresentationViewController _presentationRequestedHandlerWithRequestOptions:]
 -[SiriPresentationViewController presentationDismissalRequestedWithOptions:]
 -[SiriPresentationViewController cancelTTS]
 -[SiriPresentationViewController preheat]
@@ -114,7 +113,6 @@ Starting new Speech Request due to Car Siri button long press timer
 -[SiriPresentationViewController _cancelPendingActivationEventWithReason:]
 -[SiriPresentationViewController _cancelPendingActivationWithReason:]
 cancelReason
--[SiriPresentationViewController siriViewController]
 -[SiriPresentationViewController _clearSiriViewController]
 -[SiriPresentationViewController _releaseExistingTrigger]
 -[SiriPresentationViewController siriViewController:didEncounterUnexpectedError:]
@@ -227,10 +225,11 @@ SiriPresentationSpringBoardMainScreenViewControllerDelegate
 SiriPresentationControllerDelegate
 NSObject
 SiriPresentationViewController
+SASStateChangeListener
+AFUISiriLanguageDelegate
 AFUISiriViewControllerDelegate
 AFUISiriViewControllerDataSource
 AFUISiriSetupViewControllerDelegate
-AFUISiriLanguageDelegate
 SiriPresentation
 BSInvalidatable
 SASHIDGenerator
@@ -261,6 +260,8 @@ numberWithBool:
 dictionaryWithObjects:forKeys:count:
 mutableCopy
 date
+sharedSystemState
+addStateChangeListener:
 configuration
 machServiceIdentifier
 identifierForService:
@@ -282,12 +283,12 @@ setInterruptionHandler:
 registerPresentationIdentifier:
 setActivationHandler:
 configureConnection:
+removeStateChangeListener:
 invalidate
 dealloc
 initWithDeactivationOptions:animated:
 dismissWithOptions:
 presentationDismissalRequestedWithOptions:
-sharedSystemState
 siriIsSupported
 siriIsEnabled
 siriViewControllerConfigured
@@ -303,10 +304,12 @@ _showSetupViewControllerIfNecessary
 _presentSiriViewControllerWithPresentationOptions:requestOptions:
 hostedPresentationFrame
 _prepareSiriViewControllerWithRequestOptions:
+uiPresentationIdentifier
+isEqualToString:
+_presentationRequestedHandlerWithRequestOptions:
 startActivationWatchdogTimer
 siriPresentationControllerDelegate
 stopActivationWatchdogTimerIfNeeded
-_presentationRequestedHandlerWithRequestOptions:
 initWithDomain:code:userInfo:
 failedToPresentSiriWithError:
 siriPresentation:requestsPresentationWithOptions:withHandler:
@@ -327,12 +330,9 @@ setContextAppInfosForSiriViewController:
 _handleContextClearForRequestOptions:
 siriWillActivateFromSource:
 setStatusBarEnabled:
-uiPresentationIdentifier
 _updateActivePresentationPropertiesForPresentationIdentifier:
 setPredictedRecordRouteIsZLL:
-isEqualToString:
 _siriView
-setHidden:
 setMode:
 showPresentationWithIdentifier:properties:lockState:
 activateWithRequestOptions:
@@ -354,6 +354,8 @@ startRequestWithActivationTrigger:
 startRequestWithOptions:
 _carScreen
 mainScreen
+isVisible
+_wasDismissed
 didDismissWithOptions:
 siriPresentation:requestsDismissalWithOptions:withHandler:
 cancelTTS
@@ -363,7 +365,6 @@ _updatePredictedRecordRouteIsZLL
 _setPocketStateKeptScreenOffDuringActivation:
 siriButtonIdentifier
 _cancelPendingPhoneCall
-isVisible
 isListening
 _setCarSiriButtonTimeInterval:
 _carSiriButtonHoldToTalkIntervalFired:
@@ -406,18 +407,18 @@ siriPresentation:isEnabledDidChange:
 siriPresentation:requestsPunchout:withHandler:
 screenWakeRequested
 screenWakeIdleTimerResetRequested
-deviceUnlockRequestedWithPassword:
+siriPresentation:requestsDeviceUnlockWithPassword:
 _dismissSiriSetup
 _requestDismissal
 afuiSiriLockState
 setLockState:
-_wasDismissed
 _carSiriButtonTimeInterval
 cancelReason
 stringWithSiriPresentationActivationCancelReason:
 _cancelPendingActivationWithReason:
 _cleanupUnownedConnection
 setAlertContext
+_setWaitingForTelephonyToStart:
 initWithFlamesViewFidelity:isSystemHostedPresentation:
 initWithConnection:configuration:
 setDataSource:
@@ -446,7 +447,6 @@ _checkForGuideUpdatesIfNecessary
 _clearSiriViewController
 _startGuidedAccessOnDismissal
 _setStartGuidedAccessOnDismissal:
-_setWaitingForTelephonyToStart:
 _beginDelayingSessionEndForTTS
 hasQueuedTTS:
 requestInfo
@@ -507,6 +507,7 @@ removeObserver:name:object:
 _telephonyHasStarted
 _ttsQueueDidEmpty:
 siriViewController:requestsDismissal:
+setReceivedIncomingPhoneCall:
 sharedAVSystemController
 pickableRoutesForCategory:andMode:
 objectForKeyedSubscript:
@@ -529,6 +530,10 @@ start
 cancelIfNotAlreadyCanceled
 _language
 spokenLanguageCode
+shouldAutorotate
+supportedInterfaceOrientations
+callStateChangedToIsActive:isOutgoing:
+siriLanguageSpokenLanguageCodeDidChange:
 siriViewController:didEncounterUnexpectedError:
 dismissSiriViewController:delayForTTS:
 startGuidedAccessForSiriViewController:
@@ -548,6 +553,8 @@ siriViewControllerShouldSupportTextInput:
 siriViewController:presentedIntentWithBundleId:
 siriViewController:didEndSession:
 siriViewController:didCompleteRequestWithError:
+siriSessionShouldExtendAudioSessionForImminentPhoneCall
+siriSessionShouldEndExtendAudioSessionForImminentPhoneCall
 siriViewController:willStartTest:
 siriViewController:didFinishTest:
 siriViewController:failTest:withReason:
@@ -560,7 +567,6 @@ siriSetupViewController:openURL:
 disableSiriActivationRequestedBySiriSetupViewController:
 openSiriRequestedBySiriSetupViewController:
 siriSetupViewControllerDidChangeVisibility:
-siriLanguageSpokenLanguageCodeDidChange:
 isEnabled
 setSiriPresentationControllerDelegate:
 presentationRequestedWithPresentationOptions:requestOptions:
@@ -575,7 +581,6 @@ cancelPendingActivationEventWithReason:
 bulletinManagerDidChangeBulletins
 _siriDidOpenURL:
 _applicationsDidChange
-isEnabledChanged:
 viewWillLayoutSubviews
 .cxx_destruct
 lock
@@ -736,12 +741,14 @@ v40@0:8@"<SiriPresentation>"16@"SiriDismissalOptions"24@?<v@?B@"NSError">32
 v28@0:8@"<SiriPresentation>"16B24
 v40@0:8@"<SiriPresentation>"16@"SiriPunchoutRequest"24@?<v@?B@"NSError">32
 v16@0:8
-v24@0:8@"NSString"16
+B32@0:8@16@24
+B32@0:8@"<SiriPresentation>"16@"NSString"24
+v24@0:8B16B20
+v24@0:8@"AFUISiriLanguage"16
 v32@0:8@16@24
 @32@0:8@16@24
 v44@0:8@16@24B32@?36
 B44@0:8@16@24@32B40
-B32@0:8@16@24
 v32@0:8@16Q24
 v32@0:8@16@?24
 v56@0:8@16@24@32q40@?48
@@ -767,7 +774,6 @@ Q24@0:8@16
 Q24@0:8@"AFUISiriViewController"16
 v24@0:8@"AFUISiriSetupViewController"16
 B32@0:8@"AFUISiriSetupViewController"16@"NSURL"24
-v24@0:8@"AFUISiriLanguage"16
 v24@0:8@"SiriDismissalOptions"16
 @"<SiriPresentationControllerDelegate>"16@0:8
 v24@0:8@"<SiriPresentationControllerDelegate>"16

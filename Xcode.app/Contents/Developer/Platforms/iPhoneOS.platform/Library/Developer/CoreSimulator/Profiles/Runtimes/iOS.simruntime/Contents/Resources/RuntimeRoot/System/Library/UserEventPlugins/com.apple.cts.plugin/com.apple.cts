@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1691.0.0.112.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1706.0.0.120.1
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -87,6 +87,8 @@ post_install
 setPost_install:
 user_requested_backup_task
 setUser_requested_backup_task:
+requires_buddy_complete
+setRequires_buddy_complete:
 requires_network_connectivity
 setRequires_network_connectivity:
 requires_inexpensive_network
@@ -132,6 +134,7 @@ _disk_intensive
 _may_reboot_device
 _post_install
 _user_requested_backup_task
+_requires_buddy_complete
 _requires_network_connectivity
 _requires_inexpensive_network
 _performs_network_upload
@@ -380,6 +383,8 @@ post_install
 TB,N,V_post_install
 user_requested_backup_task
 TB,N,V_user_requested_backup_task
+requires_buddy_complete
+TB,N,V_requires_buddy_complete
 requires_network_connectivity
 TB,N,V_requires_network_connectivity
 requires_inexpensive_network
@@ -434,6 +439,11 @@ Debug
 Flags
 Result
 State
+CheckIn
+Wait
+Defer
+Continue
+Done
 BaseTime
 Eligible
 Deadline
@@ -449,12 +459,19 @@ AllowBattery
 Repeating
 PowerNap
 AppRefresh
-MayRebootDevice
-RequireSignificantUserInactivity
+RequireProtectionClass
+RequiresScreenSleep
+RequiresSignificantUserInactivity
+RequiresBuddyComplete
+RequiresNetworkConnectivity
+RequiresInexpensiveNetwork
 CPUIntensive
-DuetPowerBudgeting
 MemoryIntensive
 DiskIntensive
+MayRebootDevice
+PostInstall
+DuetPowerBudgeting
+UserRequestedBackup
 Effective Criteria
 ActivityGroupName
 MaxConcurrencyLimit

@@ -18,6 +18,11 @@
 <true/>
 <key>com.apple.private.ind.client</key>
 <true/>
+<key>com.apple.private.tcc.allow</key>
+<array>
+<string>kTCCServiceSystemPolicyRemovableVolumes</string>
+<string>kTCCServiceSystemPolicyNetworkVolumes</string>
+</array>
 <key>com.apple.security.enterprise-volume-access</key>
 <true/>
 <key>com.apple.security.network.client</key>
@@ -78,9 +83,10 @@ containsObject:
 volumeWithMountpoint:
 validate
 isSpecialVolume
+shouldIgnore
+mountPoint
 extractThresholdsAndGoals:
 freespace
-mountPoint
 numberWithUnsignedLongLong:
 numberWithInt:
 measureElapsedTimes
@@ -96,6 +102,7 @@ recentStateForVolume:
 updateRecentStateforVolume:
 reportBroadcastLowDiskNotification:forVolume:
 isEqualToString:
+volumeWithPath:
 processLowDiskVolumes:key:
 collection_queue
 pendingLowDiskCount
@@ -112,6 +119,7 @@ numberWithInteger:
 processLowDiskVolumes:filteringBySet:key:
 allObjects
 integerValue
+checkNotificationState
 handleVFSStreamXPCEvent:
 registerActivityWithIdentifier:criteria:runHandler:
 UTF8String
@@ -344,7 +352,6 @@ numberWithDouble:
 machTimeToSeconds:
 longValue
 numberWithLong:
-volumeWithPath:
 numberWithUnsignedLong:
 serviceProvider
 capitalizedString
@@ -790,6 +797,9 @@ CACHE_DELETE_PURGE_SUCCEEDED
 LOW_DISK_THRESHOLD
 DESIRED_DISK_THRESHOLD
 CACHE_DELETE_LOW_DISK_NOTIFICATION
+B16@?0@"NSString"8
+TRUE
+FALSE
 _Flags
 CD_LOWDISK_EVENT
 Root
@@ -1128,8 +1138,6 @@ CDPurgeableResultCache
 com.apple.cache_delete.saveRecentInfo
 CACHE_DELETE_PUSHED
 CACHE_DELETE_TIMESTAMP
-TRUE
-FALSE
 recentPurgeableResults
 T@"CDRecentInfo",&,N,V_recentPurgeableResults
 empty
@@ -1226,6 +1234,8 @@ CACHE_DELETE_ELAPSED_TIME
 Purge operation was cancelled
 CACHE_DELETE_FREESPACE_END
 Operation Cancelled
+com.apple.TMCacheDelete
+com.apple.FileProvider.cache-delete
 Purge callback firing more than once for service %{public}@ on volume: %{public}@
 purgeResult
 T@"CDPurgeOperationResult",&,N,V_purgeResult
@@ -1236,6 +1246,7 @@ TQ,R,V_purge_amount_needed
 purge_amount_reported
 TQ,V_purge_amount_reported
 CacheDeleteFSPurgeInProgress
+No Error
 fileID
 com.apple.cahce_delete.purgeable_inflight
 Purgeable callback firing more than once for service %{public}@
@@ -1374,6 +1385,7 @@ unable to read plist at: %@ : %@
 Not processing low disk %@
 Unable to validate volume %@
 Special Volume: %@, skipping
+ignoring %@
 Purging %@ to Desirable (%llu bytes)
 %@ Desirable purge callback: %@
 skipping lowMediumPriority purge for volume: "%@", freespace: %llu
@@ -1383,6 +1395,11 @@ skipping highPriority purge for volume: "%@", freespace: %llu
 Failing to broadcast low disk notification for volume %@ because it became invalid
 Broadcasting LowDisk Notification: (previous)%d -> (current)%d
 Sent low disk notification
+checkNotificationState: unable to get low disk threshold for %@, using %llu
+checkNotificationState: found low disk notification marker for: %@ freespace: %llu, lowDiskThreshold: %@
+checkNotificationState: found a low disk notification marker for %@
+checkNotificationState: Leaving low disk notification marker (%@), freespace: %llu, lowDiskThreshold: %@
+checkNotificationState: returning %s for %@
 caught VQ_VERYLOWDISK on "%{public}@"
 VeryLowDiskEvent
 caught VQ_LOWDISK on "%{public}@"
@@ -1446,7 +1463,7 @@ No results for volume %{public}@
 <<<Purgeable Result: %{public}@ bytes on: "%{public}@"
 Purgeable Result>>> (%{public}@ bytes on: "%{public}@")
 %d cache_delete purge satisfied the request
-%d cache_delete purge did NOT satisfy the request
+%d cache_delete FS purge did NOT satisfy the request %llu bytes short
 cache_delete purge: fsPurge did NOT satisfy the request
 Purge Result: %@
 Purge: unable to validate volume
@@ -1605,10 +1622,14 @@ CancelPurge complete (service=%{public}@)
 %d Calling block with %lu batch items
 user_timeout_seconds: %llu
 urgencyLimit: %d, info at start: %{public}@
+mainVolume: %{public}@, fstype: %{public}@
 beforePurgeEventID: %llu
 unable to create sentinel file
 statfs failed for "%{public}@" : %s
+Created FSEventStream with: %@
 unable to create fsEventStream: %s
+VOLUMES: %@
+Purge satisfied, skipping %@
 fsPurge reports %llu purged (%llu measured) of %llu needed on volume: %{public}@ at urgency: %d ET: %f
 timed out wating for fsPurge: 5 seconds
 fsPurge satisfied request: %llu purged (%llu measured) of %llu needed on volume: %@, ET: %f
@@ -1651,11 +1672,14 @@ Purge oneShot failed (volume %{public}@ was likely invalid)
 Parameter error: service: %{public}@, volume %{public}@
 Purge callback firing more than once for service %{public}@ on volume: %{public}@
 %{public}@ took %f seconds, purged %llu bytes on volume: %{public}@
-mkdir failed for %s : %s
-unable to open %s : %s
-Unable to fstat %@ : %s
+purgeDoneSentinel mkdir failed for %s : %s
+purgeDoneSentinel unable to open %s : %s
+purgeDoneSentinel Created %s
+purgeDoneSentinel Unable to fstat %@ : %s
+purgeDoneSentinel ino: %llu
+purgeDoneSentinel unlink'd %s : %s
 fsEventStreamMonitor no semaphore in context: %p
-fsEventStreamMonitor sentinel remove event, ID: %llu, fileID: %@, path: %@
+fsEventStreamMonitor sentinel remove event, ID: %llu, fileID: %@, path: %@, mapped: %@
 fsEventStreamMonitor: Unexpected fsgetpath error: %{public}s
 fsEventStreamMonitor: fsgetpath() was successful (%zd: %s) when expected to fail for: %{public}@
 PurgeableOperation _startOperation, info: %{public}@

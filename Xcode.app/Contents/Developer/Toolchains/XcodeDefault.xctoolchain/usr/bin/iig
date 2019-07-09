@@ -16,10 +16,12 @@ kernel
 native
 remote
 localonly
+serializable
 extends=
 Construct
 other
 OSMetaClassBase
+%s::%s does not override
 method:  (%s) %s::%s
 void
 overrides: (%s) %s::%s
@@ -31,7 +33,7 @@ reply
 queuename=
 type=
 meth->typeMethod
-error: %s::%s != type %s::%s
+error: types %s::%s != %s::%s
 meth->mvirtual || meth->mstatic || meth->localonly
 target
 param->typeMethod
@@ -47,13 +49,15 @@ meth->cls == cls
 EmitRPCTypes
 meth->msgid
 %s_%s_%s
-(1ULL << (__builtin_offsetof(%s_Content, hdr.object) / sizeof(OSObjectRef)))
+(1ULL << (__builtin_offsetof(%s_Content, __hdr.object) / sizeof(OSObjectRef)))
 struct %s_Content
-    IORPCMessage hdr;
-    kern_return_t _result;
+    IORPCMessage __hdr;
+    kern_return_t __result;
     
-OSObjectRef
 (1ULL << (__builtin_offsetof(%s_Content, %s) / sizeof(OSObjectRef)))
+    | 
+OSObjectRef
+%s *
 %s%s *
 const 
   %s;
@@ -62,10 +66,13 @@ const
 #pragma pack(4)
 struct %s
     IORPCMessageMach           mach;
-    mach_msg_port_descriptor_t objects[%d];
+    mach_msg_port_descriptor_t %s__descriptor;
+__object
+    mach_msg_ool_descriptor_t  %s__descriptor;
     %s_Content content;
 #pragma pack()
-#define %s_ObjRefs (%s)
+#define %s_ObjRefs \
+    (%s)
 typedef union
     const IORPC rpc;
     struct
@@ -92,6 +99,8 @@ kern_return_t
 )%s%s;
  const
  APPLE_KEXT_OVERRIDE
+    kern_return_t
+    CreateAction%s(size_t referenceSize, OSAction ** action);
 #define %s_Methods 
 public:
     virtual kern_return_t
@@ -115,7 +124,7 @@ protected:
     %s_%s(%s_%s_Args);
 #define %s_VirtualMethods 
 /* iig(%s) generated from %s */
-DriverKit-48
+DriverKit-60
 /* %s:%d-%d */
 /* class %s %s:%d-%d */
 EmitHeader
@@ -242,7 +251,7 @@ kern_return_t
 kern_return_t
 %s::_Dispatch(%s * self, const IORPC rpc)
     kern_return_t ret = kIOReturnUnsupported;
-    IORPCMessage * msg = IORPCMessage(rpc.message);
+    IORPCMessage * msg = IORPCMessageFromMach(rpc.message, false);
     switch (msg->msgid)
         case %s_%s_ID:
             ret = %s%s%s%s_Invoke(rpc, &%s::%s_Impl);
@@ -269,25 +278,34 @@ _Call
     } buf;
     struct %s_%s_Msg * msg = &buf.msg;
     struct %s_%s_Rpl * rpl = &buf.rpl.rpl;
+    msg->mach.msgh.msgh_id   = kIORPCVersionCurrent;
     msg->mach.msgh.msgh_size = sizeof(*msg);
-    msg->content.hdr.flags   = %d*kIORPCMessageOneway
+    msg->content.__hdr.flags = %d*kIORPCMessageOneway
                              | %d*kIORPCMessageLocalHost
                              | %d*kIORPCMessageOnqueue;
-    msg->content.hdr.msgid   = %s_%s_ID;
-    msg->content.hdr.object  = (OSObjectRef) OSTypeID(%s);
-    msg->content.hdr.object = (OSObjectRef) %s;
+    msg->content.__hdr.msgid = %s_%s_ID;
+    msg->content.__hdr.object = (OSObjectRef) OSTypeID(%s);
+    msg->content.__hdr.object = (OSObjectRef) %s;
 this
-    msg->content.hdr.objectRefs = %s_%s_Msg_ObjRefs;
+    msg->content.__hdr.objectRefs = %s_%s_Msg_ObjRefs;
     msg->mach.msgh_body.msgh_descriptor_count = %d;
-    msg->mach.objects[%d].type = MACH_MSG_PORT_DESCRIPTOR;
-    msg->mach.objects[%d].disposition = %s;
-    msg->mach.objects[%d].name = %s;
+    msg->%s__descriptor.type = MACH_MSG_PORT_DESCRIPTOR;
+    msg->%s__descriptor.type = MACH_MSG_PORT_DESCRIPTOR;
     msg->content.%s = (OSObjectRef) %s;
+    msg->%s__descriptor.disposition = %s;
+    msg->%s__descriptor.name = %s;
+    msg->%s__descriptor.type = MACH_MSG_OOL_DESCRIPTOR;
+    msg->%s__descriptor.copy = MACH_MSG_VIRTUAL_COPY;
+    msg->%s__descriptor.address = (void *) __builtin_offsetof(%s_%s_Msg_Content, %s);
     msg->content.%s = %s;
 error: %s::%s oneway with results
 char
     strlcpy(&msg->content.__%s[0], %s, sizeof(msg->content.__%s));
+    if (%sCount > (sizeof(msg->content.__%s) / sizeof(msg->content.__%s[0]))) return%s;
+ kIOReturnOverrun
     bcopy(%s, &msg->content.__%s[0], %sCount * sizeof(msg->content.__%s[0]));
+    if (*%sCount > (sizeof(rpl->content.__%s) / sizeof(rpl->content.__%s[0]))) return%s;
+    msg->content.%sCount = *%sCount;
     ret = kIOReturnSuccess;
     IORPC rpc = { .message = &buf.msg.mach, .sendSize = sizeof(*msg), .reply = NULL, .replySize = 0 };
     IORPC rpc = { .message = &buf.msg.mach, .sendSize = sizeof(buf.msg), .reply = &buf.rpl.rpl.mach, .replySize = sizeof(buf.rpl) };
@@ -305,22 +323,23 @@ char
         }
         else
             if (rpl->mach.msgh.msgh_size                  != sizeof(*rpl)) { ret = kIOReturnIPCError; break; };
-            if (rpl->content.hdr.msgid                    != %s_%s_ID) { ret = kIOReturnIPCError; break; };
+            if (rpl->content.__hdr.msgid                  != %s_%s_ID) { ret = kIOReturnIPCError; break; };
             if (rpl->mach.msgh_body.msgh_descriptor_count != %d) { ret = kIOReturnIPCError; break; };
-            if (rpc.reply->objects[%d].type != MACH_MSG_PORT_DESCRIPTOR) { ret = kIOReturnIPCError; break; };
-            if (rpc.reply->objects[%d].disposition != %s) { ret = kIOReturnIPCError; { ret = kIOReturnIPCError; break; }; };
-            if (%s_%s_Rpl_ObjRefs   != rpl->content.hdr.objectRefs) { ret = kIOReturnIPCError; break; };
-            ret = rpl->content._result;
+            if (rpc.reply->%s__descriptor.type != MACH_MSG_PORT_DESCRIPTOR) { ret = kIOReturnIPCError; break; };
+            if (rpc.reply->%s__descriptor.disposition != %s) { ret = kIOReturnIPCError; { ret = kIOReturnIPCError; break; }; };
+            if (%s_%s_Rpl_ObjRefs   != rpl->content.__hdr.objectRefs) { ret = kIOReturnIPCError; break; };
+            ret = rpl->content.__result;
     while (false);
-        bcopy(&rpl->content.__%s[0], %s, rpl->content.%sCount * sizeof(rpl->content.__%s[0]));
+        if (rpl->content.%sCount < *%sCount) *%sCount = rpl->content.%sCount;
+        bcopy(&rpl->content.__%s[0], %s, *%sCount * sizeof(rpl->content.__%s[0]));
         *%s = OSDynamicCast(%s, (OSObject *) rpl->content.%s);
         if (rpl->content.%s && !*%s) ret = kIOReturnBadArgument;
-        *%s = rpl->mach.objects[%d].name;
+        *%s = rpl->%s__descriptor.name;
         if (%s) *%s = rpl->content.%s;
         if (ret == kIOReturnSuccess) {
             IORPCMessage * message;
             OSObject     * object;
-            message = IORPCMessage(rpc.reply);
+            message = IORPCMessageFromMach(rpc.reply, true);
             object  = (typeof(object)) message->object;
             if (!object || !(kIORPCMessageOneway & message->flags)) ret = kIOReturnIPCError;
             else
@@ -331,15 +350,23 @@ char
                 ret = object->Invoke(rpc);
             }
     }
+%s::CreateAction%s(size_t referenceSize, OSAction ** action)
+    kern_return_t ret;
+    ret = OSAction::Create(this,
+                           %s_%s_ID,
+                           referenceSize,
+                           action);
+    return (ret);
 %s::%s_Invoke(const IORPC _rpc,
         %s (*func)(%s_%s_Args))
         %s (%s::*func)(%s_%s_Args))
     %s_%s_Invocation rpc = { _rpc };
     %s * %s;
     %s %s = (sizeof(rpc.reply->content.__%s) / sizeof(rpc.reply->content.__%s[0]));
-    if (%s_%s_Msg_ObjRefs != rpc.message->content.hdr.objectRefs) return (kIOReturnIPCError);
+    if (%s_%s_Msg_ObjRefs != rpc.message->content.__hdr.objectRefs) return (kIOReturnIPCError);
     %s = OSDynamicCast(%s, (OSObject *) rpc.message->content.%s);
     if (!%s && rpc.message->content.%s) return (kIOReturnBadArgument);
+    if (%s > rpc.message->content.%s) %s = rpc.message->content.%s;
     %s(%s*func)(
 ret = 
 this->
@@ -348,32 +375,41 @@ rpc.rpc,
         &rpc.message->content.__%s[0]
         &rpc.reply->content.__%s[0]
         %s
-        rpc.message->objects[%d].name
+        rpc.message->%s__descriptor.name
         rpc.message->content.%s
         &%s
         (%s **)&rpc.reply->content.%s
-        &rpc.reply->mach.objects[%d].name
+        &rpc.reply->%s__descriptor.name
         &rpc.reply->content.%s
         IORPCMessage * message;
-        message = IORPCMessage(rpc.rpc.reply);
+        message = IORPCMessageFromMach(rpc.rpc.reply, true);
         if (!message->object || !(kIORPCMessageOneway & message->flags)) ret = kIOReturnIPCError;
     else
-        rpc.reply->content.hdr.msgid   = %s_%s_ID;
-        rpc.reply->content.hdr.object  = 0;
-        rpc.reply->content.hdr.flags   = kIORPCMessageOneway;
+        rpc.reply->content.__hdr.msgid   = %s_%s_ID;
+        rpc.reply->content.__hdr.object  = 0;
+        rpc.reply->content.__hdr.flags   = kIORPCMessageOneway;
+        rpc.reply->mach.msgh.msgh_id   = kIORPCVersionCurrentReply;
         rpc.reply->mach.msgh.msgh_size = sizeof(*rpc.reply);
         rpc.reply->mach.msgh_body.msgh_descriptor_count = %d;
-        rpc.reply->content._result     = ret;
+        rpc.reply->content.__result    = ret;
         if (kIOReturnSuccess == ret)
-            rpc.reply->content.hdr.objectRefs = %s_%s_Rpl_ObjRefs;
+            rpc.reply->content.__hdr.objectRefs = %s_%s_Rpl_ObjRefs;
             rpc.reply->content.%s = %s;
-            rpc.reply->mach.objects[%d].type = MACH_MSG_PORT_DESCRIPTOR;
-            rpc.reply->mach.objects[%d].disposition = %s;
-            rpc.reply->content.hdr.objectRefs = 0;
-            for (uint32_t idx = 0; idx < %d; idx++)
-                rpc.reply->mach.objects[idx].type        = MACH_MSG_PORT_DESCRIPTOR;
-                rpc.reply->mach.objects[idx].disposition = MACH_MSG_TYPE_PORT_NONE;
-                rpc.reply->mach.objects[idx].name        = MACH_PORT_NULL;
+            rpc.reply->%s__descriptor.type = MACH_MSG_PORT_DESCRIPTOR;
+            rpc.reply->%s__descriptor.type = MACH_MSG_OOL_DESCRIPTOR;
+            rpc.reply->%s__descriptor.copy = MACH_MSG_VIRTUAL_COPY;
+            rpc.reply->%s__descriptor.address = (void *) __builtin_offsetof(%s_%s_Rpl_Content, %s);
+            rpc.reply->%s__descriptor.size = 0;
+            rpc.reply->%s__descriptor.disposition = %s;
+            rpc.reply->content.__hdr.objectRefs = 0;
+            rpc.reply->content.%s = 0;
+            rpc.reply->%s__descriptor.type        = MACH_MSG_PORT_DESCRIPTOR;
+            rpc.reply->%s__descriptor.disposition = MACH_MSG_TYPE_PORT_NONE;
+            rpc.reply->%s__descriptor.name        = MACH_PORT_NULL;
+            rpc.reply->%s__descriptor.type    = MACH_MSG_OOL_DESCRIPTOR;
+            rpc.reply->%s__descriptor.copy    = MACH_MSG_VIRTUAL_COPY;
+            rpc.reply->%s__descriptor.address = NULL;
+            rpc.reply->%s__descriptor.size    = 0;
             rpc.reply->content.%s = (OSObjectRef) 0;
 usage: %s --def <def input file> --header <header output file> --impl <implementation output file> [--log <log file>] [--framework-name <name>] -- <clang args>
 header

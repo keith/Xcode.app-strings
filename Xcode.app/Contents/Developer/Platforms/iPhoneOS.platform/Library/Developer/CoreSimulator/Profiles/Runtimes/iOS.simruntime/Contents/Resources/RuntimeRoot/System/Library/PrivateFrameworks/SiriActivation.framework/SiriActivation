@@ -1,8 +1,4 @@
-333333
-333333
-?ffffff
-?333333
-@(#)PROGRAM:SiriActivation  PROJECT:AssistantUI-1
+%s #activation old availability: %@, new availability: %@
 %s Button Down Event absent. Artifically update timestamp.
 %s BTLE lift time delta %f, adjusting by %d
 %s BTLE connected to carplay, adjusting by %d
@@ -14,7 +10,7 @@
 %s BTLE timed out waiting for Myriad decision, sem=%ld
 %s BTLE CarPlay Myriad decision. Not activating Siri.
 %s BTLE CarPlay Myriad decision. Activating Siri.
-%s BTLE observerCalled context=%@
+%s BTLE observerCalled transition=%@
 %s BTLE wake gesture noted
 %s %p
 %s Unexpectedly attempted to assign a new connection to the activation server with an existing connection: %{public}@
@@ -32,6 +28,11 @@
 %s #activation Unregister request of '%@' when it is an active presentation. Dismissing Siri.
 %s #activation '%@' was the last active presentation. Setting request state to off.
 %s #activation '%@' was not the last active presentation. Dismissing Siri.
+%s #activation SiriActivationService not resetting requestState or dismissalTimer, self.activePresentations is not empty. Contents of self.activePresentations:%@
+%s #activation Registration of '%@' when it is already registered. Removing
+%s #activation Registering '%@'
+%s #activation Unregister request of '%@' when it is not registered.
+%s #activation Unregistering '%@'
 %s activationRequestFromButtonIdentifier:%@, with Siri state %@. Activating.
 %s activationRequestFromButtonIdentifier:%@, with Siri state %@. Ignoring.
 %s %@ button prewarm request
@@ -112,28 +113,19 @@
 %s Not activating; Siri voice activation is disabled until first unlock.
 %s Not activating via voicetrigger because the device is face down on table or in pocket
 %s Not activating; There is an existing HoldToTalk trigger.
-%s Not activating; Siri is disabled because an iPad Smart Cover is closed
+%s Not activating; Siri is disabled because an iPad Smart Cover is closed which blocks home button or Hey Siri
 %s Not activating; Siri is disabled because an iPhone Smart Cover is closed which blocks home button or Hey Siri
 %s Not activating; "Press Home/Side For Siri" is disabled in Settings
 %s Not activating; Siri state is %@. Ignoring activationRequest %@.
 %s Not activating; Siri is disabled while passcode locked
 %s Not activating; Siri is disabled because the device is blocked
+%s Not activating; user is in an active call
 %s Not activating; Siri Setup is disabled while passcode locked
 %s SASSignalConnectionListener: Unable to assign new incoming connection to a process because the remote was unknown : connection=%@
-%s #activation Button identifier %@ registered by %@
-%s #activation Button identifier %@ unregistered by %@
-%s #activation Direct action source registered by %@
-%s #activation Direct action source unregistered by %@
-%s #activation Continuity source registered by %@
-%s #activation Continuity source unregistered by %@
-%s #activation SimpleActivation source registered by %@
-%s #activation SimpleActivation source unregistered by %@
-%s #activation Spotlight source registered by %@
-%s #activation Spotlight source unregistered by %@
-%s #activation Breadcrumb source registered by %@
-%s #activation Breadcrumb source unregistered by %@
-%s #activation Testing source registered by %@
-%s #activation Testing source unregistered by %@
+%s #activation Button identifier %@ with uuid '%@' registered by %@
+%s #activation Button identifier %@ with uuid '%@' unregistered by %@
+%s #activation Non-button source of type %@ with uuid '%@' registered by %@
+%s #activation Non-button source of type %@ with uuid '%@' unregistered by %@
 %s #activation activationRequestFromButtonIdentifier:%@ context:%@
 %s #activation activationRequestFromDirectActionEvent:%@ context:%@
 %s #activation activationRequestFromDirectActionEvent payload missing bundleId, using connection bundle id:%@
@@ -148,6 +140,9 @@
 %s buttonTapFromButtonIdentifier:%@
 %s buttonLongPressFromButtonIdentifier:%@ context:%@
 %s SASPresentationConnectionListener: Unable to assign new incoming connection to a process because the remote was unknown : connection=%@
+-[SiriActivationSource activeChangedTo:]
+identifier
+T@"NSString",&,N,V_identifier
 -[SASRequestOptionsBuilder _createRequestOptionsForRequest:withDataSource:]
 __supportsCarFullScreen
 __bundleId
@@ -193,15 +188,9 @@ TB,N,V_shouldLogAnalyticsEvents
 pendingAnalyticsEventQueue
 T@"NSMutableArray",&,N,V_pendingAnalyticsEventQueue
 v16@?0@"CMMotionActivity"8
+v32@?0@"FBSDisplayLayoutMonitor"8@"FBSDisplayLayout"16@"FBSDisplayLayoutTransitionContext"24
 -[SASMyriadController activateForRequest:visible:]
--[SASMyriadController layoutMonitor:didUpdateDisplayLayout:withContext:]
-hash
-TQ,R
-superclass
-T#,R
-description
-T@"NSString",R,C
-debugDescription
+-[SASMyriadController _updateRaiseToWakeTimeForTransition:]
 SiriContextOverrideKey
 currentSpokenLanguageCode
 unlockedSinceBoot
@@ -286,6 +275,10 @@ VoiceTrigger Dispatch Queue
 Siri activation/dismissal watchdog queue
 -[SiriActivationService registerSiriPresentation:withIdentifier:]
 -[SiriActivationService unregisterSiriPresentationIdentifier:]
+-[SiriActivationService siriPresentationDismissedWithIdentifier:]
+-[SiriActivationService siriPresentationFailureWithIdentifier:error:]
+-[SiriActivationService registerActivationSource:withIdentifier:]
+-[SiriActivationService unregisterActivationSourceIdentifier:]
 -[SiriActivationService activationRequestFromButtonIdentifier:context:]
 -[SiriActivationService prewarmFromButtonIdentifier:longPressInterval:]
 activationEvent
@@ -325,6 +318,13 @@ clockTime
 -[SiriActivationService startDismissalWatchdogTimer]
 -[SiriActivationService startDismissalWatchdogTimer]_block_invoke
 -[SiriActivationService stopDismissalWatchdogTimerIfNeeded]
+hash
+TQ,R
+superclass
+T#,R
+description
+T@"NSString",R,C
+debugDescription
 afPreferences
 T@"AFPreferences",&,N,V_afPreferences
 lockStateMonitor
@@ -339,6 +339,8 @@ preparingPresentations
 T@"NSMutableDictionary",&,N,V_preparingPresentations
 requestState
 Tq,N,V_requestState
+sources
+T@"NSMutableDictionary",&,N,V_sources
 heater
 T@"SASHeater",&,N,V_heater
 siriTether
@@ -395,15 +397,15 @@ SiriTestingContextAudioInputKey
 <SiriTestingContext contextOverride:%@, testingContext:%@>
 testingContext
 T@"NSDictionary",R,N,V_testingContext
--[SiriLongPressButtonSource configureConnection]_block_invoke_3
+-[SiriLongPressButtonSource configureConnection]_block_invoke
 prepare
 speechInteraction
 v24@?0@"<SiriAssertion>"8d16
 -[SiriLongPressButtonSource didRecognizeLongPress]
 longPressInterval
 Td,N,V_longPressInterval
-identifier
-Tq,N,V_identifier
+buttonIdentifier
+Tq,N,V_buttonIdentifier
 lock_activityAssertions
 T@"NSMutableArray",&,N,V_lock_activityAssertions
 T@"SiriLongPressButtonContext",&,N,V_context
@@ -472,8 +474,6 @@ Tq,N,V_activationEvent
 T@"SiriContext",&,N,V_context
 activationTime
 Td,N,V_activationTime
-buttonIdentifier
-Tq,N,V_buttonIdentifier
 com.apple.cmas
 -[SASBulletinManager bulletinForIdentifier:]
 -[SASBulletinManager addBulletinCompletionWithBulletin:forFeed:]
@@ -483,7 +483,6 @@ com.apple.cmas
 T@"<SASBulletinManagerDelegate>",W,N,V_delegate
 SASButtonIdentifierTransport:%@
 -[SASButtonIdentifierTransport siriButtonIdentifier]
-T@"NSString",&,N,V_identifier
 SASDirectActionEventTransport:%@
 event
 T@"NSNumber",&,N,V_event
@@ -652,6 +651,9 @@ SASRequestSourceSpotlightAskSiriButton
 SASRequestSourceTriggerless
 SASRequestSourceAssistiveTouch
 SASRequestSourceVoiceCommandButton
+SASRequestSourceControlCenterRemoteUI
+SASRequestSourceRemoteApp
+SASRequestSourceNonAppleRemote
 lockState
 TQ,N,V_lockState
 unlockedByTouchID
@@ -668,7 +670,7 @@ T@"SUICApplicationStateHelper",&,N,V_applicationStateHelper
 enabled
 TB,N,V_enabled
 listeners
-T@"NSMutableSet",&,N,V_listeners
+T@"NSHashTable",&,N,V_listeners
 TB,N,V_pocketStateShouldPreventVoiceTrigger
 +[SASActivationDecision shouldSiriActivateForRequest:buttonTriggerStateActive:systemState:preferences:analyticsContext:currentRequestState:]
 +[SASActivationDecision _shouldSiriActivateForSiriSetupWithSystemState:]
@@ -711,20 +713,10 @@ Unspecified
 Tq,N,V_type
 T@"NSURL",C,N,V_recordedSpeechURL
 -[SASSignalServer _setConnection:]
--[SASSignalServer registerButtonIdentifier:]
--[SASSignalServer unregisterButtonIdentifier:]
--[SASSignalServer registerDirectActionSource]
--[SASSignalServer unregisterDirectActionSource]
--[SASSignalServer registerContinuitySource]
--[SASSignalServer unregisterContinuitySource]
--[SASSignalServer registerSimpleActivationSource]
--[SASSignalServer unregisterSimpleActivationSource]
--[SASSignalServer registerSpotlightSource]
--[SASSignalServer unregisterSpotlightSource]
--[SASSignalServer registerBreadcrumbSource]
--[SASSignalServer unregisterBreadcrumbSource]
--[SASSignalServer registerTestingSource]
--[SASSignalServer unregisterTestingSource]
+-[SASSignalServer registerButtonIdentifier:withUUID:]
+-[SASSignalServer unregisterButtonIdentifier:withUUID:]
+-[SASSignalServer registerNonButtonSourceWithType:withUUID:]
+-[SASSignalServer unregisterNonButtonSourceWithType:withUUID:]
 -[SASSignalServer activationRequestFromButtonIdentifier:context:]
 -[SASSignalServer activationRequestFromDirectActionEvent:context:]
 -[SASSignalServer activationRequestFromContinuityWithContext:]
@@ -751,6 +743,11 @@ isEyesFree
 address
 T@"NSNumber",R,N,V_isEyesFree
 T@"NSString",R,N,V_address
+333333
+333333
+?ffffff
+?333333
+@(#)PROGRAM:SiriActivation  PROJECT:AssistantUI-1
 SiriActivationSource
 SASRequestOptionsBuilder
 SASOverriddenSystemState
@@ -760,8 +757,6 @@ SiriPunchoutRequest
 NSCopying
 SASAnalytics
 SASMyriadController
-FBSDisplayLayoutObserver
-NSObject
 SiriContextOverride
 NSSecureCoding
 NSCoding
@@ -775,6 +770,7 @@ SASRequestState
 SiriActivationService
 SASRequestOptionsBuilderDataSource
 SASRequestOptionsBuilderDataSourceForTesting
+NSObject
 SASHeaterDelegate
 AFMyriadDelegate
 SASLockStateMonitorDelegate
@@ -831,10 +827,23 @@ SASSignalServer
 SASPresentationConnectionListener
 SiriContinuityContext
 SiriBluetoothContext
+init
+UUID
+UUIDString
 sharedSystemState
 siriIsSupported
 siriIsEnabled
+numberWithBool:
+boolValue
 isEnabled
+isActive
+activeChangedTo:
+.cxx_destruct
+identifier
+setIdentifier:
+_active
+_knowsIfActive
+_identifier
 _siriIsEnabled
 setPresentationIdentifier:
 _createRequestOptionsForRequest:withDataSource:
@@ -876,7 +885,6 @@ objectForKey:
 setAppBundleIdentifier:
 setMessagesDirectActionContext:
 bulletin
-init
 setBulletin:
 bundleId
 notification
@@ -901,7 +909,6 @@ requestOptionsBuilder:currentLockStateForActivation:
 setCurrentLockState:
 siriIsRestricted
 buildOptionsWithRequest:presentationIdentifier:dataSource:
-.cxx_destruct
 setSystemState:
 _systemState
 _presentationIdentifier
@@ -950,7 +957,6 @@ sharedAVSystemController
 pickableRoutesForCategory:andMode:
 countByEnumeratingWithState:objects:count:
 objectForKeyedSubscript:
-boolValue
 isEqualToString:
 prepareForUseAfterTimeInterval:
 cancelPreparation
@@ -992,8 +998,12 @@ isActivityAvailable
 mainQueue
 _handleCMMotionActivity:
 startActivityUpdatesToQueue:withHandler:
-initWithDisplayType:
-addObserver:
+configurationForDefaultMainDisplayMonitor
+_updateRaiseToWakeTimeForTransition:
+setTransitionHandler:
+monitorWithConfiguration:
+invalidate
+dealloc
 currentCoordinator
 isVoiceRequest
 speechRequestOptions
@@ -1005,31 +1015,9 @@ startAdvertisingFromVoiceTriggerAdjusted:withContext:
 startAdvertisingFromVoiceTriggerAdjusted:
 startAdvertisingFromDirectTriggerWithContext:
 startAdvertisingFromDirectTrigger
+transitionReasons
 stationary
-transitionReason
-isEqual:
 currentController
-class
-self
-performSelector:
-performSelector:withObject:
-performSelector:withObject:withObject:
-isProxy
-isKindOfClass:
-isMemberOfClass:
-conformsToProtocol:
-respondsToSelector:
-retain
-release
-autorelease
-retainCount
-zone
-hash
-superclass
-description
-debugDescription
-layoutMonitor:didUpdateDisplayLayout:
-layoutMonitor:didUpdateDisplayLayout:withContext:
 activateForRequest:visible:
 _myriadFinishedSemaphore
 _canceledByMyriad
@@ -1041,7 +1029,6 @@ _lockStateMonitor
 _displayMonitor
 _raiseToWakeTime
 setCurrentSpokenLanguageCode:
-numberWithBool:
 setUnlockedSinceBoot:
 setDeviceIsBlocked:
 setDeviceIsPasscodeLocked:
@@ -1096,11 +1083,9 @@ unregisterSiriPresentationIdentifier:
 setInvalidationHandler:
 configureConnection:
 _setConnection:
-dealloc
 connection
 stringWithSiriPresentationIdentifier:
 invalidated
-invalidate
 setConnection:
 serviceQuality
 setServiceQuality:
@@ -1144,6 +1129,7 @@ siriPresentationDisplayedWithIdentifier:
 siriPresentationFailureWithIdentifier:error:
 markBulletinWithIdentifier:asRead:
 serverForConnection:
+description
 workspaceServiceInjector
 setWorkspaceServiceInjector:
 setInvalidated:
@@ -1180,6 +1166,7 @@ _presentationDomain
 _signalDomain
 _signalIdentifier
 stringWithSASRequestState:
+setSources:
 setPreparingPresentations:
 setXcTestingActive:
 setPresentations:
@@ -1200,6 +1187,9 @@ bulletinManager
 _registerForVoiceTrigger
 setAvExternalButtonEvents:
 setButtonDownHasOccurredSinceActivation:
+_notifySourcesOfActiveChange:
+sources
+allValues
 presentations
 activePresentations
 removeObject:
@@ -1220,7 +1210,6 @@ dictionaryWithObjects:forKeys:count:
 _cancelTTS
 setPreparationTimestamp:
 allObjects
-allValues
 initWithSiriButtonIdentifier:
 initWithTimeInterval:
 _performOrEnqueueButtonAction:
@@ -1282,7 +1271,25 @@ cancelIfNotAlreadyCanceled
 dismissalTimer
 setDismissalTimer:
 removeAllObjects
-requestOptionsBuilder:overriddenPresentationIdentifierForCurrentPresentationIdentifier:withActivation:
+isEqual:
+class
+self
+performSelector:
+performSelector:withObject:
+performSelector:withObject:withObject:
+isProxy
+isKindOfClass:
+isMemberOfClass:
+conformsToProtocol:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+hash
+superclass
+debugDescription
 shouldAbortAnotherDeviceBetter:
 shouldContinue:
 shouldUnduck:
@@ -1293,6 +1300,8 @@ listeningDidBegin:
 listeningDidEnd:
 didChangeLockState:
 bulletinManagerDidChangeBulletins:
+registerActivationSource:withIdentifier:
+unregisterActivationSourceIdentifier:
 prewarmFromButtonIdentifier:longPressInterval:
 cancelPrewarmFromButtonIdentifier:
 buttonDownFromButtonIdentifier:timestamp:
@@ -1331,6 +1340,7 @@ _presentations
 _activePresentations
 _preparingPresentations
 _requestState
+_sources
 _heater
 _siriTether
 _preparationTimestamp
@@ -1345,8 +1355,9 @@ setLock:
 configureConnection
 endpointForMachName:service:instance:
 connectionWithEndpoint:
-unregisterSpotlightSource
-registerSpotlightSource
+numberWithInteger:
+unregisterNonButtonSourceWithType:withUUID:
+registerNonButtonSourceWithType:withUUID:
 setActivationHandler:
 activateWithContext:
 lock
@@ -1375,12 +1386,7 @@ _animated
 _deactivationOptions
 firstObject
 setContext:
-unregisterSimpleActivationSource
-registerSimpleActivationSource
-numberWithInteger:
 activateFromSource:
-unregisterTestingSource
-registerTestingSource
 initWithPPTContext:siriContextOverride:
 initWithContextOverride:
 initWithRecognitionStrings:siriContextOverride:
@@ -1394,21 +1400,20 @@ containsPPT
 containsRecognitionStrings
 containsAudioInput
 _testingContext
-_initWithIdentifier:
+_initWithButtonIdentifier:
 setLongPressInterval:
-setIdentifier:
+setButtonIdentifier:
 setLock_activityAssertions:
-identifier
-unregisterButtonIdentifier:
+buttonIdentifier
+unregisterButtonIdentifier:withUUID:
 setInterruptionHandler:
-registerButtonIdentifier:
+registerButtonIdentifier:withUUID:
 lock_activityAssertions
 reason
 reference
 initWithString:
 longPressInterval
 timestamp
-UUIDString
 initWithIdentifier:reference:reason:timestamp:invalidationBlock:
 longPressButtonForIdentifier:
 prepareForActivation
@@ -1416,7 +1421,7 @@ speechInteractionActivityWithTimestamp:
 didRecognizeButtonSinglePressUp
 didRecognizeLongPress
 _longPressInterval
-_identifier
+_buttonIdentifier
 _lock_activityAssertions
 _context
 cancelReason
@@ -1429,7 +1434,6 @@ _invalidationBlock
 stringWithAFActivationEvent:
 setActivationTime:
 setActivationType:
-setButtonIdentifier:
 requestSourceForButtonIdentifier:
 setRequestSource:
 source
@@ -1444,8 +1448,6 @@ _activationType
 _activationEvent
 _activationTime
 _requestSource
-buttonIdentifier
-_buttonIdentifier
 _setupObserver
 setObserverFeed:
 length
@@ -1622,10 +1624,6 @@ _speechRequestOptions
 _uiPresentationIdentifier
 _contextAppInfosForSiriViewController
 _currentLockState
-unregisterBreadcrumbSource
-registerBreadcrumbSource
-unregisterContinuitySource
-registerContinuitySource
 setLockState:
 isBlocked
 isScreenOn
@@ -1637,10 +1635,8 @@ _lockState
 _assistantIsEnabled
 _updateAccessibilityState
 monitorCarSessions
-defaultCenter
-_preferencesDidUpdate
-addObserver:selector:name:object:
 setApplicationStateHelper:
+weakObjectsHashTable
 setListeners:
 listeners
 languageCode
@@ -1651,9 +1647,9 @@ foregroundAppInfos
 setEnabled:
 enabled
 isCurrentLocaleNativelySupported
-isEnabledChanged:
 addStateChangeListener:
 removeStateChangeListener:
+isInActiveCall
 carPlayConnectionState
 setCarPlayConnectionState:
 _enabled
@@ -1668,7 +1664,9 @@ setSource:
 _utteranceText
 _source
 _registerForTestingNotifications
+defaultCenter
 _testingStringsDidChange:
+addObserver:selector:name:object:
 _testingAudioInputPathsDidChange:
 removeObserver:
 object
@@ -1689,8 +1687,6 @@ dictionary
 _count
 _oldestNode
 _newestNode
-unregisterDirectActionSource
-registerDirectActionSource
 setDomain:
 setService:
 listenerWithConfigurator:
@@ -1713,17 +1709,21 @@ recordedSpeechURL
 _type
 _recordedSpeechURL
 prewarmFromButtonIdentifier:
+_registerSourceForIdentifier:
+_unregisterSourceForIdentifier:
 setValue:forKey:
 initWithUserActivity:
 _userActivity
 _isEyesFree
 _address
-B16@0:8
-@40@0:8@16q24@32
-@32@0:8@16@24
 @16@0:8
+B16@0:8
+Vv24@0:8@16
 v16@0:8
 v24@0:8@16
+@"NSString"
+@40@0:8@16q24@32
+@32@0:8@16@24
 q16@0:8
 v24@0:8q16
 @"SASSystemState"
@@ -1734,26 +1734,9 @@ d16@0:8
 v20@0:8B16
 @"<SASHeaterDelegate>"
 @24@0:8^{_NSZone=}16
-@"NSString"
 @"NSURL"
 v32@0:8q16@24
 @"NSMutableArray"
-B24@0:8@16
-#16@0:8
-@24@0:8:16
-@32@0:8:16@24
-@40@0:8:16@24@32
-B24@0:8#16
-B24@0:8:16
-Vv16@0:8
-Q16@0:8
-^{_NSZone=}16@0:8
-B24@0:8@"Protocol"16
-@"NSString"16@0:8
-v32@0:8@16@24
-v40@0:8@16@24@32
-v32@0:8@"FBSDisplayLayoutMonitor"16@"FBSDisplayLayout"24
-v40@0:8@"FBSDisplayLayoutMonitor"16@"FBSDisplayLayout"24@"FBSDisplayLayoutTransitionContext"32
 B28@0:8@16B24
 @"NSObject<OS_dispatch_semaphore>"
 @"CMMotionActivityManager"
@@ -1762,8 +1745,9 @@ B28@0:8@16B24
 @24@0:8@16
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
+B24@0:8@16
 @"NSNumber"
-Vv24@0:8@16
+Vv16@0:8
 Vv32@0:8@16@24
 Vv24@0:8@"SiriPresentationIdentifierTransport"16
 Vv24@0:8@"SiriDismissalOptions"16
@@ -1781,8 +1765,17 @@ Vv24@0:8@"AFUISiriLockStateTransport"16
 @"BSServiceConnectionEndpointInjector"
 @"BSServiceConnection<BSServiceConnectionHost>"
 @"<SASPresentationServerDelegate>"
+#16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B24@0:8#16
+B24@0:8:16
+Q16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
 @40@0:8@16@24@32
-@"NSString"40@0:8@"SASRequestOptionsBuilder"16q24@"SASActivationRequest"32
 @"SASRequestOptions"40@0:8@"SASRequestOptionsBuilder"16@"SASRequestOptions"24@"SASActivationRequest"32
 B32@0:8@16@24
 @40@0:8@16@24q32
@@ -1795,9 +1788,11 @@ v24@0:8@"AFMyriadCoordinator"16
 v24@0:8Q16
 v24@0:8@"SASBulletinManager"16
 v32@0:8@16q24
+v32@0:8@16@24
 v32@0:8q16d24
 v24@0:8@?16
 B24@0:8q16
+v40@0:8@16@24@32
 v28@0:8@16B24
 @"AFMyriadCoordinator"
 @"NSObject<OS_dispatch_queue>"
@@ -1875,6 +1870,7 @@ v40@0:8q16Q24@32
 i16@0:8
 v20@0:8i16
 @"SUICApplicationStateHelper"
+@"NSHashTable"
 B60@0:8@16B24@28@36@44q52
 @"SiriTestingContext"
 @"SASBulletinCacheNode"
@@ -1882,6 +1878,8 @@ B24@0:8Q16
 v40@0:8@"BSServiceConnectionListener"16@"BSServiceConnection<BSServiceConnectionHost>"24@"<BSXPCDecoding>"32
 @"BSServiceConnectionListener"
 @"SiriBluetoothContext"
+Vv32@0:8@"SASButtonIdentifierTransport"16@"NSString"24
+Vv32@0:8@"NSNumber"16@"NSString"24
 Vv32@0:8@"SASButtonIdentifierTransport"16@"SiriContext"24
 Vv32@0:8@"SASDirectActionEventTransport"16@"SiriDirectActionContext"24
 Vv24@0:8@"SiriContinuityContext"16
