@@ -1,5 +1,4 @@
  containerIdentifier:%@
- initializeSchema:%@
  ckAssetThresholdBytes:%@
  operationMemoryThresholdBytes:%@
  useEncryptedStorage:%@
@@ -10,9 +9,11 @@
  useDaemon:%@
  apsConnectionMachServiceName:%@
  containerProvider:%@
+ storeMonitorProvider:%@
  scheduler:%@
  notificationListener:%@
  containerOptions:%@
+NSCloudKitMirroringDelegateOptions.initializeSchema is no longer supported and will be removed in a future release. Please use +[NSPersistentCloudKitContainer initializeSchemaWithOptions:error:] instead.
 scheduler
 T@"CKScheduler",&,N,V_scheduler
 notificationListener
@@ -21,6 +22,8 @@ skipCloudKitSetup
 TB,N,V_skipCloudKitSetup
 containerProvider
 T@"PFCloudKitContainerProvider",&,N,V_containerProvider
+storeMonitorProvider
+T@"PFCloudKitStoreMonitorProvider",&,N,V_storeMonitorProvider
 useDaemon
 TB,N,V_useDaemon
 useTestDaemon
@@ -66,13 +69,13 @@ T@"NSString",R,N,V_fileBackedFuturesDirectory
 _ckAsset
 CoreData+CloudKit: %s(%d): 
 System fields record name doesn't match row: %@
--[PFCloudKitSerializer newCKRecordsFromObject:fullyMaterializeRecords:error:]
+-[PFCloudKitSerializer newCKRecordsFromObject:fullyMaterializeRecords:includeRelationships:error:]
 System fields record type doesn't match new schema: %@
 Failed to reconstruct CKRecord from system fields in object: %@
 v32@?0@"NSString"8@"NSAttributeDescription"16^B24
 q24@?0@"NSAttributeDescription"8@"NSAttributeDescription"16
 Failed to copy CKAsset data for '%@' on '%@' backing record '%@'.
--[PFCloudKitSerializer newCKRecordsFromObject:fullyMaterializeRecords:error:]_block_invoke
+-[PFCloudKitSerializer newCKRecordsFromObject:fullyMaterializeRecords:includeRelationships:error:]_block_invoke
 Failed to write CKAsset data for '%@' on '%@' backing record '%@'.
 v32@?0@"NSAttributeDescription"8Q16^B24
 Failed to look up cached mirrored relationship for mtmKey: %@
@@ -224,8 +227,30 @@ NSPersistentCloudKitContainerOptionsKey
 NSPersistentCloudKitContainerEncryptedAttributeKey
 Cannot assign the same iCloud Container Identifier to multiple persistent stores.
 com.apple.developer.icloud-container-identifiers
+%@: will initialize cloudkit schema for store: %@
+-[NSPersistentCloudKitContainer initializeCloudKitSchemaWithOptions:error:]
+Finished initialize schema with result: %@
+-[NSPersistentCloudKitContainer initializeCloudKitSchemaWithOptions:error:]_block_invoke
+Initialize schema request failed: %@
+v16@?0@"NSCloudKitMirroringResult"8
+Failed to initialize CloudKit schema because the requests timed out (a 30s wait failed).
+encounteredErrors
+Couldn't initialize CloudKit schema because no stores in the coordinator are configured to use CloudKit: %@
+NSPersistentCloudKitContainer got a result back that isn't of type 'NSCloudKitMirroringDelegateSerializationRequestResult' when asking about the record for a managed object id.
+Record serialization failed with error: %@
+-[NSPersistentCloudKitContainer recordForManagedObjectID:]_block_invoke
+Wait timed out during call to recordForManagedObjectID
+Failed to retrieve record for object '%@'
+-[NSPersistentCloudKitContainer recordForManagedObjectID:]
+NSPersistentCloudKitContainer got a result back that isn't of type 'NSCloudKitMirroringDelegateSerializationRequestResult' when asking about the records for a group of managed object ids.
+-[NSPersistentCloudKitContainer recordsForManagedObjectIDs:]_block_invoke
+Wait timed out during call to recordsForManagedObjectIDs
+Failed to retrieve records for objects %@
+-[NSPersistentCloudKitContainer recordsForManagedObjectIDs:]
 cloudKitContainerOptions
 T@"NSPersistentCloudKitContainerOptions",&
+requestGroup
+T@"NSObject<OS_dispatch_group>",R,N,V_requestGroup
 IEM_
 removedProperties
 addedProperties
@@ -318,9 +343,22 @@ CREATE TRIGGER IF NOT EXISTS %@_UPDATE AFTER UPDATE OF %@ ON %@ FOR EACH ROW%@
 CREATE TRIGGER IF NOT EXISTS %@_UPDATE AFTER UPDATE OF %@ ON %@ FOR EACH ROW
  SELECT NSCoreDataDATriggerUpdatedAffectedObjectValue('%@', Z_ENT, Z_PK, '%@', %@) FROM %@ WHERE %@ = NEW.Z_PK%@;
 UPDATE %@ SET %@ = (SELECT %@ FROM %@ WHERE Z_PK = %@.%@)%@
+%@, %@
+DROP TRIGGER IF EXISTS %@_UPDATE_SET
+DROP TRIGGER IF EXISTS %@_UPDATE_UNSET
+CREATE TRIGGER IF NOT EXISTS %@_INSERT AFTER INSERT ON %@ FOR EACH ROW WHEN (NEW.%@ NOT NULL AND NEW.%@ NOT NULL)
+ SELECT NSCoreDataDATriggerUpdatedAffectedObjectValue('%@', Z_ENT, Z_PK, '%@', NEW.%@) FROM %@ WHERE Z_PK = NEW.%@%@ AND %@;
+(%@ IS NULL OR NEW.%@ %@ %@)
+ UPDATE %@ SET %@ = NEW.%@ WHERE Z_PK = NEW.%@%@ AND %@;
+CREATE TRIGGER IF NOT EXISTS %@_UPDATE_SET AFTER UPDATE OF %@ ON %@ FOR EACH ROW WHEN (NEW.%@ NOT NULL AND NEW.%@ NOT NULL)
+ UPDATE %@ SET %@ = (SELECT %@(%@) FROM %@ WHERE %@ = OLD.%@%@) WHERE Z_PK = OLD.%@%@ AND %@;
+OLD.%@ == %@
+CREATE TRIGGER IF NOT EXISTS %@_UPDATE_UNSET AFTER UPDATE OF %@ ON %@ FOR EACH ROW WHEN (OLD.%@ NOT NULL AND OLD.%@ NOT NULL AND (NEW.%@ IS NULL OR NEW.%@ IS NULL))
+ SELECT NSCoreDataDATriggerUpdatedAffectedObjectValue('%@', Z_ENT, Z_PK, '%@', %@) FROM %@ WHERE Z_PK = OLD.%@%@ AND %@;
+CREATE TRIGGER IF NOT EXISTS %@_DELETE AFTER DELETE ON %@ FOR EACH ROW WHEN (OLD.%@ NOT NULL AND OLD.%@ NOT NULL)
+UPDATE %@ SET %@ = (SELECT %@(%@) FROM %@ WHERE %@ = %@.Z_PK)%@;
 + IFNULL(NEW.%@, 0)
 - IFNULL(OLD.%@, 0)
-%@, %@
 DROP TRIGGER IF EXISTS %@_UPDATE_INCREMENT
 DROP TRIGGER IF EXISTS %@_UPDATE_DECREMENT
 CREATE TRIGGER IF NOT EXISTS %@_INSERT AFTER INSERT ON %@ FOR EACH ROW WHEN (NEW.%@ NOT NULL)
@@ -690,7 +728,7 @@ NSAttributeValueClassName requires a NSString
 NSMaxValueName
 NSMinValueName
 NSIsFileBackedFuture
-%@, attributeType %lu , attributeValueClassName %@, defaultValue %@, preserveValueOnDeletionInPersistentHistory %@
+%@, attributeType %lu , attributeValueClassName %@, defaultValue %@, preservesValueInHistoryOnDeletion %@
 Can't set attributeValueClassName to nil for a non-transient attribute.
 Can't set attribute type to undefined for non-transient attribute.
 '%@' is only supported for use with '%@'.
@@ -715,7 +753,6 @@ T@"NSData",R,C
 valueTransformerName
 allowsExternalBinaryDataStorage
 preservesValueInHistoryOnDeletion
-TB,VpreserveValueOnDeletionInPersistentHistory
 preserveValueOnDeletionInPersistentHistory
 NSDoubleAttributeType
 NSDateAttributeType
@@ -762,7 +799,6 @@ x-coredata://
 %@://%@/%@/p%qu
 _NSCoreDataTaggedObjectID
 -initWithObject: is not implemented on tagged objectIDs
--_referenceData is not implemented on tagged objectIDs
 %@://%@/%@/t%@%d
 Cannot create a binary store with a nil URL.
 CoreData binary stores only support file URLs (got %@).
@@ -837,6 +873,8 @@ Destination Object
 Relationship
 CoreData does not support persistent cross-store relationships
 Can't find entity for object
+serializedObjects
+T@"NSDictionary",R,N,V_serializedObjects
 _CoreDataEntityDescription
 _CoreDataEntityName
 NSKeyValueUndefinedSetter
@@ -1251,6 +1289,7 @@ hasChanges
 TB,R,N
 hasPersistentChangedValues
 faultingState
+Cannot set BindableObject publisher after it has already been set
 Unacceptable type of value for attribute: property = "%@"; desired type = %@; given type = %@; value = %@.
 A class implementing the NSFileBackedFuture protocol
 Cannot set value for attribute with undefined type: property = "%@"; entity = "%@"; value = %@
@@ -1467,6 +1506,8 @@ NSValidationErrorShouldAttemptRecoveryKey
 validation recovery attempt FAILED with %@ and %@.
 An observer of NSManagedObjectContextDidSaveNotification illegally threw an exception.  Objects saved = %@ and exception = %@ with userInfo = %@ at %@
 Objects should not be both modified and additional
+_persistentStoresScope
+T@"NSArray",C,S_setPersistentStoresScope:
 Mutating a managed object %@ (%p) that has a different context %p than the receiver %p.
 Failed to process pending changes before save.  The context is still dirty after 1000 attempts.  Typically this recursive dirtying is caused by a bad validation method, -willSave, or notification handler.
 Serious application error.  Exception was caught during Core Data change processing.  This is usually a bug within an observer of NSManagedObjectContextObjectsDidChangeNotification.  %@ with userInfo %@
@@ -2037,6 +2078,7 @@ beginBackgroundTaskWithName:expirationHandler:
 Registration for _beginPowerAssertionNamed completed with class %p on app %p and result %@
 sucess
 failure
+Podcasts
 Unexpected background task assertion cancellation.
 Failed to acquire background task assertion for task '%@'.
 Successfully acquired background task assertion %d for task '%@'.
@@ -2317,7 +2359,6 @@ Store initialized waiting for the mirroring delegate to set up.
 Mirroring delegate initialized.
 Backup export failed: %@
 -[CDDCloudKitServer runActivity:completionHandler:]_block_invoke_3
-v16@?0@"NSCloudKitMirroringResult"8
 Failed to execute export request: %@
 Timed out waiting for the mirroring delegate to set up.
 Failed to load persistent store for client: %@
@@ -2480,7 +2521,6 @@ Can't fetch UUIDs for non-root entities
 Invalid parameter value (missing parameter)
 Invalid parameter value (bad entity)
 Invalid parameter value (zero)
-This persistent store is not associated with a mirroring delegate, it cannot process this request: %@
 failed to retrieve ordering information from fault for object %@ and relationship %@
 v32@?0@"NSObject<NSSQLAttributeExtension>"8Q16^B24
 Refreshing trigger values failed to adopt post transaction query generation with error %d
@@ -3194,7 +3234,7 @@ DROP TABLE ZCHANGETRACKHISTORY
 DROP TABLE ZCHANGE
 DROP TABLE ZTRANSACTION
 SELECT COUNT(Z_PK) FROM %@ WHERE %@ = %@
-SELECT Z_PK FROM %@ WHERE %@ = '%@'
+SELECT Z_PK FROM %@ WHERE %@ = ?
 ALTER TABLE %@ ADD Z%@%lu BLOB;
 select sql from sqlite_master where name = '%@'
 Unable to determine if tombstones for change table - %s
@@ -3212,7 +3252,7 @@ unable to generate primary keys for batch insert
 mandatory property not set
 unable to generate primary keys
 SELECT count(*) FROM 
-SELECT count(*) FROM %@ LIMIT 1
+SELECT count(*) FROM (SELECT 0 FROM %@ LIMIT 1)
 SELECT ENTITYID, PrimeKey FROM %@
 ENTITYID
 PrimeKey
@@ -3385,7 +3425,6 @@ importOperationIdentifier
 T@"NSUUID",R,N,V_importOperationIdentifier
 assetPathToSafeSaveURL
 T@"NSDictionary",R,N,V_assetPathToSafeSaveURL
-encounteredErrors
 T@"NSArray",R,N,V_encounteredErrors
 updatedRecords
 T@"NSArray",R,N,V_updatedRecords
@@ -3569,7 +3608,7 @@ Which had result %@
 Nil batch delete request
 Nil persistent history request
 Got historyToken %@
-%@, attributeType %lu , attributeValueClassName %@, derivationExpression %@, filteringPredicate %@, preserveValueOnDeletionInPersistentHistory %@
+%@, attributeType %lu , attributeValueClassName %@, derivationExpression %@, filteringPredicate %@, preservesValueInHistoryOnDeletion %@
 NSDerivationExpression
 NSFilteringPredicate
 .@sum
@@ -3610,6 +3649,12 @@ pendingResetMetadataRequest
 T@"NSCloudKitMirroringResetMetadataRequest",R,N,V_pendingResetMetadataRequest
 activeRequest
 T@"NSCloudKitMirroringRequest",R,N,V_activeRequest
+pendingSerializationRequest
+T@"NSCloudKitMirroringDelegateSerializationRequest",R,N,V_pendingSerializationRequest
+pendingInitializeSchemaRequest
+T@"NSCloudKitMirroringInitializeSchemaRequest",R,N,V_pendingInitializeSchemaRequest
+pendingExportProgressRequest
+T@"NSCloudKitMirroringExportProgressRequest",R,N,V_pendingExportProgressRequest
 TRANSACTION
 BUNDLEID
 PROCESSID
@@ -3650,6 +3695,7 @@ PersistentFetchHistory
 %@: Exporter / importer finished after %d tries. Allowing store to deallocate.
 -[PFCloudKitStoreMonitor pfcloudstoremonitor_is_holding_your_store_open_waiting_for_cloudkit_activity_to_finish]
 %@: Exporter / importer didn't tear down after 5 seconds, retrying (%d).
+Attempt to create context without a store identifier.
 Called after the store is dead. This method needs to be called inside a performBlock on the store monitor: %@
 monitorGroup
 T@"NSObject<OS_dispatch_group>",R,N,V_monitorGroup
@@ -4244,8 +4290,6 @@ Cannot construct cloudkit metadata update statements for unimplemented migration
 rootEntity
 T@"NSSQLEntity",R,N,V_rootEntity
 TB,V_useEncryptedStorage
-shouldInitializeSchema
-TB,V_shouldInitializeSchema
 T@"NSString",R,C,V_containerIdentifier
 NSSQLiteInPlaceMigrationManager requires that the source and destination stores to be NSSQLiteStoreType
 sourceStore
@@ -4278,9 +4322,10 @@ Cannot be used without an instance of %@.
 %@: %@ - attribute is not optional
 %@: %@ - %@
 %@:%@ - %@
-%@:%@ - preserveValueOnDeletionInPersistentHistory should be YES
+%@:%@ - preservesValueInHistoryOnDeletion should be YES
 %@: Estimated size %lu bytes
 CloudKit integration requires that all relationships have an inverse, the following do not:
+CloudKit integration requires does not support ordered relationships. The following relationships are marked ordered:
 CloudKit integration requires that all attributes be optional, or have a default value set. The following attributes are marked non-optional but do not have a default value:
 CloudKit integration requires that all relationships be optional, the following are not:
 CloudKit integration does not support all attribute types. The following entities have attributes of an unsupported type:
@@ -4533,6 +4578,14 @@ v16@?0@"NSCKMetadataEntry"8
 boolValue
 T@"NSObject<NSSecureCoding>",&,D,N
 DROP INDEX IF EXISTS Z_%@_%@
+ resultType: %@
+objectIDsToSerialize:
+Records
+RecordIDs
+Unknown result type: %lu
+TQ,N,V_resultType
+objectIDsToSerialize
+T@"NSSet",C,N,V_objectIDsToSerialize
 cdutil-stub-container
 Failed to load persistent store at url: %@
 Timed out waiting for the mirroring delegate to finish setting up. This is a bug. Please re-run and attach a sample of cdutil if you can.
@@ -4782,6 +4835,10 @@ requestIdentifier
 T@"NSUUID",R,N,V_requestIdentifier
 T@"NSCloudKitMirroringRequestOptions",R,C,N,V_options
 T@?,R,C,N,V_requestCompletionBlock
+objectIDsToReset
+T@"NSSet",C,N,V_objectIDsToReset
+schemaInitializationOptions
+TQ,N,V_schemaInitializationOptions
 <NSPersistentHistoryTransaction: %lld, %@, %@, %@, %@, %@, %@>
 T@"NSDate",R,C
 storeID
@@ -4963,6 +5020,9 @@ T@"CKOperationConfiguration",&,N,V_operationConfiguration
 qualityOfService
 allowsCellularAccess
 CDDCloudKitRegisteredClient
+T@"NSSet",C,N,V_objectIDsToFetch
+objectIDToLastExportedToken
+T@"NSDictionary",R,N,V_objectIDToLastExportedToken
 TEMP_CDBATCHUPDATEOBJECTIDS
 INSERT INTO %@ (ENTITYID, PrimeKey) SELECT OLD.Z_ENT, OLD.Z_PK;
 CREATE TEMPORARY TRIGGER IF NOT EXISTS ZQ_BATCHUPDATEOBJECTID_TRIGGER AFTER UPDATE ON %@ FOR EACH ROW BEGIN %@ END
@@ -4999,6 +5059,7 @@ NSCloudKitMirroringDelegate.import
 NSCloudKitMirroringDelegate.export
 NSCloudKitMirroringDelegate.reset
 NSCloudKitMirroringDelegate.migration
+NSCloudKitMirroringDelegate.setup
 com.apple.coredata.cloudkit.activity.export
 com.apple.coredata.cloudkit.activity.import
 com.apple.coredatad.cloudkit
@@ -5036,6 +5097,10 @@ Failed to schedule export after setup: %@
 Finished sandbox scheduled import: %@
 -[NSCloudKitMirroringDelegate _beginWatchingForChanges]_block_invoke_3
 Sandbox scheduled import failed: %@
+com.apple.coredata.cloudkit.teardown
+%@: Told to tear down because the store has been removed.
+-[NSCloudKitMirroringDelegate tearDown]_block_invoke
+%@: Cancelling pending request: %@
 %@ - Recieved account or identity change notification: %d - %@
 -[NSCloudKitMirroringDelegate ckAccountOrIdentityChangedHandler:]
 CoreData: Account Change Observer
@@ -5044,12 +5109,14 @@ CoreData: Account Change Observer
 -[NSCloudKitMirroringDelegate ckAccountOrIdentityChangedHandler:]_block_invoke
 %@ - ending power assertion: %lu, %@
 %@ - Already scheduled a block to respond to account or identity change notifications, %d notifications since.
-%@: Executing request: %@
+%@: Asked to execute request: %@
 -[NSCloudKitMirroringDelegate executeMirroringRequest:error:]
 Instances of '%@' are ambiguous and not understood by '%@', use one of the subclasses instead.
 com.apple.coredata.cloudkit.schedule.enqueue
-Enqueued request: %@
+%@: enqueuing request: %@
 -[NSCloudKitMirroringDelegate _enqueueRequest:]_block_invoke
+Enqueued request: %@
+-[NSCloudKitMirroringDelegate _enqueueRequest:]_block_invoke_2
 Failed to enqueue request: %@
 %@: Asked to execute a request that isn't understood yet: %@
 Reset request was scheduled without a root cause error: %@
@@ -5081,6 +5148,14 @@ Purged cloudkit metadata from store: %@
 Result: %@
 -[NSCloudKitMirroringDelegate _performMetadataResetRequest:]_block_invoke
 Failed to purge cloudkit metadata from store: %@
+com.apple.coredata.cloudkit.serialization
+Multiple records returned for object even though we didn't ask for relationships: %@
+Unsupported resultType: %lu, %@
+No records returned from the serializer for object: %@
+%@ - Unable to serialize object '%@' because it appears to be missing from the store.
+-[NSCloudKitMirroringDelegate _performSerializationRequest:]_block_invoke
+Failed to save metadata changes from serialization of records: %@
+com.apple.coredata.cloudkit.progress.export
 %@ - Never successfully initialized and cannot execute request '%@' due to error: %@
 -[NSCloudKitMirroringDelegate _requestAbortedNotInitialized:]
 Request '%@' was aborted because the mirroring delegate never successfully initialized and cannot reset the zone due to error: %@
@@ -5108,6 +5183,11 @@ Unknown error passed to partial error handler: %@
 -[NSCloudKitMirroringDelegate purgeMetadataFromStore:inMonitor:withOptions:forRecordZones:error:]_block_invoke
 %@ - Purging row metadata
 %@ - Removed cloud metadata %@
+Unable to purge metadata from store for objectID '%@' because the entity '%@' is missing from the store's model: %@
+-[NSCloudKitMirroringDelegate purgeMetadataMatchingObjectIDs:inRequest:inStore:withMonitor:error:]_block_invoke
+Unable to purge metadata for object with temporaryID: %@
+entityId = %@ AND entityPK IN %@
+recordName IN %@ OR relatedRecordName IN %@
 com.apple.coredata.cloudkit.schedule
 %@ - Ignoring remote change notification because it's for a different store: %@ / %@
 -[NSCloudKitMirroringDelegate remoteStoreDidChange:]_block_invoke_2
@@ -5130,6 +5210,13 @@ Failed to fetch database metadata during automatic import check: %@
 Unable to schedule work because the mirroring delegate was deallocated.
 Finished request: %@ with result: %@
 -[NSCloudKitMirroringDelegate _finishedRequest:withResult:]
+com.apple.coredata.cloudkit.schema.initialize
+Executing schema initialization request: %@
+-[NSCloudKitMirroringDelegate _performSchemaInitializationRequest:]_block_invoke
+Schema initialization request: %@ finished with result: %@
+%@: Schema initialization failed for store: %@ with error:
+%@ generated the following records for the model associated with the store: %@
+-[NSCloudKitMirroringDelegate _createSchemaWithMonitor:options:error:]
 T@"NSCloudKitMirroringDelegateOptions",R,C,N,V_options
 ckDatabaseName
 T@"NSString",R,N,V_ckDatabaseName
@@ -5183,6 +5270,7 @@ T@,R,N,V_identifier
 T@"NSDictionary",C,N
 Invalid variable substitution - multiple values not supported here %@
 unable to resolve variable expression: %@
+CoreData: NSCloudKitMirroringDelegateOptions.initializeSchema is no longer supported and will be removed in a future release. Please use +[NSPersistentCloudKitContainer initializeSchemaWithOptions:error:] instead.
 CoreData: Failed to reconstruct CKRecord from system fields in object: %@
 CoreData: Failed to look up cached mirrored relationship for mtmKey: %@
 CoreData: Record metadata doesn't match row: %@
@@ -5190,6 +5278,10 @@ CoreData: Need to handle fetch errors here and abort serialization. %@
 CoreData: Delegate didn't return a file url for asset: %@
 %{public}s: %{public}s
 CoreData: %{public}s: %{public}s
+CoreData: NSPersistentCloudKitContainer got a result back that isn't of type 'NSCloudKitMirroringDelegateSerializationRequestResult' when asking about the record for a managed object id.
+CoreData: Wait timed out during call to recordForManagedObjectID
+CoreData: NSPersistentCloudKitContainer got a result back that isn't of type 'NSCloudKitMirroringDelegateSerializationRequestResult' when asking about the records for a group of managed object ids.
+CoreData: Wait timed out during call to recordsForManagedObjectIDs
 CoreData: Updating a constrained entity generated an UPDATE statement with no columns on entity %@
 CoreData: Background Core Data task threw an exception.  Exception = %@ and userInfo = %@
 CoreData: New many to many relationship type?: %@
@@ -5286,6 +5378,7 @@ CoreData: Dequeue called during an active request: %@
 CoreData: requestFinished called with a different request than the active request: %@
 Called with: %@
 CoreData: requestFinished called without an active request: %@
+CoreData: Attempt to create context without a store identifier.
 CoreData: Called after the store is dead. This method needs to be called inside a performBlock on the store monitor: %@
 CoreData: Something has gone badly awry initializing the XPC connection pool: %@
 CoreData:  NSSQLConnectionManager tried to blow a lock
@@ -5323,6 +5416,7 @@ CoreData: Didn't find record metadata for related record to mirrored relationshi
 CoreData: Attempting to cache zone metadata but already have one: %@
 CoreData: initWithRequest passed an error (%@) on a succes condition
 CoreData: initWithRequest illegally passed nil instead of an error on a failure condition
+CoreData: Unknown result type: %lu
 CoreData: %@ - Exception thrown during fetch records operation: %@
 CoreData: createRecordZoneID called before object has an owner name and zone name: %@
 CoreData: Duplicate operations for identifier: %@
@@ -5361,15 +5455,18 @@ CoreData: Failed to execute mirroring request: %@
 CoreData: %@: Asked to execute a request that isn't understood yet: %@
 CoreData: Reset request was scheduled without a root cause error: %@
 CoreData: Setup request executed with a completion block that will never be called: %@
+CoreData: Multiple records returned for object even though we didn't ask for relationships: %@
+CoreData: Unsupported resultType: %lu, %@
+CoreData: No records returned from the serializer for object: %@
 CoreData: handleErrorInResult illegally passed nil instead of a result
 CoreData: handleErrorInResult passed a sucessful result (%@) with an illegal error object (%@)
 CoreData: handleErrorInResult illegally passed a failed result (%@) with nil instead of an error on a failure condition
 CoreData: recoverFromError illegally passed nil instead of an error on a failure condition
+CoreData: Unable to purge metadata for object with temporaryID: %@
 CoreData: Failed to fetch database metadata during automatic import check: %@
 333333
 62a8480cd24caef341b5a6b5c6e848c4
-@(#)PROGRAM:CoreData  PROJECT:PersistenceFramework-954
-QxQ1
+@(#)PROGRAM:CoreData  PROJECT:PersistenceFramework-957
 zPLR
 zPLR
 zPLR
@@ -5476,6 +5573,7 @@ _NSFaultingMutableSet
 _NSFaultingMutableSetMutationMethods
 NSPersistentCloudKitContainer
 NSPersistentCloudKitContainerAdditions
+_PFRequestExecutor
 _NSMappingModelBuilder
 _NSMemoryStorePredicateRemapper
 _NSChildContextPredicateRemapper
@@ -5544,6 +5642,7 @@ NSSQLKeypathTriggerAttributeExtension
 NSBinaryObjectStoreFile
 NSDictionaryMapNode
 NSDictionaryStoreMap
+NSCloudKitMirroringDelegateSerializationRequestResult
 NSEntityDescription
 NSFastEnumeration
 _NSEntityDescriptionPrivateMethods
@@ -5795,6 +5894,7 @@ PFCloudKitImporterOptions
 NSSQLForeignOrderKey
 _CDSnapshot
 NSMutableCopying
+PFCloudKitStoreMonitorProvider
 NSIncrementalStore
 _PFSpawn
 NSPersistentHistoryChange
@@ -5819,6 +5919,7 @@ NSSQLStoreRequestContext
 NSCloudKitMirroringResult
 NSCKMetadataEntry
 NSSQLBinaryIndex
+NSCloudKitMirroringDelegateSerializationRequest
 __CLI
 NSSQLObjectFaultRequestContext
 PFHistoryAnalyzerContext
@@ -5839,6 +5940,7 @@ NSCloudKitMirroringExportRequest
 NSCloudKitMirroringImportRequest
 NSCloudKitMirroringResetZoneRequest
 NSCloudKitMirroringResetMetadataRequest
+NSCloudKitMirroringInitializeSchemaRequest
 NSPersistentHistoryTransaction
 _NSPersistentHistoryTransaction
 PFCloudKitLogging
@@ -5867,6 +5969,8 @@ NSPersistentHistoryChangeRequestToken
 _NSXPCStoreUtilities
 NSCloudKitMirroringRequestOptions
 CDDCloudKitRegisteredClient
+NSCloudKitMirroringExportProgressRequest
+NSCloudKitMirroringExportProgressResult
 NSSQLBatchUpdateRequestContext
 NSCloudKitMirroringDelegateSetupRequest
 NSCloudKitMirroringDelegateSetupResult
@@ -5881,7 +5985,6 @@ NSSQLVariableExpressionIntermediate
 init
 containerIdentifier
 initWithContainerIdentifier:
-shouldInitializeSchema
 useEncryptedStorage
 apsConnectionMachServiceName
 copy
@@ -5890,10 +5993,11 @@ description
 mutableCopy
 null
 appendFormat:
+stringWithUTF8String:
 initWithCloudKitContainerOptions:
+setInitializeSchema:
 setContainerIdentifier:
 initializeSchema
-setInitializeSchema:
 setUseEncryptedStorage:
 ckAssetThresholdBytes
 setCkAssetThresholdBytes:
@@ -5913,6 +6017,8 @@ skipCloudKitSetup
 setSkipCloudKitSetup:
 containerProvider
 setContainerProvider:
+storeMonitorProvider
+setStoreMonitorProvider:
 useDaemon
 setUseDaemon:
 useTestDaemon
@@ -5932,6 +6038,7 @@ _scheduler
 _notificationListener
 _skipCloudKitSetup
 _containerProvider
+_storeMonitorProvider
 _apsConnectionMachServiceName
 _useDaemon
 _useTestDaemon
@@ -6000,6 +6107,7 @@ _externalDataReferencesDirectory
 _externalDataLinksDirectory
 _fileBackedFuturesDirectory
 initWithZone:mirroringOptions:metadataCache:recordNamePrefix:
+newCKRecordsFromObject:fullyMaterializeRecords:includeRelationships:error:
 managedObjectContext
 entity
 objectID
@@ -6020,7 +6128,6 @@ isEqualToString:
 stringByAppendingString:
 recordType
 hasPrefix:
-stringWithUTF8String:
 finishDecoding
 initWithRecordName:zoneID:
 recordTypeForEntity:
@@ -6448,15 +6555,32 @@ setPersistentStoreDescriptions:
 setMirroringDelegate:
 setOption:forKey:
 _loadStoreDescriptons:withCompletionHandler:
+persistentStores
+success
+error
+setSchemaInitializationOptions:
+newBackgroundContext
+initWithDomain:code:userInfo:
+serializedObjects
+requestFinished
+setResultType:
+setWithObject:
+setObjectIDsToSerialize:
+executeRequest:inContext:error:
+wait
+objectIDsToSerialize
+setWithArray:
 recordForManagedObjectID:
 recordsForManagedObjectIDs:
+initializeCloudKitSchemaWithOptions:error:
 recordIDForManagedObjectID:
 recordIDsForManagedObjectIDs:
+requestGroup
+_requestGroup
 migrationDebugLevel
 setMigrationDebugLevel:
 _resetCaches
 renamingIdentifier
-initWithDomain:code:userInfo:
 newEntityMappingWithSource:destination:
 mappingType
 inferPropertyMappingsForEntityMapping:
@@ -6543,6 +6667,8 @@ destinationEntity
 _parameterPropertyTokenForDerivedAttribute:andKeypath:onEntity:
 uppercase:
 lowercase:
+min:
+max:
 sum:
 _computeNewColumnTokenForKeypathExpression:governingEntity:
 firstObject
@@ -6556,6 +6682,7 @@ _generateTriggerForAttribute:newToken:triggerColumnListComponent:triggerColumnWh
 _generateSQLForToOneDerivationForDerivedAttribute:toOneKeypath:
 _computeNewColumnTokenForFunctionAttribute:
 _generateIncrementDecrementTriggersForDerivedAttribute:toManyKeypath:
+_generateMinMaxTriggersForDerivedAttribute:toManyKeypath:
 _generateIncrementDecrementTriggersForDerivedAttribute:manyToManyKeypath:
 _generateSQLForAttributeKeypathDerivationForDerivedAttribute:keypaths:
 _generateSQLForToOneKeypathDerivationForDerivedAttribute:keypaths:
@@ -6741,7 +6868,6 @@ setFetchOffset:
 setHavingPredicate:
 setPropertiesToGroupBy:
 resultType
-setResultType:
 includesSubentities
 setIncludesSubentities:
 includesPropertyValues
@@ -7119,7 +7245,6 @@ _recordID
 initWithPersistentStoreCoordinator:configurationName:URL:options:
 _persistentStoreCoordinator
 _registerCacheNode:
-setWithArray:
 _referenceData
 setMetadata:
 _updatedMetadataWithSeed:includeVersioning:
@@ -7246,7 +7371,7 @@ attributeValueClassName
 isIndexed
 encodeBool:forKey:
 _storeBinaryDataExternally
-preserveValueOnDeletionInPersistentHistory
+preservesValueInHistoryOnDeletion
 encodeInt32:forKey:
 numberWithFloat:
 failWithError:
@@ -7280,9 +7405,9 @@ setDefaultValue:
 setValueTransformerName:
 allowsExternalBinaryDataStorage
 setAllowsExternalBinaryDataStorage:
-setPreserveValueOnDeletionInPersistentHistory:
-preservesValueInHistoryOnDeletion
 setPreservesValueInHistoryOnDeletion:
+preserveValueOnDeletionInPersistentHistory
+setPreserveValueOnDeletionInPersistentHistory:
 _attributeValueClass
 _valueTransformerName
 _attributeValueClassName
@@ -7354,6 +7479,7 @@ _isPersistentStoreAlive
 URIRepresentation
 entityForEntityDescription:
 _fallbackFactory
+_preferReferenceData64
 _referenceData48_cd_rc16
 _initCoreWithTaggedIndex:
 _taggedPoolIndex
@@ -7424,7 +7550,6 @@ setMapData:
 subdataWithRange:
 setRequiresSecureCoding:
 setDecodingFailurePolicy:
-error
 clearCurrentValues
 readBinaryStoreFromData:originalPath:error:
 fileHandleForUpdatingAtPath:
@@ -7471,6 +7596,8 @@ updateObject:objectIDMap:
 retainedObjectIDsForRelationship:forObjectID:
 handleFetchRequest:
 _archivedData
+initWithRequest:serializedObjects:error:
+_serializedObjects
 entityForPath:
 entityForName:inManagedObjectContext:
 _entityClass
@@ -7616,7 +7743,6 @@ _compoundIndexRepresentation
 _isIndexForProperty:
 _constraintIsExtension:
 _setValues:retain:
-setWithObject:
 unarchivedObjectOfClass:fromData:error:
 initWithName:predicate:elements:entity:
 partialIndexPredicate
@@ -7842,7 +7968,6 @@ _forceRegisterLostFault:
 _handleError:withError:
 initWithName:
 URLsForDirectory:inDomains:
-persistentStores
 initWithConcurrencyType:
 _setPersistentStoreCoordinator:
 URLForResource:withExtension:
@@ -7856,7 +7981,6 @@ addPersistentStoreWithDescription:completionHandler:
 parentContext
 setParentContext:
 setPersistentStoreCoordinator:
-newBackgroundContext
 performBlock:
 persistentContainerWithName:
 persistentContainerWithName:managedObjectModel:
@@ -8025,6 +8149,8 @@ _cd_managedObjectContext
 _cd_objectID
 _cd_extras
 _cd_queueReference
+bindableObjectPublisher
+setBindableObjectPublisher:
 willRefresh:
 didRefresh:
 _lastSnapshot__
@@ -8157,7 +8283,8 @@ _registerClearStateWithUndoManager
 _establishEventSnapshotsForObject:
 _enqueueEndOfEventNotification
 _parentObtainPermanentIDsForObjects:context:error:
-_retainedCurrentQueryGeneration
+_persistentStoresScope
+_retainedCurrentQueryGeneration:
 unpinnedQueryGenerationToken
 _prepareForPushChanges:
 _newSaveRequestForCurrentState
@@ -8280,6 +8407,7 @@ _referenceCallbackRegistration
 _referenceQueue
 _ignoreChangeNotification
 _contextLabel
+_persistentStoreIdentifiers
 _newUnchangedLockedObjects
 initWithInsertedObjects:updatedObjects:deletedObjects:lockedObjects:
 _setSecureOperation:
@@ -8314,6 +8442,7 @@ _clearOriginalSnapshotAndInitializeRec:
 _postContextDidSaveNotificationWithUserInfo:
 _forgetObject:propagateToObjectStore:
 _informParentStoreNoLongerInterestedInObjectIDs:generation:
+_setPersistentStoresScope:
 _unsafeName
 _unsafeTransactionAuthor
 performFetch:error:
@@ -8376,6 +8505,7 @@ _undoManagerCheckpoint:
 _noop:
 _processObjectStoreChanges:
 _processNotificationQueue
+_willChange_Swift_Trampoline
 removeAllActionsWithTarget:
 _storeConfigurationChanged:
 _sendOrEnqueueNotification:selector:
@@ -8409,6 +8539,9 @@ _version
 _allOrderKeysForDestination:inRelationship:error:
 _orderKeysForRelationshipWithName__:onObjectWithID:
 _updateLocationsOfObjectsToLocationByOrderKey:inRelationshipWithName:onObjectWithID:error:
+getUUIDBytes:
+_temporaryIDCounter
+_compareArbitraryValue:toValue:
 _newArchiveForScalarObjectIDs:
 unarchivedScalarObjectIDsFromData:withCoordinator:
 _modelPathsFromBundles:
@@ -9139,13 +9272,11 @@ allowsCoercion
 _sqlType
 _int64
 initWithEntityName:objects:
-initWithEntity:objects:
 stringForResultType:
 objectsToInsert
 batchInsertRequestWithEntityName:objects:
 shortStringForResultType:
-initWithEntityName:andObjects:
-initWithEntity:andObjects:
+initWithEntity:objects:
 _resolveEntityWithSQLCore:
 setObjectsToInsert:
 _objectsToInsert
@@ -9174,7 +9305,6 @@ setExportedInterface:
 _handleRegistrationMessage:
 _handleScheduleMessage:
 initWithMessage:success:error:
-success
 storeFileHandle
 verifyFileHandle:matchesPath:error:
 createRealPathForPath:error:
@@ -9327,7 +9457,6 @@ _rebuildTriggerSchemaUsingConnection:recomputeValues:error:
 copyRawIntegerRowsForSQL:
 _hasPersistentHistoryTables
 _hasHistoryTransactionStringTable
-hasHistoryRows
 _hasOldHistoryTrackingTables
 _dropOldHistoryTrackingTables
 dropHistoryTrackingTables
@@ -9339,6 +9468,7 @@ hasAncillaryEntitiesInHistory
 dropHistoryBeforeTransactionID:
 hasTransactionStringColumnsInTransactionTable
 addTransactionStringColumnsToTransactionTable
+hasHistoryRows
 hasCachedModelTable
 saveCachedModel:
 fetchMetadata
@@ -9661,8 +9791,6 @@ _toOne
 _identifier
 _addBindVarForConstVal2:inContext:
 initWithConstantValue:inScope:
-max:
-min:
 average:
 isUpdateScoped
 _generateUncorrelatedSubqueryStringWithSymbol:forAttribute:inContext:
@@ -10115,7 +10243,6 @@ sqlStatement
 rangeValue
 _bytesPtrForStore
 _bytesLengthForStore
-getUUIDBytes:
 setColumnsToFetch:
 _clearOtherStatements
 _countOfVMCachedStatements
@@ -10518,6 +10645,7 @@ duplicateRequestErrorForRequest:
 enqueueRequest:error:
 dequeueNextRequest
 requestFinished:
+dequeueAllPendingRequests
 pendingImportRequest
 pendingExportRequest
 pendingSetupRequest
@@ -10525,6 +10653,9 @@ pendingDelegateResetRequest
 pendingResetRequest
 pendingFetchRecordsRequest
 pendingResetMetadataRequest
+pendingSerializationRequest
+pendingInitializeSchemaRequest
+pendingExportProgressRequest
 activeRequest
 _pendingImportRequest
 _pendingExportRequest
@@ -10533,6 +10664,9 @@ _pendingDelegateResetRequest
 _pendingResetRequest
 _pendingFetchRecordsRequest
 _pendingResetMetadataRequest
+_pendingSerializationRequest
+_pendingInitializeSchemaRequest
+_pendingExportProgressRequest
 _activeRequest
 objectIDForIdentifier:inStore:
 setObjectID:forIdentifier:
@@ -11146,8 +11280,6 @@ _addedColumnSet
 _raisedColumnSet
 _droppedEntitySet
 _columnsUpgradedToMandatory
-setShouldInitializeSchema:
-_shouldInitializeSchema
 _createStrings
 _dropStrings
 _updateStrings
@@ -11234,6 +11366,7 @@ resetGeneratedClasses
 _cd_version
 _cd_flags
 _cd_nullFlags_
+createMonitorForObservedStore:
 identifierForNewStoreAtURL:
 newObjectIDForEntity:referenceObject:
 _lastIdentifier
@@ -11298,7 +11431,6 @@ _checkUserIdentity:
 _createZoneIfNecessary:
 _setupDatabaseSubscriptionIfNecessary:
 _initializeAssetStorageURLError:
-_createSchemaIfNecessary:
 subpathsAtPath:
 accountStatusWithCompletionHandler:
 privateCloudDatabase
@@ -11308,7 +11440,6 @@ _shouldAttemptRecoveryForZone:byDeletingExistingZone:afterError:
 _deleteZone:error:
 initWithRecordZonesToSave:recordZoneIDsToDelete:
 setModifyRecordZonesCompletionBlock:
-_createSchema:
 hasSubscription
 initWithSubscriptionsToSave:subscriptionIDsToDelete:
 setModifySubscriptionsCompletionBlock:
@@ -11392,6 +11523,7 @@ setKey:
 insertMetadataEntryWithKey:transformedValue:forStore:intoManagedObjectContext:
 insertMetadataEntryWithKey:integerValue:forStore:intoManagedObjectContext:
 describeValue
+_objectIDsToSerialize
 checkForCloudKitTablesInStoreAtURL:withPersistentStoreCoordinator:withConfiguration:
 makeACopyOfTheStoreAtURL:withCoordinator:error:
 databaseName
@@ -11509,6 +11641,11 @@ initWithUnsignedLong:
 stringWithCapacity:
 entitiesAndCounts
 _requestIdentifier
+objectIDsToReset
+setObjectIDsToReset:
+_objectIDsToReset
+schemaInitializationOptions
+_schemaInitializationOptions
 storeID
 bundleID
 notificationWithName:object:
@@ -11525,9 +11662,6 @@ _processID
 _author
 _queryGeneration
 setCatastrophicLoggingLevel
-testPointForLoggingMessage:atLevel:
-testGetLoggingOverride
-testSetLoggingOverride:
 _deleteTarget
 wipeCloudMetadataFromMirroredObjects:
 deletedRecordZoneID
@@ -11608,6 +11742,9 @@ allowsCellularAccess
 qualityOfService
 operationConfiguration
 _operationConfiguration
+initWithRequest:objectIDToLastExportedToken:error:
+objectIDToLastExportedToken
+_objectIDToLastExportedToken
 fetchRequestDescribingObjectsToUpdate
 _createUpdateStatement
 createFetchRequestContextForObjectsToUpdate
@@ -11632,6 +11769,8 @@ storesDidChange:
 ckAccountOrIdentityChangedHandler:
 managedObjectContextSaved:
 remoteStoreDidChange:
+setAutomaticallyRetryNetworkFailures:
+setDiscretionaryNetworkBehavior:
 newActivityWithIdentifier:
 registerForSubscription:inDatabase:handler:
 checkAndScheduleImportIfNecessary
@@ -11645,6 +11784,9 @@ _performResetZoneRequest:
 _performMetadataResetRequest:
 _performSetupRequest:
 _performDelegateResetRequest:
+_performSchemaInitializationRequest:
+_performSerializationRequest:
+_performExportProgressRequest:
 resetAfterError:
 _finishedRequest:withResult:
 _beginWatchingForChanges
@@ -11652,6 +11794,7 @@ recoverFromError:
 _requestAbortedNotInitialized:
 purgeMetadataFromStore:inMonitor:withOptions:forRecordZones:error:
 setMarkZonesAsUserPurged:
+purgeMetadataMatchingObjectIDs:inRequest:inStore:withMonitor:error:
 _requestEncounteredRecoverableError:withResult:
 _requestEncounteredUnrecoverableError:withResult:
 _recoverFromPartialError:withMonitor:
@@ -11667,6 +11810,7 @@ _dateExceedsSchedulingThreshold:
 timeIntervalSinceNow
 _executeRequest:
 handleErrorInResult:
+_createSchemaWithMonitor:options:error:
 _setObservedStore:observedCoordinator:
 _setZone:
 _setAccountNotificationBackoffInterval:
@@ -11715,15 +11859,16 @@ _cachedInfo
 @16@0:8
 @24@0:8@16
 v16@0:8
+v20@0:8B16
 v24@0:8@16
 B16@0:8
-v20@0:8B16
 @"NSString"
 @"NSNumber"
 @"CKContainerOptions"
 @"CKScheduler"
 @"CKNotificationListener"
 @"PFCloudKitContainerProvider"
+@"PFCloudKitStoreMonitorProvider"
 @40@0:8@16@24@32
 B24@0:8^@16
 v32@0:8@16@24
@@ -11741,6 +11886,7 @@ B24@0:8Q16
 @28@0:8@16B24
 @48@0:8@16@24@32@40
 @36@0:8@16B24^@28
+@40@0:8@16B24B28^@32
 B56@0:8@16@24@32@40^@48
 B72@0:8@16@24@32@40@48@56^@64
 v64@0:8@16@24@32@40@48@56
@@ -11791,6 +11937,9 @@ v32@0:8:16@24
 @32@0:8#16@24
 ^{objc_method=}
 v32@0:8@16@?24
+B32@0:8Q16^@24
+B40@0:8@16@24^@32
+@"NSObject<OS_dispatch_group>"
 i16@0:8
 v20@0:8i16
 B32@0:8Q16Q24
@@ -11892,7 +12041,6 @@ r*20@0:8B16
 r^S16@0:8
 v24@0:8*16
 r*24@0:8Q16
-B40@0:8@16@24^@32
 v72@0:8@16@24@32@40@48@56Q64
 @"NSRelationshipDescription"
 @"CKRecordID"
@@ -11962,6 +12110,7 @@ v32@0:8^@16^@24
 v40@0:8Q16@24@32
 v40@0:8@16Q24@32
 B40@0:8^@16@24^@32
+^{?=@@@@@}
 @36@0:8^I16^I24B32
 v32@0:8{_NSRange=QQ}16
 v40@0:8@16@24Q32
@@ -12082,7 +12231,6 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSXPCListener"
 @"CDDCloudKitServerConfiguration"
 @"NSPersistentContainer"
-@"NSObject<OS_dispatch_group>"
 @28@0:8@16C24
 @44@0:8@16C24@28@36
 B36@0:8@16C24@28
@@ -12213,6 +12361,9 @@ v24@0:8@"NSPredicateOperator"16
 @"NSCloudKitMirroringResetZoneRequest"
 @"NSCloudKitMirroringFetchRecordsRequest"
 @"NSCloudKitMirroringResetMetadataRequest"
+@"NSCloudKitMirroringDelegateSerializationRequest"
+@"NSCloudKitMirroringInitializeSchemaRequest"
+@"NSCloudKitMirroringExportProgressRequest"
 @"NSCloudKitMirroringRequest"
 v28@0:8i16@20
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}

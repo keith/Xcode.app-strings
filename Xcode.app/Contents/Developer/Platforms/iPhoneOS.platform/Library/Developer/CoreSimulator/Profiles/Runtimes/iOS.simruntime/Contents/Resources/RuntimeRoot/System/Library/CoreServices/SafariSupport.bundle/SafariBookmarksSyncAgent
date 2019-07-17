@@ -22,16 +22,18 @@ T#,R
 description
 T@"NSString",R,C
 debugDescription
+v16@?0@"CloudTabRemoteStore"8
 com.apple.icloud-container.
 com.apple.SafariBookmarksSyncAgent
 v24@?0@"CKSubscription"8@"NSError"16
-v16@?0@"CloudTabRemoteStore"8
 v32@?0q8@"NSString"16@"NSError"24
 v16@?0q8
+v24@?0@"NSObject<OS_xpc_object>"8@?<v@?BB>16
 v16@?0B8B12
 v16@?0@"NSObject<OS_xpc_object>"8
-v24@?0@"NSObject<OS_xpc_object>"8@?<v@?BB>16
 v12@?0B8
+com.apple.SafariBookmarksSyncAgent.XPC.CloudTabsZoneSubscriptionRegistration
+com.apple.SafariBookmarksSyncAgent.XPC.InitialManateeCloudTabFetchRetry
 com.apple.SafariBookmarksSyncAgent.XPC.ZoneSubscriptionRegistration
 com.apple.SafariBookmarksSyncAgent.XPC.PeriodicRemoteMigrationStateObserver
 com.apple.SafariBookmarksSyncAgent.migration
@@ -511,7 +513,7 @@ CloudBookmarks
 KeyedArchiver
 DiagnosticExtension
 __cpu_indicator_init
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/clang/clang-1100.2.29.2/src/projects/compiler-rt/lib/builtins/cpu_model.c
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/clang/clang-1100.2.31.2/src/projects/compiler-rt/lib/builtins/cpu_model.c
 __cpu_model.__cpu_type < CPU_TYPE_MAX
 __cpu_model.__cpu_subtype < CPU_SUBTYPE_MAX
 init
@@ -535,8 +537,9 @@ initWithMachServiceName:
 resume
 _setUpPushConnection
 _registerBookmarksZoneSubscriptionXPCActivityRegisteringIfNeeded:ignoreOngoingRegistration:qualityOfService:delay:
-_registerCloudTabsZoneSubscriptionIfNeeded
+_registerCloudTabsZoneSubscriptionXPCActivityWithDelay:
 _registerPeriodicRemoteMigrationStateObserverXPCActivityRegisteringIfNeeded:
+_scheduleInitialManateeCloudTabFetchRetryXPCActivityRegisteringIfNeeded:
 defaultCenter
 _didDetectPossibleBug:
 addObserver:selector:name:object:
@@ -647,17 +650,20 @@ subscriptionID
 recordZoneSubscriptionID
 isEqualToString:
 _didReceiveBookmarksSubscriptionPushNotification
+usesManateeContainer
+containerIdentifier
 _didReceiveCloudTabsSubscriptionPushNotification
+getCloudTabRemoteStoreWithCompletionHandler:
 initWithEnvironmentName:namedDelegatePort:queue:
 stringByAppendingString:
 saveBookmarksZoneSubscriptionInOperationGroup:withCompletionHandler:
 fetchBookmarksZoneSubscriptionStatusCreatingZoneIfNeeded:inOperationGroup:withCompletionHandler:
 saveCloudTabsZoneSubscriptionInOperationGroup:withCompletionHandler:
 fetchCloudTabsZoneSubscriptionInOperationGroup:withCompletionHandler:
-getCloudTabRemoteStoreWithCompletionHandler:
 _performBookmarkSyncForTrigger:inOperationGroup:completionHandler:
 createSubscriptionRequestOperationGroupWithQualityOfService:xpcActivity:
 _saveCloudTabsZoneSubscriptionIfNeededInOperationGroup:withCompletionHandler:
+_checkInXPCActivityWithIdentifier:criteria:registerIfNeeded:performBlock:
 deleteDatabaseAndSyncDataForAccountChange
 userAccountChanged
 startCoordinatingMigrationInOperationGroup:completionHandler:
@@ -666,7 +672,6 @@ doubleValue
 _retryIntervalToRegisterBookmarksZoneSubscriptionWithNumberOfFailedAttempts:lastCKError:
 safari_isCloudKitMissingZoneError
 _saveBookmarksZoneSubscriptionIfNeededInOperationGroup:withCompletionHandler:
-_checkInXPCActivityWithIdentifier:criteria:registerIfNeeded:performBlock:
 createMigrationFromDAVOperationGroupWithXPCActivity:
 _migrateFromDAVInOperationGroup:completionHandler:
 initWithBookmarkStore:migrationCoordinator:
@@ -692,6 +697,7 @@ connectionDidReconnect:
 databaseLockArbiterDidAcquireDatabaseLock:
 listener:shouldAcceptNewConnection:
 cloudTabSyncArbiterDidChangeCloudKitContainer:
+cloudTabSyncArbiterPCSIdentitiesDidChange:
 .cxx_destruct
 _bookmarkStore
 _xpcListener
@@ -713,7 +719,6 @@ _bookmarksZoneSubscriptionRegistrationTimer
 _detectedBugIDs
 _safariUserDefaults
 _hierarchyCheckTimer
-_isRegisteringForCloudTabsZoneSubscription
 _tabSyncArbiter
 safari_numberForKey:
 _appleAccountSecurityState
@@ -1362,6 +1367,7 @@ _manateeErrorCode:
 _deleteCloudTabsZoneWithCompletionHandler:
 _pcsIdentitiesChangedNotification:
 _handleManateeErrorIfNeeded:completionHandler:
+_fetchDevices
 cloudRemoteStore
 clearCachedCloudTabsRecordZone
 loadCloudTabDataWithCompletionHandler:
@@ -1377,6 +1383,8 @@ _currentManateeState
 _manateeStateNeedsUpdate
 _isWaitingForPCSIdentityUpdate
 _determiningSyncCoordinator
+_completionHandlersForCurrentDeviceFetchRequest
+_completionHandlersForNextDeviceFetchRequest
 loadCloudTabDeviceWithUUIDString:completionHandler:
 deleteRecordsWithPrimaryKeys:completionHandler:
 saveCloudTabDevices:tabs:closeRequests:completionHandler:
@@ -1419,7 +1427,6 @@ cancel
 fetchCloudTabsRecordChangesSinceServerChangeToken:inOperationGroup:recordChangedBlock:recordWithIDWasDeletedBlock:completionHandler:
 deleteCloudTabRecords:inOperationGroup:completionHandler:
 deleteCloudTabsZoneInOperationGroup:completionHandler:
-usesManateeContainer
 _threadUnsafeCloudTabsRecordZone
 _cloudTabsOperationQueue
 _usesManateeContainer
@@ -1709,6 +1716,7 @@ Bailing out from migration since migration was already in progress
 Received a push notification
 Ignoring push notification because notification is nil
 Ignoring push notification because sync is disabled
+Ignoring push notification %{public}@ because it is unrelated to current container in use. Currently using the PCS enabled container: %{public}@
 Ignoring push notification %{public}@ because it does not match any known subscription
 Set up push connection
 Fetching Bookmarks zone subscription status failed with error: <%{public}@>.
@@ -1725,12 +1733,13 @@ Ignoring request to sync/migrate because migration is in progress
 Ignoring request to sync/migrate because sync is in progress
 Fetching remote migration state since we tried syncing while not locally migrated
 Fetched remote migration state: %lu
-Handling an existing CloudTabs zone subscription registration request. Ignoring the current request
 Attempting to register CloudTabs zone subscription
 Registering for CloudTabs zone subscription succeeded or we were already subscribed
 Registering for CloudTabs zone subscription failed with error: <%{public}@>.
 Received an iCloud Tabs subscription push notification
 Attempting to sync bookmarks in response to an iCloud Tabs subscription push notification
+Retrying initial CloudTab fetch
+Finished initial CloudTab fetch with error %{public}@
 Received container change callback. Registering for a new zone subscription
 *** Migration to CloudKit started
 Checking In xpc activity with identifier %{public}s
@@ -2170,10 +2179,12 @@ Database should not be reset because it's using the correct container
 CloudTabs database needs to reset because sync properties are not compatible with PCS state %ld
 Finished resetting CloudTabs database
 Ignoring PCS identity change notification because CloudTabs is not waiting for an identity update
-Received expected PCS identity change notification. Fetching CloudTabs
+Received expected PCS identity change notification
+Informing delegate of a PCS identity change
 Received PCS unavailable error from CloudKit. Marking PCS state needs updating
 Received unrecoverable PCS error %ld from CloudKit. Deleting the CloudTabs zone and creating a new one
 Received unsynced Keychain error. Observing notification to start fetching CloudTabs when PCS identities change
+Performing a fetch to fulfill request from %ld outstanding callers
 Fetching local migration state from database (isMigrating: %d)
 Setting local migration state in database to %ld (isMigrating: %d)
 Sync migration coordinator starting PRIMARY migration

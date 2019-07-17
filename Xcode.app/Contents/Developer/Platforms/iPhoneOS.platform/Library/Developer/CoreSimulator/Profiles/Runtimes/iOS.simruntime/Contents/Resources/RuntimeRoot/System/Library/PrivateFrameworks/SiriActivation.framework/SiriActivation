@@ -37,6 +37,8 @@
 %s #activation Registering '%@'
 %s #activation Unregister request of '%@' when it is not registered.
 %s #activation Unregistering '%@'
+%s #activation B188ActivationEvent with Siri state %@. Activating.
+%s #activation B188ActivationEvent with Siri state %@. Deactivating.
 %s activationRequestFromButtonIdentifier:%@, with Siri state %@. Activating.
 %s activationRequestFromButtonIdentifier:%@, with Siri state %@. Ignoring.
 %s deactivationRequestFromButtonIdentifier:%@, with Siri state %@. Deactivating.
@@ -54,6 +56,7 @@
 %s #activation button tap occurred, but Siri is not yet up. Not synthesizing tap event.
 %s #activation activationRequestFromDirectActionEvent:%@
 %s #activation activationRequestFromContinuityWithContext
+%s #activation activationRequestFromVoiceTriggerWithContext
 %s #activation activationRequestFromBreadcrumb
 %s #activation activationRequestFromSimpleActivation:%@
 %s #activation activationRequestFromSpotlightWithContext
@@ -107,11 +110,14 @@
 %s Received VoiceTrigger activation request, already pending for possible future activation
 %s Received VoiceTrigger activation request, but currently blocking VoiceTrigger activations
 %s Received VoiceTrigger activation request, no restrictions, activating
+%s pending voice trigger activation timer fired, %@
 %s Handling remote request dismissal, reason=%@, options=%@, analyticsContext=%@
 %s %s count at beginning: %@, hasPendingTrigger: %@
 %s count is zero after being decremented, activating from pending
-%s Failed to query for pocket state: %@
-%s PocketState changed to %@
+%s #SiriPocketStateManager: Querying Pocket State
+%s #SiriPocketStateManager: Failed to query for pocket state: %@
+%s #SiriPocketStateManager: Pocket state query successful with state: %@
+%s #SiriPocketStateManager: PocketState changed to %@
 %s Cannot set requestSource to SASRequestSourceKeyboard when keyboard input is disabled
 %s %s Enabled: %@
 %s Not activating; Siri is not supported. Language code: %@
@@ -231,8 +237,8 @@ T@"NSNumber",&,N,V_connectedToTrustedCarPlay
 T@"NSNumber",&,N,V_siriIsEnabled
 T@"NSNumber",&,N,V_siriIsRestricted
 T@"NSNumber",&,N,V_siriIsSupported
-v16@?0@"<BSServiceConnectionConfiguring>"8
 v16@?0@"BSServiceConnection"8
+v16@?0@"<BSServiceConnectionConfiguring>"8
 -[SASPresentationServer init]
 -[SASPresentationServer dealloc]
 <SASPresentationServer connection:%@, presentationIdentifier:%@>
@@ -269,6 +275,7 @@ signalDomain
 T@"NSString",&,N,V_signalDomain
 signalIdentifier
 T@"NSString",&,N,V_signalIdentifier
+<SiriVoiceTriggerContext contextOverride:%@, speechRequestOptions:%@, requestInfo:%@, userActivity:%@>
 com.apple.siri.EyesFree
 com.apple.siri.Siriland
 com.apple.siri.CarDisplay
@@ -280,7 +287,6 @@ SASRequestStateStarting
 SASRequestStateActive
 SASRequestStateStopping
 v12@?0B8
-VoiceTrigger Dispatch Queue
 Siri activation/dismissal watchdog queue
 -[SiriActivationService setRequestState:]
 -[SiriActivationService _updateCanActivateFromDirectActionSource]
@@ -291,6 +297,9 @@ Siri activation/dismissal watchdog queue
 -[SiriActivationService siriPresentationFailureWithIdentifier:error:]
 -[SiriActivationService registerActivationSource:withIdentifier:]
 -[SiriActivationService unregisterActivationSourceIdentifier:]
+-[SiriActivationService _B188ActivationEvent:context:options:]_block_invoke_2
+-[SiriActivationService _B188ActivationEvent:context:options:]_block_invoke
+v16@?0@"NSTimer"8
 -[SiriActivationService activationRequestFromButtonIdentifier:context:]
 -[SiriActivationService deactivationRequestFromButtonIdentifier:context:options:]
 -[SiriActivationService prewarmFromButtonIdentifier:longPressInterval:]
@@ -306,6 +315,7 @@ v16@?0@"NSString"8
 -[SiriActivationService _handleTapSynthesisIfNeededForButtonIdentifier:buttonUpTimestamp:]
 -[SiriActivationService activationRequestFromDirectActionEvent:context:completion:]
 -[SiriActivationService activationRequestFromContinuityWithContext:]
+-[SiriActivationService activationRequestFromVoiceTriggerWithContext:]
 -[SiriActivationService activationRequestFromBreadcrumb]
 -[SiriActivationService activationRequestFromSimpleActivation:]
 -[SiriActivationService activationRequestFromSpotlightWithContext:]
@@ -517,13 +527,22 @@ v32@?0@"INIntent"8@"NSString"16@?<v@?@"INIntentResponse"@"NSError">24
 -[SASRemoteRequestManager _handleRemotePrewarmWithInfo:]
 -[SASRemoteRequestManager _handleNewRemoteRequestWithInfo:]
 -[SASRemoteRequestManager _handleRequestWatcherVoiceTriggerRequestWithInfo:]
+-[SASRemoteRequestManager _processPendingVoiceTriggerActivationsWithInfo:delay:]_block_invoke
+with %@ pending activations
+no pending activations
 -[SASRemoteRequestManager _handleRemoteRequestDismissalWithReason:options:analyticsContext:]
 inSpokenNotification
 -[SASRemoteRequestManager _handlePendingVoiceTriggerActivationsWithInfo:]
 -[SASRemoteRequestManager _handlePendingVoiceTriggerActivationsWithInfo:]_block_invoke
+-[SASRemoteRequestManager _startFetchingPocketStateUpdatesWithCompletion:]
 -[SASRemoteRequestManager _startFetchingPocketStateUpdatesWithCompletion:]_block_invoke
 v24@?0q8@"NSError"16
 -[SASRemoteRequestManager _updateForPocketState:]
+CMPocketStateTypeOutOfPocket
+CMPocketStateTypeInPocket
+CMPocketStateTypeFaceDown
+CMPocketStateTypeFaceDownOnTable
+CMPocketStateTypeMax
 remoteRequestWatcher
 T@"AFRemoteRequestWatcher",&,N,V_remoteRequestWatcher
 currentAppIntentDeliverer
@@ -786,6 +805,7 @@ SASPresentationServer
 SiriClientAdditions
 SASSystemStateOverride
 SASBoardServicesConfiguration
+SiriVoiceTriggerContext
 SASRequestState
 SiriActivationService
 SASRequestOptionsBuilderDataSource
@@ -1101,10 +1121,11 @@ _siriIsRestricted
 _siriIsSupported
 initWithKeyOptions:valueOptions:capacity:
 setObject:forKey:
-unregisterSiriPresentationIdentifier:
+_unregisterConnection:
 setInvalidationHandler:
 configureConnection:
 _setConnection:
+unregisterSiriPresentationIdentifier:
 connection
 stringWithSiriPresentationIdentifier:
 remoteProcess
@@ -1134,6 +1155,7 @@ protocolForProtocol:
 presentationRequestedWithPresentationOptions:requestOptions:
 presentationDismissalRequestedWithOptions:
 handleRequestWithOptions:
+presentationisIdleAndQuiet
 cancelTTS
 preheat
 cancelPendingActivationEventWithReason:
@@ -1233,9 +1255,19 @@ stopActivationWatchdogTimerIfNeeded
 preparingPresentations
 stopDismissalWatchdogTimerIfNeeded
 initWithDeactivationOptions:animated:
+allObjects
+sharedInstance
+connectedDevices
+productId
+vendorId
+isValid
+presentationsAreIdleAndQuiet
 initWithButtonIdentifier:context:
 handleActivationRequest:
 dismissSiriWithOptions:
+scheduledTimerWithTimeInterval:repeats:block:
+isConnectedTo188
+_B188ActivationEvent:context:options:
 sharedPreferences
 assistantIsEnabled
 stringWithSiriActivationEventType:
@@ -1243,7 +1275,6 @@ numberWithDouble:
 dictionaryWithObjects:forKeys:count:
 _cancelTTS
 setPreparationTimestamp:
-allObjects
 initWithSiriButtonIdentifier:
 initWithTimeInterval:
 _performOrEnqueueButtonAction:
@@ -1259,6 +1290,7 @@ buttonTapFromButtonIdentifier:
 stringWithAFDirectActionEvent:
 initWithDirectActionEvent:context:
 initWithContinuityContext:
+initWithVoiceTriggerContext:
 initWithBreadcrumbRequest
 initWithSimpleActivation:
 initWithSpotlightContext:
@@ -1349,6 +1381,7 @@ buttonUpFromButtonIdentifier:timestamp:
 buttonLongPressFromButtonIdentifier:context:
 activationRequestFromDirectActionEvent:context:completion:
 activationRequestFromContinuityWithContext:
+activationRequestFromVoiceTriggerWithContext:
 activationRequestFromBreadcrumb
 activationRequestFromSimpleActivation:
 activationRequestFromSpotlightWithContext:
@@ -1371,6 +1404,7 @@ _voiceTriggerNotifyToken
 _myriad
 _voiceTriggerDispatchQueue
 _watchdogQueue
+_B188ActivationTimer
 _xcTestingActive
 _siriTetherIsAttached
 _preheated
@@ -1468,7 +1502,6 @@ _lock_activityAssertions
 _context
 cancelReason
 invalidatedAtTimestamp:
-isValid
 _reason
 _reference
 _timestamp
@@ -1574,21 +1607,23 @@ _startFetchingPocketStateUpdates
 _handleRequestWatcherVoiceTriggerRequestWithInfo:
 initWithRequestInfo:
 setHasPendingVoiceTriggerActivation:
-logEventWithType:context:
+currentVoiceTriggerRestriction
+setCurrentVoiceTriggerRestriction:
 pendingVoiceTriggerRestrictionCount
+_handlePendingVoiceTriggerActivationsWithInfo:
+logEventWithType:context:
 setPendingVoiceTriggerRestrictionCount:
 hasPendingVoiceTriggerActivation
 _startFetchingPocketStateUpdatesWithCompletion:
 _updateForPocketState:
+_stringForPocketState:
 queryStateOntoQueue:andMonitorFor:withTimeout:andHandler:
 setCurrentPocketState:
 _setPocketStateShouldPreventVoiceTrigger:
 pocketStateManager:didUpdateState:
-_handlePendingVoiceTriggerActivationsWithInfo:
+_processPendingVoiceTriggerActivationsWithInfo:delay:
 currentAppIntentDeliverer
 setCurrentAppIntentDeliverer:
-currentVoiceTriggerRestriction
-setCurrentVoiceTriggerRestriction:
 currentPocketState
 _hasPendingVoiceTriggerActivation
 _remoteRequestWatcher
@@ -1844,6 +1879,7 @@ v40@0:8q16@24@?32
 v40@0:8@16@24@32
 v28@0:8@16B24
 @"AFMyriadCoordinator"
+@"NSTimer"
 @"AFPreferences"
 @"NSMutableDictionary"
 @"NSMutableSet"
@@ -1904,6 +1940,7 @@ v32@0:8@16Q24
 @"SASBulletinCache"
 @"<SASBulletinManagerDelegate>"
 v32@0:8@"CMPocketStateManager"16q24
+v32@0:8@16d24
 v40@0:8q16Q24@32
 @"AFRemoteRequestWatcher"
 @"INUIAppIntentDeliverer"

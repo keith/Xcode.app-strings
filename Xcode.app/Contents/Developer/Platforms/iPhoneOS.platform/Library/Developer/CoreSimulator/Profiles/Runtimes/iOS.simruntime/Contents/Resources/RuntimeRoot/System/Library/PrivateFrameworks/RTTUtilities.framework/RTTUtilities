@@ -1,5 +1,6 @@
 v8@?0
 tty_worker_queue
+preferenceKey
 Telephony did change %@
 %s:%d %@
 -[RTTController didChangeTelephonyCallingSupport]
@@ -93,6 +94,7 @@ Media server died.
 -[RTTTelephonyUtilities mediaServerDied]
 Current preferred transport is : %d - %d = %@
 -[RTTTelephonyUtilities currentPreferredTransportMethodForContext:]
+No TTY transport method support, so not migrating or priming server
 v32@?0@"CTXPCServiceSubscriptionContext"8Q16^B24
 TTYPersonMe
 Settings did change
@@ -156,10 +158,10 @@ T@"NSArray",&,N,V_availableDictionaries
 _attributes
 __DownloadOptions
 tty_common_queue
+v16@?0@"NSDictionary"8
 v32@?0@8@16^B24
 -[RTTServer handleMessageError:destructive:]
 RTTActionSheet
-v16@?0@"NSDictionary"8
 %@_%lld
 assertion
 T@"BKSProcessAssertion",&,N,V_assertion
@@ -255,6 +257,8 @@ callUID = %@
 -[RTTDatabaseManager conversationForCallUID:]
 Failed TTYHistory fetch %@
 Found conversation for id [%@] - %@
+Not saving convo because no object: %@
+-[RTTDatabaseManager saveConversation:]
 v32@?0@8Q16^B24
 v32@?0@"CNLabeledValue"8Q16^B24
 v32@?0@"CNContact"8Q16^B24
@@ -338,6 +342,7 @@ Settings changed on companion
 void AccessibilitySettingsChangedOnCompanion(CFNotificationCenterRef *, void *, CFStringRef, void *, CFDictionaryRef)
 contactID
 axtty_read_action
+axtty_server_settings_upate_action
 axtty_write_action
 axtty_delete_action
 axtty_contact_search_action
@@ -384,25 +389,33 @@ lastChangeDate
 T@"NSDate",&,N,V_lastChangeDate
 isMe
 TB,N,V_isMe
+Sending invalidation setting for key: %@
 %{public}s
 Got action sheet reply: %@ from: %@
 Sending to action completion: %@ for calltype: %d
+Handling database request: %@
 Asking to show call prompt: %@
 Received reply %@, forwarding back to %@
 Send message error: %@
-Received remote string %@ for utterance: %@
+Received remote string %@ for utterance: %@, sending to delegate: %@
 Sending remote string %@ for utterance: %@
 HW No active subscriptions, falling back to default voice context
 SW No active subscriptions, falling back to default voice context
 iCloud changed
 Storing relay phones: %@
+Received server settings update for %@
 Got result for action sheet: %@
+Handling response for %@ with %@
 Contact matching emergency number, dialing through RTT immediately: %@
 Display call prompt for %@
 Taking out assertion so that InCallService doesn't go to sleep on us: %@ (aquird: %d)
-Send string for remote call: %@
 %{private}s
+Delegate handling call did receive: %@ for %@
+Send string for remote call: %@
+saving convo and utterance: %@/%@
 Getting remote call send job: %@
+Registered for %@
+Posting RTT setting notification for: %@
 Looking for conversation asynchronously: %@
 Looking for conversation: %@
 Received conversation: %@
@@ -433,6 +446,7 @@ RTTConversation
 NSSecureCoding
 NSCoding
 RTTUtterance
+NSCopying
 init
 array
 setRttCalls:
@@ -441,12 +455,22 @@ migrateSettings
 didChangeTelephonyCallingSupport
 sharedUtilityProvider
 reloadRelayPhoneNumbers
+invalidateServerCaches:
 preferredRelayNumber
 registerUpdateBlock:forRetrieveSelector:withListener:
+TTYHardwareEnabled
+TTYSoftwareEnabled
+incomingCallsTTY
+ttyShouldBeRealtime
 addDelegate:queue:
 defaultCenter
 callDidConnect:
 addObserver:selector:name:object:
+delegate
+dictionaryWithObjects:forKeys:count:
+messagePayloadFromDictionary:andIdentifier:
+messageWithPayload:
+sendUpdateMessage:forIdentifier:
 defaultVoiceContext
 stringWithFormat:
 UTF8String
@@ -454,7 +478,6 @@ softwareTTYIsSupported
 setTTYSoftwareEnabled:
 hardwareTTYIsSupported
 setTTYHardwareEnabled:
-TTYSoftwareEnabled
 sharedManager
 sharedCallCenter
 currentCalls
@@ -491,7 +514,6 @@ removeObjectsAtIndexes:
 isEqualToString:
 actionClient
 numberWithBool:
-dictionaryWithObjects:forKeys:count:
 backgroundAccessQueue
 sendAsynchronousMessage:withIdentifier:targetAccessQueue:completion:
 numberWithInt:
@@ -526,7 +548,6 @@ sendString:
 client
 setWantsUpdates:forIdentifier:
 enumerateKeysAndObjectsUsingBlock:
-messagePayloadFromDictionary:andIdentifier:
 replyMessageWithPayload:
 setTTYDictionaryAvailability:
 selectorForPreferenceKey:
@@ -541,9 +562,6 @@ relayIsSupported
 arrayByAddingObject:
 deviceIsPad
 setShouldSuppressIncomingNotification:
-delegate
-messageWithPayload:
-sendUpdateMessage:forIdentifier:
 sharedController
 isEqual:
 class
@@ -636,7 +654,6 @@ updateHeadphoneState
 storeWithOptions:
 setContactStore:
 postNotificationName:object:
-TTYHardwareEnabled
 listenForCloudRelayChanges
 removeObserver:
 currentProcessIsHeard
@@ -650,6 +667,7 @@ headphoneStateChangedNotification:
 mediaServerDied
 performSelector:withObject:afterDelay:
 currentPreferredTransportMethodForContext:
+deviceIsPhone
 supportsTelephonyCalls
 headphoneJackSupportsTTY
 shouldMigrateSettings
@@ -773,6 +791,9 @@ availableDictionaries
 _condition
 _availableDictionaries
 downloadOptions
+_registerForServerSettingsUpdates
+clearServerSettingsCacheForKey:
+registerResponseBlock:forUUID:
 resetConnection
 hasPrefix:
 stringByReplacingOccurrencesOfString:withString:
@@ -791,7 +812,6 @@ setAssertion:
 assertion
 acquire
 invalidate
-registerResponseBlock:forUUID:
 handleMessageWithPayload:forIdentifier:
 handleMessageError:destructive:
 displayCallPromptForContact:withCompletion:
@@ -925,8 +945,6 @@ setSettingsVersion:
 synchronizePreferences
 updateBlocks
 objectAtIndexedSubscript:
-incomingCallsTTY
-ttyShouldBeRealtime
 cannedResponses
 initWithObjectsAndKeys:
 _selectorMap
@@ -941,6 +959,7 @@ uuidFromContext:
 objectValueForKey:andContext:withClass:andDefaultValue:
 _synchronizeIfNecessary:
 _registerForNotification:
+setObject:forKeyedSubscript:
 incomingCallsTTYForContext:
 integerValueForKey:withDefaultValue:
 numberWithInteger:
@@ -975,6 +994,7 @@ setRegisteredNotifications:
 setSynchronizePreferences:
 setUpdateBlocks:
 _synchronizeDomainsLock
+_serverCachedSettings
 _registeredNotifications
 _synchronizePreferences
 _updateBlocks
@@ -987,6 +1007,7 @@ globalDomainAccessor
 setGlobalDomainAccessor:
 _domainAccessor
 _globalDomainAccessor
+conversationWithCallUID:withCallback:
 setCallIdentifier:
 arrayWithArray:
 setUtterances:
@@ -1026,11 +1047,12 @@ _utterances
 setContactPath:
 setIsMe:
 setText:
-date
-setLastChangeDate:
 lastChangeDate
+setLastChangeDate:
+date
 timeIntervalSinceDate:
 whitespaceCharacterSet
+copyWithZone:
 resetTimeout
 _isMe
 _contactPath
@@ -1136,4 +1158,5 @@ v24@0:8@"NSCoder"16
 @20@0:8S16
 Q20@0:8B16
 @"NSString"
+@24@0:8^{_NSZone=}16
 @"NSDate"
