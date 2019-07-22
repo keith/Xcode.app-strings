@@ -5,7 +5,7 @@
 #  or for invocation in any manner other than through xcodebuild.  Any other
 #  use is unsupported.
 #  Copyright 
- 2015-2019 Apple Inc. All Rights Reserved.
+ 2015-2018 Apple Inc. All Rights Reserved.
 GC.disable
 require 'optparse'
 require 'cfpropertylist'
@@ -56,23 +56,6 @@ class NilClass
   def optional_as(t, message = nil)
     return nil
   end
-class Future
-  def initialize(&f)
-    @thread = Thread.new {
-      begin
-        @result = f.call
-        @ex = nil
-      rescue => ex
-        @result = nil
-        @ex = ex
-      end
-    }
-  end
-  def await
-    @thread.join
-    raise @ex if @ex != nil
-    return @result # nil is a valid result
-  end
 class Hash
   def self.from_tuples(array)
     ret = self.new
@@ -82,6 +65,12 @@ class Hash
     end
     
     return ret
+  end
+  # Same as self[k] = v, but raises an exception if self[k] exists.
+  def set_once(k, v)
+    vOld = self[k]
+    raise "Tried to set self[#{k.inspect}] = #{v.inspect}, but it's already set to #{vOld.inspect}." if vOld
+    self[k] = v
   end
 module Enumerable
   def group_using(&eql)
@@ -101,6 +90,11 @@ module Enumerable
     end
     
     return groups
+  end
+  unless method_defined? :to_h
+    def to_h
+      return Hash.from_tuples(self)
+    end
   end
 class NilClass
   def nil_if_empty
@@ -131,38 +125,6 @@ class Exception
   def to_log_s
     return "#{self.inspect}\n#{self.backtrace.join("\n").indent}"
   end
-def log(&f)
-  if OPTIONS.verbosity > 0
-    msg = f.call
-    # #write is atomic, #puts is not
-    $stderr.write "#{msg}\n"
-  end
-class LoggingFileUtils
-  def rm_f(path)
-    log { "$ rm -f #{path.to_s.shellescape}" }
-    FileUtils.rm_f(path)
-  end
-  def rm_r(path)
-    log { "$ rm -r #{path.to_s.shellescape}" }
-    FileUtils.rm_r(path)
-  end
-  def mkdir_p(path)
-    log { "$ mkdir -p #{path.to_s.shellescape}" }
-    FileUtils.mkdir_p(path)
-  end
-  def cp(a, b)
-    log { "$ cp #{a.to_s.shellescape} #{b.to_s.shellescape}" }
-    FileUtils.cp(a, b)
-  end
-  def cp_r(a, b)
-    log { "$ cp -r #{a.to_s.shellescape} #{b.to_s.shellescape}" }
-    FileUtils.cp_r(a, b)
-  end
-  def mv(a, b)
-    log { "$ mv #{a.to_s.shellescape} #{b.to_s.shellescape}" }
-    FileUtils.mv(a, b)
-  end
-FS = LoggingFileUtils.new
 # Raises if it couldn't find it.
 def locate_tool(name, additional_paths = [])
   return name if Pathname.new(name).absolute?
@@ -181,7 +143,7 @@ class CmdSpec
     assert(bin)
     @bin = locate_tool(bin.to_s)
     @args = (args || []).map{|x|x.to_s}
-    @env = Hash.from_tuples((env || {}).map{|k,v| [k.to_s, v.to_s] })
+    @env = (env || {}).map{|k,v| [k.to_s, v.to_s] }.to_h
     @chdir = chdir.to_s
   end
   def to_s
@@ -193,7 +155,7 @@ class CmdSpec
   def cache_key
     return "#{bin}#{args}#{env}#{chdir}"
   end
-  class NonZeroExitException < StandardError
+  class NonZeroExcitException < StandardError
     attr_reader :cmd_spec
     attr_reader :out_str
     attr_reader :err_str
@@ -205,7 +167,7 @@ class CmdSpec
       @status = status
     end
   end
-  # Raises NonZeroExitException if the process exits with non-zero
+  # Raises NonZeroExcitException if the process exits with non-zero
   def run(log_indent = 0, verbose_log = true, use_cache = false)
     if use_cache
       $CMD_SPEC_CACHE ||= Hash.new
@@ -219,18 +181,18 @@ class CmdSpec
       
       return cached_value
     end
+    
+    $stderr.puts(self.to_s.indent(log_indent)) if verbose_log
+    
     opts = {}
     opts[:chdir] = chdir if self.chdir.nil_if_empty
     out_str, err_str, status = Open3.capture3(self.env, self.bin, *self.args, opts)
     
-    log_str = nil
-    get_log_str = lambda {
-      log_str ||= "$ #{self}\nStatus: #{status}\nStdout:\n#{out_str.indent}\nStderr:\n#{err_str.indent}\n"
-    }
-    log { get_log_str.call.indent(log_indent+1) } if verbose_log
+    s = "Command exited with #{status}:\n#{self.to_s}\nStdout:\n#{out_str.indent}\nStderr:\n#{err_str.indent}\n"
+    $stderr.puts(s.indent(log_indent+1)) if verbose_log
     
     unless status.success?
-      raise NonZeroExitException.new(self, out_str, err_str, status), get_log_str.call
+      raise NonZeroExcitException.new(self, out_str, err_str, status), s
     end
     
     return out_str
@@ -304,7 +266,7 @@ class LinkageGraph
     resolvedDylibs.assert_array_of(MachOImage)
     
     self[image] = resolvedDylibs
-    # log { "LinkageGraph << #{image} ->\n#{resolvedDylibs.join("\n").indent}".indent(level) }
+    # $stderr.puts("LinkageGraph << #{image} ->\n#{resolvedDylibs.join("\n").indent}".indent(level))
     # Follow each dependency
     resolvedDylibs.each{|img| resolveLoadedDylibs(img, rpathFallbackStack, rpathStack, machOsByRealPath, executablePath, level + 1) }
   end
@@ -341,18 +303,14 @@ class LinkageGraph
       parent = parent.parent if parent.extname.downcase == ".framework"
       return parent
   end
-class CPUArchitecture
-  # Name, e.g. arm64
-  attr_reader :name
-  # An image with this arch can link the following archs into its address space
-  attr_reader :linkable_architectures
-  # A CPU of this arch can also run the following archs, in preference order
-  attr_reader :runnable_architectures
-  def initialize(name, linkable_architectures, runnable_architectures)
-    @name = name
-    @linkable_architectures = linkable_architectures
-    @runnable_architectures = runnable_architectures
-  end
+CPUArchitecture = Struct.new(
+                             # Name, e.g. arm64
+                             :name,
+                             # An image with this arch can link the following archs into its address space
+                             :linkable_architectures,
+                             # A CPU of this arch can also run the following archs, in preference order
+                             :runnable_architectures,
+                             ) do
   def self.all
     return CPU_ARCHITECTURE_ALL
   end
@@ -360,168 +318,89 @@ class CPUArchitecture
     return self.all.find{|a| a.name == arch } || (raise "Unknown arch #{arch}")
   end
 CPU_ARCHITECTURE_ALL =
-   CPUArchitecture.new("arm64e",  %w(arm64e), %w(arm64e arm64 arm64_32)),
+   CPUArchitecture.new("arm64e",  %w(arm64e), %w(arm64e arm64)),
    CPUArchitecture.new("arm64_32", %w(arm64_32), %w(arm64_32)),
    CPUArchitecture.new("arm64",  %w(arm64), %w(arm64 armv7s armv7)),
    CPUArchitecture.new("armv7s", %w(armv7s armv7), %w(armv7s armv7)),
    CPUArchitecture.new("armv7k", %w(armv7k), %w(armv7k)),
    CPUArchitecture.new("armv7",  %w(armv7), %w(armv7)),
+class Pathname
+  # Creates a new empty file (or directory if opts[:dir]). Fails if a file already exists at path. Returns self.
+  def self.createExclusive(path, opts = {})
+    path.parent.mkpath()
+    if opts[:dir]
+      Dir.mkdir(path) {}
+    else
+      File.open(path, File::WRONLY|File::CREAT|File::EXCL) {}
+    end
+    return path
+  end
+  # If path already exists, adds incrementing suffixes until it's unique and can be created with createExclusive(path, opts). Returns the new unique path.
+  def self.createUnique(path, opts = {})
+    uniquePath = path
+    i = 0
+    loop do
+      suffix = i == 0 ? "" : "-#{i}"
+      uniquePath = path.parent + (path.basename.to_s + suffix)
+      i += 1
+      Pathname.createExclusive(uniquePath, opts) rescue next
+      return uniquePath
+    end
+  end
 # Models the arg for --create-thinned and --skip-thinned
 class ThinningVariantCLISpec
-  # A device model identifier, product code, traits' artworkDevIdiom
-  attr :device # :: String?
+  # A device model identifier, product code, traits' artworkDevIdiom, or "all"
+  attr :device # :: String
   attr :deploymentTarget # :: Gem::Version?
   def initialize(device, deploymentTarget)
-    device.optional_as(String)
+    device.assert_kind_of(String)
+    FatalError("expected non-empty device name for requested thinning variant") if device.empty?
     @device = device
     
-    deploymentTarget.optional_as(Gem::Version)
+    deploymentTarget.assert_kind_of(Gem::Version) unless deploymentTarget.nil?
     @deploymentTarget = deploymentTarget
   end
   def to_s
-    deviceStr = device || "*"
-    deploymentTargetStr = if deploymentTarget then "*" else deploymentTarget.to_s end
-    return [deviceStr, deploymentTargetStr].join("::")
+    deploymentTargetStr = if deploymentTarget.nil? then "" else "::#{deploymentTarget}" end
+    return "#{device}#{deploymentTargetStr}"
   end
   # Parses a command-line arg
   def self.fromArg(str)
-    return new(nil, nil) if str == "all"
-    parts = str.split('::')
-    if parts.size == 1
-      return fromArg(parts[0])
-    elsif parts.size == 2
-      device = if ["all", "*"].include?(parts[0]) then nil else parts[0] end
-      vers = if ["all", "*"].include?(parts[1]) then nil else Gem::Version.new(parts[1]) end
+    if str == "all"
+      return new(str, nil)
+    elsif str =~ /^([^:]+)::([0-9\.]+)$/
+      device = $1
+      vers = Gem::Version.new($2)
       return new(device, vers)
     else
       raise "couldn't parse 'device::deploymentTarget' from: #{str}"
     end
+    # if str =~ /^([^:]+)(::([0-9\.]+))?$/
+    #   device = $1
+    #   vers = if $3.nil_if_empty.nil? then nil else Gem::Version.new($3) end
+    #   return new(device, vers)
+    # else
+    #   raise "couldn't parse 'device[::deploymentTarget]' from: #{str}"
+    # end
   end
   def matches(thinningVariant)
     thinningVariant.assert_kind_of(ThinningVariant)
     return \
-      (device.nil? || [thinningVariant.device.productType, thinningVariant.device.target, thinningVariant.traits.artworkDevIdiom].include?(device)) &&
+      (device == "all" || [thinningVariant.device.productType, thinningVariant.device.target, thinningVariant.traits.artworkDevIdiom].include?(device)) &&
       (deploymentTarget.nil? || deploymentTarget == thinningVariant.traits.deploymentTarget) &&
       true
   end
   def self.any_matches(specs, thinningVariant)
     return specs.any? { |s| s.matches(thinningVariant) }
   end
-# Manages dsym/symbols outputs from bitcode recompilation. Maps input macho uuids to the dSYM and .symbols files of the recompiled output.
-class SymbolsStore
-  def initialize
-    @dsymsByUUID = {}
-    @symbolsByUUID = {}
-  end
-  def addDSYM(uuid, path)
-    # todo we should have a type for uuids
-    uuid.assert_kind_of(String)
-    path.assert_kind_of(Pathname)
-    
-    assert(@dsymsByUUID[uuid].nil?, "Duplicate dsym for #{uuid}")
-    @dsymsByUUID[uuid] = path
-    log { "SymbolsStore: Added .dSYM for #{uuid}: #{path}" }
-  end
-  def addSymbols(uuid, path)
-    # todo we should have a type for uuids
-    uuid.assert_kind_of(String)
-    path.assert_kind_of(Pathname)
-    
-    assert(@symbolsByUUID[uuid].nil?, "Duplicate symbols for #{uuid}")
-    @symbolsByUUID[uuid] = path
-    log { "SymbolsStore: Added .symbols for #{uuid}: #{path}" }
-  end
-  def getDSYM(uuid)
-    @dsymsByUUID[uuid]
-  end
-  def getSymbols(uuid)
-    @symbolsByUUID[uuid]
-  end
-class BitcodeContext
-  # :: [InputPath: ReassembledPath]
-  attr :reassembledMachOs
-  # :: SymbolsStore
-  attr :symbolsStore
-  def initialize
-    @symbolsStore = SymbolsStore.new
-    @reassembledMachOs = {}
-  end
-  def addReassembledMachO(input, output)
-    input.assert_kind_of(Pathname)
-    output.assert_kind_of(Pathname)
-    assert(reassembledMachOs[input].nil?, "Duplicate reassembled macho: #{input} -> #{output}")
-    reassembledMachOs[input] = output
-  end
 #  Parse Options
-OS_VARIANTS_PLATFORM_VERSION = {
-  "iphoneos" => Gem::Version.new(12),
-  "watchos" => Gem::Version.new(4),
-  "appletvos" => Gem::Version.new(12),
-ENCRYPTION_FORMAT_2_PLATFORM_VERSION = {
-  "iphoneos" => Gem::Version.new(13),
-  "watchos" => Gem::Version.new(6),
-  "appletvos" => Gem::Version.new(13),
 OPTIONS = OpenStruct.new()
 OPTIONS.thinDevices = []
 OPTIONS.skipThinDevices = []
-OPTIONS.coalescingGroups = []
 OPTIONS.verbosity = 1
 OPTIONS.useAssetutilEql = true
 OPTIONS.translateWatchOS = true
 OPTIONS.xcodeVersionWithStableSwiftABI = Gem::Version.new("10.2")
-OPTIONS.iOSVersionWithWatchThinning = Gem::Version.new("13")
-OPTIONS.watchOSVersionRemovedPlaceholders = Gem::Version.new("6")
-OPTIONS.supportEncryptionFormat2 = true
-# Only for variants / deployment targets pre 6.0
-$watchOSInfoPlistWhitelistEndVersion = Gem::Version.new("6")
-$watchOSInfoPlistWhitelist = Set.new([
-"CFBundleDevelopmentRegion",
-"CFBundleExecutable",
-"CFBundleIcons",
-"CFBundlePrimaryIcon",
-"CFBundleIconFiles",
-"UIPrerenderedIcon",
-"CFBundleIdentifier",
-"CFBundleInfoDictionaryVersion",
-"CFBundleName",
-"CFBundleDisplayName",
-"CFBundlePackageType",
-"CFBundleShortVersionString",
-"CFBundleSignature",
-"CFBundleVersion",
-"PUICApplicationColors",
-"PUICApplicationPrimaryColor",
-"PrincipalClass",
-"UIApplicationDelegateClass",
-"UISupportedInterfaceOrientations",
-"NSUserActivityTypes",
-"UIAppFonts",
-"UILaunchImages",
-"UILaunchImageSize",
-"UILaunchImageMinimumOSVersion",
-"UILaunchImageName",
-"WKCompanionAppBundleIdentifier",
-"WKWatchKitApp",
-"BuildMachineOSBuild",
-"CFBundleInfoPlistURL",
-"CFBundleResourceSpecification",
-"CFBundleNumericVersion",
-"CFBundleSupportedPlatforms",
-"DTCompiler",
-"DTPlatformBuild",
-"DTPlatformName",
-"DTPlatformVersion",
-"DTSDKBuild",
-"DTSDKName",
-"DTXcode",
-"DTXcodeBuild",
-"MinimumOSVersion",
-"UIDeviceFamily",
-"CFBundleLocalizations",
-"UIBackgroundModes",
-"UIRequiredDeviceCapabilities",
-"INAlternativeAppNames",
-OPTIONS.validateBitcode = true
 OPTIONS.validateOutput = false
 OPTIONS.validateOutputZeroVariants = nil
 OPTIONS.bitcodeOptions = []
@@ -539,10 +418,6 @@ OptionParser.new do |opts|
   do |v|
     OPTIONS.validateInput = true
   end
-  opts.on("--[no-]validate-bitcode") \
-  do |v|
-    OPTIONS.validateBitcode = v
-  end
   opts.on("--[no-]compile-bitcode",
           "Compile any bitcode that's in the IPA; if there is none, a warning is emitted but it's not an error",
           "If thinning is also enabled, the Bitcode won't be in any thinned IPAs") \
@@ -552,16 +427,6 @@ OptionParser.new do |opts|
   opts.on("--[no-]translate-watchos") \
   do |v|
     OPTIONS.translateWatchOS = v
-  end
-  opts.on("--[no-]support-encryption-format-2") \
-  do |v|
-    OPTIONS.supportEncryptionFormat2 = v
-  end
-  opts.on("--set-support-encryption-format-2-platform-version=PLATFORM_VERSION", String,
-          "Override the encryption format 2 introduction version for a given platform by passing 'platformIdentifier::version'") \
-  do |v|
-    platform,version = v.split('::')
-    ENCRYPTION_FORMAT_2_PLATFORM_VERSION[platform] = Gem::Version.new(version)
   end
   opts.on("--xcode-version-with-stable-swift-abi=VERSION") \
   do |v|
@@ -583,11 +448,6 @@ OptionParser.new do |opts|
           "It can be passed multiple times") \
   do |v|
     OPTIONS.skipThinDevices << ThinningVariantCLISpec.fromArg(v)
-  end
-  opts.on("--coalescing-group=DEVICE;DEVICE;DEVICE;...") \
-  do |v|
-    variants = v.split(';').collect { |d| ThinningVariantCLISpec.fromArg(d) }
-    OPTIONS.coalescingGroups << variants
   end
   opts.on("--create-asset-packs",
           "Create asset packs from any on-demand resources",
@@ -685,7 +545,7 @@ OptionParser.new do |opts|
     OPTIONS.verbosity = 0
   end
   opts.on_tail("--help", "Show this message") do
-    $stderr.puts opts
+    puts opts
     exit
   end
 end.parse!
@@ -693,12 +553,9 @@ if OPTIONS.validateOutputZeroVariants.nil?
   OPTIONS.validateOutputZeroVariants = OPTIONS.validateOutput && OPTIONS.skipThinDevices.empty?
 #  Create Temporary Directory
 # We might have been given a path for temporary files.  If not, we pick one (respecting 'TMP'), and clean it up at the end.
-FS.mkdir_p(OPTIONS.tmpPath) if OPTIONS.tmpPath
+OPTIONS.tmpPath.mkpath() if OPTIONS.tmpPath
 OPTIONS.tmpDir = Pathname(Dir.mktmpdir(File.basename(__FILE__, "rb"), OPTIONS.tmpPath))
-unless OPTIONS.tmpPath
-  at_exit {
-    log { "Removing temporary directory #{OPTIONS.tmpDir}..." }
-    FS.rm_r(OPTIONS.tmpDir)
+at_exit { $stdout.puts "Removing temporary directory #{OPTIONS.tmpDir}..." if OPTIONS.verbosity >= 3 ; OPTIONS.tmpDir.rmtree() } unless OPTIONS.tmpPath
 # now options.tmpPath is whatever the user specified, and options.tmpDir is always a directory that exists in the file system
 #  Configure Structured Output
 # During processing, structured output is added to the JsonOutput dictionary.
@@ -748,7 +605,7 @@ def LoadPlist(path, parentPathForDisplay = nil)
       chdir = parentPathForDisplay if parentPathForDisplay
     end
   rescue => ex
-    log { "warning: failed to format relative path (#{path}, #{parentPathForDisplay}): #{ex.message}" }
+    $stderr.puts "warning: failed to format relative path (#{path}, #{parentPathForDisplay}): #{ex.message}"
     relPath = path
     chdir = nil
   end
@@ -823,13 +680,16 @@ if (OPTIONS.compileBitcode or !OPTIONS.thinDevices.empty? or OPTIONS.createAsset
   actions << "device-specific thinning" if !OPTIONS.thinDevices.empty?
   actions << "asset-pack creation" if OPTIONS.createAssetPacks
   FatalError(__LINE__, "#{actions.join(" and ")} requested, but no --output argument provided")
+if !OPTIONS.skipThinDevices.empty? &&
+   !(OPTIONS.thinDevices.size == 1 && OPTIONS.thinDevices[0].to_s == "all")
+  FatalError(__LINE__, "--skip-thinned is only compatible with --create-thinned=all")
 if OPTIONS.appStoreToolsBuildVersion == nil
   candidates = [
     File.dirname(__FILE__) + "/../../version.plist",
     File.dirname(__FILE__) + "/../../../version.plist",
   path = candidates.detect { |p| File.exist?(p) }
   FatalError(__LINE__, "Could not find version.plist. Expected at #{candidates}. To override, pass a version in --app-store-tools-build-version or a path to a version.plist in --app-store-tools-build-version-plist-path.") if path.nil?
-  log { "Loading DTAppStoreToolsBuild via ProductBuildVersion from #{path}" }
+  $stderr.puts "Loading DTAppStoreToolsBuild via ProductBuildVersion from #{path}"
   OPTIONS.appStoreToolsBuildVersion = appStoreToolsBuildVersionFromPlist(Pathname(path))
 APP_STORE_TOOLS_BUILD_VERSION_PATTERN = /^\d+\D+\d+\D*$/
 unless OPTIONS.appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTERN
@@ -839,12 +699,17 @@ unless OPTIONS.appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTER
 OPTIONS.ipaName = OPTIONS.inputPath.basename
 if OPTIONS.inputPath.file?
   # Use 'ditto -x -k' to unpack the IPA (it's really just a Zip file, for now); later we'll use the StreamingZip tool.
-  log { "Unpacking #{OPTIONS.inputPath.basename.to_s.shellescape}..." }
+  $stdout.puts "Unpacking #{OPTIONS.inputPath.basename.to_s.shellescape}..." if OPTIONS.verbosity >= 3
   unpackedDir = OPTIONS.tmpDir.join("ipa")
   CmdSpec.new("ditto", ["-x", "-k", "--noqtn", "--noacl", OPTIONS.inputPath, unpackedDir]).run(0, false)
   OPTIONS.inputPath = unpackedDir
-log { "IPA contents:" }
-log { CmdSpec.new(locate_tool("find"), ["-s", "-f", OPTIONS.inputPath]).run(1, false, false) }
+$stderr.puts "---"
+$stderr.puts "IPA contents:"
+$stderr.puts CmdSpec.new(locate_tool("find"), ["-s", "-f", OPTIONS.inputPath]).run(1, false, false)
+$stderr.puts "---"
+#  Allow us to annotate paths with architectures, when we know them
+class Pathname
+  attr_accessor  :arch            # Architecture identifier, if applicable (see the arch(3) man page)
 #  Data Model
 # Represents a single Mach-O image, backed by either a thin file or a slice of a fat file.
 class MachOImage
@@ -856,9 +721,7 @@ class MachOImage
   attr           :hasExecCode      # True if the Mach-O image contains executable code
   attr           :isSigned         # True if the Mach-O image is signed
   attr_accessor  :machoFile        # The Mach-O file of which this image is a part (an FSMachOFileNode object)
-  attr           :loadedDylibs
-  attr           :rpaths
-  def initialize (type, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, isSigned, loadedDylibs, rpaths)
+  def initialize (type, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, isSigned)
     @type = type
     @platformIdentifier = platformIdentifier
     @arch = arch
@@ -866,9 +729,6 @@ class MachOImage
     @hasBitcode = hasBitcode
     @hasExecCode = hasExecCode
     @isSigned = isSigned
-    @loadedDylibs = loadedDylibs
-    @rpaths = rpaths
-    
     @machoFile = nil  # this will be set later, when we're attached to an FSMachOFileNode
   end
   def platform
@@ -882,15 +742,13 @@ class MachOImage
     return to_s
   end
   def thinToPath (dstPath, level)
-    assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
-    
     # Creates a thin Mach-O file at the given path, taking the contents from the Mach-O image that backs this object.
     # If the backing is already thin, we can just copy the file; otherwise we need to use lipo(1) to extract the arch
     # slice into a new thin file.
-    FS.mkdir_p(dstPath.parent)
+    dstPath.parent.mkpath()
     unless machoFile.isFat
       # We already have a thin file (either from the start, or because it has already been thinned earlier).
-      FS.cp(self.machoFile.path, dstPath)
+      FileUtils.cp(self.machoFile.path, dstPath)
     else
       # We don't have a thin file, so we use lipo(1) to extract the slice from our Mach-O file.
       CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-thin", arch, machoFile.path, "-output", dstPath]).run(level, true)
@@ -905,12 +763,26 @@ class MachOImage
     return self.machoFile.path.reparent(ipa.path, options.tmpDir + "thinned-in" + target_arch)
   end
   # Where are we storing the thinned version of this image after we've processed it (stripped or recompiled bitcode)?
-  # todo different paths for recompiling or not?
   def thinnedOutputPath(ipa, options, target_arch = arch)
     return self.machoFile.path.reparent(ipa.path, options.tmpDir + "thinned-out" + target_arch)
   end
+  def rawLoadCommands
+    @rawLoadCommands ||= CmdSpec.new(locate_tool("otool", [self.platform.toolsPath]), ["-l", "-v", "-m", "-arch", self.arch, self.machoFile.path]).run(0, true, true)
+  end
+  # Names from LC(_LAZY)?_LOAD(_WEAK)?_DYLIB commands.
+  def loadedDylibs
+    return rawLoadCommands.
+      scan(/cmd LC(_LAZY)?_LOAD(_WEAK)?_DYLIB.*?name\s+(.*?)\s+\(offset\s+\d+\)/m).
+      map{|groups| groups[2] }
+  end
   def dylibNames
-    return @dylibNames ||= self.loadedDylibs.map{|l| l.sub(/^.*\/([^\/]*)$/, '\1') }
+    return self.loadedDylibs.map{|l| l.sub(/^.*\/([^\/]*)$/, '\1') }
+  end
+  # Paths from LC_RPATH commands.
+  def rpaths
+    return rawLoadCommands.
+      scan(/cmd LC_RPATH.*?path\s+(.*?)\s+\(offset \d+\)/m).
+      map{|groups| groups[0] }
   end
   # Should we exclude this image from the output IPA?
   def shouldExcludeFromOutput
@@ -939,21 +811,6 @@ class MachOImage
                !img.hasBitcode && img.arch == self.arch
              }))
   end
-  def copySymbolsToIPA(symbolsStore, outputIPAPath)
-    dsymFile = symbolsStore.getDSYM(uuid)
-    if dsymFile
-      dst = outputIPAPath + "dSYMs"
-      FS.mkdir_p(dst)
-      FS.cp_r(dsymFile, dst + dsymFile.basename)
-    end
-    
-    symbolsFile = symbolsStore.getSymbols(uuid)
-    if symbolsFile
-      dst = outputIPAPath + "Symbols"
-      FS.mkdir_p(dst)
-      FS.cp_r(symbolsFile, dst + symbolsFile.basename)
-    end
-  end
 class Pathname
   # /a/foo reparent from /a to /b => /b/foo
   def reparent(old_parent, new_parent)
@@ -977,21 +834,17 @@ class FSNode
   end
 class FSFileNode < FSNode
   def copyToPath (dstPath, thinningContext, level = 0)
-    log { "#{"  "*level}copy #{name.shellescape}" }
+    puts "#{"  "*level}copy #{name.shellescape}" if OPTIONS.verbosity >= 2
     # Copy the file contents to the destination path.
-    assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
-    FS.cp(path, dstPath)
-    thinningContext.recordIO(path, dstPath)
+    FileUtils.cp(path, dstPath)
     # Make the mode of the destination the same as the source.
     dstPath.lchmod(path.stat().mode)
   end
 class FSSymlinkNode < FSNode
   def copyToPath (dstPath, thinningContext, level = 0)
-    log { "#{"  "*level}slnk #{name.shellescape}" }
+    puts "#{"  "*level}slnk #{name.shellescape}" if OPTIONS.verbosity >= 2
     # Copy the file contents to the destination path.
-    assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
     dstPath.make_symlink(path.readlink())
-    thinningContext.recordIO(path, dstPath)
     # Make the mode of the destination the same as the source.
     dstPath.lchmod(path.stat().mode)
   end
@@ -1002,11 +855,11 @@ class FSDirectoryNode < FSNode
     @subnodes = []
   end
   def copyToPath (dstPath, thinningContext, level = 0)
-    log { "#{"  "*level}mkdr #{name.shellescape}/" }
+    puts "#{"  "*level}mkdr #{name.shellescape}/" if OPTIONS.verbosity >= 2
+    # First remove the existing directory, if any.
+    dstPath.rmtree() rescue Errno::ENOENT
     # Create the top-level directory and then recurse downward.
-    assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
-    FS.mkdir_p(dstPath)
-    thinningContext.recordIO(path, dstPath)
+    dstPath.mkpath()
     # Copy the file contents to the destination path.
     for subnode in subnodes
       subnode.copyToPath(dstPath + subnode.name, thinningContext, level + 1)
@@ -1027,23 +880,27 @@ class FSDirectoryNode < FSNode
     }
   end
 class FSMachOFileNode < FSFileNode
-  # Array of Mach-O images contained in the file (note that even if one, it could be a fat file)
-  attr_accessor  :machoImages
-  # MH_EXECUTE, MH_DYLIB, etc (technically an image property, but all should be the same)
-  attr           :type
+  attr_accessor  :machoImages   # Array of Mach-O images contained in the file (note that even if one, it could be a fat file)
+  attr           :type          # MH_EXECUTE, MH_DYLIB, etc (technically an image property, but all should be the same)
   def initialize (path, enclosingBundle, machoImages)
     super(path, enclosingBundle)
     assert(machoImages.size > 0)
     @machoImages = machoImages.each{ |img|img.machoFile = self }
     @type = machoImages.first.type
-    assert(machoImages.all? { |i| i.type == type }, "Mismatched types in MachO images: #{machoImages}")
+    # we should warn if we find different types in different slices
   end
   def platform
     return self.machoImages[0].platform
   end
   def isFat
-    archs,isUniversal = lipo_archs(path)
-    return isUniversal
+    output = lipo_info(path)
+    if output =~ /Architectures in the fat file.*\:(.+)/m
+      return true
+    elsif output =~ /Non-fat file.*\:(.+)/m
+      return false
+    else
+      raise "Couldn't parse output of #{cmd}: #{output}"
+    end
   end
   # Given #arch, pick the best image to link against. Returns nil if we can't link any image in this MachO against #arch.
   def linkableImageForArch(arch)
@@ -1073,31 +930,15 @@ class FSMachOFileNode < FSFileNode
     elsif self.platform.identifier == "watchos" && thinningContext.mainTraits && !thinningContext.mainTraits.supportsEmbeddedUniversalWatchApp
       thinArch = "armv7k"
     end
-    thinningContext.recordIO(path, dstPath)
-    
-    reassembledPath = thinningContext.bitcodeContext.reassembledMachOs[path]
-    unless reassembledPath.nil?
-      newImages = GetMachOImagesFromOToolInfoForFile(reassembledPath)
-      src = FSMachOFileNode.new(reassembledPath, enclosingBundle, newImages)
-      # Pass down a dummy IO map
-      subThinningContext = ThinningContext.new(thinningContext.traits, thinningContext.mainTraits, thinningContext.variants, thinningContext.outputIPAPath, thinningContext.bitcodeContext, nil)
-      src.copyToPath(dstPath, subThinningContext, level)
-      return
-    end
     
     if thinArch
-      log { "#{"  "*level}thin #{name.shellescape}" }
+      puts "#{"  "*level}thin #{name.shellescape}" if OPTIONS.verbosity >= 2
       machoImage = self.linkableImageForArchOrError(thinArch)
       # Ask the Mach-O image to emit a thin binary to the destination path.
       machoImage.thinToPath(dstPath, level)
-      machoImage.copySymbolsToIPA(thinningContext.bitcodeContext.symbolsStore, thinningContext.outputIPAPath)
       # Make the mode of the destination the same as the source.
       dstPath.lchmod(path.stat().mode)
     else
-      for machoImage in machoImages
-        machoImage.copySymbolsToIPA(thinningContext.bitcodeContext.symbolsStore, thinningContext.outputIPAPath)
-      end
-      
       super(dstPath, thinningContext, level)
     end
   end
@@ -1113,12 +954,11 @@ class FSMachOFileNode < FSFileNode
   end
 class FSAssetCatalogFileNode < FSFileNode
   def shouldThin
-    return self.enclosingBundle.shouldThin && !self.enclosingBundle.isWatchKit1AppExtension && !self.enclosingBundle.isWatchKit1StubApp
+    return self.enclosingBundle.shouldThin && !self.enclosingBundle.isWatchKitAppExtension
   end
   def copyToPath (dstPath, thinningContext, level = 0)
     if thinningContext.traits && self.shouldThin
-      log { "#{"  "*level}asct #{name.shellescape}" }
-      assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
+      puts "#{"  "*level}asct #{name.shellescape}" if OPTIONS.verbosity >= 2
       CmdSpec.new(locate_tool("assetutil", [self.enclosingBundle.platform.toolsPath]),
                   (thinningContext.traits.to_assetutil_args_array +
                    [
@@ -1126,15 +966,34 @@ class FSAssetCatalogFileNode < FSFileNode
                     path,
                    ])
                   ).run(level)
-      thinningContext.recordIO(path, dstPath)
       # Make the mode of the destination the same as the source.
       dstPath.lchmod(path.stat().mode) rescue Errno::ENOENT
     else
       super(dstPath, thinningContext, level)
     end
   end
+  def mayHaveCarPlayAssets
+    if not defined? @mayHaveCarPlayAssets
+      @mayHaveCarPlayAssets = lambda {
+        begin
+          output = CmdSpec.new(locate_tool("assetutil", [self.enclosingBundle.platform.toolsPath]), ["-I", path]).run(0, 0, true)
+          data = JSON.parse(output)
+          data.assert_array_of(Hash)
+          return data.any? { |entry| entry["Idiom"] == "car" }
+        rescue => exc
+          # If something goes wrong here, we need to conservatively assume it may have CarPlay assets
+          EmitWarning(__LINE__, "Failed to determine if asset catalog has CarPlay assets, assuming it does.\n#{exc.to_log_s}")
+          return true
+        end
+      }.call
+    end
+    return @mayHaveCarPlayAssets
+  end
   # Would traits a and b produce the same output when they thin this AssetCatalog? A return value of true is conclusive, whereas false is not. It would be too expensive to compute a conclusive no.
   def eql_for_traits?(a, b, level = 0)
+    # - graphicsclassfallbacks and hostedidioms should not be passed to -T
+    return false if a.artworkHostedIdioms != b.artworkHostedIdioms && mayHaveCarPlayAssets
+    
     a_arg = a.to_assetutil_T_string
     b_arg = b.to_assetutil_T_string
     return true if a_arg == b_arg
@@ -1261,11 +1120,13 @@ class FSBundleDirectoryNode < FSDirectoryNode
     return path + "Info.plist"
   end
   def shouldThin
+    return false if isWatchKitStubApp
     return !enclosingBundle || (enclosingBundle.shouldThin && platformIdentifier == enclosingBundle.platformIdentifier)
   end
   def copyToPath (dstPath, thinningContext, level = 0)
-    assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
-    log { "#{"  "*level}bndl #{name.shellescape} (#{platformIdentifier})" }
+    puts "#{"  "*level}bndl #{name.shellescape} (#{platformIdentifier})" if OPTIONS.verbosity >= 2
+    # First remove the existing directory, if any.
+    dstPath.rmtree() rescue Errno::ENOENT
     # If our platform is distinct from the native platform of the parent bundle, we disable the thinning traits for
     # this subtree.  This is because in that case, this is actually a payload intended to be sent to another device
     # at a later time, and thinning it would be the wrong thing to do.
@@ -1273,38 +1134,27 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningContext.traits and thinningContext.traits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedWatchApp, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime, thinningContext.traits.supportsEncryptionFormat2, thinningContext.traits.coalescingGroup).freeze
-      thinningContext = ThinningContext.new(traits, traits, thinningContext.variants, thinningContext.outputIPAPath, thinningContext.bitcodeContext, thinningContext.inputOutputMap)
-      log { "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" }
+      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime).freeze
+      thinningContext = ThinningContext.new(traits, traits, thinningContext.variants)
+      puts "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" if OPTIONS.verbosity >= 2
     end
     # If we are a Spotlight extension and the thinning traits say that we should strip it out, we skip the copying.
     if self.isSpotlightAppExtBundle() and thinningContext.traits and thinningContext.traits.featuresToRemove.include?("spotlight") then
-      log { "#{"  "*level}  (skipping copying of a Spotlight Extension on this device)" }
+      puts "#{"  "*level}  (skipping copying of a Spotlight Extension on this device)" if OPTIONS.verbosity >= 2
       skipCopying = true
-    end
-    if self.platform.identifier == "watchos" \
-       && thinningContext.mainTraits && !thinningContext.mainTraits.supportsEmbeddedWatchApp \
-       && self.enclosingBundle && self.enclosingBundle.platform.identifier == "iphoneos" \
-       && (self.isWatchKit2StubApp || self.isWatchKit1AppExtension)
-       log { "#{"  "*level}  (skipping copying of a bundle because thinning traits don't support embedded watch content)" }
-      skipCopying = true
-      if self.isWatchKit2StubApp
-        makeWatchPlaceholderForiOS(self.enclosingBundle, dstPath.parent.parent)
-      end
     end
     if thinningContext.traits && thinningContext.traits.preferredArch
       runnableArchNames = CPUArchitecture.get(thinningContext.traits.preferredArch).runnable_architectures
       bundleRequiredArch = CPUArchitecture.all.find{|cpuArch| @requiredDevCaps[cpuArch.name] == true }
       if bundleRequiredArch && !runnableArchNames.include?(bundleRequiredArch.name)
-        log { "#{"  "*level}  (skipping copying of a bundle due to incompatible architecture (thinning for runnable #{thinningContext.traits.preferredArch}, bundle requires #{bundleRequiredArch.name}))" }
+        puts "#{"  "*level}  (skipping copying of a bundle due to incompatible architecture (thinning for runnable #{thinningContext.traits.preferredArch}, bundle requires #{bundleRequiredArch.name}))" if OPTIONS.verbosity >= 2
         skipCopying = true
       end
     end
     # Unless we've decided to skip this bundle completely, we copy it now (while possibly thinning).
     unless skipCopying
       # Create the top-level directory and then recurse downward.
-      FS.mkdir_p(dstPath)
-      thinningContext.recordIO(path, dstPath)
+      dstPath.mkpath()
       # Copy the file contents to the destination path (possibly applying thinning).
       for subnode in subnodes
         subnode.copyToPath(dstPath + subnode.name, thinningContext, level + 1)
@@ -1321,36 +1171,25 @@ class FSBundleDirectoryNode
   def isWatchKitStubApp
     return path.extname == ".app" && plistBoolValue(infoDict["WKWatchKitApp"] || false)
   end
+  def isWatchKit1StubApp
+    return isWatchKitStubApp && enclosingBundle.isWatchKitAppExtension
+  end
+  def isWatchKit2StubApp
+    return isWatchKitStubApp && enclosingBundle.platform.identifier == "iphoneos"
+  end
   def isWatchKitAppExtension
     return path.extname == ".appex" &&
            self.infoDict["NSExtension"].kind_of?(Hash) &&
            self.infoDict["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.watchkit"
   end
-  def isWatchKit1StubApp
-    return isWatchKitStubApp && enclosingBundle && enclosingBundle.isWatchKitAppExtension
-  end
-  def isWatchKit2StubApp
-    return isWatchKitStubApp && !isWatchKit1StubApp
-  end
   def isWatchKit1AppExtension
-    return isWatchKitAppExtension && enclosingBundle && !enclosingBundle.isWatchKitStubApp
+    return isWatchKitAppExtension && platform.identifier == "iphoneos"
   end
   def isWatchKit2AppExtension
-    return isWatchKitAppExtension && !isWatchKit1StubApp
+    return isWatchKitAppExtension && platform.identifier == "watchos"
   end
-  attr_accessor :watchKit2ContaineriOSApp
 # Bitcode recompilation extras
 class FSBundleDirectoryNode
-  def watchAppChild
-    assert(initialized, path.to_s)
-    if not defined? @watchAppChild
-      @watchAppChild = lambda {
-        return nestedBundles.detect { |b| b.isWatchKitStubApp }
-      }.call
-    end
-    
-    return @watchAppChild
-  end
   def watchAppExChild
     assert(initialized, path.to_s)
     if not defined? @watchAppExChild
@@ -1402,21 +1241,22 @@ class FSBundleDirectoryNode
 class IPA
   attr  :path           # Pathname for the file in the file system
   attr  :mainBundle     # Reference to the main bundle inside the payload directory
-  attr  :linkageGraph   # LinkageGraph for all the MachOImage objects
   attr  :vpnPlugins     # Optional vpnplugin bundles inside the payload directory
   attr  :assetPacks     # Array of asset packs in the OnDemandResources directory, if any
-  def initialize (path, appPath = nil)
+  attr  :dsymFiles      # Paths of .dSYM files associated with the IPA (from compiling bitcode)
+  attr  :dsymFilesUnthinned # Paths of .dSYM files associated with the IPA (from compiling bitcode) (unthinned, e.g. from a watchOS sub-bundle, this means that they're always in the output IPA)
+  attr  :symcacheFiles  # Paths of .symbols files associated with the IPA (from compiling bitcode)
+  attr  :symcacheFilesUnthinned  # Paths of .symbols files associated with the IPA (from compiling bitcode) (unthinned, e.g. from a watchOS sub-bundle, this means that they're always in the output IPA)
+  attr  :linkageGraph   # LinkageGraph for all the MachOImage objects
+  def initialize (path)
     # Scan the file system, constructing the
     path = Pathname(path) unless path.kind_of?(Pathname)
     @path = path
     EmitIPAStructureValidationError("IPA has no Payload directory") unless payloadPath.exist?
-    if appPath.nil?
-      appPaths = payloadPath.children.sort.select{ |chld| chld.extname == ".app" }
-      appNames = appPaths.collect {|p| p.basename }
-      EmitIPAStructureValidationError("IPA has no main app") if appPaths.count == 0
-      EmitIPAStructureValidationError("IPA has multiple top-level apps: #{appNames}") if appPaths.count > 1
-      appPath = appPaths.first
-    end
+    
+    appPaths = payloadPath.children.sort.select{ |chld| chld.extname == ".app" }
+    EmitIPAStructureValidationError("IPA has no main app") unless appPaths.count == 1
+    appPath = appPaths.first
     
     @mainBundle = MakeFileSystemNode(appPath, nil, nil, payloadPath)
     EmitIPAStructureValidationError("Couldn't load app at #{appPath}") unless mainBundle
@@ -1436,19 +1276,15 @@ class IPA
         self.linkageGraph.resolveLoadedDylibs(img, rpathFallbackStack, [], machOsByRealPath)
       }
     }
-    log { "Complete LinkageGraph:\n#{self.linkageGraph.to_s(mainBundle.path.parent).indent}" }
-    if supportsVPNPlugins
-      vpnPluginPaths = payloadPath.children.sort.select{ |chld| chld.extname == ".vpnplugin" }
-      @vpnPlugins = vpnPluginPaths.map{|p| MakeFileSystemNode(p, nil, nil, payloadPath) }
-    else
-      @vpnPlugins = []
-    end
-    if supportsAssetPacks && assetPacksPath.exist?
-      assetPackPaths = assetPacksPath.children.sort.select{ |chld| chld.extname == ".assetpack" }
-      @assetPacks = assetPackPaths.collect{ |p| MakeFileSystemNode(p, nil, mainBundle, assetPacksPath) }
-    else
-      @assetPacks = []
-    end
+    $stderr.puts "Complete LinkageGraph:\n#{self.linkageGraph.to_s(mainBundle.path.parent).indent}"
+    vpnPluginPaths = payloadPath.children.sort.select{ |chld| chld.extname == ".vpnplugin" }
+    @vpnPlugins = vpnPluginPaths.map{|p| MakeFileSystemNode(p, nil, nil, payloadPath) }
+    assetPackPaths = assetPacksPath.children.sort.select{ |chld| chld.extname == ".assetpack" } if hasAssetPacks
+    @assetPacks = assetPackPaths.collect{ |p| MakeFileSystemNode(p, nil, mainBundle, assetPacksPath) } if assetPackPaths
+    @dsymFiles = []
+    @dsymFilesUnthinned = []
+    @symcacheFiles = []
+    @symcacheFilesUnthinned = []
   end
   def payloadPath ()
     return @path + "Payload"
@@ -1462,22 +1298,14 @@ class IPA
   def bitcodeSymbolMapsPath
     return @path + "BCSymbolMaps"
   end
-  # For subclasses to configure behavior
-  def supportsAssetPacks
-    return true
-  end
-  def hasAssetPacks
-    return !@assetPacks.empty?
+  def hasAssetPacks ()
+    return assetPacksPath.exist?
   end
   def hasSymbolCache ()
     return symbolCachePath.exist?
   end
   def hasBitcodeSymbolMaps
     bitcodeSymbolMapsPath.exist?
-  end
-  # For subclasses to configure behavior
-  def supportsVPNPlugins
-    return true
   end
   def thinnableAssetCatalogs
     mainBundleAssetCatalogs = self.mainBundle.thinnableAssetCatalogs
@@ -1526,16 +1354,6 @@ class IPA
     
     return @stripSwiftSymbols
   end
-class EmbeddedWatchIPA < IPA
-  def initialize(path, watchAppChild = nil)
-    super(path, watchAppChild)
-  end
-  def supportsAssetPacks
-    return false
-  end
-  def supportsVPNPlugins
-    return false
-  end
 def plistBoolValue(value)
   case value
   when "1", "YES", 1, true
@@ -1546,115 +1364,93 @@ def plistBoolValue(value)
     return nil
   end
 def lipo_info(path)
-  return CmdSpec.new(locate_tool("lipo"), ["-info", path.to_s]).run(0, false, true)
-# Returns: [String],isUniversal
-def lipo_archs(path)
-  output = lipo_info(path)
-  if output =~ /Architectures in the fat file.*\:(.+)/m
-    return $1.split, true
-  elsif output =~ /Non-fat file.*\:(.+)/m
-    return [$1.strip], false
-  else
-    raise "Could not parse architectures from lipo:\n#{output}"
-  end
+  return CmdSpec.new(locate_tool("lipo"), ["-info", path.to_s]).run(0, true, true)
 def file_type(path)
-  return CmdSpec.new(locate_tool("file"), ["-b", "--", path.to_s]).run(0, false, true).strip
-OTOOL_PATH = locate_tool('otool')
-def otoolLVM(path)
-  CmdSpec.new(OTOOL_PATH, ["-l", "-v", "-m", path.to_s]).run(0, false, true)
-$placeholderutil = locate_tool("placeholderutil")
-def makeWatchPlaceholderForiOS(comboApp, outputDir)
-  assetutil = locate_tool("assetutil", [comboApp.watchAppChild.platform.toolsPath])
-  return CmdSpec.new($placeholderutil, ["--watch", assetutil.to_s, comboApp.path.to_s, outputDir.to_s]).run(1, true, false)
-def makeiOSPlaceholderForWatch(comboApp, outputIPAPath)
-  assetutil = locate_tool("assetutil", [comboApp.platform.toolsPath])
-  outputDir = outputIPAPath
-  return CmdSpec.new($placeholderutil, ["--ios", assetutil.to_s, comboApp.path.to_s, outputDir.to_s]).run(1, true, false)
-# :: [[String: ...]]
-def otoolParseLoadCommands(output)
-    loadCommands = []
-    output.split(/Load command \d+\s*\n/).drop(1).each { |substr|
-      # Iterate over the lines in the load command. If we find a section, we deal with it.
-      next if substr == ""
-      currentLoadCommand = {}
-      currentSection = nil
-      loadCommands << currentLoadCommand
-      
-      substr.each_line { |line|
-        # If the line is "Section", we create a new section.
-        if line.strip == "Section"
-          # It's the start of a new section.
-          (currentLoadCommand[:sections] ||= []) << (currentSection = {})
-        else
-          # It's a key value pair, which we add to either the load command or the current section.
-          # todo: keys like "current version" and "time stamp" have spaces in them
-          k,v = line.split(' ', 2)
-          (currentSection || currentLoadCommand)[k.strip.to_sym] = v.strip
-        end
-      }
-    }
-    return loadCommands
+  return CmdSpec.new(locate_tool("file"), ["-b", "--", path.to_s]).run(0, true, true).strip
 #  Examines the file system entity at the path, and returns either a [MachOImage] (if the path refers to
 #  a Mach-O file or a symlink to a Mach-O file) or nil (if it doesn't).  The returned MachOImage objects have a path
 #  to either the single-architecture or the multi-architecture file so they can in the future   This function always
 #  returns a string.
 def GetMachOImagesFromOToolInfoForFile (path)
-  path.assert_kind_of(Pathname)
-  # If it's a universal binary, otool will tell us the archs. If it isn't universal, we need lipo. This is common, so kick off lipo in the background.
-  lipo_archs_f = Future.new { lipo_archs(path) }
-  obj = otoolLVM(path)
-  return nil if obj =~ /\A.*: is not an object file/
-  objspl = obj.split('Mach header')
-  assert(objspl.count > 1, "Couldn't split otool output on 'Mach header' for #{path}")
-  # If it's a universal binary, this is the fat header. If it isn't, it's just the input path.
-  obj_fat_header = objspl[0]
-  obj_slices = objspl.drop(1)
-  archs = obj_fat_header.scan(/^architecture ([^ ]+)$/).collect { |gs| groups[0] }
-  if archs.empty?
-    archs = lipo_archs_f.await[0]
+  # Make a quick exit if it doesn't seem like a Mach-O file (or a symlink to one).
+  path = Pathname(path) unless path.kind_of?(Pathname)
+  return nil unless path.exist? and path.file?
+  return nil unless (file_type(path) =~ /Mach-O/ rescue nil)
+  # Figure out which architectures it contains.  We end up with 'archs' as either a string if it's a single-architecture
+  # Mach-O file, or as an array of strings (which could be even just a single one) if it's a multi-architecture Mach-O.
+  output = lipo_info(path)
+  return nil unless $? == 0
+  if output =~ /Architectures in the fat file.*\:(.+)/m
+    archs = $1.split
+  elsif output =~ /Non-fat file.*\:(.+)/m
+    archs = $1.strip
+  else
+    return nil
   end
-  assert(obj_slices.count == archs.count, "Expected #{archs.count} archs in otool output:\n#{obj}")
+  # puts "archs: #{[*archs].join(", ")}"
+  # Use otool -h to figure out the Mach-O type.
+  output = CmdSpec.new(locate_tool("otool"), ["-h", "-v", "-m", "-arch", "all", path.to_s]).run(0, true, true)
+  machOType = /[0-9]+\s+(EXECUTE|DYLIB|BUNDLE)\s+[0-9]+/.match(output)[1] rescue "???"
+  # puts "machOType: #{machOType}"
   # Go through the architectures, and construct a Mach-O image for it.
   machoImages = []
-  for arch,output in archs.zip(obj_slices)
-    machOType = /[0-9]+\s+(EXECUTE|DYLIB|BUNDLE)\s+[0-9]+/.match(output)[1] rescue "???"
-    loadedDylibs = output.
-      scan(/cmd LC(_LAZY)?_LOAD(_WEAK)?_DYLIB.*?name\s+(.*?)\s+\(offset\s+\d+\)/m).
-      map{|groups| groups[2] }
-    
-    rpaths = output.
-      scan(/cmd LC_RPATH.*?path\s+(.*?)\s+\(offset \d+\)/m).
-      map{|groups| groups[0] }
-    
+  for arch in [ *archs ]
+    # Use otool(1) to get the load commands for the architecture, and strip off the first line.
+    output = CmdSpec.new(locate_tool("otool"), ["-l", "-v", "-m", "-arch", arch, path]).run(0, true, true)
+    output = output.lines.drop(1).join('')
     # Collect load commands.
-    loadCommands = otoolParseLoadCommands(output)
+    loadCommands = nil
+    output.split(/Load command \d+\s*\n/).each { |substr|
+      # Iterate over the lines in the load command. If we find a section, we deal with it.
+      next if substr == ""
+      (loadCommands ||= []) << (currentLoadCommand = OpenStruct.new())
+      currentSection = nil
+      substr.each_line { |line|
+        # If the line is "Section", we create a new section.
+        if line.strip == "Section"
+          # It's the start of a new section.
+          (currentLoadCommand["sections"] ||= []) << (currentSection = OpenStruct.new())
+        else
+          # It's a key value pair, which we add to either the load command or the current section.
+          k,v = line.split(' ', 2)
+          (currentSection || currentLoadCommand)[k.strip] = v.strip
+        end
+      }
+    }
     # Record the UUID, if there is one.
-    uuid = loadCommands.select{ |lc| lc[:cmd] == "LC_UUID" }.collect{ |lc| lc[:uuid] }.first
+    uuid = loadCommands.select{ |lc| lc.cmd == "LC_UUID" }.collect{ |lc| lc.uuid }.first
+    # p uuid
     
     # Record the platform and the minimum deployment target.
-    versionMinLoadCommandName = loadCommands.select{ |lc| lc[:cmd] =~ /LC_VERSION_MIN_(.+)/ }.collect{ |lc| lc[:cmd] }.first
+    versionMinLoadCommandName = loadCommands.select{ |lc| lc.cmd =~ /LC_VERSION_MIN_(.+)/ }.collect{ |lc| lc.cmd }.first
     platformIdentifier = if versionMinLoadCommandName then Platform.platformIdentifierForVersionMinLoadCommand(versionMinLoadCommandName) else nil end
     if platformIdentifier.nil?
-      versionLoadCommand = loadCommands.detect{ |lc| lc[:cmd] =~ /LC_BUILD_VERSION/ }
-      platformIdentifier = versionLoadCommand[:platform] if versionLoadCommand
+      versionLoadCommand = loadCommands.detect{ |lc| lc.cmd =~ /LC_BUILD_VERSION/ }
+      platformIdentifier = versionLoadCommand.platform if versionLoadCommand
       platformIdentifier = "iphoneos" if platformIdentifier == "ios"
       platformIdentifier = "appletvos" if platformIdentifier == "tvos"
     end
     EmitWarning(__LINE__, "Could not determine platform for #{arch} in #{path}") unless platformIdentifier
+    # p versionMinLoadCommandName
+    # p minVersion
+    # p sdkVersion
     # Record whether or not there is a code signature.
-    hasCodeSignature = loadCommands.select{ |lc| lc[:cmd] == "LC_CODE_SIGNATURE" }.count > 0
+    hasCodeSignature = loadCommands.select{ |lc| lc.cmd == "LC_CODE_SIGNATURE" }.count > 0
+    # p hasCodeSignature
     # Record whether or not there is executable code.
-    hasBitcode = loadCommands.select{ |lc| lc[:cmd] == "LC_SEGMENT" or lc[:cmd] == "LC_SEGMENT_64" }.find{ |lc|
+    hasBitcode = loadCommands.select{ |lc| lc.cmd == "LC_SEGMENT" or lc.cmd == "LC_SEGMENT_64" }.find{ |lc|
       # Select segments named "__LLVM" with sections named "__bundle".
-      lc[:segname] == "__LLVM" and lc[:sections] and lc[:sections].find{ |sc| sc[:sectname] == "__bundle"}
+      lc.segname == "__LLVM" and lc.sections and lc.sections.find{ |sc| sc.sectname == "__bundle"}
     }
+    # p hasBitcode
     # Record whether or not there is bitcode.
-    hasExecCode = loadCommands.select{ |lc| lc[:cmd] == "LC_SEGMENT" or lc[:cmd] == "LC_SEGMENT_64" }.select{ |lc|
+    hasExecCode = loadCommands.select{ |lc| lc.cmd == "LC_SEGMENT" or lc.cmd == "LC_SEGMENT_64" }.select{ |lc|
       # Select "__TEXT" segments that aren't zero-sized.
-      lc[:segname] == "__TEXT" and lc[:filesize].to_i > 0
+      lc.segname == "__TEXT" and lc.filesize.to_i > 0
     }.count > 0
+    # p hasExecCode
     # Finally, create a MachOImage object to represent the Mach-O image.
-    machoImages << MachOImage.new("MH_" + machOType, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, hasCodeSignature, loadedDylibs, rpaths)
+    machoImages << MachOImage.new("MH_" + machOType, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, hasCodeSignature)
   end
   return machoImages
 # Examines the file system entity at the path and returns the most specific kind of node that best represents it.
@@ -1663,6 +1459,7 @@ def MakeFileSystemNode (path, parentDirectory = nil, enclosingBundle = nil, pare
   path = Pathname(path) unless path.kind_of?(Pathname)
   raise "Nothing at path: #{path}" unless path.exist?
   # Otherwise, what we do depends on the type of file system entity.
+  # puts "[#{path}]"
   case path.ftype
       
   when "file"
@@ -1688,8 +1485,7 @@ reserved
       end
     else
       # Possibly a Mach-O (we'll need to check the contents to know for sure)
-      is_macho = (file_type(path) =~ /Mach-O/) rescue nil
-      machoImages = if is_macho then GetMachOImagesFromOToolInfoForFile(path) else nil end
+      machoImages = GetMachOImagesFromOToolInfoForFile(path)
       if machoImages && !machoImages.empty? && (!enclosingBundle || machoImages.first.platformIdentifier == enclosingBundle.statedPlatformIdentifier)
         # Instantiate a Mach-O File Node and, if there is an enclosing bundle, add it to the list.
         node = FSMachOFileNode.new(path, enclosingBundle, machoImages)
@@ -1724,7 +1520,7 @@ reserved
       mainExecName = node.infoDict['CFBundleExecutable']
       # If there is a value, we find it in the list of Mach-Os, and set it as the bundle's main Mach-O.
       if mainExecName
-        bundle.mainMachoFile = node.subnodes.detect{ |n| n.name == mainExecName } || node.subnodes.detect{ |n| n.name.unicode_equal?(mainExecName) }
+        bundle.mainMachoFile = node.subnodes.detect{ |n| n.name.unicode_equal?(mainExecName) }
       end
       node.initialized = true
     end
@@ -1738,24 +1534,28 @@ reserved
     return FSNode.new(path, enclosingBundle)
   end
 def WalkBundle (bundle, level = 0)
-  log { "#{"  " * level}[#{bundle}] #{bundle.infoDict["CFBundleIdentifier"]} #{bundle.infoDict["CFBundleSupportedPlatforms"]}" }
+  puts "#{"  " * level}[#{bundle}] #{bundle.infoDict["CFBundleIdentifier"]} #{bundle.infoDict["CFBundleSupportedPlatforms"]}"
   for machoFile in bundle.machoFiles.each
-    log { "#{"  " * level} #{machoFile}" }
+    puts "#{"  " * level} #{machoFile}"
     for machoImage in machoFile.machoImages
-      log { "#{"  " * level} #{machoImage.type} #{machoImage.arch} #{machoImage.uuid}" }
+      puts "#{"  " * level} #{machoImage.type} #{machoImage.arch} #{machoImage.uuid}"
     end
   end
   for nestedBundle in bundle.nestedBundles
     WalkBundle(nestedBundle, level + 1)
   end
 def WalkFiles (node, level = 0)
-  log { "#{"  " * level}#{node.class}  #{node}" }
+  puts "#{"  " * level}#{node.class}  #{node}"
   for subnode in (node.subnodes || [])
     WalkFiles(subnode, level + 1)
   end
+class String
+  def quote
+    "\"#{self.gsub("\\", "\\\\").gsub("\"", "\\\"")}\""
+  end
 # Validate an unpacked IPA, emitting issues to the JSON.
 def ValidateIPA (ipa)
-  log { "Validating IPA structure..." }
+  puts "Validating IPA structure..."
   # Then check the main bundle (and any nested subbundles).
   ValidatePayloadBundle(ipa.mainBundle, ipa)
   bundleDisplayPath = ipa.mainBundle.path.relative_path_from(ipa.payloadPath)
@@ -1794,25 +1594,23 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
     if mainMachoFile.nil?
       EmitIPAPayloadValidationError("main bundle #{bundle.path.relative_path_from(ipa.payloadPath)} doesn't have a main Mach-O file")
     elsif !mainMachoFile.kind_of?(FSMachOFileNode)
-      log { "Main bundle '#{bundle.path.to_s}' : '#{bundle.platform.identifier}' main mach-o '#{mainMachoFile.path.to_s}' is of type '#{mainMachoFile.class.name}'" }
+      $stderr.puts "Main bundle '#{bundle.path.to_s}' : '#{bundle.platform.identifier}' main mach-o '#{mainMachoFile.path.to_s}' is of type '#{mainMachoFile.class.name}'"
       EmitIPAPayloadValidationError("main bundle #{bundle.path.relative_path_from(ipa.payloadPath)} specifies a main Mach-O file ('#{mainMachoFile.name}') that isn't an actual Mach-O")
     end
   end
-  if OPTIONS.validateBitcode && !OPTIONS.compileBitcode
-    if platform
-      for machoFile in bundle.machoFiles
-        if machoFile.machoImages.any?{|mi| mi.hasBitcode }
-          out_str, status = Open3.capture2e('bitcode-build-tool',
-                                            "-t", (OPTIONS.toolchainDir + "bin").to_s,
-                                            "--sdk", platform.sdkPath.to_s,
-                                            '--verify', machoFile.path.to_s,
-                                           )
-          if !status.success?
-            if status.exitstatus == 1
-              EmitIPAPayloadValidationError("Failed to verify bitcode in #{machoFile.path.relative_path_from(machoFile.path.parent.parent)}:\n" + out_str)
-            else
-              raise ("bitcode-build-tool failed with #{status}: " + out_str)
-            end
+  if platform
+    for machoFile in bundle.machoFiles
+      if machoFile.machoImages.any?{|mi| mi.hasBitcode }
+        out_str, status = Open3.capture2e('bitcode-build-tool',
+                                          "-t", (OPTIONS.toolchainDir + "bin").to_s,
+                                          "--sdk", platform.sdkPath.to_s,
+                                          '--verify', machoFile.path.to_s,
+                                          )
+        if !status.success?
+          if status.exitstatus == 1
+            EmitIPAPayloadValidationError("Failed to verify bitcode in #{machoFile.path.relative_path_from(machoFile.path.parent.parent)}:\n" + out_str)
+          else
+            raise ("bitcode-build-tool failed with #{status}: " + out_str)
           end
         end
       end
@@ -1828,37 +1626,23 @@ def ValidateOutputIPA (srcIPA, outputIPA, options)
     EmitIPAOutputValidationError("Should have been removed: #{outputIPA.appThinningInfoPath.to_s.shellescape}")
   end
   # If we've changed the deployment target, it should have 2+ components for binary compatibility
-  srcDeploymentTargetString = srcIPA.mainBundle.infoDict["MinimumOSVersion"]
-  deploymentTargetString = outputIPA.mainBundle.infoDict["MinimumOSVersion"]
-  if srcDeploymentTargetString != deploymentTargetString && (deploymentTargetString.nil? || !deploymentTargetString.kind_of?(String) || deploymentTargetString.split('.').count < 2)
-    EmitIPAOutputValidationError("Expected a MinimumOSVersion with 2+ dot-separated components but got '#{deploymentTargetString}' in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
-  end
-  deploymentTarget = Gem::Version.new(deploymentTargetString)
-  expectDTAppStoreToolsBuild = true
-  # Check Info.plist whitelist for older watchOS
-  if outputIPA.mainBundle.platform.identifier == "watchos" && deploymentTarget < $watchOSInfoPlistWhitelistEndVersion
-    expectDTAppStoreToolsBuild = false
-    infoKeys = Set.new(outputIPA.mainBundle.infoDict.keys)
-    infoKeys.subtract($watchOSInfoPlistWhitelist)
-    if infoKeys.count != 0
-      EmitIPAOutputValidationError("Expected Info.plist within watchOS whitelist but found the following extraneous keys: #{infoKeys}")
-    end
+  srcDeploymentTarget = srcIPA.mainBundle.infoDict["MinimumOSVersion"]
+  deploymentTarget = outputIPA.mainBundle.infoDict["MinimumOSVersion"]
+  if srcDeploymentTarget != deploymentTarget && (deploymentTarget.nil? || !deploymentTarget.kind_of?(String) || deploymentTarget.split('.').count < 2)
+    EmitIPAOutputValidationError("Expected a MinimumOSVersion with 2+ dot-separated components but got '#{deploymentTarget}' in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
   end
   # We should insert DTAppStoreToolsBuild
-  if expectDTAppStoreToolsBuild
-    appStoreToolsBuildVersion = outputIPA.mainBundle.infoDict["DTAppStoreToolsBuild"]
-    if appStoreToolsBuildVersion == nil
-      EmitIPAOutputValidationError("Expected Info.plist:DTAppStoreToolsBuild in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
-    else
-      unless appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTERN
-        EmitIPAOutputValidationError("Expected #{appStoreToolsBuildVersion} to match #{APP_STORE_TOOLS_BUILD_VERSION_PATTERN}, e.g. 10A208 or 10A208a")
-      end
+  appStoreToolsBuildVersion = outputIPA.mainBundle.infoDict["DTAppStoreToolsBuild"]
+  if appStoreToolsBuildVersion == nil
+    EmitIPAOutputValidationError("Expected Info.plist:DTAppStoreToolsBuild in #{outputIPA.mainBundle.path.relative_path_from(outputIPA.path).to_s}")
+  else
+    unless appStoreToolsBuildVersion =~ APP_STORE_TOOLS_BUILD_VERSION_PATTERN
+      EmitIPAOutputValidationError(__LINE__, "Expected #{appStoreToolsBuildVersion} to match #{APP_STORE_TOOLS_BUILD_VERSION_PATTERN}, e.g. 10A208 or 10A208a")
     end
   end
   # We should have no remaining bitcode
   for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) && n.machoImages.any?{|i| i.hasBitcode } }
-    imgs = machO.machoImages.collect { |i| "#{i.arch}:#{i.uuid}" }.sort.join(" ")
-    EmitIPAOutputValidationError("Found bitcode in #{machO.path} #{imgs}")
+    EmitIPAOutputValidationError("Found bitcode in #{machO.path}")
   end
   # If we compiled bitcode, we should have symbols
   if options.compileBitcode
@@ -1870,20 +1654,20 @@ def ValidateOutputIPA (srcIPA, outputIPA, options)
     srcMachOs = srcIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) }
     
     for machO in outputIPA.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) }
-      correspondingInputPath = machO.path.relative_path_from(outputIPA.mainBundle.path)
-      correspondingInputMachO = srcMachOs.detect{|n| n.path.relative_path_from(srcIPA.mainBundle.path) == correspondingInputPath }
+      correspondingInputPath = machO.path.relative_path_from(outputIPA.path)
+      correspondingInputMachO = srcMachOs.detect{|n| n.path.relative_path_from(srcIPA.path) == correspondingInputPath }
       assert(correspondingInputMachO, "Could not find macho node with path: #{correspondingInputPath} in #{srcMachOs.map{|n| n.path.relative_path_from(srcIPA.path).to_s }}")
       
       for image in machO.machoImages
         correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == image.arch }
-        if correspondingInputImage.nil? && options.translateWatchOS && image.arch == "arm64_32"
-          correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == "armv7k" }
+        if correspondingInputImage.nil? && options.translateWatchOS
+          correspondingInputImage = correspondingInputMachO.machoImages.detect{|i| i.arch == "armv7k" && image.arch == "arm64_32" }
         end
         assert(correspondingInputImage, "Couldn't find image for #{image.arch} among #{correspondingInputMachO.machoImages.map{|i|i.arch}}")
         
         if correspondingInputImage.shouldCompileBitcode(options)
-          EmitIPAOutputValidationError("Could not find dSYM for: #{machO.path} : #{image.arch} : #{image.uuid}") unless dSYMs.include?(image.uuid + ".dSYM")
-          EmitIPAOutputValidationError("Could not find symbols for: #{machO.path} : #{image.arch} : #{image.uuid}") unless symbols.include?(image.uuid + ".symbols")
+          EmitIPAOutputValidationError("Could not find dSYM for: #{machO.path} : #{image.arch}") unless dSYMs.include?(image.uuid + ".dSYM")
+          EmitIPAOutputValidationError("Could not find symbols for: #{machO.path} : #{image.arch}") unless symbols.include?(image.uuid + ".symbols")
         end
       end
     end
@@ -1919,27 +1703,31 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
   # Create a result struct to contain the output describing the outputs.  It always contains at least the path.
   outputInfo = OpenStruct.new
   outputInfo.path = dstPath
-  log { "Creating #{thinningContext.traits ? thinningContext.traits.to_s : "universal"} IPA contents for #{thinningContext.variants.nil_if_empty ? thinningContext.variants.collect{|x|x.to_s}.sort.join(", ") : "all variants"}" }
+  $stdout.puts "Creating #{thinningContext.traits ? thinningContext.traits.to_s : "universal"} IPA contents for #{thinningContext.variants.nil_if_empty ? thinningContext.variants.collect{|x|x.to_s}.sort.join(", ") : "all variants"}" if OPTIONS.verbosity >= 1
+  # Remove anything that's already at the destination path.
+  $stdout.puts "  Removing existing output directory" if dstPath.exist? and OPTIONS.verbosity >= 1
+  dstPath.rmtree() rescue Errno::ENOENT
   # Create the output directory, and any ancestor directories.
-  assert(!dstPath.exist?, "Duplicate output: #{dstPath.to_s}")
-  log { "  Creating directory #{dstPath.to_s.shellescape}" }
-  FS.mkdir_p(dstPath)
+  $stdout.puts "  Creating directory #{dstPath.to_s.shellescape}" if OPTIONS.verbosity >= 1
+  dstPath.mkpath()
   # Copy the main payload bundle.  Whether or not it will be thinned as it is being copied depends on whether or not
   # we were given any thinning traits.
-  log { "  #{thinningContext.traits ? "Thinning" : "Copying"} #{srcIPA.mainBundle.name} output payload directory" }
+  $stdout.puts "  #{thinningContext.traits ? "Thinning" : "Copying"} #{srcIPA.mainBundle.name} output payload directory" if OPTIONS.verbosity >= 1
   srcIPA.mainBundle.copyToPath(dstPath + "Payload" + srcIPA.mainBundle.name, thinningContext, 2)
   srcIPA.vpnPlugins.each{ |vpnPlugin|
     # traits is intentionally nil. vpnPlugins are signed and we cannot break their signature.
-    vpnPlugin.copyToPath(dstPath + "Payload" + vpnPlugin.name, ThinningContext.new(nil, nil, nil, dstPath, thinningContext.bitcodeContext, thinningContext.inputOutputMap), 2)
-  # Update the Info.plist of the main payload bundle.
+    vpnPlugin.copyToPath(dstPath + "Payload" + vpnPlugin.name, ThinningContext.new(nil, nil, nil), 2)
+  # Update the Info.plist of the main payload bundle to contain information about what devices it has been thinned for.
   # We copy only the Info.plist into the placeholder bundle.
-  log { "    Updating Info.plist" } if thinningContext.traits
+  $stdout.puts "    Updating Info.plist with UISupportedDevices keys" if thinningContext.traits and OPTIONS.verbosity >= 1
   dstInfoPlistPath = dstPath + "Payload" + srcIPA.mainBundle.name + "Info.plist"
   infoPlist = LoadPlist(dstInfoPlistPath)
   nativeInfoPlist = CFPropertyList::native_types(infoPlist.value) unless infoPlist == nil
-  inputDeploymentTarget = srcIPA.mainBundle.deploymentTarget
-  deploymentTarget = inputDeploymentTarget
+    
+  nativeInfoPlist[:DTAppStoreToolsBuild] = OPTIONS.appStoreToolsBuildVersion.as(String)
+  nativeInfoPlist[:UISupportedDevices] = thinningContext.variants.collect{|x|x.device.productType}.sort.uniq if thinningContext.variants.nil_if_empty
   if thinningContext.variants.nil_if_empty
+    inputDeploymentTarget = srcIPA.mainBundle.deploymentTarget
     variantDeploymentTarget = thinningContext.variants.min { |a,b| a.traits.deploymentTarget <=> b.traits.deploymentTarget }.traits.deploymentTarget
     deploymentTarget = [inputDeploymentTarget, variantDeploymentTarget].max
     if deploymentTarget != inputDeploymentTarget
@@ -1950,25 +1738,50 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
       nativeInfoPlist[:MinimumOSVersion] = components.join('.')
     end
   end
-  requiresWatchInfoPlistWhitelist = srcIPA.mainBundle.platform.identifier == "watchos" && deploymentTarget < $watchOSInfoPlistWhitelistEndVersion
-  unless requiresWatchInfoPlistWhitelist
-    nativeInfoPlist[:DTAppStoreToolsBuild] = OPTIONS.appStoreToolsBuildVersion.as(String)
-    
-    nativeInfoPlist[:UISupportedDevices] = thinningContext.variants.collect{|x|x.device.productType}.sort.uniq if thinningContext.variants.nil_if_empty
-  end
   modifiedInfoPlist = CFPropertyList::List.new
   modifiedInfoPlist.value = CFPropertyList.guess(nativeInfoPlist)
-  FS.rm_f(dstInfoPlistPath)
+  FileUtils.rm_f(dstInfoPlistPath)
   modifiedInfoPlist.save(dstInfoPlistPath, CFPropertyList::List::FORMAT_XML)
+  preferred_arch_runnable_archs = thinningContext.traits ? CPUArchitecture.get(thinningContext.traits.preferredArch).runnable_architectures : []
+  # Also copy any DWARF debug symbols files that are associated with it (generated by compiling bitcode).
+  # Depending on our thinning options, we might be copying all of them, or only some.
+  dsymFiles = (thinningContext.traits ? srcIPA.dsymFiles.select{ |p| preferred_arch_runnable_archs.include?(p.arch) } : srcIPA.dsymFiles) + srcIPA.dsymFilesUnthinned
+  unless dsymFiles.empty?
+    # Create a dSYMs directory in the output IPA.
+    dsymDirPath = dstPath + "dSYMs"
+    dsymDirPath.mkpath()
+    $stdout.puts "  Copying .dSYM files to #{dsymDirPath.to_s.shellescape}" if OPTIONS.verbosity >= 1
+    # Copy each of the .dSYM files to the dSYMs directory.
+    for dsymFile in dsymFiles
+      $stdout.puts "    #{dsymFile.basename.to_s.shellescape}" if OPTIONS.verbosity >= 2
+      FileUtils.rmtree(dsymDirPath + dsymFile.basename)
+      FileUtils.cp_r(dsymFile, dsymDirPath + dsymFile.basename)
+    end
+  end
+  # Also copy any symbol cache files that are associated with it (generated by compiling bitcode).
+  # Depending on our thinning options, we might be copying all of them, or only some.
+  symcacheFiles = (thinningContext.traits ? srcIPA.symcacheFiles.select{ |p| preferred_arch_runnable_archs.include?(p.arch) } : srcIPA.symcacheFiles) + srcIPA.symcacheFilesUnthinned
+  unless symcacheFiles.empty?
+    # Create a Symbols directory in the output IPA.
+    symbolsDirPath = dstPath + "Symbols"
+    symbolsDirPath.mkpath()
+    $stdout.puts "  Copying .symbols files to #{symbolsDirPath.to_s.shellescape}" if OPTIONS.verbosity >= 1
+    # Copy each of the .symbols files to the Symbols directory.
+    for symcacheFile in symcacheFiles
+      $stdout.puts "    #{symcacheFile.basename.to_s.shellescape}" if OPTIONS.verbosity >= 2
+      FileUtils.rmtree(symbolsDirPath + symcacheFile.basename)
+      FileUtils.cp_r(symcacheFile, symbolsDirPath + symcacheFile.basename)
+    end
+  end
   # Extract asset packs, if appropriate.
   if srcIPA.hasAssetPacks
     # See if we're supposed to extract them.
     if extractAssetPacks
       # We're extracting asset packs into a directory next to the product, with a "-assetpacks" suffix.
       assetPackOutputDir = dstPath.parent + (dstPath.basename.to_s + "-assetpacks")
-      log { "  Extracting #{thinningContext.traits ? "thinned" : "unmodified"} asset packs to #{assetPackOutputDir.to_s.shellescape}" }
+      $stdout.puts "  Extracting #{thinningContext.traits ? "thinned" : "unmodified"} asset packs to #{assetPackOutputDir.to_s.shellescape}" if OPTIONS.verbosity >= 1
       for assetPack in srcIPA.assetPacks
-        log { "    #{assetPack.name.to_s.shellescape}" }
+        $stdout.puts "    #{assetPack.name.to_s.shellescape}" if OPTIONS.verbosity >= 2
         assetPack.copyToPath(assetPackOutputDir + assetPack.name, thinningContext, 2)
       end
       outputInfo.assetPackOutputDir = assetPackOutputDir
@@ -1977,19 +1790,19 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
         # We will put the asset pack manifest plist into the asset pack output directory.
         assetPackManifestFilePath = assetPackOutputDir + "AssetPackManifest.plist";
         # Now create it from the asset pack directory.
-        log { "  Creating asset pack manifest plist at #{assetPackManifestFilePath.to_s.shellescape}" }
+        $stdout.puts "  Creating asset pack manifest plist at #{assetPackManifestFilePath.to_s.shellescape}" if OPTIONS.verbosity >= 1
         CreateAssetPackManifest(assetPackOutputDir, assetPackManifestFilePath, assetPackManifestURLPrefix, srcIPA.payloadPath)
         # Make a note of where the asset pack manifest is.
         outputInfo.assetPackManifestPath = assetPackManifestFilePath
       else
-        log { "  (not creating an asset pack manifest plist, because no manifest url prefix was provided)" }
+        $stdout.puts "  (not creating an asset pack manifest plist, because no manifest url prefix was provided)" if OPTIONS.verbosity >= 1
       end
     else
       # We're not extracting asset packs, but the original contained them, so we copy them over.
       assetPackOutputDir = dstPath + "Payload" + "OnDemandResources"
-      log { "  Copying #{thinningContext.traits ? "thinned" : "unmodified"} asset packs in #{assetPackOutputDir.to_s.shellescape}" }
+      $stdout.puts "  Copying #{thinningContext.traits ? "thinned" : "unmodified"} asset packs in #{assetPackOutputDir.to_s.shellescape}" if OPTIONS.verbosity >= 1
       for assetPack in srcIPA.assetPacks
-        log { "    #{assetPack.name.to_s.shellescape}" }
+        $stdout.puts "    #{assetPack.name.to_s.shellescape}" if OPTIONS.verbosity >= 2
         assetPack.copyToPath(assetPackOutputDir + assetPack.name, thinningContext, 2)
       end
     end
@@ -1998,13 +1811,15 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
   if createPlaceholderBundle
     # The path of the directory containing the placeholder is next to the product, with a "-placeholder" suffix.
     placeholderOutputDir = dstPath.parent + (dstPath.basename.to_s + "-placeholder")
-    log { "  Creating placeholder app wrapper at #{placeholderOutputDir.to_s.shellescape}" }
+    $stdout.puts "  Creating placeholder app wrapper at #{placeholderOutputDir.to_s.shellescape}" if OPTIONS.verbosity >= 1
+    # We first remove any existing entry we find there.
+    placeholderOutputDir.rmtree() rescue Errno::ENOENT
     # We create a placeholder bundle inside the directory.
     placeholderAppPath = placeholderOutputDir + srcIPA.mainBundle.name
-    log { "    Creating main bundle directory #{placeholderAppPath.basename.to_s.shellescape}" }
-    FS.mkdir_p(placeholderAppPath)
+    $stdout.puts "    Creating main bundle directory #{placeholderAppPath.basename.to_s.shellescape}" if OPTIONS.verbosity >= 1
+    placeholderAppPath.mkpath()
     # We copy only the Info.plist into the placeholder bundle.
-    log { "    Creating placeholder Info.plist" }
+    $stdout.puts "    Creating placeholder Info.plist" if OPTIONS.verbosity >= 1
     infoPlist = LoadUserPlist(srcIPA.mainBundle.infoPropertyListPath, srcIPA.payloadPath)
     nativeInfoPlist = CFPropertyList::native_types(infoPlist.value) unless infoPlist == nil
     modifiedInfoPlist = CFPropertyList::List.new
@@ -2012,11 +1827,6 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
     modifiedInfoPlist.save(placeholderAppPath + "Info.plist", CFPropertyList::List::FORMAT_XML)
     # Record the placeholder bundle's path in the output info descriptor.
     outputInfo.placeholderAppPath = placeholderAppPath
-  end
-  # watchKit2ContaineriOSApp is only set for Watch apps extracted from combo apps
-  if srcIPA.mainBundle.watchKit2ContaineriOSApp && srcIPA.mainBundle.deploymentTarget < OPTIONS.watchOSVersionRemovedPlaceholders
-    # (Note: we *do* want to check the source app deployment target, not the thinned variant's deployment target)
-    makeiOSPlaceholderForWatch(srcIPA.mainBundle.watchKit2ContaineriOSApp, dstPath)
   end
   if OPTIONS.validateOutput
     ValidateOutputIPA(cleanSrcIPA, IPA.new(dstPath), OPTIONS)
@@ -2032,8 +1842,7 @@ def CreateOutputIPA (srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAsset
 # disjoint.  Any architecture that doesn't end up in either set should be omitted.  Mach-O images to that should be
 # stripped can be stripped immediately, but those that should be compiled have to be added to a list and compiled
 # later, as noted above (we have to compile them in the right order).
-def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToCompile = nil, machoFilesToReassemble = nil, level = 0)
-  options = OPTIONS
+def CompileOrStripBitcodeInBundle (ipa, options, bundle, machoImagesToCompile = nil, machoFilesToReassemble = nil, level = 0)
   # If we're at the top level or if we are crossing into a new platform (i.e. if we area looking at a "main bundle"
   # for the platform), we reset our idea of the sets of architectures for which to compile or to strip bitcode.
   if bundle.isBitcodeCompilationRootBundle
@@ -2045,25 +1854,25 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
     machoFilesToReassemble = []
   end
   # Now go through the Mach-O files in the bundle, looking at each image in turn.
-  log { "  #{"|  " * level}#{bundle.path.relative_path_from(ipa.payloadPath)} (identifier: #{bundle.identifier}, platform: #{bundle.platformIdentifier})" }
+  puts "  #{"|  " * level}#{bundle.path.relative_path_from(ipa.payloadPath)} (identifier: #{bundle.identifier}, platform: #{bundle.platformIdentifier})" if options.verbosity >= 2
   for machoFile in bundle.machoFiles
     # Now go through the Mach-O images in the file, either compiling, stripping, or excluding as appropriate
     # based on its architecture.  We replace the list of Mach-O images with a possibly smaller list.
-    log { "  #{"|  " * level}#{machoFile.type.downcase} '#{machoFile.path.relative_path_from(ipa.payloadPath)}'..." }
+    puts "  #{"|  " * level}#{machoFile.type.downcase} '#{machoFile.path.relative_path_from(ipa.payloadPath)}'..." if options.verbosity >= 2
     adjustedMachoImages = []
     for machoImage in machoFile.machoImages
       # Exclude this Mach-O image if its architecture isn't one of the ones we want.
       if machoImage.shouldExcludeFromOutput
-        log { "  #{"|  " * level}.#{machoImage.arch} (exclude)" }
+        puts "  #{"|  " * level}.#{machoImage.arch} (exclude)" if options.verbosity >= 2
         next
       end
       # Otherwise, we first make sure there's a thin Mach-O image file (this might
       # use lipo, or might just copy (or hard-link) the file if we already have a thin slice).
       machoImageInputPath = machoImage.thinnedInputPath(ipa, options)
-      FS.mkdir_p(machoImageInputPath.parent)
+      machoImageInputPath.parent.mkpath()
       
       machoImageOutputPath = machoImage.thinnedOutputPath(ipa, options)
-      FS.mkdir_p(machoImageOutputPath.parent)
+      machoImageOutputPath.parent.mkpath()
       shouldCompileBitcode = nil
       # Some Watch apps are missing bitcode in their payload Swift libs, but do have bitcode in the archive's SwiftSupport
       if options.compileBitcode && !machoImage.hasBitcode && bundle.isWatchKitStubApp && machoFile.platform.identifier == "watchos" && machoFile.isSwiftRuntimeDylib
@@ -2085,13 +1894,12 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
       # What we do next depends on whether or not the Mach-O has bitcode.
       if shouldCompileBitcode
         # Because we have to compile Mach-Os in dependency order, we defer the actual compilation.
-        log { "  #{"|  " * level}.#{machoImage.arch} (compile)" }
+        puts "  #{"|  " * level}.#{machoImage.arch} (compile)" if options.verbosity >= 2
         machoImagesToCompile << machoImage
         
       elsif machoImage.shouldStripBitcode(options)
         # But we can strip bitcode from the binary right away (no need to defer).  We do so in-place.
-        log { "  #{"|  " * level}.#{machoImage.arch} (strip)" }
-        assert(!machoImageOutputPath.exist?, "Duplicate output: #{machoImageOutputPath.to_s}")
+        puts "  #{"|  " * level}.#{machoImage.arch} (strip)" if options.verbosity >= 2
         CmdSpec.new(locate_tool("bitcode_strip", [machoImage.platform.toolsPath]), [ "-r", "-o", machoImageOutputPath, machoImageInputPath ]).run(level)
         # Strip Swift symbols from Swift dylibs
         if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
@@ -2103,21 +1911,19 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
         
         # Strip Swift symbols from Swift dylibs
         if machoImage.machoFile.isSwiftRuntimeDylib && ipa.stripSwiftSymbols
-          assert(!machoImageOutputPath.exist?, "Duplicate output: #{machoImageOutputPath.to_s}")
           CmdSpec.new(locate_tool("strip", [machoImage.platform.toolsPath]), [ "-ST", "-o", machoImageOutputPath, "-", machoImageInputPath ]).run(level)
           verb = "strip-swift-dylib"
         else
-          assert(!machoImageOutputPath.exist?, "Duplicate output: #{machoImageOutputPath.to_s}")
-          FS.cp(machoImageInputPath, machoImageOutputPath)
+          FileUtils.cp(machoImageInputPath, machoImageOutputPath)
           verb = "copy"
         end
         
-        log { "  #{"|  " * level}.#{machoImage.arch} (#{verb})" }
+        puts "  #{"|  " * level}.#{machoImage.arch} (#{verb})" if options.verbosity >= 2
       end
       # Add the Mach-O image as one that will appear in the universal Mach-O.
       adjustedMachoImages << machoImage
     end  # images
-    # Set the list of adjusted Mach-O images as the Mach-O file's new list (excluding any unused images). (todo stop mutating inputs / macho)
+    # Set the list of adjusted Mach-O images as the Mach-O file's new list (excluding any unused images).
     machoFile.machoImages = adjustedMachoImages
     # Also remember that we'll need to re-lipo this Mach-O file for the universal binary.
     machoFilesToReassemble << machoFile
@@ -2125,7 +1931,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
   # Recurse through any subbundles (including, possibly, those of other platforms).  We pass down or context
   # and accumulator containers.
   for subbundle in bundle.nestedBundles
-    CompileOrStripBitcodeInBundle(subbundle, ipa, bitcodeContext, machoImagesToCompile, machoFilesToReassemble, level + 1)
+    CompileOrStripBitcodeInBundle(ipa, options, subbundle, machoImagesToCompile, machoFilesToReassemble, level + 1)
   end
   # If we're a main bundle, we do the postprocessing, now that we've dealt with all Mach-Os and all subbundles.
   # This includes compiling any bitcode files that need it (in library dependency order), and reassembling the
@@ -2141,7 +1947,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
     
     for arch in archsToCompile
       # Get the list of Mach-O images that match the current architecture.
-      log { "  #{"|  " * level}Compiling bitcode for #{arch}..." }
+      puts "  #{"|  " * level}Compiling bitcode for #{arch}..." if options.verbosity >= 1
       remainingMachoImagesForArch = machoImagesToCompile.select{ |img| img.arch == arch }.nil_if_empty || machoImagesToCompile.select{ |img| img.arch == "armv7k" && arch == "arm64_32" }
       # Find the first Mach-O image that doesn't link against any Mach-O images that we still need to compile.
       while not remainingMachoImagesForArch.empty?
@@ -2154,18 +1960,18 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
           # Compile the bitcode, requesting that a .dSYM also be created in the output directory.  If the IPA has
           # a bitcode symbol deobfuscation map, we also pass it in now.
           machoName = machoImage.machoFile.name
-          log { "  #{"|  " * level}  Compiling #{arch} bitcode in '#{machoName.to_s.shellescape}'" }
+          puts "  #{"|  " * level}  Compiling #{arch} bitcode in '#{machoName.to_s.shellescape}'" if options.verbosity >= 1
+          dsymPath = options.tmpDir + "dSYMs" + arch + (machoName  + ".dSYM")
+          dsymPath.parent.mkpath()
           bitcodeSymbolMap = ipa.bitcodeSymbolMapsPath if ipa.hasBitcodeSymbolMaps
           platformIdent = machoImage.platformIdentifier
           platform = Platform.platformForIdentifer(platformIdent)
           FatalError(__LINE__, "failed to compile bitcode for #{machoName} because we couldn't find the platform with identifier '#{platformIdent}'", platformIdent) unless platform
           
           machoImageOutputPath = machoImage.thinnedOutputPath(ipa, options, arch)
-          assert(!machoImageOutputPath.exist?, "Duplicate output: #{machoImageOutputPath.to_s}")
-          FS.mkdir_p(machoImageOutputPath.parent)
+          machoImageOutputPath.parent.mkpath()
           # Determine the name of the dSYM file we want.  Initially we don't know its UUID, so we pass in a fixed name, and then we'll rename it once it's been created.
           dsymFile = Pathname(machoImageOutputPath.to_s + ".dSYM")
-          assert(!dsymFile.exist?, "Duplicate output: #{dsymFile.to_s}")
           
           translating_watch = machoImage.arch == "armv7k" && arch == "arm64_32"
           # Invoke the bitcode-build-tool(1) tool to compile and link the bitcode in the thin Mach-O file.
@@ -2176,7 +1982,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
             cmdln += ipa.linkageGraph[machoImage].map{|img| img.thinnedOutputPath(ipa, options, arch).parent }.uniq.map{|p| ["-L", p] }.flatten
             cmdln += [ "--sdk", platform.sdkPath ]
             cmdln += [ "-o", machoImageOutputPath ]
-            cmdln += [ "--generate-dsym", dsymFile ]
+            cmdln += [ "--generate-dsym", dsymFile ] if dsymFile
             cmdln += [ "--symbol-map", bitcodeSymbolMap ] if bitcodeSymbolMap
             cmdln += [ "-j", options.bitcodeCompilationJFactor ] if options.bitcodeCompilationJFactor and options.bitcodeCompilationJFactor > 0
             for opt in options.bitcodeOptions
@@ -2191,68 +1997,68 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
             cmdln += [ machoImage.thinnedInputPath(ipa, options) ]
             CmdSpec.new(locate_tool("bitcode-build-tool", [machoImage.platform.toolsPath]), cmdln).run(level)
           end
-          outputImages = GetMachOImagesFromOToolInfoForFile(machoImageOutputPath)
-          assert(outputImages.count == 1, "Expected a single output after bitcode recompilation")
-          outputImage = outputImages[0]
-          outputUUID = outputImage.uuid
-          log { "bitcode-build-tool built #{machoImageOutputPath} #{outputImage.arch}:#{outputUUID} from #{machoImage.arch}:#{machoImage.uuid} " }
           # Invoke the symbols(1) tool to create a symbol cache.
           begin
-            assert(dsymFile.exist?)
-            # We need this tmp dir to stay around until output IPAs are done
-            symtmp = Pathname(Dir.mktmpdir("symcache-#{machoName}", OPTIONS.tmpDir))
-            
             cmdln  = []
-            cmdln += [ "-failIfMissingDsym" ]
-            cmdln += [ "-symbolsPackageDir", symtmp.to_s ]
+            cmdln += [ "-failIfMissingDsym" ] if dsymFile
+            cmdln += [ "-symbolsPackageDir", machoImageOutputPath.parent ]
             cmdln += [ machoImageOutputPath ]
             CmdSpec.new(locate_tool("symbols", [machoImage.platform.toolsPath]), cmdln).run(level)
             
             # We successfully created the symbol cache file(s).  We don't get told their names, so we scan them all, and figure out which ones are new.
-            newSymcacheFiles = symtmp.children
-            assert(newSymcacheFiles.count == 1, "Expected a single new .symbols file")
-            symcacheFile = newSymcacheFiles[0]
-            assert(symcacheFile.extname == ".symbols")
-            bitcodeContext.symbolsStore.addSymbols(outputUUID, symcacheFile)
+            allSymcacheFiles = machoImageOutputPath.parent.children.sort.select{|f| f.extname == ".symbols" }
+            newSymcacheFiles = allSymcacheFiles - ipa.symcacheFiles - ipa.symcacheFilesUnthinned
+            # Go through the new ones, annotating each one with the architecture, and adding it to the IPA's list of symcache files.
+            for symcacheFile in newSymcacheFiles
+              # The architecture is the same as the original Mach-O architecture.
+              symcacheFile.arch = arch
+              if machoImage.machoFile.shouldThin
+                ipa.symcacheFiles << symcacheFile
+              else
+                ipa.symcacheFilesUnthinned << symcacheFile
+              end
+            end
           end
           # If bitcode-build-tool(1) created a .dSYM file, we need to look in it to determine its UUID. Then we rename to it have that UUID.
           if dsymFile
             dsymBinaryPath = dsymFile + "Contents" + "Resources" + "DWARF" + machoName
             dsymImages = GetMachOImagesFromOToolInfoForFile(dsymBinaryPath)
-            assert(dsymImages.count == 1, "Expected a single slice dsym after bitcode recompilation")
             dsymImageForArch = dsymImages.detect{|i| i.arch == arch }
             assert(dsymImageForArch, "Couldn't find image for arch '#{arch}' in '#{dsymImages.map{|i|i.arch}}'")
             uuid = dsymImageForArch.uuid
-            assert(uuid == outputUUID)
             if uuid.nil_if_empty.nil?
               FatalError(__LINE__, "failed to determine UUID of dSYM file #{dsymFile.to_s.shellescape}")
             else
               # We were able to figure out the path of the dSYM, so we can rename the output file to it.  We annotate it with the architecture.
               newFileName = (uuid + ".dSYM")
-              log { "  #{"|  " * level}  Renaming '#{dsymFile}' -> '#{newFileName}')" }
+              puts "  #{"|  " * level}  Renaming '#{dsymFile}' -> '#{newFileName}')" if options.verbosity >= 2
               newDSYMFile = dsymFile.parent + newFileName
-              assert(!newDSYMFile.exist?, "Duplicate output: #{newDSYMFile.to_s}")
-              FS.mv(dsymFile, newDSYMFile)
+              dsymFile.rename(newDSYMFile)
               dsymFile = newDSYMFile
-              bitcodeContext.symbolsStore.addDSYM(outputUUID, dsymFile)
+              # We were successful, so annotate the path of the dsymFile with the architecture, and add it to the IPA's list of dSYMs.
+              dsymFile.arch = arch
+              if machoImage.machoFile.shouldThin
+                ipa.dsymFiles << dsymFile
+              else
+                ipa.dsymFilesUnthinned << dsymFile
+              end
             end
           end
           # Dequeue the Mach-O image we compiled, so we can move on to the next one.
           remainingMachoImagesForArch.delete(machoImage)
         else
           # We didn't find a Mach-O image, so we have a cycle.
-          log = remainingMachoImagesForArch.map{|image| "#{image.machoFile.name}: #{(image.dylibNames & namesOfRemainingMachOs).join(', ')}" }.join("\n")
-          FatalError(__LINE__, "failed to compile bitcode: found a cycle involving Mach-Os:\n#{log.indent}")
+          log = remainingMachoImagesForArch.map{|image| "\t#{image.machoFile.name}: #{(image.dylibNames & namesOfRemainingMachOs).join(', ')}" }.join("\n")
+          FatalError(__LINE__, "failed to compile bitcode: found a cycle involving Mach-Os:\n#{log}")
         end
       end
     end
     # Finally, reassemble universal (multi-architecture) Mach-Os from the thin ones.
     for machoFile in machoFilesToReassemble
       # If we get here, we know that we have thin Mach-Os for every architecture (we exploded them into thin files).
-      log { "  #{"|  " * level}Reassembling #{machoFile.path.relative_path_from(ipa.payloadPath)} [#{machoFile.machoImages.map{ |img| img.arch }.join(", ")}]" }
+      puts "  #{"|  " * level}Reassembling #{machoFile.path.relative_path_from(ipa.payloadPath)} [#{machoFile.machoImages.map{ |img| img.arch }.join(", ")}]" if options.verbosity >= 2
       univMachoFilePath = machoFile.universalReassemblyPath(ipa, options)
-      assert(!univMachoFilePath.exist?, "Duplicate output: #{univMachoFilePath.to_s}")
-      FS.mkdir_p(univMachoFilePath.parent)
+      univMachoFilePath.parent.mkpath()
       # :: [[arch, path]]
       inputs = machoFile.machoImages.map { |img| [img.arch, img.thinnedOutputPath(ipa, options)] }
       if options.compileBitcode && options.translateWatchOS && machoFile.enclosingBundle.platform.identifier == "watchos" && inputs.count == 1 && inputs[0][0] == "armv7k"
@@ -2268,11 +2074,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
           
           inputs = stubImgs.collect {|stubImg|
             thinnedStubPath = options.tmpDir + "WK_AST_stub_#{stubImg.arch}"
-            # we're going to come through here twice: once for the main executable stub and once for the _WatchKitStub stub
-            unless thinnedStubPath.exist?
-              stubImg.thinToPath(thinnedStubPath, level+1)
-            end
-            
+            stubImg.thinToPath(thinnedStubPath, level+1)
             [stubImg.arch, thinnedStubPath]
           }
         else
@@ -2283,8 +2085,8 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
       if inputs.count == 1
         # We have only a single Mach-O image, so we just copy the thin file instead of creating a universal Mach-O with a single image.
         path = inputs[0][1]
-        FS.cp(path, univMachoFilePath)
-        log { "  #{"|  " * level}  [cp #{path.to_s.shellescape} #{univMachoFilePath.to_s.shellescape}]" }
+        FileUtils.cp(path, univMachoFilePath)
+        puts "  #{"|  " * level}  [cp #{path.to_s.shellescape} #{univMachoFilePath.to_s.shellescape}]" if options.verbosity >= 3
       else
         # We have more than one Mach-O image, so we use 'lipo' to put them back together.
         cmdln  = [ "-create" ]
@@ -2295,110 +2097,98 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
         
         CmdSpec.new(locate_tool("lipo", [machoFile.platform.toolsPath]), cmdln).run(level, true)
       end
-      bitcodeContext.addReassembledMachO(machoFile.path, univMachoFilePath)
+      machoFile.path = univMachoFilePath
     end
   end  # isBitcodeCompilationRootBundle
-# If `ipa` contains an embedded Watch app, create a new IPA which contains a top-level Watch app.
-def ExtractWatchIPA(ipa, options)
-  watch_app = ipa.mainBundle.watchAppChild
-  return nil unless watch_app
-  log { "Extracted embedded Watch IPA: #{watch_app.path}" }
-  return EmbeddedWatchIPA.new(ipa.path, watch_app.path)
 # Main function for processing an unpacked IPA with a set of options.
 # The first parameter is a directory containing the unpacked IPA contents, the second parameter is an options OpenStruct.
-def ProcessIPA(ipaDir, options)
+def ProcessIPA (ipaDir, options)
   # Create a model object to represent the IPA.  This will scan the file system hierarchy and return an object tree.
-  log { "Scanning IPA..." }
-  root_ipa = IPA.new(ipaDir)
-  root_is_watch_only_container = root_ipa.mainBundle && plistBoolValue(root_ipa.mainBundle.infoDict["ITSWatchOnlyContainer"] || false)
-  watch_ipa = ExtractWatchIPA(root_ipa, options)
-  if watch_ipa
-    JsonOutput[:extractedWatchIPAInputPath] = watch_ipa.path.to_s
-    if root_is_watch_only_container
-      root_ipa = watch_ipa
-      root_is_watch_only_container = false
-      watch_ipa = nil
-    else
-      watch_ipa.mainBundle.watchKit2ContaineriOSApp = root_ipa.mainBundle
-    end
+  puts "Scanning IPA..." if OPTIONS.verbosity >= 1
+  ipa = IPA.new(ipaDir)
+  # Create a new IPA from source, because srcIPA will be mutated
+  cleanSrcIPA = if OPTIONS.validateOutput then IPA.new(ipaDir) else nil end
+  # Check the input.  We always do this, since it's not very expensive and it makes many subsequent errors much clearer.
+  ValidateIPA(ipa)
+  if $EMITTED_ERRORS
+    exit(1)
   end
-  root_ipas = [root_ipa, watch_ipa].compact
-  log { "Root IPAs:\n#{root_ipas.collect { |ipa| ipa.path.to_s }}" }
-  bitcodeContext = BitcodeContext.new
-  for ipa in root_ipas
-    thinDevices = options.thinDevices
-    
-    # Create a new IPA from source, because srcIPA will be mutated (todo stop mutating srcIPA)
-    cleanSrcIPA = if OPTIONS.validateOutput then ipa.class.new(ipa.path, ipa.mainBundle.path) else nil end
-    
-    # Check the input.  We always do this, since it's not very expensive and it makes many subsequent errors much clearer.
-    ValidateIPA(ipa)
-    if $EMITTED_ERRORS
-      exit(1)
-    end
-    # Get a hold of the main bundle.
-    mainBundle = ipa.mainBundle
-    # If we weren't able to create a main bundle, we cannot proceed.
-    if mainBundle == nil
-      FatalError(__LINE__, "could not find main bundle in IPA 
+  # Get a hold of the main bundle.
+  mainBundle = ipa.mainBundle
+  # If we weren't able to create a main bundle, we cannot proceed.
+  if mainBundle == nil
+    FatalError(__LINE__, "could not find main bundle in IPA 
 #{OPTIONS.ipaName}
-    end
-    unless mainBundle.kind_of?(FSBundleDirectoryNode)
-      FatalError(__LINE__, "main bundle in IPA 
+  end
+  unless mainBundle.kind_of?(FSBundleDirectoryNode)
+    FatalError(__LINE__, "main bundle in IPA 
 #{OPTIONS.ipaName}
  doesn't seem to be well-formed")
+  end
+  JsonOutput[:thinnableAssetCatalogs] = ipa.thinnableAssetCatalogs.map{|x|x.path.to_s}
+  # Check that the processing options make sense for the input IPA.  Otherwise we warn about it and disable asset packs.
+  if options.createAssetPacks and not ipa.hasAssetPacks
+    # We've been asked to create on-demand asset packs but the IPA doesn't contain any.
+    EmitWarning(__LINE__, "Asset pack creation requested but IPA doesn't contain any ODR assets; ignoring the request")
+    options.createAssetPacks = false
+  end
+  # Deal with bitcode.  If we've been asked to compile bitcode, we do so.  If we haven't been asked to compile bitcode,
+  # but we have been asked to do thinning, we strip bitcode.  We also strip bitcode (instead of compiling it) if we've
+  # been asked to compile bitcode but the main exectuable doesn't contain bitcode (this choice is made separately for
+  # every platform).
+  if options.compileBitcode or !options.thinDevices.empty?
+    # Compile and/or strip any bitcode in the bundle.  This doesn't modify the input; any compiled or stripped binaries
+    # are written to the temporary directory, and individual nodes in the node hierarchy are made to point to it.
+    puts "#{options.compileBitcode ? "Compiling" : "Stripping"} bitcode..." if options.verbosity >= 1
+    CompileOrStripBitcodeInBundle(ipa, options, mainBundle)
+    # Explicitly ignore ipa.vpnPlugins. vpnPlugins are signed and we cannot break their signature.
+  end
+  # Create thinned-out device-specific IPAs, if requested.
+  if !options.thinDevices.empty?
+    # First we need to determine the relevant platform; it is the platform of the main bundle.  Embedded bundles may
+    # have different platforms (e.g. a WatchKit app embedded inside an iPhoneOS app) but as it is not the main bundle,
+    # it will not be thinned.  This is because the type of device on which the main bundle is installed is known at
+    # installation time, allowing it to be thinned, the embedded bundle could later be transferred to any supported
+    # device (e.g. any type of Apple Watch), so we cannot thin it.
+    # Determine the sets of device traits that actually matter for this payload.  For example, if a particular
+    # device prefers armv7s and another device prefers armv7, but the payload only has armv7, then the thinned
+    # payload will be the same for both, and can be used for both devices (at least as far as architectures go).
+    # Same thing for the other traits.
+    traitsToVariants = makeThinningTraitsToThinningVariantsMap(mainBundle, OPTIONS.thinDevices, OPTIONS.skipThinDevices, ipa)
+    if options.validateOutputZeroVariants && traitsToVariants.empty?
+      EmitIPAOutputValidationError("None of the specified thinning devices match the payload")
     end
-    
-    # Check that the processing options make sense for the input IPA.  Otherwise we warn about it and disable asset packs.
-    if options.createAssetPacks and not ipa.hasAssetPacks
-      # We've been asked to create on-demand asset packs but the IPA doesn't contain any.
-      EmitWarning(__LINE__, "Asset pack creation requested but IPA doesn't contain any ODR assets; ignoring the request")
-      options.createAssetPacks = false
-    end
-    # Deal with bitcode.  If we've been asked to compile bitcode, we do so.  If we haven't been asked to compile bitcode,
-    # but we have been asked to do thinning, we strip bitcode.  We also strip bitcode (instead of compiling it) if we've
-    # been asked to compile bitcode but the main exectuable doesn't contain bitcode (this choice is made separately for
-    # every platform).
-    if root_ipa == ipa && (options.compileBitcode || !thinDevices.empty?)
-      # Compile and/or strip any bitcode in the bundle.  This doesn't modify the input; any compiled or stripped binaries
-      # are written to the temporary directory, and individual nodes in the node hierarchy are made to point to it.
-      log { "#{options.compileBitcode ? "Compiling" : "Stripping"} bitcode..." }
-      CompileOrStripBitcodeInBundle(mainBundle, ipa, bitcodeContext)
-      # Explicitly ignore ipa.vpnPlugins. vpnPlugins are signed and we cannot break their signature.
-    end
-    # Create thinned-out device-specific IPAs, if requested.
-    if !thinDevices.empty?
-      # First we need to determine the relevant platform; it is the platform of the main bundle.  Embedded bundles may
-      # have different platforms (e.g. a WatchKit app embedded inside an iPhoneOS app) but as it is not the main bundle,
-      # it will not be thinned.  This is because the type of device on which the main bundle is installed is known at
-      # installation time, allowing it to be thinned, the embedded bundle could later be transferred to any supported
-      # device (e.g. any type of Apple Watch), so we cannot thin it.
-      # Determine the sets of device traits that actually matter for this payload.  For example, if a particular
-      # device prefers armv7s and another device prefers armv7, but the payload only has armv7, then the thinned
-      # payload will be the same for both, and can be used for both devices (at least as far as architectures go).
-      # Same thing for the other traits.
-      traitsToVariants = makeThinningTraitsToThinningVariantsMap(mainBundle, thinDevices, OPTIONS.skipThinDevices, ipa)
-      if options.validateOutputZeroVariants && traitsToVariants.empty? && root_ipas.count == 1
-        EmitIPAOutputValidationError("None of the specified thinning devices match the payload")
-      end
-      # Now iterate over the chosen traits sets and create thinned IPAs.  For each trait set, we also know the list of
-      # model identifiers to which that thinned version applies.
-      for traits, thinningVariants in traitsToVariants
-        # Create a device-specific, thinned-out copy of the IPA for the set of traits.
-        # We start by determining the name to use for the thin IPA.  We have been requested to obfuscate the name so that
-        # people don't try to make assumptions about what they see in it.  The path is specified in the output JSON file,
-        # so there should never be a reason for a caller to make assumptions about the specific name.
-        traitsName = Digest::SHA1.hexdigest(traits.to_s)
-        # Call our main workhorse method to do the heavy lifting.
-        dstPath = options.outputPath + traitsName
-        thinningContext = ThinningContext.new(traits, traits, thinningVariants, dstPath, bitcodeContext, {})
-        outputInfo = CreateOutputIPA(ipa, cleanSrcIPA, dstPath, thinningContext, options.createAssetPacks, options.urlPrefix, options.createAppPlaceholders)
-        # Make a note about the thinned IPA we created.
-        JsonOutput[:thinnedIPAs] ||= []
-        JsonOutput[:thinnedIPAs] << {
-          path: outputInfo.path,
-          containsAssetPacks: (true if ipa.hasAssetPacks and not options.createAssetPacks),
-          placeholderAppPath: outputInfo.placeholderAppPath,
+    # Now iterate over the chosen traits sets and create thinned IPAs.  For each trait set, we also know the list of
+    # model identifiers to which that thinned version applies.
+    for traits, thinningVariants in traitsToVariants
+      # Create a device-specific, thinned-out copy of the IPA for the set of traits.
+      # We start by determining the name to use for the thin IPA.  We have been requested to obfuscate the name so that
+      # people don't try to make assumptions about what they see in it.  The path is specified in the output JSON file,
+      # so there should never be a reason for a caller to make assumptions about the specific name.
+      traitsName = Digest::SHA1.hexdigest(traits.to_s)
+      # Call our main workhorse method to do the heavy lifting.
+      outputInfo = CreateOutputIPA(ipa, cleanSrcIPA, options.outputPath + traitsName, ThinningContext.new(traits, traits, thinningVariants), options.createAssetPacks, options.urlPrefix, options.createAppPlaceholders)
+      # Make a note about the thinned IPA we created.
+      JsonOutput[:thinnedIPAs] = [] unless JsonOutput[:thinnedIPAs]
+      JsonOutput[:thinnedIPAs] << {
+        path: outputInfo.path,
+        containsAssetPacks: (true if ipa.hasAssetPacks and not options.createAssetPacks),
+        placeholderAppPath: outputInfo.placeholderAppPath,
+        devices: thinningVariants.collect{|x|x.device.productType}.sort.uniq,
+        installTargets: thinningVariants.collect{|x|
+          {
+            deviceModel: x.device.productType,
+            operatingSystemVersion: x.traits.deploymentTarget.to_s
+          }
+        }.uniq,
+        traits: traits.to_dict,
+      }.reject { |k, v| v.nil? }
+      if outputInfo.assetPackOutputDir
+        # Make a note about the thinned asset packs we created.
+        JsonOutput[:thinnedAssetPackSets] = [] unless JsonOutput[:thinnedAssetPackSets]
+        JsonOutput[:thinnedAssetPackSets] << {
+          path: outputInfo.assetPackOutputDir,
+          manifest: outputInfo.assetPackManifestPath,
           devices: thinningVariants.collect{|x|x.device.productType}.sort.uniq,
           installTargets: thinningVariants.collect{|x|
             {
@@ -2406,123 +2196,101 @@ def ProcessIPA(ipaDir, options)
               operatingSystemVersion: x.traits.deploymentTarget.to_s
             }
           }.uniq,
-          
-          sourceToDestinationMap: thinningContext.inputOutputMap,
           traits: traits.to_dict,
-          thinnableAssetCatalogs: ipa.thinnableAssetCatalogs.collect { |ac| ac.path.to_s }.sort,
-        }.reject { |k, v| v.nil? }
-        if outputInfo.assetPackOutputDir
-          # Make a note about the thinned asset packs we created.
-          JsonOutput[:thinnedAssetPackSets] = [] unless JsonOutput[:thinnedAssetPackSets]
-          JsonOutput[:thinnedAssetPackSets] << {
-            path: outputInfo.assetPackOutputDir,
-            manifest: outputInfo.assetPackManifestPath,
-            devices: thinningVariants.collect{|x|x.device.productType}.sort.uniq,
-            installTargets: thinningVariants.collect{|x|
-              {
-                deviceModel: x.device.productType,
-                operatingSystemVersion: x.traits.deploymentTarget.to_s
-              }
-            }.uniq,
-            traits: traits.to_dict,
-          }.reject { |k, v| v.nil? }
-        end
-        log { "Created IPA at: #{outputInfo.path.to_s.shellescape}" }
-        log { "   and ODRs at: #{outputInfo.path.parent + (outputInfo.path.basename.to_s + "-assetpacks")}" } if options.createAssetPacks
-        log { "   and PLCs at: #{outputInfo.path.parent + (outputInfo.path.basename.to_s + "-placeholder")}" } if options.createAppPlaceholders
-        log { "   for deployment variants: #{thinningVariants.collect{|x|x.to_s}.sort.join(", ")}" }
-      end
-    end
-    # Unless we're just being asked for information or validating, we should also create the universal IPA.
-    if thinDevices.count > 0 || OPTIONS.compileBitcode
-      # Create a device-generic, universal copy of the IPA (though we might have compiled bitcode, and might or might not
-      # be extracting asset packs and creating placeholder appwrappers, etc... all we know is that we're not thinning).
-      # Call our main workhorse method to do the heavy lifting.
-      dstPath = options.outputPath + "universal-#{ipa.mainBundle.platform.identifier}"
-      outputInfo = CreateOutputIPA(ipa, cleanSrcIPA, dstPath, ThinningContext.new(nil, nil, nil, dstPath, bitcodeContext, nil), options.createAssetPacks, options.urlPrefix, options.createAppPlaceholders)
-      # Make a note about the universal IPA we created. (Legacy, see universalIPAs below.)
-      if root_ipa == ipa
-        JsonOutput[:universalIPA] = {
-          path: outputInfo.path,
-          platform: ipa.mainBundle.platform.identifier,
-          containsAssetPacks: (true if ipa.hasAssetPacks and not options.createAssetPacks),
-          placeholderAppPath: outputInfo.placeholderAppPath,
         }.reject { |k, v| v.nil? }
       end
-      
-      JsonOutput[:universalIPAs] ||= []
-      JsonOutput[:universalIPAs] << {
-        path: outputInfo.path,
-        platform: ipa.mainBundle.platform.identifier,
-        containsAssetPacks: (true if ipa.hasAssetPacks and not options.createAssetPacks),
-        placeholderAppPath: outputInfo.placeholderAppPath,
-      }.reject { |k, v| v.nil? }
-      if outputInfo.assetPackOutputDir && ipa == root_ipa
-        # Make a note about the asset packs we created.
-        JsonOutput[:universalAssetPackSet] = {
-          path: outputInfo.assetPackOutputDir,
-          platform: ipa.mainBundle.platform.identifier,
-          manifest: outputInfo.assetPackManifestPath,
-        }.reject { |k, v| v.nil? }
-      end
-    end
-    # Emit information about the payload, if requested.
-    if ipa == root_ipa && OPTIONS.printInfo
-      def NestedPayloadBundleInfoForJSON (bundle)
-        # Construct and return a dictionary of bundle information, including for any nested bundles.
-        info = {
-          path: bundle.path,
-          identifier: bundle.identifier,
-          platform: bundle.platformIdentifier,
-          isBitcodeCompilationRootBundle: bundle.isBitcodeCompilationRootBundle,
-          bitcodeCompilationRootMachO: bundle.bitcodeCompilationRootMachO.path,
-          machoFiles: bundle.machoFiles.collect do |mf|
-            # Construct a dictionary for the Mach-O file.
-            {  path: mf.path,
-               slices: mf.machoImages.collect do |img|
-                 # Construct a dictionary for the Mach-O slice.
-                 {  type: img.type,
-                    platform: img.platformIdentifier,
-                    arch: img.arch,
-                    uuid: img.uuid,
-                    dylibNames: img.dylibNames,
-                    hasExecCode: img.hasExecCode,
-                    hasBitcode: img.hasBitcode,
-                    isSigned: img.isSigned,
-                 }
-               end
-            }
-          end,
-        }
-        for subbundle in bundle.nestedBundles
-          (info[:subbundles] ||= []) << NestedPayloadBundleInfoForJSON(subbundle)
-        end
-        return info
-      end
-      # Output the new-style, nested information.
-      mainBundleInfo = NestedPayloadBundleInfoForJSON(mainBundle) || []
-      # Add asset pack information for the main bundle (not submodules).
-      mainBundleInfo[:assetPacks] = ipa.assetPacks.collect { |assetPack| assetPack.name } if ipa.assetPacks
-      JsonOutput[:nestedPayloadBundleInfo] = mainBundleInfo
-    end
-    if OPTIONS.printInfo
-      # List supported variants
-      JsonOutput[:allSupportedThinningVariants] ||= []
-      
-      allThinningTraitsToVariants = makeThinningTraitsToThinningVariantsMap(mainBundle, [ThinningVariantCLISpec.fromArg("all")], [], ipa)
-      data = allThinningTraitsToVariants.collect {|_,vs| vs.collect { |v| v.to_dict }}
-      
-      JsonOutput[:allSupportedThinningVariants].concat(data)
-    end
-    if $EMITTED_ERRORS
-      exit(1)
+      puts if OPTIONS.verbosity >= 2
+      puts "Created IPA at: #{outputInfo.path.to_s.shellescape}"
+      puts "   and ODRs at: #{outputInfo.path.parent + (outputInfo.path.basename.to_s + "-assetpacks")}" if options.createAssetPacks
+      puts "   and PLCs at: #{outputInfo.path.parent + (outputInfo.path.basename.to_s + "-placeholder")}" if options.createAppPlaceholders
+      puts "   for deployment variants: #{thinningVariants.collect{|x|x.to_s}.sort.join(", ")}"
+      puts
+      puts if OPTIONS.verbosity >= 2
     end
   end
+  # Unless we're just being asked for information or validating, we should also create the universal IPA.
+  if not OPTIONS.printInfo and not OPTIONS.validateInput
+    # Create a device-generic, universal copy of the IPA (though we might have compiled bitcode, and might or might not
+    # be extracting asset packs and creating placeholder appwrappers, etc... all we know is that we're not thinning).
+    # Call our main workhorse method to do the heavy lifting.
+    outputInfo = CreateOutputIPA(ipa, cleanSrcIPA, options.outputPath + "universal", ThinningContext.new(nil, nil, nil), options.createAssetPacks, options.urlPrefix, options.createAppPlaceholders)
+    # Make a note about the universal IPA we created.
+    JsonOutput[:universalIPA] = {
+      path: outputInfo.path,
+      containsAssetPacks: (true if ipa.hasAssetPacks and not options.createAssetPacks),
+      placeholderAppPath: outputInfo.placeholderAppPath,
+    }.reject { |k, v| v.nil? }
+    if outputInfo.assetPackOutputDir
+      # Make a note about the asset packs we created.
+      JsonOutput[:universalAssetPackSet] = {
+        path: outputInfo.assetPackOutputDir,
+        manifest: outputInfo.assetPackManifestPath,
+      }.reject { |k, v| v.nil? }
+    end
+  end
+  # Emit information about the payload, if requested.
+  if OPTIONS.printInfo
+    def NestedPayloadBundleInfoForJSON (bundle)
+      # Construct and return a dictionary of bundle information, including for any nested bundles.
+      info = {
+        path: bundle.path,
+        identifier: bundle.identifier,
+        platform: bundle.platformIdentifier,
+        isBitcodeCompilationRootBundle: bundle.isBitcodeCompilationRootBundle,
+        bitcodeCompilationRootMachO: bundle.bitcodeCompilationRootMachO.path,
+        machoFiles: bundle.machoFiles.collect do |mf|
+          # Construct a dictionary for the Mach-O file.
+          {  path: mf.path,
+            slices: mf.machoImages.collect do |img|
+              # Construct a dictionary for the Mach-O slice.
+              {  type: img.type,
+                platform: img.platformIdentifier,
+                arch: img.arch,
+                uuid: img.uuid,
+                dylibNames: img.dylibNames,
+                hasExecCode: img.hasExecCode,
+                hasBitcode: img.hasBitcode,
+                isSigned: img.isSigned,
+              }
+            end
+          }
+        end,
+      }
+      for subbundle in bundle.nestedBundles
+        (info[:subbundles] ||= []) << NestedPayloadBundleInfoForJSON(subbundle)
+      end
+      return info
+    end
+    # Output the new-style, nested information.
+    mainBundleInfo = NestedPayloadBundleInfoForJSON(mainBundle) || []
+    # Add asset pack information for the main bundle (not submodules).
+    mainBundleInfo[:assetPacks] = ipa.assetPacks.collect { |assetPack| assetPack.name } if ipa.assetPacks
+    # Add supported-devices information for the main bundle (not submodules).
+    allThinningTraitsToVariants = makeThinningTraitsToThinningVariantsMap(mainBundle, [ThinningVariantCLISpec.fromArg("all")], [], ipa)
+    for traits, thinningVariants in allThinningTraitsToVariants
+      # Legacy: TODO Remove
+      # We get a dictionary of device traits and a list of device types for a single variant.  We partition it
+      # into "device sets".  We never want to mix devices with different traits together, but we want to split
+      # out some devices to make things more logical for users.
+      for displayName in thinningVariants.collect{|x|x.device.displayName}.sort.uniq
+        (mainBundleInfo[:supportedDeviceSets] ||= []) << {
+          displayName: displayName,
+          devices: thinningVariants.collect{|x|x.device}.select{ |dev| dev.displayName == displayName }.sort,
+          traits: traits.to_dict,
+        }
+      end
+    end
+    
+    mainBundleInfo[:allSupportedThinningVariants] = allThinningTraitsToVariants.collect {|_,vs| vs.collect { |v| v.to_dict }}
+    
+    JsonOutput[:nestedPayloadBundleInfo] = mainBundleInfo
+  end
+  if $EMITTED_ERRORS
+    exit(1)
+  end
 class ThinningTraits
-  # :: Gem::Version (min OS version)
-  attr_accessor :deploymentTarget 
-  # :: Bool
-  attr_accessor :passDeploymentTargetToAssetutil 
+  attr_accessor :deploymentTarget # :: Gem::Version (min OS version)
+  attr_accessor :passDeploymentTargetToAssetutil # :: Bool
   attr_accessor :preferredArch
   attr_accessor :artworkDevIdiom
   attr_accessor :artworkHostedIdioms
@@ -2534,12 +2302,9 @@ class ThinningTraits
   attr_accessor :gfxFeatureSetClass
   attr_accessor :gfxFeatureSetFallbacks
   attr_accessor :featuresToRemove
-  attr_accessor :supportsEmbeddedWatchApp
   attr_accessor :supportsEmbeddedUniversalWatchApp
   attr_accessor :hasSwiftRuntime
-  attr_accessor :supportsEncryptionFormat2
-  attr_accessor :coalescingGroup
-  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, supportsEncryptionFormat2, coalescingGroup)
+  def initialize (deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime)
     deploymentTarget.assert_kind_of(Gem::Version)
     @deploymentTarget = deploymentTarget
     @passDeploymentTargetToAssetutil = passDeploymentTargetToAssetutil
@@ -2555,11 +2320,8 @@ class ThinningTraits
     @gfxFeatureSetClass = gfxFeatureSetClass
     @gfxFeatureSetFallbacks = gfxFeatureSetFallbacks
     @featuresToRemove = featuresToRemove
-    @supportsEmbeddedWatchApp = supportsEmbeddedWatchApp
     @supportsEmbeddedUniversalWatchApp = supportsEmbeddedUniversalWatchApp
     @hasSwiftRuntime = hasSwiftRuntime
-    @supportsEncryptionFormat2 = supportsEncryptionFormat2
-    @coalescingGroup = coalescingGroup
   end
   def artworkDynamicDisplayMode_1080pSDR
     return "1080pSDR"
@@ -2601,11 +2363,8 @@ class ThinningTraits
       gfxFeatureSetClass: gfxFeatureSetClass,
       gfxFeatureSetFallbacks: gfxFeatureSetFallbacks,
       featuresToRemove: featuresToRemove,
-      supportsEmbeddedWatchApp: supportsEmbeddedWatchApp,
       supportsEmbeddedUniversalWatchApp: supportsEmbeddedUniversalWatchApp,
-      hasSwiftRuntime: hasSwiftRuntime,
-      supportsEncryptionFormat2: supportsEncryptionFormat2,
-      coalescingGroup: coalescingGroup,
+      hasSwiftRuntime: hasSwiftRuntime
     }.reject { |k, v| v.nil? }
   end
   # [(assetutilFlagName: String, traitsPropertyName: Symbol, traitsPropertyValueTransformer: Any -> String)]
@@ -2619,7 +2378,8 @@ class ThinningTraits
       deploymentTargetTranslation = [["deployment-target", :deploymentTarget, id]]
     end
     
-    return [
+    return deploymentTargetTranslation +
+           [
             ["scale", :artworkScaleFactor, id],
             ["idiom", :artworkDevIdiom, id],
             ["subtype", :artworkDevSubtype, id],
@@ -2628,7 +2388,7 @@ class ThinningTraits
             ["graphicsclass", :gfxFeatureSetClass, id],
             ["graphicsclassfallbacks", :gfxFeatureSetFallbacks, join_colon],
             ["hostedidioms", :artworkHostedIdioms, join_comma],
-           ] + deploymentTargetTranslation
+           ]
   end
   # UIDeviceFamily #uidf may be a [String], [Int], or comma-separated String.
   def self.assetutil_idioms_for_UIDeviceFamily(uidf)
@@ -2650,11 +2410,11 @@ class ThinningTraits
   end
   # Return a copy of self where traits which affect assetutil have been taken from `other`
   def take_assetutil_traits(other)
-    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedWatchApp, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime, self.supportsEncryptionFormat2, self.coalescingGroup).freeze
+    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime).freeze
   end
   # { assetutilFlag: String => assetutilValue: String ]
   def to_assetutil_dict
-    return Hash.from_tuples(assetutil_translation_map.map{|flag,sym,transformer|
+    return assetutil_translation_map.map{|flag,sym,transformer|
       raw_value = self.send(sym)
       next unless raw_value
       
@@ -2662,7 +2422,7 @@ class ThinningTraits
       next unless t_value.nil_if_empty
       
       [flag, t_value]
-    }.compact)
+    }.compact.to_h
   end
   # Array representation appropriate for assetutil parameters.
   # E.g. ["--idiom", "pad", "--scale", "1"]
@@ -2687,8 +2447,7 @@ class ThinningTraits
   # String representation appropriate for assetutil -T.
   # E.g.: scale=1:idiom=pad:subtype=0:display-gamut=P3:memory=3:graphicsClass=MTL1,2:deployment=2016
   def to_assetutil_T_string
-    # - graphicsclassfallbacks should not be passed to -T
-    skip = ["graphicsclassfallbacks"]
+    skip = ["graphicsclassfallbacks", "hostedidioms"]
     renames = {
       "deployment-target" => "deployment"
     }
@@ -2714,34 +2473,19 @@ class ThinningTraits
   end
 # All the thinning information we need to pass through to thin an app and its nested bundles.
 class ThinningContext
-  # Current bundle traits
-  # :: ThinningTraits?
-  attr :traits 
-  # Top-level app bundle traits
-  # :: ThinningTraits?
-  attr :mainTraits 
+  # Current bundle
+  attr :traits # :: ThinningTraits?
+  # Top-level app bundle
+  attr :mainTraits # :: ThinningTraits?
   # Top-level app bundle variants
-  # :: [ThinningVariant]
-  attr :variants 
-  # :: Pathname
-  attr :outputIPAPath
-  attr :bitcodeContext
-  attr :inputOutputMap
-  def initialize(traits, mainTraits, variants, outputIPAPath, bitcodeContext, inputOutputMap)
+  attr :variants # :: [ThinningVariant]
+  def initialize(traits, mainTraits, variants)
     @traits = traits
     @mainTraits = mainTraits
     @variants = variants
-    @outputIPAPath = outputIPAPath
-    @bitcodeContext = bitcodeContext
-    @inputOutputMap = inputOutputMap
   end
   def subscope(traits)
-    return ThinningContext.new(traits, mainTraits, variants, outputIPAPath, bitcodeContext, inputOutputMap)
-  end
-  def recordIO(a, b)
-    return if inputOutputMap.nil?
-    assert(inputOutputMap[a].nil?, "Duplicate I/O #{a} - #{b}")
-    inputOutputMap[a] = b
+    return ThinningContext.new(traits, mainTraits, variants)
   end
 class DeviceType
   attr  :target             # e.g. m68ap
@@ -2766,8 +2510,8 @@ class DeviceType
     }
   end
 class ThinningVariant
-  attr_accessor :device # :: DeviceType
-  attr_accessor :traits # :: ThinningTraits
+  attr :device # :: DeviceType
+  attr :traits # :: ThinningTraits
   def initialize(device, traits)
     device.assert_kind_of(DeviceType)
     @device = device
@@ -2790,21 +2534,11 @@ def bestTraitsForBundle(bundle, traits, device)
   # Given a bundle whose supported device traits might not match what we'd prefer, we construct and return a device
   # traits object that represents as good of a match as possible.  If we cannot find one (e.g. if this is an armv7
   # device and the bundle only has arm64 code), we return nil.
-  supportedArchitectures = bundle.supportedArchitectures
-  if bundle.isWatchKitStubApp
-    supportedArchitectures = bundle.watchAppExChild.supportedArchitectures
-    executable = bundle.watchAppExChild.mainMachoFile
-    hasBitcode = executable.machoImages.any? {|i| i.hasBitcode}
-    if OPTIONS.translateWatchOS && OPTIONS.compileBitcode && hasBitcode
-      supportedArchitectures << "arm64_32"
-      supportedArchitectures.uniq!
-    end
-  end
   # Note that we also imbue the returned device traits with the features-to-remove for this device (if any).
-  return nil,"the bundle doesn't contain any architectures in common among its executables" if supportedArchitectures.empty?
+  return nil,"the bundle doesn't contain any architectures in common among its executables (#{bundle.machoFiles.map{ |file| file.name }.join(", ")})" if bundle.supportedArchitectures.empty?
   # Check the architecture.
-  bestArch = traits.preferredArchitectureAmongCandidates(supportedArchitectures)
-  return nil,"the device doesn't support any of the available architectures (#{supportedArchitectures.join(", ")})" unless bestArch
+  bestArch = traits.preferredArchitectureAmongCandidates(bundle.supportedArchitectures)
+  return nil,"the device doesn't support any of the available architectures (#{bundle.supportedArchitectures.join(", ")})" unless bestArch
   # Check the artwork idiom.
   return nil,"the device doesn't support the app's UIDeviceFamily" unless (traits.supportedIdioms & bundle.supportedIdioms).size > 0
   bestArtworkDisplayGamut = traits.artworkDisplayGamut
@@ -2813,8 +2547,6 @@ def bestTraitsForBundle(bundle, traits, device)
       bestArtworkDisplayGamut = "all"
     end
   end
-  # If the bundle has no embedded Watch app, we can collapse this trait
-  supportsEmbeddedWatchApp = traits.supportsEmbeddedWatchApp && bundle.watchAppChild != nil
   # If there's no watch content, we can collapse this trait
   supportsEmbeddedUniversalWatchApp = traits.supportsEmbeddedUniversalWatchApp && bundle.nestedBundles.any? { |b| b.isWatchKitStubApp || b.isWatchKitAppExtension }
   # If there's no Swift runtime lib content or this app was built before stable ABI, we can collapse this trait
@@ -2827,7 +2559,7 @@ def bestTraitsForBundle(bundle, traits, device)
     end
   end
   # If we get this far, we create a (possibly downshifted)
-  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, traits.supportsEncryptionFormat2, traits.coalescingGroup).freeze, nil
+  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime).freeze, nil
 # :: [ThinningTraits: [ThinningVariant]]
 def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices, ipa)
   # We ask the bundle to figure out the supported platform; we are unable to proceed if we can't determine it.
@@ -2854,19 +2586,16 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
   end
   candidates = []
   bundleTarget = bundle.deploymentTarget
-  bundleTargetMajor = bundleTarget.segments[0]
   for prod,cs in perProductTypeCandidates
-    cs2 = cs.select { |c| c.traits.deploymentTarget.segments[0] >= bundleTargetMajor  }
+    topVariantLowerThanApp = cs.select { |c| c.traits.deploymentTarget <= bundleTarget }.max { |a,b| a.traits.deploymentTarget <=> b.traits.deploymentTarget }
     
-    topVariantLowerThanApp = cs2.select { |c| c.traits.deploymentTarget <= bundleTarget }.max { |a,b| a.traits.deploymentTarget <=> b.traits.deploymentTarget }
+    cs2 = cs
     if topVariantLowerThanApp
       # Remove variants below topVariantLowerThanApp
       cs2 = cs2.reject { |c| c.traits.deploymentTarget < topVariantLowerThanApp.traits.deploymentTarget }
-    end
-    lowestVariant = cs2.min { |a,b| a.traits.deploymentTarget <=> b.traits.deploymentTarget }
-    if lowestVariant
-      # Remove variants between lowestVariant and osVariantsIntroducedInVersion
-      cs2 = cs2.reject { |c| lowestVariant.traits.deploymentTarget < c.traits.deploymentTarget && c.traits.deploymentTarget < platform.osVariantsIntroducedInVersion }
+      
+      # Remove variants between topVariantLowerThanApp and osVariantsIntroducedInVersion
+      cs2 = cs2.reject { |c| topVariantLowerThanApp.traits.deploymentTarget < c.traits.deploymentTarget && c.traits.deploymentTarget < platform.osVariantsIntroducedInVersion }
     end
     
     candidates += cs2
@@ -2892,42 +2621,44 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
     # devices for which that trait set is the best fit.
     result[bestTraits] |= [ thinningVariant ]
   end
+  $stderr.puts "---"
   def log_result(result, title)
-    log {
-      str = ""
-      str += "#{title}:\n"
-      for k,vs in result
-        str += "Traits key:\n".indent(1)
-        str += "#{k}\n".indent(2)
-        str += "\n"
-        str += "Grouped variants:\n".indent(1)
-        for v in vs
-          str += "#{v}\n".indent(2)
-        end
-        str += "---\n"
+    $stderr.puts "#{title}:"
+    $stderr.puts "---"
+    for k,vs in result
+      $stderr.puts "Traits key:".indent(1)
+      $stderr.puts "#{k}".indent(2)
+      $stderr.puts ""
+      $stderr.puts "Grouped variants:".indent(1)
+      for v in vs
+        $stderr.puts "#{v}".indent(2)
       end
-      str
-    }
+      $stderr.puts "---"
+    end
   end
   log_result(result, "makeThinningTraitsToThinningVariantsMap after bestTraitsForBundle")
   if OPTIONS.useAssetutilEql
     assetCatalogs = ipa.thinnableAssetCatalogs
+    $stderr.puts "Thinnable AssetCatalogs:"
+    $stderr.puts assetCatalogs.map{|x|x.path.to_s}.join("\n").indent
+    $stderr.puts "---"
+    $stderr.puts "Testing assetutil equality"
+    $stderr.puts "---"
     
-    log { "Thinnable AssetCatalogs:" }
-    log { assetCatalogs.map{|x|x.path.to_s}.join("\n").indent }
-    
-    log { "Testing assetutil equality" }
     assetTraitGroups = result.keys.sort.group_using { |a,b|
       # .all? is always true when assetCatalogs is empty
       assetCatalogs.all? {|ac|
-        log { "Testing assetutil equality for #{a} == #{b} using #{ac}" }
+        $stderr.puts "Testing assetutil equality for #{a} == #{b} using #{ac}"
+        $stderr.puts "---"
         ac.eql_for_traits?(a, b, 1)
       }
     }
-    
-    log { "AssetTraitGroups:" }
+    $stderr.puts "---"
+    $stderr.puts "AssetTraitGroups:"
+    $stderr.puts "---"
     for g in assetTraitGroups
-      log { g.map{|x|x.to_s}.join("\n").indent }
+      $stderr.puts "---"
+      $stderr.puts g.map{|x|x.to_s}.join("\n").indent
       next if g.size == 1
       # When coalescing equivalent traits, we want to keep whichever has the lowest deployment target
       t0 = g.min { |x,y| x.deploymentTarget <=> y.deploymentTarget }
@@ -2942,10 +2673,15 @@ def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices
         result[t2] += variants
       end
     end
+    
+    $stderr.puts "---"
   end
   log_result(result, "makeThinningTraitsToThinningVariantsMap after AssetCatalog.eql_for_traits?")
   return result
-$allKnownPlatformsByIdentifier = nil
+OS_VARIANTS_PLATFORM_VERSION = {
+  "iphoneos" => Gem::Version.new(12),
+  "watchos" => Gem::Version.new(5),
+  "appletvos" => Gem::Version.new(12),
 # Represents a platform, including its identifier, its path, its SDK path, etc.  Right now there's just one platform (iPhone OS),
 # since Mac OS X isn't supported.  But if we ever support any other platform, we want to be able to do so by merging in additional
 # directories into the Platforms directory and have it all work.
@@ -2956,11 +2692,13 @@ class Platform
   attr  :toolsPath         # path of platform-specific command line tools
   attr  :thinningVariants # :: [ThinningVariant]
   attr  :deploymentTargetWithSwiftRuntime # :: Gem::Version
+  # Global mapping of platform identifiers to Platform objects.
+  @@allKnownPlatformsByIdentifier = nil
   # Returns a hash that maps platform identifier to Platform objects for all known platforms.  Currently there's only iPhoneOS.
   def self.allKnownPlatforms ()
-    unless $allKnownPlatformsByIdentifier
+    unless @@allKnownPlatformsByIdentifier
       # Create a hash that we'll add entries to.
-      $allKnownPlatformsByIdentifier = {}
+      @@allKnownPlatformsByIdentifier = {}
       # Look through the Platforms directory and find subdirectories having a ".platform" suffix.
       for platformDir in OPTIONS.platformsDir.children.sort
         # Skip it if it isn't a platform directory.
@@ -2992,10 +2730,10 @@ class Platform
         next if platformIdent == "macosx"
         # Instantiate a platform and add it to the mapping.
         platform = Platform.new(platformIdent, platformDir, sdkDir)
-        $allKnownPlatformsByIdentifier[platformIdent] = platform if platform
+        @@allKnownPlatformsByIdentifier[platformIdent] = platform if platform
       end
     end
-    return $allKnownPlatformsByIdentifier
+    return @@allKnownPlatformsByIdentifier
   end
   ## E.g. LC_VERSION_MIN_IPHONEOS -> iphoneos
   def self.platformIdentifierForVersionMinLoadCommand(loadCommandName)
@@ -3015,12 +2753,6 @@ class Platform
   def osVariantsIntroducedInVersion()
     result = OS_VARIANTS_PLATFORM_VERSION[identifier]
     raise "Could not find OS Variants version for platform #{identifier}" if result.nil?
-    return result
-  end
-  # :: Gem:Version. Which OS version introduced support for this?
-  def encryptionFormat2IntroducedInVersion()
-    result = ENCRYPTION_FORMAT_2_PLATFORM_VERSION[identifier]
-    raise "Could not find encryption format 2 version for platform #{identifier}" if result.nil?
     return result
   end
   def initialize (platformIdent, mainPath, sdkPath)
@@ -3060,16 +2792,6 @@ class Platform
           deploymentTarget = Gem::Version.new(row['DeploymentTarget'])
           target = row['DeviceTarget']
           device = devicesByTarget[target]
-          product = device.productType
-          # Filter out historical versions
-          if platformIdent == "watchos"
-            skip0 = product =~ /^Watch1,/ && (deploymentTarget < Gem::Version.new("4") || deploymentTarget >= Gem::Version.new("5"))
-            skip1 = product =~ /^Watch[2-4],/ && deploymentTarget < Gem::Version.new("5.2")
-            if skip0 || skip1
-              log { "Skipping historical Watch: #{row}" }
-              next
-            end
-          end
           
           traitsRow = nil
           passDeploymentTargetToAssetutil = nil
@@ -3081,9 +2803,6 @@ class Platform
             passDeploymentTargetToAssetutil = true
           end
           hasSwiftRuntime = @deploymentTargetWithSwiftRuntime && deploymentTarget >= @deploymentTargetWithSwiftRuntime
-          supportsEmbeddedWatchApp = traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget < OPTIONS.iOSVersionWithWatchThinning
-          supportsEmbeddedUniversalWatchApp = supportsEmbeddedWatchApp && deploymentTarget >= Gem::Version.new("12")
-          supportsEncryptionFormat2 = if OPTIONS.supportEncryptionFormat2 then deploymentTarget >= encryptionFormat2IntroducedInVersion else false end
           
           traits = ThinningTraits.new(deploymentTarget,
                                       passDeploymentTargetToAssetutil,
@@ -3098,32 +2817,16 @@ class Platform
                                       traitsRow['GraphicsFeatureSetClass'],
                                       (traitsRow['GraphicsFeatureSetFallbacks'] || "").split(":"),
                                       (traitsRow['FeaturesToRemove'] || "").split(":"),
-                                      supportsEmbeddedWatchApp,
-                                      supportsEmbeddedUniversalWatchApp,
-                                      hasSwiftRuntime,
-                                      supportsEncryptionFormat2,
-                                      nil # coalescingGroup
-                                     )
-          variant = ThinningVariant.new(device, traits)
-          OPTIONS.coalescingGroups.each_with_index do |g,i|
-            if ThinningVariantCLISpec.any_matches(g, variant)
-              log { "Matched variant to coalescing group #{i}: variant = #{variant}, group = #{g}" }
-              traits.coalescingGroup = i
-              break
-            end
-          end
-            
-          variant.traits = traits.freeze
-          @thinningVariants << variant.freeze
+                                      (traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget >= Gem::Version.new("12")),
+                                      hasSwiftRuntime
+                                    ).freeze
+          
+          @thinningVariants << ThinningVariant.new(device, traits).freeze
       end
     end
     rescue => exc
       EmitWarning(__LINE__, "Couldn't load device traits database for platform '#{platformIdent}' from #{deviceTraitsDBPath.to_s.shellescape}:\n#{exc.to_log_s}")
       return nil
-    end
-    log { "Platform thinningVariants for '#{platformIdent}'" }
-    for v in thinningVariants
-      log { "#{v}".indent }
     end
   end
   def to_s

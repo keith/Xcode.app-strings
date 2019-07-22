@@ -62,12 +62,12 @@ __gitcomp_file_direct ()
 emulate -L zsh
 local IFS=$'\n'
 compset -P '*[=:]'
-compadd -f -- ${=1} && _ret=0
+compadd -Q -f -- ${=1} && _ret=0
 __gitcomp_file ()
 emulate -L zsh
 local IFS=$'\n'
 compset -P '*[=:]'
-compadd -p "${2-}" -f -- ${=1} && _ret=0
+compadd -Q -p "${2-}" -f -- ${=1} && _ret=0
 __git_zsh_bash_func ()
 emulate -L ksh
 local command=$1
