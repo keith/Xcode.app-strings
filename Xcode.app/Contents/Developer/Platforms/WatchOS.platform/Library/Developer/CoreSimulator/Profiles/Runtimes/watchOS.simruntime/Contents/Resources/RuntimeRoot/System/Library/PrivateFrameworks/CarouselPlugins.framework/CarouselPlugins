@@ -24,6 +24,8 @@ T#,R
 description
 T@"NSString",R,C
 debugDescription
+attemptingToSleep
+TB,GisAttemptingToSleep,V_attemptingToSleep
 sleepImminent
 TB,GisSleepImminent,V_sleepImminent
 %@ (%@) was not stopped before dealloc
@@ -55,11 +57,14 @@ screenOffFilteredObservers count
 observers
 filteredObservers
 screenOffFilteredObservers
+called
+TB,N,GisCalled,V_called
 Failed to call block: %@
 message
 T@"NSString",C,N,V_message
-called
-TB,N,GisCalled,V_called
+CSLAssertionBlockTimeoutSentinel
+timeout
+Td,R,N,V_timeout
 v28@?0B8@"NSError"12@"NSString"20
 CSLPIMedicalIDButtonPressed
 CSLPIMedicalIDStayOnKey
@@ -141,6 +146,10 @@ TB,R,N,GisScheduled
  (%@)
 kCSLClockBecameVisibleNotification
 timer[%p]: %@, %.2f-%.2f seconds
+state
+pendingCompletion
+willNotSleep
+systemWake
 ########## DBG_CODE: (%d)
 system wake (%@)
 sleep imminent (%@)
@@ -209,9 +218,10 @@ handleScreenOff
 %p started handleScreenOffAnimated:%{BOOL}d flags:0x%x
 scheduling system wake: %@
 canceling system wake: %@
-System activity assertion already taken: %@ (%ld)
-System activity assertion reliquished: %@
-System activity assertion timed out: %@
+%p system activity assertion not reliquished before dealloc; id:%@ state:%u
+%p system activity assertion reliquished twice; id:%@ state:%u
+%p system activity assertion reliquished; id:%@ state:%u hadUncalledCompletion:%{BOOL}u
+%p system activity assertion timed out: %@
 zPLR
 zPLR
 zPLR
@@ -233,7 +243,10 @@ CSLPISystemSleepGlobalObserverObserver
 CSLPISharedWorkloop
 CSLPIWakeGestureMonitor
 BSDescriptionProviding
+CSLAssertionBlockSentinelBase
 CSLAssertionBlockSentinel
+CSLAssertionBlockHandlerSentinel
+CSLAssertionBlockTimeoutSentinel
 CSLPISoftWakeScheduler
 CSLPISoftWakeSchedulerProtocol
 CSLPIMedicalID
@@ -305,9 +318,11 @@ addObserver:
 removeObserver:
 canSleep
 sleepImminent
+willNotSleep
 systemWake
 initWithQueue:identifier:delegate:
 stop
+setAttemptingToSleep:
 setSleepImminent:
 _observeWithAction:completion:
 sharedInstance
@@ -335,8 +350,10 @@ systemSleepObserverHasPoweredOn:
 systemSleepObserver:canSleep:
 systemSleepObserver:willSleepWithCompletion:
 systemSleepObserverWillNotSleep:
+isAttemptingToSleep
 _systemSleepObserver
 _observerStore
+_attemptingToSleep
 _sleepImminent
 _startPowerMonitoring
 raise:format:
@@ -452,11 +469,18 @@ _screenOffFilteredObservers
 _filteredObservers
 _observers
 _observersMutex
+atomicTestAndSetCalled:
 isCalled
+_lock
+_called
 message
 setMessage:
-_called
 _message
+initWithHandler:
+initWithHandler:timeout:
+timeout
+_timer
+_timerQueue
 scheduleSoftWake:
 cancelSoftWake
 sharedScheduler
@@ -466,6 +490,8 @@ dictionaryWithObjects:forKeys:count:
 _assertionID
 _assertionType
 _assertionName
+globalPowerAssertionSerialQueue
+_assertionQueue
 backlightProviderIsScreenOn
 backlightProviderWillScreenBeOn
 backlightProviderIsScreenBlanked
@@ -601,7 +627,6 @@ flush
 synchronize
 setClient:
 initWithClient:backlightProxy:
-_lock
 _backlightProxy
 _screenOn
 _isActiveProvider
@@ -635,10 +660,16 @@ _logoHandle
 navigateToClockAnimated:
 _source
 _didSuspend
-UTF8String
-_timeoutAssertion
 initWithIdentifier:timeout:
+takeWithCompletion:
+_timeoutAssertion
+appendString:withName:
+appendBool:withName:ifEqualTo:
+_checkIfCompleteForAction:
+takeWithIdentifier:timeout:completion:
 _timeoutTimer
+_state
+_completion
 @24@0:8@16
 @16@0:8
 v16@0:8
@@ -694,6 +725,11 @@ v28@0:8@16B24
 v32@0:8@16B24B28
 @"NSHashTable"
 @"<CSLSWakeGestureMonitorDelegate>"
+B20@0:8B16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@24@0:8@?16
+@32@0:8@?16d24
+@"NSObject<OS_dispatch_source>"
 v24@0:8@"NSDate"16
 @40@0:8^{__CFString=}16^{__CFString=}24d32
 ^{__CFString=}
@@ -729,7 +765,6 @@ v24@0:8@"<CSLSScreenWakeProviderDelegate>"16
 @"<CSLSScreenWakeProvider>"16@0:8
 v24@0:8@"<CSLSScreenWakeProvider>"16
 @32@0:8@16@24
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"<CSLPIBacklightProxy>"
 @"<CSLSScreenWakeProvider>"
 @56@0:8@16I24I28d32@?40@?48
@@ -740,4 +775,4 @@ q16@0:8
 v24@0:8q16
 @"CSLUILogoHandle"
 v24@0:8Q16
-@"NSObject<OS_dispatch_source>"
+@40@0:8@16d24@?32

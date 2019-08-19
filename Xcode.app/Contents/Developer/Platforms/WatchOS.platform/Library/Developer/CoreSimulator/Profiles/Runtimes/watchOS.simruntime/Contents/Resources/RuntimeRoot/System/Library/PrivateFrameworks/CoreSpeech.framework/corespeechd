@@ -712,12 +712,16 @@ inputRecordingDurationInSecs
 initWithNumChannels:recordingDuration:samplingRate:
 _startAudioStream:option:completion:
 _prepareAudioStream:request:completion:
+containsObject:
 sampleCount
 setLastForwardedSampleCount:
 _didPlayStartAlertSoundForSiri:audioStream:
 alertPlaybackFinishWaitingStreams
 alertPlaybackFinishWaitingCompletions
 _scheduleAlertFinishTimeout:
+circularBufferStartHostTime
+circularBufferStartSampleCount
+setScheduledFutureSample:
 startPendingStreams
 pendingStartCompletions
 _holdRecordingTransactionIfNeeded
@@ -726,6 +730,9 @@ recordingSampleRateWithStreamHandleId:
 resetWithSampleRate:containsVoiceTrigger:voiceTriggerInfo:
 _scheduleDidStartRecordingDelegateWatchDog
 startAudioStreamWithOption:streamHandleId:error:
+_resetCircularBufferStartTime
+setCircularBufferStartHostTime:
+setCircularBufferStartSampleCount:
 supportOpportunisticZLL
 streams
 _clearDidStartRecordingDelegateWatchDog
@@ -743,7 +750,6 @@ _audioChunkFrom:to:
 copySamplesFrom:to:
 _saveRecordingBufferFrom:to:toURL:
 streamHolders
-containsObject:
 recordRouteWithStreamHandleId:
 recordDeviceInfoWithStreamHandleId:
 recordSettingsWithStreamHandleId:
@@ -767,6 +773,7 @@ addSamples:numSamples:atHostTime:
 _forwardAudioChunk:remoteVAD:atTime:toStream:
 bufferLength
 lastForwardedSampleCount
+scheduledFutureSample
 processBuffer:atTime:
 audioInjectionEnabled
 isNarrowBandWithStreamHandleId:
@@ -867,6 +874,8 @@ _audioStreamHandleId
 _alertPlaybackFinishTimeoutToken
 _startRecordingWatchDogToken
 _stopRecordingWatchDogToken
+_circularBufferStartHostTime
+_circularBufferStartSampleCount
 allowVoiceTriggerAssetDownloading
 setAllowVoiceTriggerAssetDownloading:
 allowEndpointAssetDownloading
@@ -1597,13 +1606,17 @@ setStreamProvider:
 setStreaming:
 stringByAppendingFormat:
 streamProvider
+setStreamingUUID:
+streamingUUID
 streaming
 prepareAudioStreamSyncWithRequest:error:
 prepareAudioStreamWithRequest:completion:
+_scheduledFutureSample
 _streaming
 _lastForwardedSampleCount
 _streamRequest
 _streamProvider
+_streamingUUID
 _asssetMetaUpdatedKey
 _didReceiveNewVoiceTriggerAssetMetaData
 _notifyObserver:
@@ -2360,6 +2373,7 @@ _addVoiceTriggerAOPModeEnabledConditions
 _addConditionsForIOSBargeIn
 _addConditionsForIOSAOP
 _isSpeechDetectionDevicePresent
+sharedVoiceTriggerClient
 voiceTriggerAOPModeEnabledPolicy
 _availabilityChanged
 _didReceivedNetworkAvailabilityChangedNotification:
@@ -2588,6 +2602,7 @@ CSMediaPlayingMonitor
 CSBatteryMonitor
 CSiTunesAccountManager
 CSVoiceTriggerAOPModeEnabledPolicyIOS
+CSAVVoiceTriggerClientManager
 CSVoiceTriggerAOPModeEnabledPolicyFactory
 CSNetworkAvailabilityMonitor
 CSVoiceTriggerXPCClient
@@ -3557,6 +3572,10 @@ startRecordingWatchDogToken
 T@"NSUUID",&,N,V_startRecordingWatchDogToken
 stopRecordingWatchDogToken
 T@"NSUUID",&,N,V_stopRecordingWatchDogToken
+circularBufferStartHostTime
+TQ,N,V_circularBufferStartHostTime
+circularBufferStartSampleCount
+TQ,N,V_circularBufferStartSampleCount
 UUID
 T@"NSString",R,N,V_UUID
 allowVoiceTriggerAssetDownloading
@@ -4028,6 +4047,7 @@ fileURL
 T@"NSURL",R,N,V_fileURL
 -[CSAudioStream initWithAudioStreamProvider:streamName:streamRequest:]
 -[CSAudioStream dealloc]
+-[CSAudioStream startAudioStreamWithOption:completion:]
 -[CSAudioStream isStreaming]
 -[CSAudioStream audioStreamProvider:didStopStreamUnexpectly:]
 -[CSAudioStream audioStreamProvider:didHardwareConfigurationChange:]
@@ -4035,9 +4055,13 @@ streamProvider
 T@"<CSAudioStreamProviding>",W,N,V_streamProvider
 streaming
 TB,V_streaming
+streamingUUID
+T@"NSUUID",&,V_streamingUUID
 T@"<CSAudioStreamProvidingDelegate>",W,N,V_delegate
 lastForwardedSampleCount
 TQ,N,V_lastForwardedSampleCount
+scheduledFutureSample
+TB,N,V_scheduledFutureSample
 streamRequest
 T@"CSAudioStreamRequest",&,N,V_streamRequest
 -[CSVoiceTriggerAssetMetaUpdateMonitor _startMonitoringWithQueue:]
@@ -5113,8 +5137,10 @@ T@"<CSAudioMeterProviding>",W,N,V_audioMeterProvider
 %s CSAudioProvider[%{public}@]:prepareAudioStream with stream : %{public}@ with stream state : %{public}@
 %s CSAudioProvider[%{public}@]:Cannot handle start audio stream on : %{public}@
 %s CSAudioProvider[%{public}@]:Cannot startAudioStream, audio system is recovering
-%s CSAudioProvider[%{public}@]:Entering dispatch group for recordingWillStartGroup
 %s CSAudioProvider[%{public}@]:Requested startHostTime = %{public}llu, _clientStartSampleCount = %{public}tu
+%s CSAudioProvider[%{public}@]:%{public}@ is requesting earlier audio than asked, we can't deliver earlier audio
+%s CSAudioProvider[%{public}@]:Set circularBufferStartHostTime = %{public}llu, circularBufferStartSampleCount = %{public}lu
+%s CSAudioProvider[%{public}@]:Entering dispatch group for recordingWillStartGroup
 %s CSAudioProvider[%{public}@]:Failed to fetch historical audio since _clientStartSampleCount is newer than audioBuffer sample count(%{public}llu)
 %s CSAudioProvider[%{public}@]:Leaving dispatch group for recordingWillStartGroup
 %s CSAudioProvider[%{public}@]:Received didStartRecording while %{public}@
@@ -5144,8 +5170,9 @@ T@"<CSAudioMeterProviding>",W,N,V_audioMeterProvider
 %s CSAudioProvider[%{public}@]:Cannot stopRecording as there are %{public}tu streamHolders
 %s CSAudioProvider[%{public}@]:Shouldn't stop AVVC recording as there are %{public}tu streams
 %s CSAudioProvider[%{public}@]:
-%s CSAudioProvider[%{public}@]:Buffer underrun!!!!, lastForwardedSampleTime:%{public}lu, oldestSampleTimeInBuffer:%{public}lu
-%s CSAudioProvider[%{public}@]:Buffer overrun!!! lastForwardedSampleTime:%{public}lu,                                theMostRecentSampleCount:%{public}lu
+%s CSAudioProvider[%{public}@]:Buffer underrun!!!!, lastForwardedSampleTime:%{public}lu, oldestSampleTimeInBuffer:%{public}lu, stream:%{public}@
+%s CSAudioProvider[%{public}@]:Ignore forwarding stream %{public}@                                    the audio packets until sampleCount == %{public}lu (theMostRecentSampleCount:%{public}lu)
+%s CSAudioProvider[%{public}@]:Buffer overrun!!! lastForwardedSampleTime:%{public}lu,                                    theMostRecentSampleCount:%{public}lu, stream:%{public}@
 %s ScheduleAlertFinishTimeout : %{public}@
 %s ScheduleAlertFinishTimeout will be ignored : %{public}@, %{public}@
 %s Received finishStartAlertPlaybackAt:%{public}llu streamState : %{public}@
@@ -5454,6 +5481,7 @@ T@"<CSAudioMeterProviding>",W,N,V_audioMeterProvider
 %s ::: Error writing to output wave file. : %{public}ld
 %s stream %{public}@ initialized
 %s stream %{public}@ is deallocated
+%s Creating UUID for start audio stream request : %{public}@
 %s AudioStream<%{public}@> is streaming : %{public}d
 %s AudioStream<%{public}@> has received didStopStreamUnexpectly
 %s AudioStream<%{public}@> has received didHardwareConfigurationChange
@@ -5556,10 +5584,10 @@ T@"<CSAudioMeterProviding>",W,N,V_audioMeterProvider
 %s %{public}d (%{public}d, %{public}d) base utterances added to staged profile at %{public}@
 %s Unsupported languagecode %{public}@ in %{public}@ - Skipping
 %s Skipping uploading %{public}@ legacy version (%lu) of voice profile, current version %lu
-%s Cannot create %{public}@ with error %{public}@ - Skipping language
 %s Skipping audiocache file %@
 %s Cannot copy file %{public}@ to %{public}@ with error %{public}@
 %s ERR: Failed to copy from %{public}@ to %{public}@ with error %{public}@
+%s Cannot create %{public}@ with error %{public}@ - Skipping language
 %s Cannot copy voice profile from %{public}@ to %{public}@ with error %{public}@
 %s Triggering upload of voice profile %{public}@
 %s Upload of voice profile at %{public}@ with category %{public}@ completed successfully

@@ -137,7 +137,7 @@ Failure to create package distribution repository
 lock
 v16@?0@"XRPackageDistributionRegistryInternals"8
 -[XRPackageDistributionRegistry connectWithError:]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/XRPackageDistributionRegistry.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/XRPackageDistributionRegistry.m
 ![self isConnected]
 The application is in an unstable state and it should be restarted after saving any open files.
 Instruments/Packages
@@ -409,8 +409,12 @@ Could not be converted to an integer.
     (slot output-table (type INTEGER))
     (multislot layout-category (default ?NONE))
     (slot layout-id (type INTEGER SYMBOL) (allowed-symbols sentinel) (default sentinel))
-(defrule RECORDER::layout-start-interval
-    (declare (salience -100)) ;; We request layout-ids at the bottom of our cycle to get the tightest possible packing.
+(defrule MODELER::layout-new-interval
+    (declare (salience -10)) ;; Allow the new intervals to be asserted before trying to lay out
+    (open-start-interval (layout-id sentinel) (time ?start) (layout-category $?layout-cat))
+    =>
+    (assert (open-layout-reservation (start ?start) (category $?layout-cat)))
+(defrule MODELER::assign-layout-id
     ?f <- (open-start-interval (time ?time) (layout-category $?layout-cat) (layout-id sentinel))
     (layout-reservation (start ?time) (category $?layout-cat) (id ?layout-id))
     =>
@@ -462,8 +466,13 @@ T@"NSString",R,N,V_nodeKey
     (slot open-fact (type FACT-ADDRESS))
     (slot end-fact (type FACT-ADDRESS))
     (slot rule-system-serial (type INTEGER))
-(defrule RECORDER::layout-start-interval
-    (declare (salience -100)) ;; We request layout-ids at the bottom of our cycle to get the tightest possible packing.
+    (slot output-table (type INTEGER))
+(defrule MODELER::layout-new-interval
+    (declare (salience -10)) ;; Allow the new intervals to be asserted before trying to lay out
+    (open-start-interval (layout-id sentinel) (time ?start) (layout-category $?layout-cat))
+    =>
+    (assert (open-layout-reservation (start ?start) (category $?layout-cat)))
+(defrule MODELER::assign-layout-id
     ?f <- (open-start-interval (time ?time) (layout-category $?layout-cat) (layout-id sentinel))
     (layout-reservation (start ?time) (category $?layout-cat) (id ?layout-id))
     =>
@@ -477,26 +486,30 @@ process
         (event-type "Begin")
     ?f <- (os-signpost 
         (event-type "End")
-(matched-interval (rule-system-serial %d) (open-fact ?o) (end-fact ?f))
+(matched-interval (rule-system-serial %d) (open-fact ?o) (end-fact ?f) (output-table ?autoOutput_))
     ?f <- (os-log 
             (%@ %@)
 (defrule MODELER::signpost-match-detected-%d
     (logical ?o <- (open-start-interval (time ?start) (rule-system-serial %d) (thread ?thread) (process ?proc)
-                                        (name ?name) (identifier ?signpost-id)
+                                        (name ?name) (identifier ?signpost-id) (output-table ?autoOutput_)
           )
     (or
       (and ?f <- (os-signpost (time ?end&~?start) (name ?name) (identifier ?signpost-id) (event-type "End") (scope "Thread") (thread ?thread))
-           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d) (thread ?thread)))
+           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d)
+                                     (output-table ?autoOutput_) (thread ?thread)))
       )
       (and ?f <- (os-signpost (time ?end&~?start) (name ?name) (identifier ?signpost-id) (event-type "End") (scope "Process"|"") (process ?process))
-           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d) (process ?proc)))
+           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d)
+                                     (output-table ?autoOutput_) (process ?proc)))
       )
       (and ?f <- (os-signpost (time ?end&~?start) (name ?name) (identifier ?signpost-id) (event-type "End") (scope "System"))
-           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d)))
+           (not (open-start-interval (time ?other-start&:(> ?other-start ?start)) (name ?name) (identifier ?signpost-id) (rule-system-serial %d)
+                                     (output-table ?autoOutput_)))
       )
     ))
+    (not (matched-interval (rule-system-serial %d) (open-fact ?o) (output-table ?autoOutput_)))
     =>
-    (assert (matched-interval (rule-system-serial %d) (open-fact ?o) (end-fact ?f)))
+    (assert (matched-interval (rule-system-serial %d) (open-fact ?o) (end-fact ?f) (output-table ?autoOutput_)))
 T@"NSString",C,N,V_subsystem
 T@"NSString",C,N,V_category
 graph-title
@@ -507,7 +520,7 @@ rulePathElement
 Cannot find rules file
 rulePathElements
 -[XRPackageEqualsElementParser setValue:forElementName:]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/Builder/XRPackageEqualsElementParser.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/Builder/XRPackageEqualsElementParser.m
 [value isKindOfClass:XRConstantEngineeringValueElementParser.class]
 Failed to parse element.
 XRPackagedTableSpecAttribute
@@ -538,6 +551,7 @@ ignoreSliceColumn
 (deftemplate MODELER::consumed-end
     (slot end-fact (type FACT-ADDRESS))
     (slot rule-system-serial (type INTEGER))
+    (slot output-table (type INTEGER))
 (defrule MODELER::purge-consumed-ends
     ?f <- (consumed-end)  ;; clean up all transient facts for the next RECORDER pass
     =>
@@ -563,7 +577,7 @@ v32@?0@"NSNumber"8@"NSString"16^c24
 (set-column %@ %@)
 ?autoPointThreadBinding_
 -[XRPackageModelingRuleSystem constrainIntervalStartField:constraint:]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/Builder/XRPackageModelingRuleSystem.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/Builder/XRPackageModelingRuleSystem.m
 _intervalSystem && !_pointSystem
 ?autoStartTimeBinding_&~0
 -[XRPackageModelingRuleSystem constrainIntervalEndField:constraint:]
@@ -576,8 +590,8 @@ _columnToExpressionMapping[column] == nil
 -[XRPackageModelingRuleSystem setColumnInterpolation:expression:definesLayoutScope:]
 _columnToInterpolationExpressionMapping[column] == nil
     (table-attribute (table-id ?autoOutput_) (has %@ ?%@))
-    (or (table-attribute (table-id ?autoOuput_) (has %@ ?%@))
-        (and (not (table-attribute (table-id ?autoOutput_) (has %@ ?)))
+    (or (table-attribute (table-id ?autoOutput_) (has %@ ?%@))
+        (and (not (table-attribute (table-id ?autoOutput_) (has %@ $?)))
              (modeler-constants (sentinel-symbol ?%@))
         )
     )
@@ -599,15 +613,14 @@ timestamp-column
                (output-table ?autoOutput_)
                (layout-category ?autoLayoutCat_)
             ))
-    (assert (open-layout-reservation (start %@) (category ?autoLayoutCat_)))
     ?o <- (open-start-interval 
                 %@
                 (layout-id ?layout-id_&~sentinel)
                 (layout-category $?autoLayoutCat_)
                 (output-table ?autoOutput_)
-    (not (consumed-end (end-fact ?f)))
+    (not (consumed-end (end-fact ?f) (output-table ?autoOutput_) (rule-system-serial %llu)))
     (retract ?o)
-    (assert (consumed-end (end-fact ?f)))
+    (assert (consumed-end (end-fact ?f) (output-table ?autoOutput_) (rule-system-serial %llu)))
     ;; close-layout-reservation will be handled before the input fact removal causes a lack of support
     (assert (close-layout-reservation (id ?layout-id_) (start %@) (category ?autoLayoutCat_) (end (- %@ 1))))
     (create-new-row ?autoOutput_)
@@ -674,7 +687,7 @@ originatingElementName
 type
 instrument_package.xsd
 -[XRInstrumentsPackageBuilder schemaURL]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/XRInstrumentsPackageBuilder.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/XRInstrumentsPackageBuilder.m
 schemaURL
 Error: Cannot find linked distribution named %@ in the search path
 Error: Failed to load linked distribution at %@: %@
@@ -755,7 +768,7 @@ info.db
 info.mom
 The Instruments Distribution is malformed.
 -[XRPackageManager loadPackageAtURL:error:]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/XRPackageManager.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/XRPackageManager.m
 [reg isConnected]
 PackageInfoCache-%@-%@.bin
 XRPackageOriginalStoreURL
@@ -855,7 +868,7 @@ Column '%@' is using a reserved mnemonic.
 event-time
 Timestamp
 -[XRPackageKtraceSchemaElementParser didFinishPatternElement:]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/Builder/XRPackageSchemaElementParser.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/Builder/XRPackageSchemaElementParser.m
 [patternElement.elementName isEqualToString:@"event-pattern"]
 core-index
 Variable '%@' must appear in a start-pattern, end-pattern, or event-pattern.
@@ -958,7 +971,7 @@ overview.html
 Templates
 pkginfo.plist
 -[XRPackage implementationRequirements]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/XRPackage.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/XRPackage.m
 implReqPlist
 package != %@
 identifier == %@
@@ -1111,7 +1124,7 @@ T@"XRXMLElementParser",&,N,V_predicate
 with-min-version
 minVersion
 -[XRPackageDisableWhenMissingElementParser _handleCompletion]
-/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64524.255.1/InstrumentsPackaging/Builder/XRPackageInstrumentElementParser.m
+/Library/Caches/com.apple.xbs/Sources/Instruments/Instruments-64525.9.1/InstrumentsPackaging/Builder/XRPackageInstrumentElementParser.m
 suite
 T@"NSString",C,V_suite
 Tq,V_minVersion
@@ -2779,7 +2792,7 @@ v32@0:8@"NSXMLParser"16@"NSError"24
 @"NSData"
 @"NSError"
 @48@0:8@16@24q32q40
-@(#)PROGRAM:InstrumentsPackaging  PROJECT:Instruments-64524.255.1
+@(#)PROGRAM:InstrumentsPackaging  PROJECT:Instruments-64525.9.1
 Had to break the user-installed distribution lock
 Cleaned up abandoned user-installed distribution lock
 Failed to create temporary directory: %@
