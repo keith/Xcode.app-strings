@@ -19,9 +19,13 @@
 %s #activation handler for siriPresentation:requestsDismissalWithOptions:WithHandler:
 %s Attempting to enable the SpringBoard idle timer because we are losing the setupViewController
 %s Activation service requests cancel of TTS
-%s Activation service requests preheat
+%s #activation _unownedConnection: %@ , siriViewControllerConfigured: %@
+%s #activation created new _unownedConnection: %@
+%s #activation Activation service requests preheat
+%s #activation preheated _unownedConnection: %@
 %s #activation Cancel preheat
 %s handleButtonDownFromButtonIdentifier:%@ timestamp:%@
+%s #activation Started Car Siri button long press timer (%@) for %f seconds
 %s handleButtonUpFromButtonIdentifier:%@ timestamp:%@
 %s handleButtonTapFromButtonIdentifier:%@
 %s %s %@
@@ -42,11 +46,18 @@
 %s #activation tried to cancel pending activation but it already finished.
 %s #PhoneCallAudioSessionHandler Extending audio session for imminent phone call. Setting _waitingForTelephonyToStart:YES
 %s #PhoneCallAudioSessionHandler stop extending audio session while visible: %@
+%s #activation creating new siriViewController with request source: %@
+%s #activation created new siriViewController: %@ with AFConnection: %@
+%s #activation delay: %@
+%s #activation
+%s #activation _unownedConnection: %@
+%s #activation _clearSiriViewController
 %s #activation Setting clearSiriViewControllerTimer for %@ seconds
 %s #activation calling didDismiss from inside clearSiriViewControllerTimer
 %s #activation Not setting clearSiriViewControllerTimer because we already have one.
 %s #activation _finishClearingSiriViewController
 %s Attempting to enable the SpringBoard idle timer because we are losing the SiriViewController
+%s #activation Invalidating _carSiriButtonHoldToTalkTimer (%@)
 %s _buttonTrigger=%@
 %s Siri enabled SpringBoard idle timer
 %s #activation siriViewControllerDidFinishDismissing: %@
@@ -55,7 +66,7 @@
 %s URL: %@, appBundleID: %@, success: %d
 %s Failed to open URL (%@) with error: %@
 %s Ending delayed session end due to URL open failure.
-%s %s: Telling the assistant that telephony request was successfully handled
+%s Telling the assistant that telephony request was successfully handled
 %s AppLink bundle: %@ is different than desired bundle: %@
 %s Not starting trigger less listening due to request error: %@
 %s Starting trigger less listening
@@ -68,8 +79,8 @@
 %s %s; ending session and clearing Siri view controller
 %s #PhoneCallAudioSessionHandler Setting %@ second audio session extension timer, if the timer fires, we'll stop extending the audio session
 %s #PhoneCallAudioSessionHandler %@ posted: ending audio session
-%s Delaying session end until TTS completed
-%s TTS Queue Emptied, ending session now
+%s #tts _delaySessionEndForTTS=%i
+%s #tts TTS Queue Emptied, ending session now
 %s #activation siriViewController is NOT visible, tearing down immediately
 %s #activation Siri supported but not enabled, presenting an AFUISiriSetupViewController
 %s #activation _removeSetupViewControllerIfNecessary
@@ -124,10 +135,13 @@ v20@?0B8@"NSError"12
 -[SiriPresentationViewController presentationDismissalRequestedWithOptions:]
 -[SiriPresentationViewController presentationDismissalRequestedWithOptions:]_block_invoke
 -[SiriPresentationViewController cancelTTS]
+-[SiriPresentationViewController _setUpUnownedConnectionIfNecessary]
 -[SiriPresentationViewController preheat]
+-[SiriPresentationViewController preheat]_block_invoke
 -[SiriPresentationViewController cancelPreheat]
 -[SiriPresentationViewController handleButtonDownFromButtonIdentifier:timestamp:]
 v16@?0@"NSTimer"8
+-[SiriPresentationViewController handleButtonDownFromButtonIdentifier:timestamp:]_block_invoke
 -[SiriPresentationViewController handleButtonUpFromButtonIdentifier:timestamp:]
 -[SiriPresentationViewController handleButtonTapFromButtonIdentifier:]
 eventSource
@@ -142,8 +156,13 @@ eventSource
 cancelReason
 -[SiriPresentationViewController siriSessionShouldExtendAudioSessionForImminentPhoneCall]
 -[SiriPresentationViewController siriSessionShouldEndExtendAudioSessionForImminentPhoneCall]
+-[SiriPresentationViewController siriViewControllerWithRequestSource:]
+-[SiriPresentationViewController _scheduleConnectionHouseKeepingAfterDelay:]
+-[SiriPresentationViewController _processConnectionHouseKeeping]
+-[SiriPresentationViewController _cleanupUnownedConnection]
 -[SiriPresentationViewController _clearSiriViewController]_block_invoke
 -[SiriPresentationViewController _finishClearingSiriViewController:]
+-[SiriPresentationViewController _invalidateCarSiriButtonHoldToTalkTimer]
 -[SiriPresentationViewController _releaseExistingTrigger]
 -[SiriPresentationViewController _enableSpringBoardIdleTimer]
 -[SiriPresentationViewController siriViewControllerDidFinishDismissing:]
@@ -165,6 +184,7 @@ v24@?0@"LSAppLink"8@"NSError"16
 -[SiriPresentationViewController _sendTelephonyHasStartedAfterDelay:]
 -[SiriPresentationViewController _callIsActiveDidChangeNotification:]
 -[SiriPresentationViewController _beginDelayingSessionEndForTTS]
+-[SiriPresentationViewController _endDelayingSessionEndForTTS]
 -[SiriPresentationViewController _ttsQueueDidEmpty:]_block_invoke
 -[SiriPresentationViewController _showSetupViewControllerIfNecessary]
 -[SiriPresentationViewController _removeSetupViewControllerIfNecessary]
@@ -281,7 +301,9 @@ SASGuideMonitor
 CarPlay
 preferredFlamesViewFidelity
 initWithFrame:screen:fidelity:
+begin
 prewarmShadersForCurrentMode
+commit
 prewarmFlamesViewShadersInBackgroundForScreen:activeFrame:
 init
 initWithIdentifier:hostedPresentationFrame:
@@ -327,6 +349,10 @@ setInterruptionHandler:
 registerPresentationIdentifier:
 setActivationHandler:
 configureConnection:
+userContext
+keyPathForSiriActiveStatus
+setObject:forKeyedSubscript:
+_invalidateCarSiriButtonHoldToTalkTimer
 removeStateChangeListener:
 invalidate
 dealloc
@@ -395,12 +421,9 @@ numberWithInteger:
 showPresentationWithIdentifier:properties:lockState:
 activateWithRequestOptions:
 _updateHostedPresentationFrame
-view
-bounds
 clearSiriViewControllerTimer
 setClearSiriViewControllerTimer:
 siriViewControllerWithRequestSource:
-setFallbackScreen:
 _setSiriViewModeForRequestOptions:
 setObject:forKey:
 isForStark
@@ -435,6 +458,7 @@ timeInterval
 setTimestamp:
 startRequestWithActivationTrigger:
 startRequestWithOptions:
+bounds
 _carScreen
 mainScreen
 isVisible
@@ -444,7 +468,8 @@ setSiriRequestCancellationReason:
 _enableSpringBoardIdleTimer
 didDismiss
 cancelTTS
-_currentConnection
+_scheduleConnectionHouseKeepingAfterDelay:
+_setUpUnownedConnectionIfNecessary
 preheatWithStyle:
 _cleanupUnownedConnection
 siriButtonIdentifier
@@ -456,6 +481,7 @@ _setCarSiriButtonTimeInterval:
 _carSiriButtonHoldToTalkIntervalFiredWithButtonIdentifier:
 scheduledTimerWithTimeInterval:repeats:block:
 _setCarSiriButtonHoldToTalkTimer:
+_carSiriButtonHoldToTalkTimer
 _buttonIdentifierIsHoldToTalkTrigger:
 stringWithSiriButtonIdentifier:
 sharedAnalytics
@@ -465,9 +491,10 @@ stopRequestWithOptions:
 _handleTapDismissal:
 _dismissSiriSetup
 _requestDismissal
+integerValue
+updateSettingsOnRemoteSceneForInterfaceOrientationChange:willAnimationWithDuration:
 afuiSiriLockState
 setLockState:
-_carSiriButtonHoldToTalkTimer
 _carSiriButtonTimeInterval
 cancelReason
 _cancelPendingActivationWithReason:
@@ -482,20 +509,20 @@ setDataSource:
 setDelegate:
 addChildViewController:
 didMoveToParentViewController:
+view
 addSubview:
-underlyingConnection
-_scheduleConnectionHouseKeepingAfterDelay:
+numberWithDouble:
 _processConnectionHouseKeeping
 performSelector:withObject:afterDelay:
 cancelRequest
 endSession
 setSpeechDelegate:
 siriDidDeactivate
+underlyingConnection
 willMoveToParentViewController:
 removeFromSuperview
 removeFromParentViewController
 setSiriViewController:
-numberWithDouble:
 _finishClearingSiriViewController:
 isMainThread
 _isDelayingSessionEnd
@@ -641,6 +668,7 @@ handleButtonDownFromButtonIdentifier:timestamp:
 handleButtonUpFromButtonIdentifier:timestamp:
 handleButtonTapFromButtonIdentifier:
 handleButtonLongPressFromButtonIdentifier:timestamp:
+updateActiveInterfaceOrientation:willAnimationWithDuration:
 updateCurrentLockState:
 cancelPendingActivationEventWithReason:
 bulletinManagerDidChangeBulletins
@@ -765,14 +793,12 @@ count
 terminateApplication:forReason:andReport:withDescription:completion:
 runningPPT
 dictionaryWithContentsOfFile:
-setObject:forKeyedSubscript:
 _clientService
 copy
 _broadcastCommandDictionary:
 _barrier
 startUIRequest:
 barrier
-integerValue
 boolValue
 removeConversationWithIdentifier:completionBlock:
 dictionaryWithDictionary:

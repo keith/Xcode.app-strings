@@ -12,7 +12,11 @@ speechFile
 Speech File not found at the given path.
 -[SiriPineBoardPluginController stopSiriWithContext:]
 -[SiriPineBoardPluginController prepareViewServices]
--[SiriPineBoardPluginController _warmUpSiriViewControllerAndPreloadBundles:]
+-[SiriPineBoardPluginController _preheat]
+v16@?0@"NSTimer"8
+-[SiriPineBoardPluginController _cleanupUnownedConnection]
+-[SiriPineBoardPluginController dispose]
+-[SiriPineBoardPluginController _createNewSiriViewController]
 -[SiriPineBoardPluginController _handlePineBoardActivationAndStartListening:deviceID:requestSource:context:analyticsEventContext:]
 -[SiriPineBoardPluginController _requestOptionsForDeviceID:requestSource:context:isInitialBringUp:]
 -[SiriPineBoardPluginController _sendAppContext]_block_invoke
@@ -20,7 +24,7 @@ v16@?0@"AFApplicationInfo"8
 v20@?0@"NSString"8i16
 -[SiriPineBoardPluginController _sendAppContext]
 -[SiriPineBoardPluginController _dismissSiriViewControllerFromPineBoard:]
--[SiriPineBoardPluginController _clearViewControllerIfNecessary]
+-[SiriPineBoardPluginController _clearSiriViewControllerIfNecessary]
 -[SiriPineBoardPluginController setNextVoiceRecognitionAudioInputPaths:]
 -[SiriPineBoardPluginController setNextAssistantRecognitionStrings:]
 -[SiriPineBoardPluginController siriViewController:didEncounterUnexpectedError:]
@@ -35,9 +39,6 @@ v12@?0B8
 -[SiriPineBoardPluginController siriViewController:didEndSession:]
 -[SiriPineBoardPluginController shouldAbortAnotherDeviceBetter:]
 -[SiriPineBoardPluginController shouldContinue:]
--[SiriPineBoardPluginController _handleIdleConnectionTimerFired]
--[SiriPineBoardPluginController _invalidateInactiveConnection]
--[SiriPineBoardPluginController _invalidateIdleConnectionTimerAndReschedule:]
 hash
 TQ,R
 superclass
@@ -65,7 +66,11 @@ deviceID
 %s stopping request after %@s delay with client: %@ device: %@
 %s stopping request with client: %@ device: %@
 %s No current activation client. Not stopping a request
+%s _unownedConnection: %@ , siriViewControllerConfigured: %@
+%s #activation created and preheated new _unownedConnection: %@
+%s _unownedConnection: %@
 %s Creating new Siri view controller and connection
+%s Created SVC: %@
 %s Siri view controller exists already, not creating a new one
 %s PineBoard Siri activation blocked
 %s Presenting Siri view controller: %@
@@ -85,10 +90,6 @@ deviceID
 %s Opening sensitive url: %@ with options: %@
 %s BTLE ATV should never abort session, it always trumps
 %s BTLE Device continues to interact
-%s Idle connection timer fired.
-%s AFConnection has active request, skipping PineBoard dismissal.
-%s Handle PineBoard dismissal.
-%s Scheduled new idleConnectionTimer for %@ seconds.
 %s Dismissing Siri upon device going to sleep after idle.
 %s Dismissing Siri upon device going to sleep on user request.
 initWithPluginHost:
@@ -97,7 +98,7 @@ initWithDelegate:
 _handlePineBoardActivationAndStartListening:deviceID:requestSource:context:analyticsEventContext:
 setNewRequestHandler:
 setNewSpeechRequestHandler:
-_warmUpSiriViewControllerAndPreloadBundles:
+_preheat
 sharedAnalytics
 logEventWithType:context:
 requestorBundleID
@@ -113,27 +114,30 @@ siriViewController:failTest:withReason:
 currentRequestOptions
 stopRequestWithOptions:
 numberWithDouble:
-presentRemoteViewControllerIfNecessary
-dealloc
+siriViewControllerConfigured
+numberWithBool:
+preheatWithStyle:
+_setupUnownedConnectionCleanupTimer
+invalidate
+_cleanupUnownedConnection
+scheduledTimerWithTimeInterval:repeats:block:
+cancelRequest
+endSession
+setSpeechDelegate:
+setDelegate:
 initWithFlamesViewFidelity:isSystemHostedPresentation:
 initWithConnection:configuration:
 setDataSource:
-setDelegate:
 view
 mainScreen
 bounds
 setFrame:
 resetContextTypes:
-_invalidateIdleConnectionTimerAndReschedule:
-initWithActivationEvent:
-underlyingConnection
-preheatWithStyle:forOptions:
-preloadPresentationBundleWithIdentifier:
-preloadPluginBundles
 _shouldActivate
 startAdvertisingFromDirectTrigger
+_createNewSiriViewController
 updateContexts:
-prepareViewServices
+presentRemoteViewControllerIfNecessary
 _sendAppContext
 pluginHost
 presentedViewController
@@ -164,6 +168,7 @@ isRunningTest
 setSpeechFileURL:
 UUID
 UUIDString
+underlyingConnection
 willSetApplicationContextWithRefId:
 array
 addObject:
@@ -178,7 +183,7 @@ topActiveOrActivatingApplicationIdentifierWithCompletion:
 viewServiceApplicationInfo
 didChangeMode:
 dismissViewController:
-_clearViewControllerIfNecessary
+_clearSiriViewControllerIfNecessary
 sharedPreferences
 assistantIsEnabled
 siriDidDeactivate
@@ -215,12 +220,7 @@ bundleIdentifier
 siriViewController:openURL:appBundleID:allowSiriDismissal:
 siriViewController:launchApplicationWithBundleIdentifier:withURL:launchOptions:replyHandler:
 numberWithUnsignedInteger:
-_invalidateInactiveConnection
-siriViewController
-hasActiveRequest
-invalidate
-_handleIdleConnectionTimerFired
-scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+dealloc
 pbUIPluginDidLoad
 isEqual:
 class
@@ -286,6 +286,8 @@ mode
 activateSiriWithContext:
 startSiriWithContext:
 stopSiriWithContext:
+prepareViewServices
+dispose
 setNextVoiceRecognitionAudioInputPaths:
 setNextAssistantRecognitionStrings:
 notifyOnNextUserInteractionForSiriViewController:
@@ -293,6 +295,7 @@ siriViewControllerDidChangeListeningState:
 siriViewController:didChangeDialogPhase:
 _handleDeviceWillSleepNotification
 .cxx_destruct
+siriViewController
 setSiriViewController:
 _currentTestName
 _setCurrentTestName:
@@ -305,7 +308,8 @@ _currentActivationClient
 _remoteRequestWatcher
 _isStopping
 _testingSpeechFileURL
-_idleConnectionTimer
+_unownedConnectionCleanupTimer
+_unownedConnection
 _siriViewController
 __currentTestName
 __currentTestID
@@ -375,14 +379,13 @@ v56@0:8@"AFUISiriViewController"16@"NSString"24@"NSURL"32q40@?<v@?B>48
 v40@0:8@"AFUISiriViewController"16@"NSString"24@"NSString"32
 v24@0:8@"AFMyriadCoordinator"16
 q16@0:8
-B20@0:8B16
 v52@0:8B16@20q28^v36@44
 @44@0:8@16q24^v32B40
-v20@0:8B16
 @"AFQueue"
 @"AFMyriadCoordinator"
 @"NSString"
 @"AFRemoteRequestWatcher"
 @"NSURL"
 @"NSTimer"
+@"AFConnection"
 @"AFUISiriViewController"
