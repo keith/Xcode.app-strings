@@ -71,6 +71,7 @@
 <true/>
 <key>com.apple.security.exception.files.absolute-path.read-only</key>
 <array>
+<string>/private/var/containers/Bundle/Application/</string>
 <string>/System/Library/Preferences/Logging/</string>
 <string>/AppleInternal/Library/Preferences/Logging/</string>
 <string>/Library/Preferences/Logging/</string>
@@ -350,17 +351,24 @@ _placeType
 valueForComponent:
 intValue
 doubleValue
+setShouldAutoRefresh:
 addObserver:
 setCoordinate:
+startLocationUpdatesForDelegate:
+stopLocationUpdatesForDelegate:
 date
 kelvin
 writeSignalValue:forType:gathered:expires:
 weatherConditions
 weatherConditionsDataProviderDidChangeWeatherConditions:
+updateLocation:
+initWithDelegate:locationUpdater:
 _weatherLocationDataProvider
 _weatherConditionsDataProvider
 _weatherConditions
+_locationUpdater
 _active
+_lastLocation
 alloc
 setSessionObserver:
 _isCarPlayConnected
@@ -497,15 +505,17 @@ initWithLocation:date:completionHandler:
 sharedObserver
 _requestTemperatureUnit
 removeObserver:
+_cancelWeatherConditionsRefresh
+_scheduleWeatherConditionsRefresh
 _updateTemperatureUnit:
 _updateLocation:
 initWithResultHandler:
 _notifyObserversWeatherConditionsDidChange
-_scheduleWeatherConditionsRefresh
 cancel
 _shouldQueryForWeatherConditionsData
 temperatureUnitObserver:didChangeTemperatureUnitTo:
 weatherLocationDataProvider:didChangeLocation:
+shouldAutoRefresh
 weatherRequestFactory
 setWeatherRequestFactory:
 _observers
@@ -514,6 +524,7 @@ _weatherRequest
 _weatherRequestFactory
 _temperatureUnitRequest
 _updatingTimer
+_shouldAutoRefresh
 initWithCPP:
 _forEveryone
 forDevice
@@ -588,7 +599,6 @@ _storage
 _etas
 _pipeline
 _mapsAppFeeler
-_locationUpdater
 _sourceWrapper
 _destinationGraph
 _initLocationManager
@@ -628,8 +638,6 @@ locationManagerDidPauseLocationUpdates:
 locationManagerDidResumeLocationUpdates:
 locationManager:didFinishDeferredUpdatesWithError:
 locationManager:didVisit:
-startLocationUpdatesForDelegate:
-stopLocationUpdatesForDelegate:
 restartLocationUpdatesForDelegate:
 startImplemention
 _running
@@ -654,7 +662,6 @@ _graph
 _completionBlock
 addOrUpdateSuggestionEntriesData:sourceNameData:handler:
 setRemoteObjectInterface:
-updateLocation:
 initWithDestinationGraph:
 children
 suggestionsEntriesAtLocation:period:handler:
@@ -841,13 +848,9 @@ setEarliestBookingDateForResults:
 isSuspended
 _entriesForIntent:completion:
 _intents_extensionMatchingAttributesForIntents:
-_logInstalledAndEnabledForTableBookingExtensions:
 _handleExtensionLookupResponse:completion:
 extensionsWithMatchingAttributes:completion:
 optedIn
-logMsgStateForExtensionWithTableBookingAppsInstalled:hasAppsEnabled:
-sharedLogger
-registerLogMsgState:
 addObjectsFromArray:
 _entriesForExtension:completion:
 containingAppIdentifierForExtension:
@@ -1124,6 +1127,10 @@ NSBundle *_MapsSuggestionsBundle(const char *)_block_invoke
 nil == s_bundleWithMapsSuggestionsIdentifier
 Requires bundleWithIdentifier:@"com.apple.MapsSuggestions"
 MapsSuggestionsMapItem *_relevantGEOMapItem(NSArray<MapsSuggestionsMapItem *> *__strong, PPScoredLocation *__strong, CLLocation *__strong)
+MapsSuggestionsWeatherFeeler
+-[MapsSuggestionsWeatherFeeler initWithDelegate:locationUpdater:]
+nil == (locationUpdater)
+locationUpdater cannot be nil in WeatherFeeler
 MapsSuggestionsCarPlayFeeler
 -[MapsSuggestionsCarPlayFeeler _updateAndSendSignalPackWithValue:]
 -[MapsSuggestionsCarPlayFeeler sessionDidConnect:]
@@ -1308,6 +1315,8 @@ v20@?0i8@"NSError"12
 weatherRequestFactory
 T@?,C,N,V_weatherRequestFactory
 T@"WeatherConditions",R,N,V_weatherConditions
+shouldAutoRefresh
+TB,N,V_shouldAutoRefresh
 WFForecastRequest
 WFTemperatureUnitObserver
 WFTemperatureUnitRequest
@@ -1676,8 +1685,8 @@ reservation_tomorrow_key
 Tomorrow<unlocalized>
 EEEE
 MMMdd
-Aug 22 2019
-22:59:15
+Sep 12 2019
+20:44:40
 com.apple.Maps.destinationd.launch
 EAVehicleInfoRangeGasolineKey
 EAVehicleInfoRangeDieselKey
@@ -1760,6 +1769,13 @@ MapsSuggestionsDisableGEOMapItemCategoryChecker turned on. Skipping matching on 
 Name: %@; Portrait Category: %@; %d GEOMapItem Category: %@
 Dropping Portrait Entry %@. More than 1 matching GEOMapItem's found
 No matching category mapItem found
+Location updated %@, %@
+updateSignals on the weatherFeeler
+startUpdatingSignals on the weatherFeeler
+stopUpdatingSignals on the weatherFeeler
+Adding temperature signal
+Sending current signals from WeatherFeeler: %@
+weatherConditionsDataProviderDidChangeWeatherConditions triggered
 %s: %d
 We don't know where this entry is: %@
 A repitition of the same location-less Destination '%@'
@@ -1908,6 +1924,7 @@ MapsSuggestionsSource
 MapsSuggestionsWeatherFeeler
 WeatherConditionsDataProviderObserver
 MapsSuggestionsStreamingFeeler
+MapsSuggestionsLocationUpdaterDelegate
 MapsSuggestionsCarPlayFeeler
 CARSessionObserving
 MapsSuggestionsDestination
@@ -1946,7 +1963,6 @@ MapsSuggestionsSourcesXPCPeer
 MapsSuggestionsSourceProxy
 MapsSuggestionsSourceDelegateProxy
 MapsSuggestionsSourcesServer
-MapsSuggestionsLocationUpdaterDelegate
 MapsSuggestionsPreloadableSource
 MapsCarEngineState
 MapsExternalAccessoryState
@@ -2035,9 +2051,12 @@ B52@0:8B16@20@28@36@?44
 v56@0:8@16@24@32@40@48
 @"PPLocationStore"
 v24@0:8@"WeatherConditions"16
+v24@0:8@"CLLocation"16
 @"WeatherLocationDataProvider"
 @"WeatherConditionsDataProvider"
 @"WFWeatherConditions"
+@"<MapsSuggestionsLocationUpdater>"
+@"CLLocation"
 v24@0:8Q16
 v32@0:8@16@24
 v24@0:8@"CARSession"16
@@ -2049,7 +2068,6 @@ v24@0:8@"NSCoder"16
 {CLLocationCoordinate2D=dd}16@0:8
 @24@0:8^{NSDateInterval=#}16
 @"NSString"
-@"CLLocation"
 @"NSDate"
 v40@0:8@16@24@?32
 v40@0:8@"NSData"16@"NSData"24@?<v@?@"NSData"@"NSData"@"NSError">32
@@ -2096,7 +2114,6 @@ B32@0:8^{NSArray=#}16^{NSString=#}24
 ^{NSMutableDictionary=#}
 @"MapsSuggestionsSignalPipeline"
 @"MapsSuggestionsMapsAppFeeler"
-@"<MapsSuggestionsLocationUpdater>"
 @"MapsSuggestionsSourceWrapper"
 @"MapsSuggestionsDestinationGraph"
 v40@0:8@16@24@32
@@ -2128,7 +2145,6 @@ v32@0:8@"NSData"16q24
 v24@0:8@?<v@?B>16
 @40@0:8@16@24@32
 v40@0:8@"NSData"16@"NSData"24@?<v@?>32
-v24@0:8@"CLLocation"16
 B40@0:8@16^{NSDateInterval=#}24@?32
 B40@0:8@"CLLocation"16^{NSDateInterval=#}24@?<v@?^{NSArray=#}@"NSError">32
 @20@0:8i16

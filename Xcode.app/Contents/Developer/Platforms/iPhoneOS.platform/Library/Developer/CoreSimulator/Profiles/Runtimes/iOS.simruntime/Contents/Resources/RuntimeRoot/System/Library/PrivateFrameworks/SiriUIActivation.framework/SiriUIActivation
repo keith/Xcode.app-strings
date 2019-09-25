@@ -25,6 +25,7 @@
 %s #activation preheated _unownedConnection: %@
 %s #activation Cancel preheat
 %s handleButtonDownFromButtonIdentifier:%@ timestamp:%@
+%s #activation Started Car Siri button long press timer (%@) for %f seconds
 %s handleButtonUpFromButtonIdentifier:%@ timestamp:%@
 %s handleButtonTapFromButtonIdentifier:%@
 %s %s %@
@@ -43,6 +44,8 @@
 %s cancelPendingActivationEventWithReason:%@
 %s cancelReason=%@
 %s #activation tried to cancel pending activation but it already finished.
+%s #PhoneCallAudioSessionHandler Extending audio session for imminent phone call. Setting _waitingForTelephonyToStart:YES
+%s #PhoneCallAudioSessionHandler stop extending audio session while visible: %@
 %s #activation creating new siriViewController with request source: %@
 %s #activation created new siriViewController: %@ with AFConnection: %@
 %s #activation delay: %@
@@ -54,6 +57,7 @@
 %s #activation Not setting clearSiriViewControllerTimer because we already have one.
 %s #activation _finishClearingSiriViewController
 %s Attempting to enable the SpringBoard idle timer because we are losing the SiriViewController
+%s #activation Invalidating _carSiriButtonHoldToTalkTimer (%@)
 %s _buttonTrigger=%@
 %s Siri enabled SpringBoard idle timer
 %s #activation siriViewControllerDidFinishDismissing: %@
@@ -71,7 +75,10 @@
 %s %@
 %s Checking for guide updates
 %s %s we are waiting for telephony to start, so cancelling pending phone call
+%s #PhoneCallAudioSessionHandler setting _waitingForTelephonyToStart:%@
 %s %s; ending session and clearing Siri view controller
+%s #PhoneCallAudioSessionHandler Setting %@ second audio session extension timer, if the timer fires, we'll stop extending the audio session
+%s #PhoneCallAudioSessionHandler %@ posted: ending audio session
 %s #tts _delaySessionEndForTTS=%i
 %s #tts TTS Queue Emptied, ending session now
 %s #activation siriViewController is NOT visible, tearing down immediately
@@ -134,6 +141,7 @@ v20@?0B8@"NSError"12
 -[SiriPresentationViewController cancelPreheat]
 -[SiriPresentationViewController handleButtonDownFromButtonIdentifier:timestamp:]
 v16@?0@"NSTimer"8
+-[SiriPresentationViewController handleButtonDownFromButtonIdentifier:timestamp:]_block_invoke
 -[SiriPresentationViewController handleButtonUpFromButtonIdentifier:timestamp:]
 -[SiriPresentationViewController handleButtonTapFromButtonIdentifier:]
 eventSource
@@ -146,12 +154,15 @@ eventSource
 -[SiriPresentationViewController cancelPendingActivationEventWithReason:]
 -[SiriPresentationViewController _cancelPendingActivationWithReason:]
 cancelReason
+-[SiriPresentationViewController siriSessionShouldExtendAudioSessionForImminentPhoneCall]
+-[SiriPresentationViewController siriSessionShouldEndExtendAudioSessionForImminentPhoneCall]
 -[SiriPresentationViewController siriViewControllerWithRequestSource:]
 -[SiriPresentationViewController _scheduleConnectionHouseKeepingAfterDelay:]
 -[SiriPresentationViewController _processConnectionHouseKeeping]
 -[SiriPresentationViewController _cleanupUnownedConnection]
 -[SiriPresentationViewController _clearSiriViewController]_block_invoke
 -[SiriPresentationViewController _finishClearingSiriViewController:]
+-[SiriPresentationViewController _invalidateCarSiriButtonHoldToTalkTimer]
 -[SiriPresentationViewController _releaseExistingTrigger]
 -[SiriPresentationViewController _enableSpringBoardIdleTimer]
 -[SiriPresentationViewController siriViewControllerDidFinishDismissing:]
@@ -170,6 +181,8 @@ v24@?0@"LSAppLink"8@"NSError"16
 -[SiriPresentationViewController _checkForGuideUpdatesIfNecessary]
 -[SiriPresentationViewController _cancelPendingPhoneCall]
 -[SiriPresentationViewController _setWaitingForTelephonyToStart:]
+-[SiriPresentationViewController _sendTelephonyHasStartedAfterDelay:]
+-[SiriPresentationViewController _callIsActiveDidChangeNotification:]
 -[SiriPresentationViewController _beginDelayingSessionEndForTTS]
 -[SiriPresentationViewController _endDelayingSessionEndForTTS]
 -[SiriPresentationViewController _ttsQueueDidEmpty:]_block_invoke
@@ -288,7 +301,9 @@ SASGuideMonitor
 CarPlay
 preferredFlamesViewFidelity
 initWithFrame:screen:fidelity:
+begin
 prewarmShadersForCurrentMode
+commit
 prewarmFlamesViewShadersInBackgroundForScreen:activeFrame:
 init
 initWithIdentifier:hostedPresentationFrame:
@@ -334,6 +349,10 @@ setInterruptionHandler:
 registerPresentationIdentifier:
 setActivationHandler:
 configureConnection:
+userContext
+keyPathForSiriActiveStatus
+setObject:forKeyedSubscript:
+_invalidateCarSiriButtonHoldToTalkTimer
 removeStateChangeListener:
 invalidate
 dealloc
@@ -386,6 +405,7 @@ siriPresentation:requestsPunchout:withHandler:
 screenWakeRequested
 screenWakeIdleTimerResetRequested
 siriPresentation:requestsDeviceUnlockWithPassword:
+siriPresentation:didUpdateAudioCategoriesDisablingVolumeHUD:
 hostedPresentationFrame
 _prepareSiriViewControllerWithRequestOptions:
 uiPresentationIdentifier
@@ -461,6 +481,7 @@ _setCarSiriButtonTimeInterval:
 _carSiriButtonHoldToTalkIntervalFiredWithButtonIdentifier:
 scheduledTimerWithTimeInterval:repeats:block:
 _setCarSiriButtonHoldToTalkTimer:
+_carSiriButtonHoldToTalkTimer
 _buttonIdentifierIsHoldToTalkTrigger:
 stringWithSiriButtonIdentifier:
 sharedAnalytics
@@ -470,9 +491,10 @@ stopRequestWithOptions:
 _handleTapDismissal:
 _dismissSiriSetup
 _requestDismissal
+integerValue
+updateSettingsOnRemoteSceneForInterfaceOrientationChange:willAnimationWithDuration:
 afuiSiriLockState
 setLockState:
-_carSiriButtonHoldToTalkTimer
 _carSiriButtonTimeInterval
 cancelReason
 _cancelPendingActivationWithReason:
@@ -597,7 +619,6 @@ shouldAutorotate
 supportedInterfaceOrientations
 callStateChangedToIsActive:isOutgoing:
 siriLanguageSpokenLanguageCodeDidChange:
-siriViewControllerDidFinishDismissing:
 siriViewController:didEncounterUnexpectedError:
 dismissSiriViewController:delayForTTS:
 startGuidedAccessForSiriViewController:
@@ -614,6 +635,8 @@ siriViewController:attemptUnlockWithPassword:
 siriViewController:didHideStatusView:
 siriViewController:didChangePresentationPeekMode:
 siriViewControllerShouldSupportTextInput:
+siriViewController:didUpdateAudioCategoriesDisablingVolumeHUD:
+siriViewControllerDidFinishDismissing:
 siriViewController:presentedIntentWithBundleId:
 siriViewController:didEndSession:
 siriViewController:didCompleteRequestWithError:
@@ -645,6 +668,7 @@ handleButtonDownFromButtonIdentifier:timestamp:
 handleButtonUpFromButtonIdentifier:timestamp:
 handleButtonTapFromButtonIdentifier:
 handleButtonLongPressFromButtonIdentifier:timestamp:
+updateActiveInterfaceOrientation:willAnimationWithDuration:
 updateCurrentLockState:
 cancelPendingActivationEventWithReason:
 bulletinManagerDidChangeBulletins
@@ -769,14 +793,12 @@ count
 terminateApplication:forReason:andReport:withDescription:completion:
 runningPPT
 dictionaryWithContentsOfFile:
-setObject:forKeyedSubscript:
 _clientService
 copy
 _broadcastCommandDictionary:
 _barrier
 startUIRequest:
 barrier
-integerValue
 boolValue
 removeConversationWithIdentifier:completionBlock:
 dictionaryWithDictionary:
@@ -819,10 +841,11 @@ v28@0:8@"<SiriPresentation>"16B24
 v40@0:8@"<SiriPresentation>"16@"SiriPunchoutRequest"24@?<v@?B@"NSError">32
 v16@0:8
 B32@0:8@16@24
+v32@0:8@16@24
 B32@0:8@"<SiriPresentation>"16@"NSString"24
+v32@0:8@"<SiriPresentation>"16@"NSArray"24
 v24@0:8B16B20
 v24@0:8@"AFUISiriLanguage"16
-v32@0:8@16@24
 @32@0:8@16@24
 v44@0:8@16@24B32@?36
 B44@0:8@16@24@32B40
@@ -830,9 +853,9 @@ v32@0:8@16Q24
 v32@0:8@16@?24
 v56@0:8@16@24@32q40@?48
 v40@0:8@16@24@32
-v24@0:8@"AFUISiriViewController"16
 v32@0:8@"AFUISiriViewController"16@"NSError"24
 v28@0:8@"AFUISiriViewController"16B24
+v24@0:8@"AFUISiriViewController"16
 @"SASRequestOptions"32@0:8@"AFUISiriViewController"16@"SASRequestOptions"24
 B24@0:8@"AFUISiriViewController"16
 v32@0:8@"AFUISiriViewController"16@"NSString"24
@@ -840,6 +863,7 @@ v44@0:8@"AFUISiriViewController"16@"NSURL"24B32@?<v@?B>36
 B44@0:8@"AFUISiriViewController"16@"NSURL"24@"NSString"32B40
 B32@0:8@"AFUISiriViewController"16@"NSString"24
 v32@0:8@"AFUISiriViewController"16Q24
+v32@0:8@"AFUISiriViewController"16@"NSArray"24
 v32@0:8@"AFUISiriViewController"16@?<v@?B>24
 v32@0:8@"AFUISiriViewController"16@"AFUISiriSession"24
 v56@0:8@"AFUISiriViewController"16@"NSString"24@"NSURL"32q40@?<v@?B>48
