@@ -265,7 +265,6 @@ isDirectFaceTimeAudioCallingCurrentlyAvailable
 supportsTelephonyCalls
 canAttemptTelephonyCallsWithoutCellularConnection
 dialType
-canAttemptEmergencyCallsWithoutCellularConnection
 isAirplaneModeEnabled
 supportsPrimaryCalling
 intentHasUnresolvedLocalEmergencyContact:
@@ -307,16 +306,17 @@ resolutionResultUnsupportedWithReason:alternativeItems:
 resolutionResultForPersonWithResolvedHandleValue:
 _contactsMatchingIdentifiers:
 _inPersonsFromContact:withRequestedType:requestedLabel:isoCountryCodes:
-getAlternativesForContact:forRequestedHandleType:forCallProvider:
-anyContactsHaveSameName:
-_inPersonFromContact:handleValue:handleType:handleLabel:
 _applyImpliedFilterToPhoneNumberOnlyMatchesIfApplicableForPersonsByContact:requestedHandleType:preferredCallProvider:
 useLegacyContactResolution
+_inPersonFromContact:handleValue:handleType:handleLabel:
 disambiguationWithPeopleToDisambiguate:
 resolvePreferredContactFromContacts:
 confirmationRequiredWithPersonToConfirm:forReason:
-resolutionResultForPersonWithResolvedContactName:resolvedPerson:resolvedContact:
+anyContactsHaveSameName:
+dedupeINPersons:
+getAlternativesForContact:forRequestedHandleType:forCallProvider:
 resolvePreferredHandleFromHandles:
+resolutionResultForPersonWithResolvedContactName:resolvedPerson:resolvedContact:
 isMMIOrUSSDNumber:
 shouldRequireInvalidNumberConfirmationForRecipient:
 shouldRequireUnknownRecipientConfirmationForRequestedRecipient:resolvedToRecipient:contact:
@@ -371,12 +371,21 @@ setHandlesConfirmed:
 setContactIdentifiersConfirmed:
 _handlesConfirmed
 _contactIdentifiersConfirmed
+initWithContactStore:
+favoritesController
+entriesForContact:
+entries
+actionType
+bundleIdentifier
+contactProperty
+_favoritesController
 callCenterWithQueue:
 radiosPreferences
 airplaneMode
 incomingCall
 incomingVideoCall
 hasCurrentCalls
+canAttemptEmergencyCallsWithoutCellularConnection
 standardUserDefaults
 boolForKey:
 dispatchQueue
@@ -392,6 +401,11 @@ _dispatchQueue
 _callCenter
 _radiosPreferences
 _callHistoryController
+initWithINPerson:
+inPerson
+tuHandle
+_inPerson
+_tuHandle
 handleToPersonCache
 null
 callStatus
@@ -527,6 +541,8 @@ T@"NSMutableOrderedSet",&,N,V_handlesConfirmed
 contactIdentifiersConfirmed
 T@"NSMutableOrderedSet",&,N,V_contactIdentifiersConfirmed
 T@"<StartCallIntentHandlerDataSource>",&,N,V_dataSource
+favoritesController
+T@"CNFavorites",R,N,V_favoritesController
 UseLegacyContactResolution
 UseLegacyHandleResolution
 providerManager
@@ -570,6 +586,10 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_dispatchQueue
 T@"TUCallCenter",R,N,V_callCenter
 com.apple.calls.intenthandler
 Default
+inPerson
+T@"INPerson",R,N,V_inPerson
+tuHandle
+T@"TUHandle",R,N,V_tuHandle
 handleToPersonCache
 T@"NSCache",&,N,V_handleToPersonCache
 DefaultCoreTelephonyDataSource
@@ -591,6 +611,8 @@ INStartCallIntentHandling
 StartCallDefaultFavoritesDataSource
 FavoritesDataSource
 StartCallIntentHandlerDataSource
+INPersonWrapper
+INPersonDeduplicator
 CallRecordConverter
 Could not determine ISO Country Code from Mobile Country Code: %@
 Could not determine mobile country code from Core Telephony Subscription Context. Error: %@
@@ -725,15 +747,18 @@ Number is on the global emergency numbers list, but INPersonHandle already has t
 Number is not on the global emergency numbers list
 Person contains %ld contact IDs. Person: %@
 Requested handle type is unknown, but preferredCallProvider is phone. Inferring handle type of phone number.
-None of the matching contacts have a valid matching handle.
-There was only one matching contact, but none of the handles matched the requested type and label, dropping constraints to find alternatives.
-There was more than one matching contact, but none of the handles matched the requested type and label, and some contacts have the same name. Presenting contacts with handles as alternatives.
-There was more than one matching contact, but none of the handles matched the requested type and label, presenting those contacts as alternatives.
-Only one matching contact: %@
+Only one matching contact for requested handle -- proceeding to handle disambiguation: %@
+Only one matching contact (regardless of requested handle): %@
 Using legacy contact resolution
 Resolved to %ld contacts, asking the user to disambiguate among persons: %@
 ScoreBasedResolutionResult is Disambiguate, but some contacts have the same name. Proceeding to handle disambiguation.
 Resolved to %ld matching contacts with %ld matching handles. Contact: %@ Handles: %@
+None of the resolved contacts have a valid matching handle. Offering all handles as alternatives
+Either a mobile handle or an iPhone label was requested without any matching handle. Checking if an alternative for mobile or iPhone handles exists.
+No mobile or iPhone alternatives, so proceeding to offer all other handles as alternatives.
+%@ was requested but the contact doesn't have the requested handle. Using %@ instead
+More than one alternative for mobile or iPhone handles, so proceeding to score based resolution for mobile/iPhone handles.
+Offering all handles as alternatives
 Resolved to one handle: %@
 Facetime call resolved to multiple handles, preserving ambiguity. Will ring all handles for contact. Person: %@
 Facetime call resolved to multiple contacts with the same name. Disambiguating between handles.
@@ -823,8 +848,13 @@ Not requiring unknown recipient confirmation because there is a recent call with
 Did not find a recent calls with any of the following handles: %@
 Returning %{public}@ for shouldRequireUnknownRecipientConfirmationForRequestedRecipient.
 shouldRequireUnknownRecipientConfirmation
+Found a favorites entry matching handle: %@
+[WARN] Ignoring favorite for telephony call with an empty phone number: %@
+[WARN] Ignoring favorite for telephony call without a phone number: %@
 Checking if there is any call in progress.
 is there any call in progress? %@
+Before deduping: %ld, After deduping: %ld
+All persons have equivalent handle values
 [WARN] Could not determine remoteParticipantHandle for CHRecentCall
 [WARN] Call had more than one participant, not setting caller
 @16@0:8
@@ -901,6 +931,7 @@ B40@0:8@16@24@32
 @"NSMutableOrderedSet"
 B24@0:8@"CNContact"16
 B32@0:8@"TUHandle"16@"NSArray"24
+@"CNFavorites"
 v24@0:8@"TUHandle"16
 B24@0:8@"NSString"16
 @24@0:8@"NSObject<OS_dispatch_queue>"16
@@ -918,6 +949,8 @@ v24@0:8@"NSObject<OS_dispatch_queue>"16
 @"TUCallCenter"
 @"RadiosPreferences"
 @"TUCallHistoryController"
+@"INPerson"
+@"TUHandle"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

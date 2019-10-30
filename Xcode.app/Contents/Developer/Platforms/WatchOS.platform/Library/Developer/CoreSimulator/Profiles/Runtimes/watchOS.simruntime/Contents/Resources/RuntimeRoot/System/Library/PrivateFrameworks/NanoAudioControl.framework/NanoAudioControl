@@ -51,6 +51,9 @@ NACSystemMutedStateDidChangeNotification
 NACEULimitDidChangeNotification
 NACHapticStateDidChangeNotification
 NACVolumeWarningDidChangeNotification
+NACAvailableListeningModesDidChangeNotification
+NACCurrentListeningModeDidChangeNotification
+NACFailedToSetCurrentListeningModeNotification
 NACAudioRoutesDidChangeNotification
 NACHapticIntensityDidChangeNotification
 NACProminentHapticStateDidChangeNotification
@@ -88,6 +91,10 @@ NACMessageTypeProminentHapticStateDidChange
 NACMessageTypeSetProminentHapticEnabled
 NACMessageTypeHapticStateDidChange
 NACMessageTypeSetHapticState
+NACMessageTypeListeningModesDidChange
+NACMessageTypeSetCurrentListeningMode
+NACMessageTypeBeginObservingListeningModes
+NACMessageTypeEndObservingListeningModes
 RingtonePreview
 volumeControlAvailable
 TB,N,GisVolumeControlAvailable,V_volumeControlAvailable
@@ -102,6 +109,8 @@ volumeController
 T@"MPVolumeController",&,N,V_volumeController
 routingController
 T@"MPAVRoutingController",&,N,V_routingController
+nacVolumeController
+T@"<NACVolumeController>",&,N,V_nacVolumeController
 runAssertion
 T@"NACRunAssertion",&,N,V_runAssertion
 message
@@ -118,6 +127,7 @@ v16@?0@"NSArray"8
 v16@?0@8
 v12@?0i8
 v16@?0@"MPAVEndpointRoute"8
+v32@?0@"NACProxyVolumeControlTarget"8@"_NACVolumeObserverRecord"16^B24
 v32@?0@"MPAVRoute"8Q16^B24
 RequestedVolume
 ForceVolumeWarning
@@ -131,17 +141,24 @@ volumeValue
 Tf,N,V_volumeValue
 observers
 T@"NSMutableSet",R,N
+availableListeningModes
+T@"NSOrderedSet",&,N,V_availableListeningModes
+currentListeningMode
+T@"NSString",&,N,V_currentListeningMode
+T@"NSMutableSet",&,N,V_observers
 audioRoutes
 T@"NSArray",&,N,V_audioRoutes
 deferredAudioRoutes
 T@"NSArray",&,N,V_deferredAudioRoutes
-T@"NSMutableSet",&,N,V_observers
 timestamp
 Td,N,V_timestamp
 com.apple.NanoAudioControl.Preview
 com.apple.nanoaudiocontrol.NACXPCServer
-v32@?0@8@16^B24
+v32@?0@"NACProxyVolumeControlTarget"8@16^B24
+errorDomain
+errorCode
 VolumeRecords
+v32@?0@8@16^B24
 HapticIntensity
 SystemMutedState
 ProminentHapticState
@@ -153,6 +170,8 @@ v12@?0f8
 v12@?0B8
 v16@?0q8
 v20@?0B8q12
+v16@?0@"NSOrderedSet"8
+v16@?0@"NSString"8
 T@"<NACVolumeControllerDelegate>",W,N
 TB,R,N,GisVolumeControlAvailable
 TB,R,N,GisVolumeWarningEnabled
@@ -163,6 +182,8 @@ systemMuted
 TB,N,GisSystemMuted
 hapticState
 Tq,N
+T@"NSOrderedSet",R,N
+T@"NSString",&,N
 hapticIntensity
 Tf,N
 prominentHapticEnabled
@@ -225,8 +246,16 @@ minimumDelay
 Td,N,V_minimumDelay
 value
 T@,&,N,V_value
+availableListeningMode
+error
+T@"NSMutableArray",&,N,V_availableListeningModes
+hasCurrentListeningMode
+hasError
+T@"NSData",&,N,V_error
 NACVolumeControllerLocal
 v16@?0@"NSNumber"8
+AVOutputDeviceBluetoothListeningModeNormal
+AVOutputDeviceBluetoothListeningModeActiveNoiseCancellation
 DemoVolume
 Tf,N,V_hapticIntensity
 intensity
@@ -250,6 +279,26 @@ AudioRoutes-%@
 Haptic
 RouteObservationCancelled-%@
 VolumeObservationCancelled-%@
+ListeningModes-%@
+systemRoute
+T@"MPAVEndpointRoute",&,N,V_systemRoute
+T@"NSHashTable",&,N,V_observers
+systemVolumeController
+T@"MPVolumeController",&,N,V_systemVolumeController
+primaryVolumeController
+T@"MPVolumeController",&,N,V_primaryVolumeController
+secondaryVolumeController
+T@"MPVolumeController",&,N,V_secondaryVolumeController
+systemOutputDeviceRoute
+T@"MPAVOutputDeviceRoute",&,N,V_systemOutputDeviceRoute
+primaryOutputDeviceRoute
+T@"MPAVOutputDeviceRoute",&,N,V_primaryOutputDeviceRoute
+secondaryOutputDeviceRoute
+T@"MPAVOutputDeviceRoute",&,N,V_secondaryOutputDeviceRoute
+isSplitRoute
+TB,R,N,V_isSplitRoute
+volumeAudioCategory
+T@"NSString",C,N,V_volumeAudioCategory
 hasVolumeValue
 Failed to pick route: %@ due to %@
 Failed to create proxy NACVolumeController with invalid target: %@
@@ -268,6 +317,9 @@ Error getting proxy object: %@
 [NACIDS] Handle set system muted
 [NACIDS] Handle set prominent haptic enabled
 [NACIDS] Handle set haptic intensity
+[NACIDS] [NoiseControl] Handle set current listening mode: %@ for target: %@
+[NACIDS] [NoiseControl] Handle begin observing listening modes for target: %@
+[NACIDS] [NoiseControl] Handle end observing listening modes for target: %@
 [NACIDS] Handling set haptic state. Setting haptic intensity to %f, prominent haptic enabled to %@
 [NACIDS] Playing prominent haptic preview
 [NACIDS] Playing default haptic preview
@@ -302,11 +354,16 @@ Error getting proxy object: %@
 [NACIDS] Available routes updated
 [NACIDS] -> %@
 [NACIDS] Haptic intensity changed
+[NACIDS] [NoiseControl] Available listening modes for target %@ did change: %@
+[NACIDS] [NoiseControl] Current listening mode for target %@ did change: %@
+[NACIDS] [NoiseControl] Failed to set current listening mode for target %@ error: %@
 [NACIDS] Sending system volume value: %f for target: %@
 [NACIDS] Sending system volume availability: %@ for target: %@
 [NACIDS] Sending system EU volume limit: %f for target: %@
 [NACIDS] Sending system volume warning enabled: %d state: %ld for category: %@
 [NACIDS] Sending system muted state: %d for target: %@
+Failed to archive error: %@ with error: %@
+[NACIDS] [NoiseControl] Sending available listening modes: %@ current listening mode: %@ error: %@ for target: %@
 [NACIDS] Failed to request delivery of IDS message, type: %@, queueOne: %@, identifier: %@, payload size: %tu, error: %@
 [NACIDS] Successfully requested delivery of IDS message, type: %@, queueOne: %@, identifier: %@, payload size: %tu
 [NACIDS] Successfully sent message (ID: %@).
@@ -318,6 +375,10 @@ Error getting proxy object: %@
 [NACXPC] Sending IDS beginObservingVolume request for %@ because first observer is added
 [NACXPC] Received request to end observing volume for %@
 [NACXPC] Sending IDS endObservingVolume request for %@ because last observer is removed
+[NACXPC] Received request to begin observing listening modes for %@
+[NACXPC] Received request to end observing listening modes for %@
+[NACXPC] Sending IDS beginObservingListeningModes request for %@ because first observer is added
+[NACXPC] Sending IDS endObservingListeningModes request for %@ because last observer is removed
 Audio route cache expired, waiting for an update from companion
 [NACXPC] Existing route list is larger, scheduling deferred update
 [NACXPC] Got IDS volume observation cancelled message for %@
@@ -326,10 +387,16 @@ Audio route cache expired, waiting for an update from companion
 [NACXPC] Failed to archive volumeRecords due to %@
 VolumeControllerProxy begin observing volume for target: %@
 VolumeControllerProxy end observing volume for target: %@
+VolumeControllerProxy begin observing listening modes for target: %@
+VolumeControllerProxy end observing listening modes for target: %@
 Setting volume: %f for target: %@
 Received volume value update: %f for target: %@
+[NoiseControl] Received available listening modes update: %@ for target: %@
+Received current listenin mode update: %@ for target: %@
 VolumeControllerProxy begin observing volume for target (%@) due to re-entering foreground
+VolumeControllerProxy begin observing listening modes for target (%@) due to re-entering foreground
 VolumeControllerProxy end observing volume for target (%@) due to entering background
+VolumeControllerProxy end observing listeningmodes for target (%@) due to entering background
 [NACIDS] Setting haptic state to: %ld
 [NACIDS] Handle volume change for target: %@
 [NACIDS] Handle volume availability for target: %@
@@ -343,6 +410,9 @@ VolumeControllerProxy end observing volume for target (%@) due to entering backg
 [NACIDS] Handle system muted state did change
 [NACIDS] Handle prominent haptic state did change
 [NACIDS] Handle haptic state did change
+[NACIDS] [NoiseControl] Setting current listening mode: %@ for target: %@
+[NACIDS] [NoiseControl] Handle listening modes did change
+Failed to unarchive error with error: %@
 [NACEndpointObserver] Got initial updates for MRAVEndpoints in session %@!
 [NACEndpointObserver] Invalidating session %@
 [NACEndpointObserver] Starting a new discovery session %@
@@ -377,11 +447,13 @@ _NACVolumeObserverRecord
 _NACRoutesObserverRecord
 _NACIDSMessageRecord
 NACIDSServer
+NACVolumeControllerDelegate
 IDSServiceDelegate
 MPVolumeControllerDelegate
 NACVolumeControlAvailabilityMessage
 NACPickAudioRouteMessage
 _NACVolumeRecord
+_NACListeningModesRecord
 _NACAudioRoutesRecord
 NACXPCServer
 NSXPCListenerDelegate
@@ -396,12 +468,15 @@ NACHapticStateMessage
 NACAudioRouteBuffer
 NACRunAssertion
 NACEventThrottler
+NACListeningModesMessage
 NACOriginIdentifierMessage
 NACVolumeControllerLocal
+MediaControlsVolumeControllerObserver
 NACVolumeControllerDemo
 NACHapticIntensityMessage
 NACEUVolumeLimitMessage
 NACAudioRoute
+MediaControlsVolumeController
 NACVolumeValueMessage
 description
 dictionaryRepresentation
@@ -516,10 +591,12 @@ encodeWithCoder:
 initWithCoder:
 _createConnection
 beginObservingVolumeForTarget:
+beginObservingListeningModesForTarget:
 removeObject:
 beginObservingAudioRoutesForCategory:
 _proxy
 endObservingVolumeForTarget:
+endObservingListeningModesForTarget:
 volumeValueForTarget:result:
 volumeControlAvailabilityForTarget:result:
 mutedStateForTarget:result:
@@ -529,12 +606,15 @@ prominentHapticEnabled:
 systemMutedState:
 EULimitForTarget:result:
 volumeWarningForTarget:result:
-setVolumeValue:target:
-setMuted:target:
+setVolumeValue:forTarget:
+setMuted:forTarget:
 setHapticIntensity:
 setProminentHapticEnabled:
 setHapticState:
 setSystemMuted:
+availableListeningModesForTarget:result:
+currentListeningModeForTarget:result:
+setCurrentListeningMode:forTarget:
 audioRoutesForCategory:result:
 endObservingAudioRoutesForCategory:
 pickAudioRouteWithIdentifier:category:
@@ -546,6 +626,7 @@ setClasses:forSelector:argumentIndex:ofReply:
 initWithMachServiceName:options:
 setRemoteObjectInterface:
 _resumeVolumeObservingIfNecessary
+_resumeListeningModesObservingIfNecessary
 _resumeRouteObservingIfNecessary
 setInterruptionHandler:
 invalidate
@@ -558,6 +639,7 @@ _xpcConnection
 _xpcConnectionQueue
 _routeObservingCategories
 _volumeObservingTargets
+_listeningModesObservingTargets
 arrayWithObjects:count:
 initWithVolumeAudioCategories:
 beginObservingHapticState
@@ -577,10 +659,13 @@ volumeController
 setVolumeController:
 routingController
 setRoutingController:
+nacVolumeController
+setNacVolumeController:
 _volumeControlAvailable
 _EUVolumeLimit
 _throttler
 _volumeController
+_nacVolumeController
 runAssertion
 setRunAssertion:
 _runAssertion
@@ -607,6 +692,9 @@ _handleEndObservingAudioRoutes:
 _handlePickAudioRoute:
 _handleSetSystemMuted:
 _handleSetHapticState:
+_handleSetCurrentListeningMode:
+_handleBeginObservingListeningModes:
+_handleEndObservingListeningModes:
 _handleSetHapticIntensity:
 _handleSetProminentHapticEnabled:
 addDelegate:queue:
@@ -633,6 +721,13 @@ _setWatchPrefersSalientToneAndVibration:
 _updateProminentHapticState
 intensity
 setVibeIntensityTo:
+currentListeningMode
+_nacVolumeControllerForTarget:createIfNeeded:
+setCurrentListeningMode:
+beginObservingListeningModes
+availableListeningModes
+_sendAvailableListeningModes:currentListeningMode:error:forTarget:
+endObservingListeningModes
 state
 _updateHapticState
 setObject:forKeyedSubscript:
@@ -649,12 +744,12 @@ initWithDataSource:
 initWithQueue:
 setMinimumDelay:
 floatValue
-_sendVolumeValue:target:
+_sendVolumeValue:forTarget:
 setEventBlock:
 volumeControlIsAvailable
-_sendVolumeControlAvailability:target:
-_sendVolumeWarningEnabled:volumeWarningState:target:
-_sendEUVolumeLimit:target:
+_sendVolumeControlAvailability:forTarget:
+_sendVolumeWarningEnabled:volumeWarningState:forTarget:
+_sendEUVolumeLimit:forTarget:
 _hapticIntensityDidChangeNotification:
 addObserver:selector:name:object:
 updateProminentHapticState
@@ -674,12 +769,13 @@ intValue
 _targetForVolumeController:
 numberWithFloat:
 setValue:
-_sendMutedState:target:
+_sendMutedState:forTarget:
 dataSource
 volumeAudioCategory
 groupRoute
 endpointWrapper
 unwrappedValue
+enumerateKeysAndObjectsUsingBlock:
 routeName
 isPicked
 setSupportsVolumeControl:
@@ -688,7 +784,11 @@ buffersFromAudioRoutes:
 mutableCopy
 setAudioRoutes:
 userInfo
+_targetForNACVolumeController:
 _shouldForceVolumeWarning
+addAvailableListeningMode:
+archivedDataWithRootObject:requiringSecureCoding:error:
+setError:
 setState:
 initWithProtobufData:type:isResponse:
 numberWithDouble:
@@ -698,6 +798,19 @@ setWithObject:
 sendProtobuf:toDestinations:priority:options:identifier:error:
 length
 code
+volumeControllerDidUpdateVolumeValue:
+volumeControllerDidUpdateVolumeControlAvailibility:
+volumeControllerDidUpdateSystemMutedState:
+volumeControllerDidUpdateMutedState:
+volumeControllerDidUpdateEUVolumeLimit:
+volumeControllerDidUpdateVolumeWarningEnabled:
+volumeControllerDidUpdateVolumeWarningState:
+volumeControllerDidUpdateHapticState:
+volumeControllerDidUpdateProminentHapticState:
+volumeControllerDidUpdateHapticIntensity:
+volumeControllerDidUpdateAvailableListeningModes:
+volumeControllerDidUpdateCurrentListeningMode:
+volumeController:didFailToSetCurrentListeningModeWithError:
 service:account:incomingOpportunisticData:withIdentifier:fromID:context:
 service:didSendOpportunisticDataWithIdentifier:toIDs:
 service:account:incomingMessage:fromID:context:
@@ -762,10 +875,13 @@ encodeBool:forKey:
 observers
 _observers
 _volumeValue
+setAvailableListeningModes:
+setObservers:
+_availableListeningModes
+_currentListeningMode
 audioRoutes
 deferredAudioRoutes
 setDeferredAudioRoutes:
-setObservers:
 timestamp
 setTimestamp:
 _audioRoutes
@@ -785,9 +901,11 @@ _cleanupConnection:
 currentConnection
 _beginObservingVolumeForTarget:connection:
 _volumeRecordForTarget:
-_aggregatedCountOfObserversForTarget:
-enumerateKeysAndObjectsUsingBlock:
+_aggregatedCountOfObserversForTarget:inRecords:
 _endObservingVolumeForTarget:connection:
+_beginObservingListeningModesForTarget:connection:
+_endObservingListeningModesForTarget:connection:
+_listeningModesRecordForTarget:
 _audioRoutesRecordForCategory:
 timeIntervalSinceReferenceDate
 _endObservingAudioRoutesForCategory:connection:
@@ -796,6 +914,9 @@ _persistHapticIntensity
 _persistProminentHapticState
 _persistHapticState
 _persistSystemMutedState
+domain
+numberWithInteger:
+postNotificationName:object:userInfo:
 _scheduleDeferredAudioRoutesUpdate:category:
 _updateAudioRoutes:category:
 _cancelDeferredAudioRoutesUpdate
@@ -803,10 +924,8 @@ objectForKey:
 unarchivedObjectOfClasses:fromData:error:
 dictionaryWithCapacity:
 allKeys
-archivedDataWithRootObject:requiringSecureCoding:error:
 boolForKey:
 unsignedIntegerValue
-numberWithInteger:
 _routeObservationCategoriesForConnection:
 listener:shouldAcceptNewConnection:
 client:volumeValue:didChangeForTarget:
@@ -815,25 +934,25 @@ client:mutedState:didChangeForTarget:
 client:EULimit:didChangeForTarget:
 client:volumeWarningEnabled:volumeWarningState:didChangeForTarget:
 client:volumeObservationCancelledForTarget:
+client:availableListeningModes:didChangeForTarget:
+client:currentListeningMode:didChangeForTarget:
+client:didFailToSetCurrentListeningModeForTarget:error:
 client:audioRoutes:didChangeForCategory:
 client:routeObservationCancelledForCategory:
 client:systemMutedStateDidChange:
 client:hapticStateDidChange:
 client:hapticIntensityDidChange:
 client:prominentHapticStateDidChange:
-audioAndHapticPreviewHasCompletedPlaying
 _internalQueue
 _audioAndHapticPreviewQueue
 _domainAccessor
 _volumeRecords
+_listeningModesRecords
 _audioRoutesRecords
 _xpcListener
 _idsClient
 _systemMutedState
 _audioRouteDeferTimer
-_audioAndHapticPreviewIsPlaying
-_defaultHapticPreviewIsPlaying
-_prominentHapticPreviewIsPlaying
 _applicationDidBecomeActiveNotification:
 _applicationWillResignActiveNotification:
 _audioRoutesDidChange
@@ -845,6 +964,8 @@ _pickedRoute
 _setVolumeValue:
 _setHapticIntensity:
 endObservingVolume
+_handleFailedToSetCurrentListeningModeNotification:
+addObserver:selector:name:object:suspensionBehavior:
 _volumeControlAvailabilityDidChange
 _volumeValueDidChange
 _mutedStateDidChange
@@ -852,6 +973,8 @@ _systemMutedStateDidChange
 _hapticStateDidChange
 _volumeWarningDidChange
 _EUVolumeLimitDidChange
+_availableListeningModesDidChange
+_currentListeningModeDidChange
 _prominentHapticStateDidChange
 _hapticIntensityDidChange
 sharedApplication
@@ -869,17 +992,9 @@ _cancelSetHapticTimer
 _hapticStateTimeout
 _notifyDelegateHapticStateChanged
 _cancelSetHapticStateTimer
-volumeControllerDidUpdateVolumeControlAvailibility:
-volumeControllerDidUpdateMutedState:
 _notifyDelegateSystemMutedStateChanged
-volumeControllerDidUpdateEUVolumeLimit:
-volumeControllerDidUpdateVolumeWarningEnabled:
-volumeControllerDidUpdateVolumeWarningState:
-volumeControllerDidUpdateVolumeValue:
-volumeControllerDidUpdateHapticIntensity:
-volumeControllerDidUpdateSystemMutedState:
-volumeControllerDidUpdateProminentHapticState:
-volumeControllerDidUpdateHapticState:
+integerValue
+errorWithDomain:code:userInfo:
 beginObservingVolume
 beginObservingHaptics
 endObservingHaptics
@@ -895,10 +1010,12 @@ _setVolumeTimer
 _setHapticTimer
 _setProminentHapticTimer
 _setHapticStateTimer
+_observingVolume
 _lastReceivedVolumeValue
 _lastRecievedHapticIntensity
 _lastReceivedProminentHapticEnabled
 _lastReceivedHapticState
+_observingListeningModes
 _systemMuted
 removeAllObjects
 objectAtIndex:
@@ -918,11 +1035,18 @@ _handleVolumeObservationCancelled:
 _handleRouteObservationCancelled:
 _handleSystemMutedStatedDidChange:
 _handleHapticStateDidChange:
+_handleListeningModesDidChange:
 _handleHapticIntensityDidChange:
 _handleProminentHapticStateDidChange:
 _sendMessage:type:timeout:queueOne:priority:
 setIntensity:
 eUVolumeLimit
+availableListeningModesCount
+orderedSetWithArray:
+hasCurrentListeningMode
+hasError
+classForKeyedUnarchiver
+error
 _idsDispatchQueue
 _idsOutgoingQueue
 initWithEndpoint:
@@ -972,24 +1096,39 @@ _queue
 _eventBlock
 _minimumDelay
 _value
+clearAvailableListeningModes
+availableListeningModeAtIndex:
+availableListeningModeType
+_error
 _init
 _updateMutedStateFromVolumeController:
 _updateVolumeState
 updateCachedHapticState
 endObservingHapticState
+_mediaControlsVolumeController
+addObserver:
 setVolume:withNoticationDelay:
 playPreview
+availableBluetoothListeningModeForRouteType:
+currentBluetoothListeningModeForRouteType:
+setCurrentBluetoothListeningModeForRouteType:bluetoothListeningMode:error:
 removeObserver:name:object:
 updateVolumeValue
 updateVolumeWarningState
+mediaControlsVolumeController:didUpdateSplitRoute:
+mediaControlsVolumeController:didChangeVolumeAvailable:effectiveVolume:forRoute:
 _route
 _volumeSetHistory
 _validCachedMutedValue
 _shouldIgnoreHaptics
 _monitoringHaptics
+_lastNotifiedAvailableListeningModes
+_lastNotifiedCurrentListeningMode
 _persistVolumeValue:
 _setNeedsVolumeReload
 _volumeDictionary
+orderedSetWithObjects:
+firstObject
 _defaultsThrottler
 _allowUserToExceedEUVolumeLimit
 setHasIntensity:
@@ -1016,6 +1155,46 @@ isCarplayRoute
 isAppleTVRoute
 isHomePodRoute
 isStereoPair
+weakObjectsHashTable
+systemRoute
+routeDidChangeNotification
+_setupOutputDevicesAndVolumeControllersIfNeeded
+_iconImageForRoute:
+logicalLeaderOutputDevice
+_notifyVolumeChangedForVolumeController:volumeControlAvailable:effectiveVolume:
+_routeForVolumeController:
+isSplitRoute
+objectAtIndexedSubscript:
+initWithOutputDevices:
+outputDevices
+isEqualToArray:
+routeNameForRouteType:
+imageForRouteType:
+volumeForRouteType:
+volumeControlAvailableForRouteType:
+setVolume:forRouteType:
+setSystemRoute:
+systemVolumeController
+setSystemVolumeController:
+primaryVolumeController
+setPrimaryVolumeController:
+secondaryVolumeController
+setSecondaryVolumeController:
+systemOutputDeviceRoute
+setSystemOutputDeviceRoute:
+primaryOutputDeviceRoute
+setPrimaryOutputDeviceRoute:
+secondaryOutputDeviceRoute
+setSecondaryOutputDeviceRoute:
+_isSplitRoute
+_volumeAudioCategory
+_systemRoute
+_systemVolumeController
+_primaryVolumeController
+_secondaryVolumeController
+_systemOutputDeviceRoute
+_primaryOutputDeviceRoute
+_secondaryOutputDeviceRoute
 setHasVolumeValue:
 hasVolumeValue
 @24@0:8^{_NSZone=}16
@@ -1076,6 +1255,9 @@ v32@0:8@"NACProxyVolumeControlTarget"16@?<v@?B>24
 v32@0:8@"NACProxyVolumeControlTarget"16@?<v@?Bq>24
 v28@0:8f16@"NACProxyVolumeControlTarget"20
 v28@0:8B16@"NACProxyVolumeControlTarget"20
+v32@0:8@"NACProxyVolumeControlTarget"16@?<v@?@"NSOrderedSet">24
+v32@0:8@"NACProxyVolumeControlTarget"16@?<v@?@"NSString">24
+v32@0:8@"NSString"16@"NACProxyVolumeControlTarget"24
 v24@0:8@?<v@?B>16
 v24@0:8@?<v@?q>16
 v24@0:8@?<v@?f>16
@@ -1090,10 +1272,13 @@ q16@0:8
 f16@0:8
 @"NACEventThrottler"
 @"MPVolumeController"
+@"<NACVolumeController>"
 @"NACRunAssertion"
 d16@0:8
 v24@0:8d16
 @"PBCodable"
+v24@0:8@"<NACVolumeController>"16
+v32@0:8@"<NACVolumeController>"16@"NSError"24
 v64@0:8@16@24@32@40@48@56
 v40@0:8@16@24@32
 v56@0:8@16@24@32@40@48
@@ -1132,12 +1317,14 @@ v28@0:8@"MPVolumeController"16I24
 v32@0:8@"MPVolumeController"16@"NSString"24
 v28@0:8@"MPVolumeController"16f24
 v32@0:8@"MPVolumeController"16q24
+@28@0:8@16B24
 v36@0:8B16q20@28
 v52@0:8@16q24d32@40B48
 @"NSMutableDictionary"
 @"NSArray"
 @"IDSService"
 {?="originIdentifier"b1"volumeControlAvailable"b1}
+@"NSOrderedSet"
 B32@0:8@16@24
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 v36@0:8@16f24@28
@@ -1147,12 +1334,15 @@ v36@0:8@"NACIDSClient"16f24@"NACProxyVolumeControlTarget"28
 v36@0:8@"NACIDSClient"16B24@"NACProxyVolumeControlTarget"28
 v44@0:8@"NACIDSClient"16B24q28@"NACProxyVolumeControlTarget"36
 v32@0:8@"NACIDSClient"16@"NACProxyVolumeControlTarget"24
+v40@0:8@"NACIDSClient"16@"NSOrderedSet"24@"NACProxyVolumeControlTarget"32
+v40@0:8@"NACIDSClient"16@"NSString"24@"NACProxyVolumeControlTarget"32
+v40@0:8@"NACIDSClient"16@"NACProxyVolumeControlTarget"24@"NSError"32
 v40@0:8@"NACIDSClient"16@"NSArray"24@"NSString"32
 v32@0:8@"NACIDSClient"16@"NSString"24
 v28@0:8@"NACIDSClient"16B24
 v32@0:8@"NACIDSClient"16q24
 v28@0:8@"NACIDSClient"16f24
-q24@0:8@16
+q32@0:8@16@24
 @"NPSDomainAccessor"
 @"NSXPCListener"
 @"NACIDSClient"
@@ -1161,6 +1351,7 @@ q24@0:8@16
 @"NACAudioRoute"
 @"<NACVolumeControllerDelegate>"16@0:8
 v24@0:8@"<NACVolumeControllerDelegate>"16
+@"NSOrderedSet"16@0:8
 v28@0:8f16B20B24
 @24@0:8@?16
 @"NACProxyVolumeControlTarget"
@@ -1177,11 +1368,26 @@ i24@0:8@16
 {?="routeType"b1"picked"b1"supportsVolumeControl"b1}
 @"NSObject<OS_os_transaction>"
 @?16@0:8
+@"NSData"
 {?="originIdentifier"b1}
+v40@0:8@16B24f28Q32
+v28@0:8@"MediaControlsVolumeController"16B24
+v40@0:8@"MediaControlsVolumeController"16B24f28Q32
 @"MPAVRoute"
 @"NSCountedSet"
+@"MediaControlsVolumeController"
 {?="intensity"b1}
 {?="eUVolumeLimit"b1"originIdentifier"b1}
+q24@0:8@16
 i24@0:8q16
 q20@0:8i16
+B40@0:8Q16@24^@32
+f24@0:8Q16
+B24@0:8Q16
+v28@0:8f16Q20
+v32@0:8@16B24f28
+Q24@0:8@16
+@"MPAVEndpointRoute"
+@"NSHashTable"
+@"MPAVOutputDeviceRoute"
 {?="originIdentifier"b1"volumeValue"b1}

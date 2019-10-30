@@ -1,5 +1,5 @@
 MbP?
-@(#)PROGRAM:com.apple.quicklook.ThumbnailsAgent  PROJECT:QuickLookThumbnailing-105
+@(#)PROGRAM:com.apple.quicklook.ThumbnailsAgent  PROJECT:QuickLookThumbnailing-110
 defaultLocation
 initWithCacheSize:location:
 init
@@ -49,9 +49,10 @@ isOpened
 forceResetAtNextLaunch
 updateMode
 perform:afterDelay:
+forceCommit
+closeCache
 startCleanUp
 _waitForEndOfDatabaseCleanup
-closeCache
 operations
 count
 forceCommitAndClose
@@ -394,7 +395,6 @@ anyObject
 mutableCopy
 removeObjectsInArray:
 allObjects
-errorWithDomain:code:userInfo:
 thumbnailsFetchOperationForItems:withSize:scale:
 processedPNGAppIconDataForData:type:
 processLargeThumbnailData:withContentType:precacheThumbnails:forRequest:url:completionHandler:
@@ -429,6 +429,7 @@ userVersion
 lastError
 unsignedIntValue
 dbHandle
+errorWithDomain:code:userInfo:
 performWithFlags:action:
 checkResourceIsReachableAndReturnError:
 URLByDeletingLastPathComponent
@@ -744,7 +745,7 @@ cornerRadiusForSize:
 bezierPathWithRoundedRect:cornerRadius:
 CGPath
 setLineWidth:
-_generateThumbnailWithWillStartBlock:andInvokeCompletionBlockOnMainQueue:
+_generateThumbnailWithWillStartBlock:completionHandler:
 setStatus:
 wantsJPEGRepresentationInstead
 data
@@ -928,6 +929,7 @@ _iconVariants
 _interpolationQualities
 openDatabaseAtPath:
 _createTables
+stepStatement:didReturnData:
 isCorrupted
 closeDatabase
 _cacheIdForFileIdentifier:createVersion:
@@ -1193,6 +1195,7 @@ toggleSqlLogging
 sortedArrayWithOptions:usingComparator:
 string
 indexOfObject:
+cacheHolesOrderedByStart
 _fragHandler
 _file
 _vmFile
@@ -1396,7 +1399,7 @@ com.apple.quicklook.cloudThumbnailDatabaseCleanup
 v16@?0@"NSObject<OS_xpc_object>"8
 B16@?0@"PQLConnection"8
 -[QLThumbnailAdditionIndex upgradeDatabaseIfNeeded:error:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/QuickLookThumbnailing_executables_Sim/QuickLookThumbnailing-105/QuickLookThumbnailing/ThumbnailsAgent/QLThumbnailAdditionIndex.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/QuickLookThumbnailing_executables_Sim/QuickLookThumbnailing-110/QuickLookThumbnailing/ThumbnailsAgent/QLThumbnailAdditionIndex.m
 (db.userVersion.unsignedIntValue >= QLThumbnailAdditionCacheVersionMax) || !result
 v32@?0@"PQLConnection"8@"PQLStatement"16@"NSError"24
 Quick Look cloud thumbnails cache
@@ -1437,7 +1440,7 @@ com.apple.quicklook.servercompletionblocks
 com.apple.quicklook.previewthumbnailgeneration
 com.apple.quicklook.externalcache
 -[QLServerThread processLargeThumbnailData:withContentType:precacheThumbnails:forRequest:url:completionHandler:]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/QuickLookThumbnailing_executables_Sim/QuickLookThumbnailing-105/QuickLookThumbnailing/QuickLookThumbnailing/QLServerThread.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/QuickLookThumbnailing_executables_Sim/QuickLookThumbnailing-110/QuickLookThumbnailing/QuickLookThumbnailing/QLServerThread.m
 completionHandler != nil
 Could not generate thumbnail: retrieved thumbnail had nil data for thumbnail request %@
 Unable to decode thumbnail image data (of type %@) for thumbnail request %@
@@ -1785,6 +1788,7 @@ database is not open (mode: %@), or low disk
 addThumbnailRequest relinquishing _modeLock
 adding no thumbnail for %@ @ %.1f %.1f
 adding thumbnail for %@ @ {%.1f, %.1f} (actual size %zd %zd)
+addThumbnailIntoCache: failed, discarding buffers
 -reset taking _modeLock
 Can't reset database as it is currently in use - will reset at next launch
 -reset relinquishing _modeLock
@@ -1860,6 +1864,7 @@ Creating directory '%@'
 init cache, _exclusivePath = %@
 pending thumbnail data has been invalidated, so we don't save it to the disk cache %@
 insert data %@ {%zu, %zu} thumbnail location : %llu length : %llu content rect location : %llu length : %llu
+insertOrUpdateImageDataForCacheId failed, discarding buffers
 error opening dirty file: %s
 error removing dirty file: %s
 -_doWriting
@@ -1883,7 +1888,9 @@ buffer reserved, pointer: %p location: %lld length: %lld
 cannot reserve buffer %llu
 cannot copy buffer from %p length %llu to %p
 buffer validated, pointer: %p location: %lld length: %lld
+failed to remove buffer from reserved table while validating %@
 buffer discarded, pointer: %p location: %lld length: %lld
+failed to remove buffer from reserved table while discarding reserved buffer for %@
 #CacheDelete computing purgeable space on %@ with urgency %d
 #CacheDelete purging on %@ with urgency %d
 Unhandled #CacheDelete urgency %d
@@ -1993,6 +2000,7 @@ Could not retrieve the downloading status of %@: %@
 No thumbnail found for %@, trying to generate one
 %@: failed to generate a thumbnail from a local file with QLPreviewThumbnailGenerator for URL: %@.
 %@: got item %@, proceeding with download
+%@: got addition %@, proceeding with thumbnail retrieval from addition
 %@: did generate a thumbnail from a local file with QLPreviewThumbnailGenerator for URL: %@.
 Got error %@ trying to find content type for %@
 thumbnail request %@ cancelled
@@ -2077,7 +2085,7 @@ close index database
 reset index database
 all thumbnails should%s be invalidate for %@
 version from database %@, version from disk %@, for %@
-Removing %llu%% oldest thumbnails
+Removing %llu%% oldest thumbnails, which is %lu thumbnails out of total of %lu
 remove thumbnails older than %@
 removing file %@
 Could not prepare statement to retrieve rowids for fileprovider uninstallation
@@ -2102,6 +2110,10 @@ Coalescing %llu - %llu to previous hole
 starting compaction
 end compaction
 failed to create plist data from dictionary: %@
+inconsistency in cache frag handler: bad holes length: real = %llu, cache: %llu
+inconsistency in cache frag handler: bad hole: %@ after offset : %llu
+cacheFragHandler::retainSpaceAtPos returned a bad block: asserting space is retained at [%llu,%llu], but we got a hole at [%llu, %llu]
+cacheFragHandler::retainSpaceAtPos returned a bad block (2)
 dealloc QLCacheCleanUpDatabaseThread
 start thread %@
 calling to stop the runloop
@@ -2139,7 +2151,9 @@ prepare statement %p
 found cached prepared statement %p
 [Warning] We are caching too many statements (%lu), we are expecting to cache only a few (50 max). Cached statements: %@. Last statement cached: %@.
 stepStatement %p (YES)
-stepStatement %p (NO)
+stepStatement %p (NO) with retval %@
+failed to step %p because sql was busy, retry count %d
+sqliteCrappedOut about to be called for %p with retval %@
 called sqlite3_wal_checkpoint_v2(SQLITE_CHECKPOINT_PASSIVE) with result %d, %s, walframes=%d framesCheckpointed=%d
 bindObject db %p stmt %p %d %@
 bindUnsignedLongLong %p %d %llu
@@ -2487,6 +2501,7 @@ v40@0:8r*16^?24^v32
 v28@0:8i16@20
 ^{sqlite3_stmt=}24@0:8r*16
 B24@0:8^{sqlite3_stmt=}16
+B32@0:8^{sqlite3_stmt=}16^B24
 v28@0:8^{sqlite3_stmt=}16i24
 v40@0:8^v16I24i28^{sqlite3_stmt=}32
 v36@0:8@16i24^{sqlite3_stmt=}28
@@ -2514,7 +2529,7 @@ v52@0:8^{sqlite3_stmt=}16^Q24Q32i40@?44
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>18A391011</string>
+<string>18A391012</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -2530,25 +2545,25 @@ v52@0:8^{sqlite3_stmt=}16^Q24Q32i40@?44
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>105</string>
+<string>110</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>11L374m</string>
+<string>11M392q</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>13.1</string>
+<string>13.2</string>
 <key>DTSDKBuild</key>
-<string>17A826a</string>
+<string>17B58z</string>
 <key>DTSDKName</key>
-<string>iphonesimulator13.1.internal</string>
+<string>iphonesimulator13.2.internal</string>
 <key>DTXcode</key>
 <string>1100</string>
 <key>DTXcodeBuild</key>
-<string>11L374m</string>
+<string>11M392q</string>
 <key>MinimumOSVersion</key>
-<string>13.1</string>
+<string>13.2</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>

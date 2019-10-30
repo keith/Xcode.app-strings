@@ -9,7 +9,6 @@
 %s setCanceledByMyriad: %d
 %s BTLE lift time delta %f, adjusting by %d
 %s BTLE connected to carplay, adjusting by %d
-%s BTLE Myriad already handling Continuity activations
 %s BTLE Myriad voice trigger advertising while isVisible
 %s BTLE Myriad voice trigger advertising needed adjusted by lt=%d + cp=%d + rtw=%d = %d
 %s BTLE Myriad direct trigger advertising needed
@@ -24,6 +23,7 @@
 %s Unexpectedly attempted to assign a new connection to the activation server with an existing connection: %{public}@
 %s %p #activation registerPresentationIdentifier:%@
 %s %p #activation unregisterPresentationIdentifier:%@
+%s %p #activation willDismiss
 %s %p #activation didDismiss
 %s %p #activation Shell indicates Siri is presented
 %s %p #activation Shell indicates Siri presentation failed : %@
@@ -65,6 +65,7 @@
 %s #activation buttonLongPressFromButtonIdentifier:%@, context %@, but Siri state is %@. Ignoring.
 %s #activation buttonLongPressFromButtonIdentifier:%@, context %@, but Siri state is %@ and we are in CarPlay. Ignoring because we should also be getting a button down/up.
 %s #activation buttonLongPressFromButtonIdentifier:%@, context %@, but Siri state is %@. Passing to the Presentation Shell.
+%s #activation buttonLongPressFromButtonIdentifier:%@, with Siri state %@, context: %@. Ignoring
 %s buttonUpTimestamp: %f, buttonDownTimestamp: %f
 %s #activation synthesizing button tap
 %s #activation button tap occurred, but Siri is not yet up. Not synthesizing tap event.
@@ -88,8 +89,9 @@
 %s #activation _cancelActivationPreparationIfNecessary
 %s #activation _cancelActivationPreparationForSetup
 %s #activation _cancelPendingActivationEventWithReason:%@
-%s #activation defrost
-%s #activation preheat
+%s #activation activating in design mode
+%s #activation defrost; request state = %@
+%s #activation preheat; request state = %@
 %s BTLE Device should abort session
 %s BTLE Device continues to interact
 %s Starting a new watchdog timer when one already exists.
@@ -151,6 +153,8 @@
 %s Not activating; Siri is disabled because the device is blocked
 %s Not activating; user is in an active call
 %s Not activating; Siri Setup is disabled while passcode locked
+%s Bulletin cache is being asked to insert a bulletin with no ID; ignoring the request because bulletin lookup is ID-based and so there's no reason to store a bulletin with no ID (bulletin: %@; bbBulletin: %@)
+%s Bulletin cache contains a bulletin with a nil identifier; not including the bulletin as part of the return value of -allBulletins (bulletin: %@; bbBulletin: %@)
 %s #activation canActivateChangedTo: %@
 %s SASSignalConnectionListener: Unable to assign new incoming connection to a process because the remote was unknown : connection=%@
 %s #activation Button identifier %@ with uuid '%@' registered by %@
@@ -293,6 +297,7 @@ v16@?0@"<BSServiceConnectionConfiguring>"8
 -[SASPresentationServer _setConnection:]
 -[SASPresentationServer registerPresentationIdentifier:]
 -[SASPresentationServer unregisterPresentationIdentifier:]
+-[SASPresentationServer willDismiss]
 -[SASPresentationServer didDismiss]
 -[SASPresentationServer didPresentSiri]
 -[SASPresentationServer failedToPresentSiriWithError:]
@@ -379,6 +384,8 @@ clockTime
 -[SiriActivationService _cancelActivationPreparationIfNecessary]
 -[SiriActivationService _cancelActivationPreparationForSetup]
 -[SiriActivationService _cancelPendingActivationEventWithReason:]
+-[SiriActivationService _handleDesignModeRequest]
+com.apple.siri.internal.activation
 -[SiriActivationService heaterSuggestsDefrosting:]
 -[SiriActivationService heaterSuggestsPreheating:]
 -[SiriActivationService shouldAbortAnotherDeviceBetter:]
@@ -569,7 +576,7 @@ T@"NSNumber",&,N,V_transport
 SiriPresentationIdentifierTransport:%@
 T@"NSNumber",&,N,V_identifier
 SiriPresentationActivationCancelReason:%@
-AFUISiriLockStateTransport:%@
+SiriUILockStateTransport:%@
 v16@?0@"AFRequestInfo"8
 v32@?0q8Q16@"NSDictionary"24
 v16@?0@"AFSpeechRequestOptions"8
@@ -770,6 +777,8 @@ previousNode
 T@"SASBulletinCacheNode",&,N,V_previousNode
 nextNode
 T@"SASBulletinCacheNode",&,N,V_nextNode
+-[SASBulletinCache insertBulletin:fromFeed:]
+-[SASBulletinCache allBulletins]
 v24@?0@"NSNumber"8@"NSError"16
 -[SiriDirectActionSource configureConnection]_block_invoke_2
 -[SiriDirectActionSource configureConnection]_block_invoke
@@ -887,7 +896,7 @@ SASDirectActionEventTransport
 SASTimeIntervalTransport
 SiriPresentationIdentifierTransport
 SiriPresentationActivationCancelReasonTransport
-AFUISiriLockStateTransport
+SiriUILockStateTransport
 SASRemoteRequestManager
 SASRequestOptions
 SiriBreadcrumbSource
@@ -1136,7 +1145,7 @@ monitorWithConfiguration:
 currentCoordinator
 isVoiceRequest
 speechRequestOptions
-activationEvent
+isVoiceTrigger
 setCanceledByMyriad:
 myriadContext
 startAdvertisingFromInTaskTriggerWithContext:
@@ -1145,6 +1154,7 @@ startAdvertisingFromVoiceTriggerAdjusted:withContext:
 startAdvertisingFromVoiceTriggerAdjusted:
 startAdvertisingFromDirectTriggerWithContext:
 startAdvertisingFromDirectTrigger
+activationEvent
 transitionReasons
 stationary
 currentController
@@ -1232,6 +1242,7 @@ setWaitForConnectBlocks:
 remoteTarget
 registerPresentationIdentifier:
 unregisterPresentationIdentifier:
+willDismiss
 didDismiss
 didPresentSiri
 failedToPresentSiriWithError:
@@ -1261,6 +1272,7 @@ interfaceWithServer:client:
 userInteractive
 siriPresentationIdentifier
 registerSiriPresentation:withIdentifier:
+siriPresentationWillDismissWithIdentifier:
 siriPresentationDismissedWithIdentifier:
 siriPresentationDisplayedWithIdentifier:
 siriPresentationFailureWithIdentifier:error:
@@ -1382,6 +1394,8 @@ activationTimestamp
 buttonTapFromButtonIdentifier:
 stringWithAFDirectActionEvent:
 initWithDirectActionEvent:context:
+designModeIsEnabled
+_handleDesignModeRequest
 initWithContinuityContext:
 initWithVoiceTriggerContext:
 initWithBreadcrumbRequest
@@ -1422,7 +1436,7 @@ lockState
 _attachToTether
 _preheatPresentation
 initWithDeactivationOptions:animated:requestCancellationReason:
-initWithAFUISiriLockState:
+initWithSiriUILockState:
 _watchdogQueue_startActivationWatchdogTimerForPresentationServer:
 activationTimer
 setActivationTimer:
@@ -1579,13 +1593,13 @@ setButtonDownTime:
 setActivationType:
 requestSourceForButtonIdentifier:
 setRequestSource:
+activationEventTime
+setActivationEvent:
 source
 isDeviceButtonRequest
 activationTime
-isVoiceTrigger
 isEyesFree
 isHoldToTalkSource
-setActivationEvent:
 buttonDownTime
 _waketimeMIB
 _waketimeMIBSize
@@ -1655,7 +1669,7 @@ longValue
 initWithSiriPresentationIdentifier:
 numberWithUnsignedInteger:
 unsignedIntegerValue
-afuiSiriLockState
+SiriUILockState
 setRemoteRequestWatcher:
 remoteRequestWatcher
 _handleRemotePrewarmWithInfo:
@@ -1920,7 +1934,7 @@ Vv24@0:8@"SiriPresentationActivationCancelReasonTransport"16
 B24@0:8@"SASActivationRequest"16
 Vv32@0:8@"SASButtonIdentifierTransport"16@"SASTimeIntervalTransport"24
 Vv24@0:8@"SASButtonIdentifierTransport"16
-Vv24@0:8@"AFUISiriLockStateTransport"16
+Vv24@0:8@"SiriUILockStateTransport"16
 Vv32@0:8@"NSNumber"16@"SASTimeIntervalTransport"24
 @"BSServiceConnectionEndpointInjector"
 @"BSServiceConnection<BSServiceConnectionHost>"

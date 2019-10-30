@@ -9,8 +9,10 @@
 %s PresentationViewController created without specifying a presentation frame, falling back to %@
 %s Not requesting presentation for UIFree, handling request directly
 %s #activation there was a pending dismissal when Siri presented
+%s #activation creating new AFUISiriViewController
+%s #activation reusing AFUISiriViewController. This is currently not supported!
 %s #CarPlay: isForStark: %lu
-%s #rhodes: current state is: %lu
+%s #rhodes: current state is: %@
 %s #activation Device not unlocked since boot; presenting passcode unlock screen
 %s #activation Device is now unlocked; proceeding with the request.
 %s #activation Device unlock aborted with result = %ld
@@ -46,8 +48,8 @@
 %s #activation tried to cancel pending activation but it already finished.
 %s #PhoneCallAudioSessionHandler Extending audio session for imminent phone call. Setting _waitingForTelephonyToStart:YES
 %s #PhoneCallAudioSessionHandler stop extending audio session while visible: %@
-%s #activation creating new siriViewController with request source: %@
-%s #activation created new siriViewController: %@ with AFConnection: %@
+%s #activation Attempting to use siriViewController, but one does not exist. Backtrace: %@
+%s #activation Creating new view controller with connection: %@, configuration: %@, requestSource: %@
 %s #activation delay: %@
 %s #activation
 %s #activation _unownedConnection: %@
@@ -60,16 +62,14 @@
 %s #activation Invalidating _carSiriButtonHoldToTalkTimer (%@)
 %s _buttonTrigger=%@
 %s Siri enabled SpringBoard idle timer
+%s #activation Siri encountered an unexpected error; dismissing Siri: %{public}@
 %s #activation siriViewControllerDidFinishDismissing: %@
-%s Siri view controller encountered an unexpected error; dismissing Siri: %{public}@
 %s #activation dismissSiriViewController: %@ delayForTTS: %@
 %s URL: %@, appBundleID: %@, success: %d
 %s Failed to open URL (%@) with error: %@
 %s Ending delayed session end due to URL open failure.
 %s Telling the assistant that telephony request was successfully handled
 %s AppLink bundle: %@ is different than desired bundle: %@
-%s Not starting trigger less listening due to request error: %@
-%s Starting trigger less listening
 %s #activation siriPresentationControllerDelegate called
 %s Dismissal requested with success: %d error: %@
 %s %@
@@ -130,6 +130,8 @@ reason
 Presentation rejected activation without error
 v20@?0B8@"NSError"12
 -[SiriPresentationViewController _prepareSiriViewControllerWithRequestOptions:]
+Reusing AFUISiriViewController is currently unsupported.
+If this call is necessary, use siriViewControllerConfigured to check if it is ready to use
 -[SiriPresentationViewController _presentationRequestedHandlerWithRequestOptions:]
 -[SiriPresentationViewController _presentationRequestedHandlerWithRequestOptions:]_block_invoke
 -[SiriPresentationViewController presentationDismissalRequestedWithOptions:]
@@ -156,7 +158,8 @@ eventSource
 cancelReason
 -[SiriPresentationViewController siriSessionShouldExtendAudioSessionForImminentPhoneCall]
 -[SiriPresentationViewController siriSessionShouldEndExtendAudioSessionForImminentPhoneCall]
--[SiriPresentationViewController siriViewControllerWithRequestSource:]
+-[SiriPresentationViewController siriViewController]
+-[SiriPresentationViewController _createSiriViewControllerWithRequestOptions:]
 -[SiriPresentationViewController _scheduleConnectionHouseKeepingAfterDelay:]
 -[SiriPresentationViewController _processConnectionHouseKeeping]
 -[SiriPresentationViewController _cleanupUnownedConnection]
@@ -165,8 +168,8 @@ cancelReason
 -[SiriPresentationViewController _invalidateCarSiriButtonHoldToTalkTimer]
 -[SiriPresentationViewController _releaseExistingTrigger]
 -[SiriPresentationViewController _enableSpringBoardIdleTimer]
+-[SiriPresentationViewController _dismissDueToUnexpectedError:]
 -[SiriPresentationViewController siriViewControllerDidFinishDismissing:]
--[SiriPresentationViewController siriViewController:didEncounterUnexpectedError:]
 -[SiriPresentationViewController dismissSiriViewController:delayForTTS:]
 v12@?0B8
 -[SiriPresentationViewController _openURL:bundleId:delaySessionEndForTTS:punchoutStyle:completion:]_block_invoke_3
@@ -174,7 +177,6 @@ v12@?0B8
 v32@?0@"NSURL"8@"NSString"16@?<v@?B>24
 -[SiriPresentationViewController _openURL:bundleId:delaySessionEndForTTS:punchoutStyle:completion:]_block_invoke_2
 v24@?0@"LSAppLink"8@"NSError"16
--[SiriPresentationViewController siriViewController:didCompleteRequestWithError:]
 -[SiriPresentationViewController siriViewController:requestsPresentation:]
 -[SiriPresentationViewController siriViewController:requestsDismissal:]_block_invoke
 -[SiriPresentationViewController bulletinsForSiriViewController:]
@@ -423,8 +425,13 @@ activateWithRequestOptions:
 _updateHostedPresentationFrame
 clearSiriViewControllerTimer
 setClearSiriViewControllerTimer:
-siriViewControllerWithRequestSource:
-_setSiriViewModeForRequestOptions:
+_createSiriViewControllerWithRequestOptions:
+addChildViewController:
+didMoveToParentViewController:
+view
+addSubview:
+errorWithDomain:code:userInfo:
+_dismissDueToUnexpectedError:
 setObject:forKey:
 isForStark
 setDeviceInStarkMode:
@@ -445,8 +452,6 @@ initWithRequestSource:
 dismiss
 showPasscodeUnlockScreenThen:
 activateWithSource:requestOptions:timestamp:
-_siriView
-setMode:
 _uiPresentationIdentifier
 initWithRequestSource:uiPresentationIdentifier:
 _releaseExistingTrigger
@@ -461,6 +466,7 @@ startRequestWithOptions:
 bounds
 _carScreen
 mainScreen
+willDismiss
 isVisible
 _wasDismissed
 reason
@@ -493,7 +499,7 @@ _dismissSiriSetup
 _requestDismissal
 integerValue
 updateSettingsOnRemoteSceneForInterfaceOrientationChange:willAnimationWithDuration:
-afuiSiriLockState
+SiriUILockState
 setLockState:
 _carSiriButtonTimeInterval
 cancelReason
@@ -503,14 +509,12 @@ setAlertContext
 _setWaitingForTelephonyToStart:
 _telephonyHasStarted
 cancelPreviousPerformRequestsWithTarget:selector:object:
-initWithFlamesViewFidelity:isSystemHostedPresentation:
+callStackSymbols
+viewModeForRequestOptions:
+initWithFlamesViewFidelity:isSystemHostedPresentation:siriViewMode:
 initWithConnection:configuration:requestSource:
 setDataSource:
 setDelegate:
-addChildViewController:
-didMoveToParentViewController:
-view
-addSubview:
 numberWithDouble:
 _processConnectionHouseKeeping
 performSelector:withObject:afterDelay:
@@ -529,6 +533,8 @@ _isDelayingSessionEnd
 directActionEvent
 resetContextTypes:
 _checkForGuideUpdatesIfNecessary
+_siriView
+setMode:
 _clearSiriViewController
 _startGuidedAccessOnDismissal
 _setStartGuidedAccessOnDismissal:
@@ -557,10 +563,6 @@ telephonyRequestCompleted
 targetApplicationProxy
 bundleIdentifier
 getAppLinkWithURL:completionHandler:
-triggerlessListeningOptions
-showUIDuringListening
-updateToPresentationWithIdentifier:presentationProperties:animated:completion:
-forceAudioSessionInactiveWithOptions:completion:
 carDNDActive
 currentSource
 setVoiceRequestMadeWhileInCarDND:
@@ -606,6 +608,7 @@ siriViewController:requestsPresentation:
 setSiriSetupViewController:
 siriViewController:launchApplicationWithBundleIdentifier:withURL:launchOptions:replyHandler:
 presentationRequestedWithPresentationOptions:requestOptions:
+setBackdropVisible:
 _watchdogQueue_startActivationWatchdogTimer
 activationTimer
 cancelIfNotAlreadyCanceled
@@ -881,6 +884,7 @@ v24@0:8@"<SiriPresentationControllerDelegate>"16
 Vv32@0:8@16@24
 Vv24@0:8@16
 v32@0:8q16@24
+q24@0:8@16
 v40@0:8q16@24@32
 {CGRect={CGPoint=dd}{CGSize=dd}}32@0:8@16q24
 B24@0:8q16
