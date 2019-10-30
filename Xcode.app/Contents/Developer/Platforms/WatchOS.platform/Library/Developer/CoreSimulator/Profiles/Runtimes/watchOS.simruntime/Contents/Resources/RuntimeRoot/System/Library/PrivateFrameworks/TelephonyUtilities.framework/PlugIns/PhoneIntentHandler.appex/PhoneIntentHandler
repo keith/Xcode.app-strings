@@ -254,6 +254,7 @@ handle
 logOutgoingCallToHandle:
 userActivity
 _idiom
+callRinging
 callsInProgress
 isFaceTimeProvider
 isVideo
@@ -291,13 +292,20 @@ remoteParticipantHandles
 anyObject
 personResolutionResultsForIntent:
 callCapability
-mediaType
-successWithResolvedCallCapability:
-intentSupportsAudioOnly:
 _isPrimaryDisplayDisabled
+inferCallCapabilityForPreferredCallProvider:recentCall:initialCallCapability:idiom:isDisplayDisabled:
+resolutionResultForCallCapability:idiom:withDisplayDisabled:
+mediaType
+callCapabilityFromRecentCall:
+shouldForceAudioOnlyWithIdiom:withDisplayDisabled:
+successWithResolvedCallCapability:
 serviceProvider
 globalEmergencyNumbers
 successWithResolvedPreferredCallProvider:
+isFaceTimeAudioBlocked
+supportsDisplayingFaceTimeAudioCalls
+isFaceTimeVideoBlocked
+supportsDisplayingFaceTimeVideoCalls
 recordTypeForRedialing
 callsWithPredicate:limit:offset:batchSize:
 needsValue
@@ -385,6 +393,8 @@ airplaneMode
 incomingCall
 incomingVideoCall
 hasCurrentCalls
+callingBlocked
+faceTimeBlocked
 canAttemptEmergencyCallsWithoutCellularConnection
 standardUserDefaults
 boolForKey:
@@ -559,6 +569,12 @@ directFaceTimeAudioCallingCurrentlyAvailable
 TB,R,N,GisDirectFaceTimeAudioCallingCurrentlyAvailable
 directFaceTimeVideoCallingCurrentlyAvailable
 TB,R,N,GisDirectFaceTimeVideoCallingCurrentlyAvailable
+faceTimeAudioBlocked
+TB,R,N,GisFaceTimeAudioBlocked
+faceTimeVideoBlocked
+TB,R,N,GisFaceTimeVideoBlocked
+supportsDisplayingFaceTimeAudioCalls
+supportsDisplayingFaceTimeVideoCalls
 canAttemptTelephonyCallsWithoutCellularConnection
 canAttemptEmergencyCallsWithoutCellularConnection
 favoritesDataSource
@@ -573,6 +589,7 @@ T@"TUCallCenter",R,N
 useLegacyContactResolution
 useLegacyHandleResolution
 callsInProgress
+callRinging
 signInController
 T@"IDSSignInController",R,N,V_signInController
 callHistoryController
@@ -661,7 +678,8 @@ Handling start call intent: %@
 Calling completion block with response: %@ user activity: %@
 handleStartCall
 Determining response for dial request: %@
-The call is initiated on a HomePod that already has a call in progress.
+The call is initiated on a HomePod but the companion device already has a call ringing.
+The call is initiated on a HomePod but the companion device already has a call in progress.
 Dial request was for FaceTime provider and video but FaceTime video is not enabled. Returning reponse that app configuration is required
 Dial request was for FaceTime provider and audio but FaceTime audio is not enabled. Returning reponse that app configuration is required
 User activity was nil. Returning failure.
@@ -707,19 +725,20 @@ Nothing found in call history to redial. Resolving as unsupported.
 Calling completion block with resolution results: %@
 resolveContacts
 Resolving call capability for start call intent: %@
-Inferring audio call capability from call to redial
-Inferring video call capability from call to redial
-[WARN] Could not infer call capability from call to redial because media type of that call was unknown.
-Facetime Video calling is unavailable, returning call capability unsupported reason video call unsupported.
-Facetime Video calling is requested, but video call isn't supported on this device or interaction mode. Resolving to audio instead.
-callCapability is unknown. It's a telephony provider so resolve callCapability to audio.
-callCapability is unknown. It's a FaceTime provider but video isn't supported on this device or interaction mode, so resolve callCapability to audio.
-callCapability is unknown. It's a FaceTime provider and video is supported so resolve callCapability to video.
-callCapability is unknown. It's a FaceTime provider and audio is supported so resolve callCapability to audio.
-callCapability is unknown. Neither facetime audio nor video calling are supported. Resolve callCapability to notRequired, as we will give a more appropriate error during provider resolution or intent handling.
-callCapability and preferredCallProvider are both unknown. Resolve callCapability to notRequired.
 Returning call capability resolution result: %@
 resolveCallCapability
+[WARN] Unable to infer callCapability from call to redial because the recent call was nil
+Inferring audio call capability from call to redial
+Inferring video call capability from call to redial
+[WARN] Unable to infer callCapability from call to redial because media type of that call was unknown.
+Call capability is already set, no inferring needed
+Inferring audio callCapability because provider is Telephony.
+Inferring video callCapability because provider is FaceTime and video is supported.
+Inferring audio callCapability because provider is FaceTime and audio is supported
+[WARN] Unable to infer callCapability. Provider is Facetime, but neither facetime audio nor video calling are supported.
+Changing callCapability from video to audio because the current idiom only supports audio
+Returning call Capability %ld
+Facetime Video calling is unavailable, returning call capability unsupported reason video call unsupported.
 deviceIdiom %ld is an audio only device idiom.
 deviceIdiom %ld supports video calling.
 Call capabilities do not support FaceTime video calls
@@ -729,8 +748,12 @@ The call provider %@ for redial or call back is not supported
 Telephony call was requested, but supportsTelephonyCalls was false
 Using UnsupportedReasonEmergencyCallProviderNotAccessible because intent appears to be an emergency
 Using UnsupportedReasonTelephonyUnsupported because intent is not an emergency
-FaceTime audio call was requested, but supportsFaceTimeAudioCalls was false
-FaceTime video call was requested, but supportsFaceTimeVideoCalls was false
+FaceTime provider is blocked in settings or by managed configuration
+FaceTime is not supported by this device's hardware or carrier configuration
+FaceTime audio calling service is not available, likely because user is not signed in
+FaceTime audio call was requested, but supportsFaceTimeAudioCalls was false, and the request passed checks for FT settings-based restrictions and FT provider availability.
+FaceTime video calling service is not available, likely because user is not signed in
+FaceTime video call was requested, but supportsFaceTimeVideoCalls was false, and the request passed checks for FT settings-based restrictions and FT provider availability.
 Returning call provider resolution result: %@
 resolvePreferredCallProvider
 Inferring outgoing callStatus requirement from the presence of redial destination type and unspecified recordTypeForRedialing.
@@ -851,6 +874,8 @@ shouldRequireUnknownRecipientConfirmation
 Found a favorites entry matching handle: %@
 [WARN] Ignoring favorite for telephony call with an empty phone number: %@
 [WARN] Ignoring favorite for telephony call without a phone number: %@
+Checking if there is any call ringing currently
+is there any call ringing currently? %@
 Checking if there is any call in progress.
 is there any call in progress? %@
 Before deduping: %ld, After deduping: %ld
@@ -922,6 +947,10 @@ v32@0:8@"INStartCallIntent"16@?<v@?@"INStartCallIntentResponse">24
 v32@0:8@"INStartCallIntent"16@?<v@?@"INCallDestinationTypeResolutionResult">24
 v32@0:8@"INStartCallIntent"16@?<v@?@"NSArray">24
 v32@0:8@"INStartCallIntent"16@?<v@?@"INStartCallCallCapabilityResolutionResult">24
+q24@0:8@16
+q52@0:8q16@24q32q40B48
+@36@0:8q16q24B32
+B28@0:8q16B24
 @28@0:8@16B24
 @40@0:8@16q24q32
 @48@0:8@16q24@32@40

@@ -60,10 +60,15 @@ analytics add %lli to %{public}@
 analytics send %{public}@ %@
 %s: returning capabilities identifier %@
 %s: setting capabilities identifier %@
-CarCapabilities: fetched car capabilities %@ for pid: %@
+CarCapabilities: fetched car capabilities for pid %@: %@
 %s: retrieved car capabilities from global domain for identifier %@: %@ (%@)
 %s: retrieving car capabilities but found none, using defaults (%@)
 %s: persisting car capabilities to global domain for identifier %@: %@ (%@)
+%s: resetting car capabilities to global domain
+%s: CarCapabilities available for current session: %@
+CRCarPlayAppService error: %@
+%s: requestCarCapabilitiesStatus service did reply. sessionValuesReady = %d
+%s: %@ capabilities values after waiting %f s: %@
 no endpoint available, failed to get endpoint value for key %@
 failed to get endpoint value for key %@, error: %i
 Configuration updated for session %@
@@ -599,20 +604,39 @@ AnalyticsSendEvent
 /System/Library/PrivateFrameworks/CoreAnalytics.framework/CoreAnalytics
 ADClientAddValueForScalarKey
 CarCapabilitiesDefaultIdentifier
+CRCarPlayCapabilitiesIdentifierKey
+CRCapabilitiesVersionKey
 CRCapabilitiesDisabledFeatureKey
 CapabilitiesNowPlayingAlbumArtKey
 CapabilitiesViewAreaInsetKey
 CapabilitiesDashboardRoundedCornersKey
 CRCapabilitiesUserInterfaceStyleKey
 CarCapabilities
+CarCapabilitiesContentVersion
 com.apple.CarKit.CarCapabilities
-<%@: %p> disabledFeature = %@, nowPlayingAlbumArtMode = %@, userInterfaceStyle = %@, viewAreaInset = %@, dashboardRoundedCorners = %@
+<%@: %p> version = %@, disabledFeature = %@, nowPlayingAlbumArtMode = %@, userInterfaceStyle = %@, viewAreaInset = %@, dashboardRoundedCorners = %@
+vehicle identifier = %@
+plist version = %@
+disabledFeature mask = %@
+nowPlayingAlbumArtMode = %@
+userInterfaceStyle = %@
+viewAreaInset = %@
+dashboardRoundedCorners = %@
 +[CRCarPlayCapabilities capabilitiesIdentifier]
 +[CRCarPlayCapabilities setCapabilitiesIdentifier:]
 +[CRCarPlayCapabilities newCapabilitiesFromGlobalDomain]
 -[CRCarPlayCapabilities persistCapabilitiesToGlobalDomain]
++[CRCarPlayCapabilities _resetCapabilitiesGlobalDomain]
++[CRCarPlayCapabilities waitForCarCapabilitiesValues]
++[CRCarPlayCapabilities waitForCarCapabilitiesValues]_block_invoke
+Found
+Did not find
 capabilitiesIdentifier
 T@"NSString",C,N
+capabilitiesVersion
+T@"NSString",&,N
+version
+T@"NSString",N,V_version
 persisted
 TB,N,V_persisted
 disabledFeature
@@ -691,6 +715,8 @@ connectingTimer
 T@"NSObject<OS_dispatch_source>",&,N,V_connectingTimer
 timeoutInterval
 TQ,N,V_timeoutInterval
+requiresCarCapabilitiesValues
+TB,N,V_requiresCarCapabilitiesValues
 currentSession
 T@"CARSession",R,N
 sessionObserver
@@ -922,6 +948,7 @@ setWithArray:
 _requestBlacklistUpdate
 requestBlacklistUpdate
 requestCarCapabilitiesUpdate
+requestCarCapabilitiesStatus:withReply:
 blacklistedBundleIDs
 containsObject:
 remoteObjectProxyWithErrorHandler:
@@ -1553,29 +1580,38 @@ _vehiclesBySerialNumber
 shouldSuggestCarPlayTips
 numberWithLongLong:
 valueWithEdgeInsets:
+capabilitiesIdentifier
+initWithSuiteName:
+persistentDomainForName:
+valueForKey:
+setPersistentDomain:forName:
 allocWithZone:
+version
 disabledFeature
 isEqualToCapabilities:
 newCapabilitiesFromGlobalDomain
 numberWithInt:
-capabilitiesIdentifier
-initWithSuiteName:
-persistentDomainForName:
 initWithDictionaryRepresentation:
 setPersisted:
 dictionaryRepresentation
-valueForKey:
-setPersistentDomain:forName:
+timeIntervalSinceNow
 setCapabilitiesIdentifier:
+setCapabilitiesVersion:
+capabilitiesVersion
+_resetCapabilitiesGlobalDomain
+waitForCarCapabilitiesValues
+informativeText
 persistCapabilitiesToGlobalDomain
 setDisabledFeature:
 setNowPlayingAlbumArtMode:
 setViewAreaInsets:
 setDashboardRoundedCorners:
 setUserInterfaceStyle:
+setVersion:
 persisted
 _persisted
 _disabledFeature
+_version
 initWithProtocol:callbackQueue:
 initWithOptions:capacity:
 signatureWithObjCTypes:
@@ -1613,7 +1649,7 @@ initWithEndpointInputDevices:screenIDs:vehicleInformation:session:
 endpoint
 valueForKeyPath:
 _newObserverAdded:
-initWithFigEndpoint:
+initWithFigEndpoint:requiresCarCapabilities:
 _fig_safe_description
 setInputMode:forInputDevice:
 systemNightMode
@@ -1654,12 +1690,14 @@ _handleConfigurationUpdated:
 _handleCarCapabilitiesUpdated:
 _updateSession
 waitForSessionInitialization
+setRequiresCarCapabilitiesValues:
 session
 _notifyStartedConnectionAttemptOnTransport:
 _startConnectingTimer
 _notifyDidUpdateSession:
 _stopConnectingTimer
 _notifyDidDisconnectSession:
+requiresCarCapabilitiesValues
 _notifyDidConnectSession:
 connectingTimer
 timeoutInterval
@@ -1670,9 +1708,11 @@ cancelledConnectionAttemptOnTransport:
 sessionDidConnect:
 sessionDidDisconnect:
 session:didUpdateConfiguration:
+initAndWaitUntilCarCapabilitiesUpdate
 _handleInCarNotification
 setSessionObserver:
 notificationConverter
+_requiresCarCapabilitiesValues
 _sessionObserver
 _session
 _notificationConverter
@@ -1767,6 +1807,7 @@ v24@0:8@?<v@?@"NSArray"@"NSError">16
 v32@0:8@?16@?24
 @"NSXPCConnection"
 @"CARAutomaticDNDStatus"
+v32@0:8@"NSDictionary"16@?<v@?B>24
 @"NSSet"
 @24@0:8@?16
 @"CRCarKitServiceClient"
@@ -1844,7 +1885,7 @@ v56@0:8@"CARSession"16@"CARScreenViewArea"24@"NSString"32d40Q48
 v40@0:8@"CARSession"16@"CARScreenInfo"24@"NSURL"32
 v32@0:8@"CARSession"16@"CARScreenInfo"24
 v40@0:8@"CARSession"16@"NSString"24@"NSDictionary"32
-@24@0:8^{OpaqueFigEndpoint=}16
+@28@0:8^{OpaqueFigEndpoint=}16B24
 v32@0:8Q16@24
 ^{OpaqueFigEndpoint=}16@0:8
 @24@0:8^{__CFString=}16

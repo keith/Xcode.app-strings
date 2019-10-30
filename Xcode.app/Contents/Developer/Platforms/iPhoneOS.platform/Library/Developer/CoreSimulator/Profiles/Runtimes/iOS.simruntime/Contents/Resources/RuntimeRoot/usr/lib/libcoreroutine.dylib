@@ -621,8 +621,8 @@ Learned location engine will begin training.
 Learned location engine did finish training.
 group %lu, %@
 record %lu, %@
-%@, failed to take snapshot, error, %@
-%@, failed to remove places without visits, error, %@
+%@, failed to remove unreferenced places, error, %@
+%@, failed to remove unreferenced map items, error, %@
 %@, started
 %@, finished, success, %@, error, %@, latency, %.2f
 %@, place type classification success, %@, error, %@
@@ -1353,6 +1353,7 @@ received will reset sync notification, reason %lu
 received did reset sync notification
 initiating import after reset sync
 finished import after reset sync, error, %@
+%@ query type could not be created 
 favorite place, %@, has no MUID
 history entry place display, %@, has no MUID
 history entry place display, %@, has invalid center coordinate
@@ -1376,10 +1377,10 @@ failed to geocode a history route, %@, error, %@
 history entry route, %@, map item, %@, location, %@
 failed to allocate history entry route, %@
 %@ called with NewMSPQuery %@, version, %llu
-favorites query loaded
-history entry place display query loaded
-history entry routes query loaded
-pinnedPlaces query loaded
+contents already loaded, %@
+contents did load, %@
+contents did load for unknown query, %@
+Query timer has expired
 Invalid parameter not satisfying: place (in %s:%d)
 Invalid parameter not satisfying: locationOfInterest
 attempting to %@ a learnedLocationOfInterest without a backing mapItem (in %s:%d)
@@ -1497,6 +1498,8 @@ not an unconcrete loi
 relabeling combined with error, %@
 relabeling cleaned up with error, %@
 Invalid parameter not satisfying: visitMOs
+Invalid parameter not satisfying: encounteredIdentifiers
+Invalid parameter not satisfying: connectedComponent
 %@, error in deduping, %@
 Invalid parameter not satisfying: earlierVisitMO
 Invalid parameter not satisfying: laterVisitMO
@@ -1608,6 +1611,7 @@ Invalid parameter not satisfying: versionString (in %s:%d)
 error while fetching entity deletion requests to process, %@
 no entity deletion requests to process
 processing %lu entity deletion requests
+%@, request, %@, updated count, %@, error, %@
 Invalid parameter not satisfying: hyperParameter (in %s:%d)
 Invalid parameter not satisfying: block (in %s:%d)
 Invalid parameter not satisfying: algorithmMetricCalculator
@@ -1707,6 +1711,8 @@ mirroring delegate did initialize
 mirroring delegate failed to initialize
 Invalid parameter not satisfying: fileSystemURL
 Invalid parameter not satisfying: storeURL
+Invalid parameter not satisfying: dispatcher
+Invalid parameter not satisfying: type >= RTMapsSupportQueryTypeFirst() && type <= RTMapsSupportQueryTypeLast() (in %s:%d)
 %@ detected multimodal distribution, defaulting dominant motionActivityType to %@
 motionActivityType, %@, frequency, %lu
 change count, %ld, cumulative interval, %f
@@ -1745,7 +1751,9 @@ Invalid parameter not satisfying: maxLocationsPerFingerprint > 0
 Invalid parameter not satisfying: locationUncertaintyThreshold > 0
 Invalid parameter not satisfying: aoiDistanceThreshold > 0
 Invalid parameter not satisfying: poiDistanceThreshold > 0
-Object is not of set type (in %s:%d)
+Object is not of dictionary type (in %s:%d)
+error while encoding json object, %@
+error while decoding json object, %@
 Invalid parameter not satisfying: dataToCompress
 compressed deletion request data, original data length, %llu, compressed data length, %llu, compression ratio, %.2fx
 did not compress deletion request data
@@ -2959,7 +2967,6 @@ MirroringQoSTimer
 RTPersistenceMirroringManagerErrorDomain
 com.apple.routined.persistence.mirroring.background
 com.apple.routined.persistence.mirroring.backup
-com.apple.routined.persistence.mirroring.backup.user-requested
 com.apple.routined.persistence.mirroring.post-install
 UserRequestedBackupActivity
 RTPersistenceStoreMirroringDelegateDidInitializeNotificationName
@@ -3278,7 +3285,6 @@ Deferring training due to start date, %@, cannot be later than end date, %@
 before %@
 after %@
 swelf was nil
-LearnedLocationEngineReconciliationAlgorithm
 @"RTLearnedLocation"16@?0@"RTLearnedVisit"8
 distance > 0
 loiIdentifierToCoalescedSourceMap
@@ -3404,7 +3410,8 @@ origin
 T@"RTLearnedVisitMO",&,D,N
 destination
 predominantMotionActivityType
--[RTMapsSupportManager initWithMapServiceManager:]
+timerManager
+T@"RTTimerManager",&,N,V_timerManager
 RTPersistenceDriverUserInfoDeviceMOIDKey
 RTPersistenceDriverMirroringDelegateOptionsKey
 currentDeviceObjectID
@@ -3873,8 +3880,6 @@ hintManager
 T@"RTHintManager",&,N,V_hintManager
 locationAwarenessManager
 T@"RTLocationAwarenessManager",&,N,V_locationAwarenessManager
-timerManager
-T@"RTTimerManager",&,N,V_timerManager
 T@"RTVisitMonitorState",&,N,V_state
 monitoringVisitIncidents
 TB,N,V_monitoringVisitIncidents
@@ -4590,10 +4595,17 @@ T@"GEOURLRouteHandle",R,N
 navigationWasInterrupted
 @"<MSPIdentifiable>"24@?0@"MSPPinnedPlace"8Q16
 -[RTMapsSupportManager_MSP _fetchFavoritePlacesWithHandler:]
+Unable to complete MSP query - queryState does not exist.
 Unable to complete MSP query - container not loaded.
 -[RTMapsSupportManager_MSP _fetchPinnedPlacesWithHandler:]
 -[RTMapsSupportManager_MSP _fetchHistoryEntryPlaceDisplaysWithHandler:]
 -[RTMapsSupportManager_MSP _fetchHistoryEntryRoutesWithHandler:]
+v32@?0@"NSNumber"8@"RTMapsSupportQueryState"16^B24
+%@.queryTimer
+queryTimer
+T@"RTTimer",&,N,V_queryTimer
+queryMap
+T@"NSMutableDictionary",R,N,V_queryMap
 NewMSPQuery
 T@"RTMotionActivity",R,N,V_activity
 vehicleConnectedState
@@ -4868,6 +4880,7 @@ visitCount
 LOI found with zero visits and non zero transitions, identifier, %@
 visitMOs
 loiMO
+encounteredIdentifiers
 earlierVisitMO
 laterVisitMO
 combinedPairs
@@ -5220,6 +5233,17 @@ T@"NSPersistentStoreDescription",R,V_storeDescription
 T@"NSURL",R
 userInfo
 T@"NSMutableDictionary",R,V_userInfo
+Favorites
+PlaceDisplay
+Routes
+PinnedPlaces
+-[RTMapsSupportQueryState initWithType:dispatcher:]
+type, %@, loaded, %@
+T@"RTInvocationDispatcher",R,N,V_dispatcher
+loaded
+TB,N,V_loaded
+query
+T@"NewMSPQuery",&,N,V_query
 start_s
 stop_s
 motionActivityType
@@ -5764,8 +5788,8 @@ B24@?0@"NSString"8@"NSDictionary"16
 +[RTDiagnostics createDiagnosticsURLWithError:]
 failed to create diagnostic url, parent path was nil.
 failed to create diagnostic url at path, %@, error, %@
-Sep 25 2019
-20:48:54
+Oct  3 2019
+04:22:08
 encrypetd data unavailable - please ensure the device is unlocked and try again.
 numberOfCandidates
 numberOfLearnedPlaceKnownTypeCandidates
@@ -6171,6 +6195,8 @@ TRUEPREDICATE
 FALSEPREDICATE
 PerVisit
 PerDevice
+RTLearnedLocationReconciliationAlgorithm preferredReconciliationAlgorithm(RTDefaultsManager *__strong, RTPlatform *__strong)
+LearnedLocationEngineReconciliationAlgorithm
 <%+.8f,%+.8f> +/- %.2fm (speed %.2f mps / course %.2f) @ %@
 <%+.8f,%+.8f>
 +[RTLearnedVisitMO managedObjectWithVisit:place:inManagedObjectContext:]
@@ -6485,6 +6511,7 @@ RTVisitManagerAvailableNotification
 RTVisitManager
 RTVisitMonitorDelegate
 RTPersistenceStore
+RTMapsSupportQueryState
 RTStateTransition
 RTStateTransitionMotionActivityTypeHistogram
 RTStateTransitionActivityHistogramElement
@@ -6917,7 +6944,7 @@ setExpression:
 setExpressionResultType:
 setPropertiesToFetch:
 executeFetchRequest:error:
-timeIntervalSinceReferenceDate
+timeIntervalSinceDate:
 dateWithTimeIntervalSinceNow:
 predicateWithFormat:
 countForFetchRequest:error:
@@ -7131,7 +7158,6 @@ valueForEntitlement:
 boolValue
 _preflightClientConnection:withEntitlements:
 coordinateToString
-timeIntervalSinceDate:
 locationsOfInterestFromLearnedLocationsOfInterest:
 fetchLocationsOfInterestWithinDistance:ofLocation:handler:
 placeTypeFromType:
@@ -8196,6 +8222,7 @@ altitude
 coordinate
 speed
 course
+timeIntervalSinceReferenceDate
 getRefAlt:
 valueForKeyPath:
 initWithClientLocation:
@@ -8460,7 +8487,6 @@ _relabelWithError:
 _classifyPlaceTypes:
 _consolidateKnownPlaceTypesWithError:
 _requestTrainLocationsOfInterestModelWithHandler:
-preferredReconciliationAlgorithm
 _performPerVisitReconciliationWithError:
 _performPerDeviceReconiliationWithError:
 initWithLearnedLocations:
@@ -8508,8 +8534,8 @@ groups
 records
 setSyncEnabled:
 removeRecordsExpiredBeforeDate:handler:
+removeUnreferencedPlacesWithHandler:
 removeUnreferencedMapItems:
-removePlacesWithoutVisitsWithHandler:
 initWithAlgorithmMetricCalculator:contactsManager:distanceCalculator:learnedLocationStore:mapServiceManager:mapsSupportManager:platform:queue:
 classifyWithError:
 consolidateVisitsToLoisWithKnownPlaceTypesWithError:
@@ -8717,6 +8743,7 @@ _deviceClass
 _deviceModel
 _creationDate
 fetchRequestWithEntityName:
+initWithMapServiceManager:timerManager:
 _fetchFavoritePlacesWithHandler:
 _fetchPinnedPlacesWithHandler:
 _fetchHistoryEntryPlaceDisplaysWithHandler:
@@ -8725,6 +8752,8 @@ fetchFavoritePlacesWithHandler:
 fetchPinnedPlacesWithHandler:
 fetchHistoryEntryPlaceDisplaysWithHandler:
 fetchHistoryEntryRoutesWithHandler:
+timerManager
+setTimerManager:
 currentDeviceObjectID
 setCurrentDeviceObjectID:
 currentDeviceIdentifier
@@ -9202,8 +9231,6 @@ fetchVisitMonitorStatusWithHandler:
 fetchVisitMonitorState:
 setHintManager:
 setLocationAwarenessManager:
-timerManager
-setTimerManager:
 pipelines
 setPipelines:
 _feedBuffer
@@ -9853,7 +9880,8 @@ _processDeletionRequestWithFetchRequest:context:error:
 _removeUnreferencedMapItems:
 _removePlace:handler:
 _removePlacesWithHandler:
-_removePlacesWithoutVisitsWithHandler:
+deletePlacesWithinIdentifierSetWithZeroVisits:context:tombstoneContext:error:
+_removeUnreferencedPlacesWithHandler:
 _removeVisits:handler:
 _removeVisitsWithHandler:
 _removeTransitionsWithHandler:
@@ -9863,7 +9891,6 @@ fetchVisitIdentifiersUsingFetchRequest:context:error:
 identifiersForPlacesThatOwnVisitIdentifiers:context:error:
 deleteTransitionsReferencingVisitIdentifiers:context:tombstoneContext:error:
 deleteVisitsUsingCloudFetchRequest:localFetchRequest:context:tombstoneContext:error:
-deletePlacesWithinIdentifierSetWithZeroVisits:tombstoneContext:error:
 _removeOverlappingVisitsAndTransitionsForVisits:handler:
 removeOverlappingVisitsAndTransitionsForVisits:handler:
 identifiersForPlacesThatDedupeToPlace:context:error:
@@ -10329,6 +10356,15 @@ eastLng
 northLat
 westLng
 southLat
+initWithType:dispatcher:
+_createQueries
+_createFavoritesQuery:
+_createHistoryPlaceDisplaysQuery:
+_createHistoryRoutesQuery:
+_createPinnedPlacesQuery:
+_startQueryTimer
+initWithContainer:delegate:filteredWithBlock:
+loaded
 storageIdentifier
 mutableCopyWithZone:
 mutableObjectClass
@@ -10338,7 +10374,8 @@ ifPlace:ifRoute:ifRegion:ifTransitLine:
 geoMapItem
 coordinateOfDroppedPin
 floorOrdinalOfDroppedPin
-initWithContainer:delegate:filteredWithBlock:
+createQueryWithContainer:delegate:filteredWithBlock:
+setQuery:
 ifSearch:ifRoute:ifPlaceDisplay:ifTransitLineItem:
 isUserVisibleDuplicateOfEntry:
 isFailed
@@ -10353,24 +10390,22 @@ latLng
 hasMapItemStorage
 mapItemStorage
 hasType
+queryTimer
+setQueryTimer:
+query
 contents
 initWithType:mapItem:
 mapItemWithIdentifier:geoMapItemStorage:source:creationDate:error:
 initWithIdentifier:usageDate:originLocation:originMapItem:destinationLocation:destinationMapItem:navigationWasInterrupted:
+_handleQueryTimerExpiry
+_queryContentsDidLoad:contentsVersion:
+setLoaded:
+_invalidateQueryTimer
 queryContentsDidChange:contentsVersion:
 queryContentsDidLoad:contentsVersion:
-_favoritesDispatcher
-_historyPlaceDisplaysDispatcher
-_historyRoutesDispatcher
-_pinnedPlacesDispatcher
-_favoritesQuery
-_historyPlaceDisplaysQuery
-_historyRoutesQuery
-_pinnedPlacesQuery
-_favoritesContainerLoaded
-_historyPlaceDisplaysContainerLoaded
-_historyRoutesContainerLoaded
-_pinnedPlacesContainerLoaded
+queryMap
+_queryTimer
+_queryMap
 initWithActivity:
 initWithVehicleConnectedState:deviceId:
 _vehicleConnectedState
@@ -10634,6 +10669,9 @@ expressionForKeyPath:
 fetchOverlappingUnconcreteLocationOfInterestMOsForLOIMO:distanceCalculator:unusableIdentifiers:error:
 locationFromAggregateVisits:
 combineOverlappingRevGeoLOIsStabilized:error:
+dedupableLOIsNearLocation:mapItem:error:
+connectedComponentForLoiMO:encounteredIdentifiers:error:
+loiToMoveToFromConnectedComponent:
 moveVisitMOs:toLOIMO:error:
 numberWithUnsignedLong:
 setVisitIdentifierDestination:
@@ -11026,6 +11064,9 @@ _mirroringDelegateIntialized
 _migrator
 _userInfo
 _mirroringDelegateOptions
+queryTypeToString:
+_loaded
+_query
 unknown
 stationary
 walking
@@ -12750,7 +12791,6 @@ B24@0:8@"<MSPHistoryEntry>"16
 @"GEOURLRouteHandle"16@0:8
 v32@0:8@16Q24
 v32@0:8@"NewMSPQuery"16Q24
-@"NewMSPQuery"
 @"RTMotionActivity"
 @32@0:8Q16@24
 @40@0:8Q16Q24d32
@@ -12824,6 +12864,7 @@ B44@0:8@16B24B28B32^@36
 @"RTPersistenceMigrator"
 @"NSCloudKitMirroringDelegate"
 @"NSCloudKitMirroringDelegateOptions"
+@"NewMSPQuery"
 @"CMMotionActivity"
 @40@0:8d16d24Q32
 @"RTStateTransitionOnePredEl"

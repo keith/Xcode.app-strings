@@ -30,8 +30,9 @@ userIdentityCache:didInvalidateUserIdentity:
 initWithUserIdentityCache:codeSigningMapping:
 _cacheKeyForUserIdentity:containerClass:
 _lock_forEachContainerInContainerCache:performBlock:
-_lock_getCacheForUserIdentity:contentClass:transient:populateSandboxCache:error:
+_lock_getCacheForUserIdentity:contentClass:transient:populateSandboxCache:buildCache:error:
 _lock_getCacheForUserIdentity:contentClass:transient:error:
+containerForContainerIdentity:transient:updateSandbox:allowKernelLookup:error:
 containerForContainerIdentity:transient:updateSandbox:error:
 containerForContainerIdentity:
 allContainersForUserIdentity:contentClass:transient:populateSandboxCache:error:
@@ -77,6 +78,7 @@ isEqual:
 uuid
 readAndValidateMetadataAtUrl:forUserIdentity:checkClassPath:error:
 containerDirectoryURLForUserIdentity:contentClass:transient:
+waitOnLock:
 stringWithFormat:
 isUserIdentityRequiredForContainerClass:
 addObserver:
@@ -187,7 +189,6 @@ _stateQueue
 acquireLock:
 releaseLock:
 releaseAllLocks
-waitOnLock:
 setEnabled:
 _stateQueue_updateCountForLock:byCount:
 _stateQueue_acquireLock:
@@ -527,16 +528,18 @@ initWithBytes:length:encoding:
 stringWithFileSystemRepresentation:
 containsDotDotPathComponents
 _sandboxed
+_kernel
 _posixPID
 _bundleIdentifier
 _entitlements
 _auditToken
-initWithBundleIdentifier:UID:GID:PID:userIdentity:entitlements:sandboxed:auditToken:
+initWithBundleIdentifier:UID:GID:PID:userIdentity:entitlements:sandboxed:auditToken:kernel:
 boolValueOfEntitlement:
 posixPID
 entitlements
+isKernel
 anonymousPrivilegedClientIdentity
-privilegedClientIdentityWithUserIdentity:
+privilegedClientIdentityWithUserIdentity:kernel:
 _bundleIdentifierFromAuditToken:error:
 _migrationInfo
 _migrationFileURL
@@ -590,6 +593,7 @@ _createTopLevelContainerDirectory:containerClass:owner:error:
 initFileURLWithPath:isDirectory:
 arrayByAddingObjectsFromArray:
 _recoverFromReplaceOperationsWithError:
+privilegedClientConnectionWithUserIdentity:kernel:
 URLByAppendingPathComponent:
 _readAndValidateReplaceFileAtUrl:error:
 _userBaseDirectory
@@ -691,11 +695,11 @@ Cache: %@%@: INCONSISTENT-No Metadata at: %@ for id: %@, class: %llu
 Cache: %@%@: nil URL from %@
 .com.apple.mobile_container_manager.metadata.plist
 -[MCMContainerCache allContainersForUserIdentity:contentClass:transient:populateSandboxCache:error:]_block_invoke
--[MCMContainerCache containerForContainerIdentity:transient:updateSandbox:error:]
+-[MCMContainerCache containerForContainerIdentity:transient:updateSandbox:allowKernelLookup:error:]
 Cache: %@%@: Found Identifier: %@
 Cache: %@%@: Invalid URL path string: %@
 Cache: %@%@: Container Not Found with ID: %@
--[MCMContainerCache _lock_getCacheForUserIdentity:contentClass:transient:populateSandboxCache:error:]
+-[MCMContainerCache _lock_getCacheForUserIdentity:contentClass:transient:populateSandboxCache:buildCache:error:]
 Failed to set container mapping during create/lookup operation of %@, %llu
 [%@]-%@
 MCMErrorDomain
@@ -798,8 +802,8 @@ v16@?0@"NSObject<OS_xpc_object>"8
 unable to start xpc service!
 Failed to set up rotating logs at path %s
 containermanagerd_init
-Sep 21 2019
-17:41:20
+Oct  3 2019
+18:34:41
 com.apple.containermanagerd.deathrow
 com.apple.containermanagerd.lockstate
 Can't create dispatch queues.
@@ -813,7 +817,7 @@ Unknown parameter type!
 writing
 reading
 take_one_lock
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/MobileContainerManager_Sim/MobileContainerManager-234.0.2/Daemon/MCMLocks.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/MobileContainerManager_Sim/MobileContainerManager-234.40.3/Daemon/MCMLocks.m
 atomic_compare_exchange_strong(&lockPtr->lockState, &expected, -1)
 atomic_fetch_add(&lockPtr->lockState, 1) >= 0
 Got lock on identifier %@
@@ -1297,7 +1301,7 @@ Dictionary does not have reply context
 termAssertion
 T@"FBSApplicationTerminationAssertion",&,N,V_termAssertion
 -[MCMApplicationTerminationAssertion dealloc]
-/BuildRoot/Library/Caches/com.apple.xbs/Sources/MobileContainerManager_Sim/MobileContainerManager-234.0.2/Daemon/MCMApplicationTerminationAssertion.m
+/BuildRoot/Library/Caches/com.apple.xbs/Sources/MobileContainerManager_Sim/MobileContainerManager-234.40.3/Daemon/MCMApplicationTerminationAssertion.m
 nil == self.termAssertion
 -[MCMApplicationTerminationAssertion initWithBundleIdentifier:reason:]
 _FBSApplicationTerminationReasonStringForReason
@@ -1363,6 +1367,8 @@ TB,R,N,GisSandboxed,V_sandboxed
 auditToken
 T{?=[8I]},R,N,V_auditToken
 T@"MCMUserIdentity",R,N,V_userIdentity
+kernel
+TB,R,N,GisKernel,V_kernel
 <%@: %p; bundleIdentifier = %@, userIdentity = %@, posixUID = %u, posixGID = %u, posixPID = %u, isSandboxed = %d, entitlements = %@>
 -[MCMClientIdentity init]
 You cannot init this class directly.
@@ -1607,6 +1613,7 @@ T@?,C,N,V_onError
 -[MCMCommandStageForDelete fromQueue:executeWithError:]
 Failed to delete container at %@: %@
 Couldn't stage for deletion from %@ to %@: %@
+Could not construct container identity from %@ to check for permanent copy: %llu
 <%@: %p; userIdentity = %@, identifier = %@, class = %llu>
 -[MCMContainerIdentity initWithUserIdentity:identifier:containerClass:error:]
 Invalid object: container class = %llu
@@ -1779,8 +1786,9 @@ v32@0:8@16@24
 @32@0:8@16@24
 @32@0:8@16Q24
 v32@0:8^{NSMutableDictionary=#}16@?24
-^{NSMutableDictionary=#}48@0:8@16Q24B32B36^@40
+^{NSMutableDictionary=#}52@0:8@16Q24B32B36B40^@44
 ^{NSMutableDictionary=#}44@0:8@16Q24B32^@36
+@44@0:8@16B24B28B32^@36
 @40@0:8@16B24B28^@32
 @24@0:8@16
 @48@0:8@16Q24B32B36^@40
@@ -1830,9 +1838,9 @@ I16@0:8
 i16@0:8
 B24@0:8Q16
 @32@0:8I16^{NSString=#}20i28
-[6q]
-[6@"NSObject<OS_dispatch_queue>"]
-[6@"NSObject<OS_dispatch_semaphore>"]
+[7q]
+[7@"NSObject<OS_dispatch_queue>"]
+[7@"NSObject<OS_dispatch_semaphore>"]
 @"NSObject<OS_dispatch_queue>"
 v24@0:8Q16
 v20@0:8B16
@@ -1891,7 +1899,7 @@ v56@0:8@16Q24@32@40@48
 @32@0:8r*16Q24
 @24@0:8r*16
 {?="val"[8I]}
-@88@0:8@16I24I28i32@36@44B52{?=[8I]}56
+@92@0:8@16I24I28i32@36@44B52{?=[8I]}56B88
 {?=[8I]}16@0:8
 @56@0:8{?=[8I]}16^@48
 @"MCMClientIdentity"
@@ -2003,5 +2011,6 @@ CreatingContainer
 Ignoring deleted container path during cleanup: [%@]
 Creating subdirectories for [%llu:%@] at [%@]
 Home directory cannot be nil: %@
+Skipping removal of code sign mapping since container to be deleted [%@] is transient and there's a permanent one; error = %@
 Attempt to create a container identity without a user identity when one is required; identifier = [%@], class = %llu
 zPLR
