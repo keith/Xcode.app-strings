@@ -32,6 +32,7 @@ v8@?0
 v20@?0I8@"NSError"12
 -[SecureBackup beginHSA2PasscodeRequest:uuid:error:]
 v24@?0@"SecureBackupBeginPasscodeRequestResults"8@"NSError"16
+v32@?0@"NSDictionary"8@"NSData"16@"NSError"24
 supportsSecureCoding
 TB,R
 T@"SESWrapper",&,N,V_ses
@@ -137,6 +138,7 @@ errorCode
 Tq,R,N
 T@"NSString",R,N
 clubCert
+<%@: %p>{serial = %@, digest = %@, dsid = %@}
 clubID
 Tq,R,N,V_clubID
 T@"NSData",R,N
@@ -294,6 +296,8 @@ T@"NSString",C,N,V_bypassToken
 Missing required parameters
 /escrowproxy/api/get_club_cert
 GETCLUB
+requestDictionary
+T@"NSDictionary",R,C,N
 ENROLL
 countryISOCode
 blobDigest
@@ -484,6 +488,7 @@ unable to set state (to 0) for token
 Cannot prepare HSA2 Escrow record for a stingray request
 Cannot prepare HSA2 Escrow record for a usesRandomPassphrase request
 No outstanding escrow request
+-[SecureBackupDaemon getCertificatesWithRequest:reply:]
 cacheDirURL
 T@"NSURL",&,N,V_cacheDirURL
 cachedKeychainURL
@@ -852,6 +857,7 @@ stateCaptureWithReply:
 prepareHSA2EscrowRecordContents:usesComplexPassphrase:reply:
 beginHSA2PasscodeRequest:desirePasscodeImmediately:uuid:reply:
 recoverRecordContentsWithRequest:reply:
+getCertificatesWithRequest:reply:
 interfaceWithProtocol:
 initWithMachServiceName:options:
 setRemoteObjectInterface:
@@ -984,6 +990,7 @@ srpInitBlob
 srpRecoveryUpdateDSID:recoveryPassphrase:
 srpRecoveryBlobFromData:error:
 UTF8String
+asyncRequestEscrowRecordUpdate
 domain
 isEqualToString:
 beginHSA2PasscodeRequest:uuid:error:
@@ -1024,6 +1031,7 @@ srpInitNonce
 srpRecoveryBlobFromSRPInitResponse:
 prepareHSA2EscrowRecordContents:reply:
 beginHSA2PasscodeRequest:error:
+getCertificates:
 certData
 setCertData:
 encodedMetadata
@@ -1261,6 +1269,9 @@ _baseRootCertVersions
 _trustedRootCertVersions
 _bypassToken
 stringByAppendingString:
+requestDictionary
+addEntriesFromDictionary:
+initWithCapacity:
 responseClass
 aa_primaryAppleAccount
 aa_isPrimaryEmailVerified
@@ -1403,7 +1414,6 @@ setAltDSID:
 setContext:
 findOptimalBottleIDsWithContextData:error:
 tagStaleBottleRecords:suggestedBottles:
-initWithCapacity:
 array
 setObject:atIndexedSubscript:
 indexOfObject:
@@ -1783,6 +1793,7 @@ v24@0:8@?<v@?@"NSDictionary"@"NSError">16
 v32@0:8@"NSDictionary"16@?<v@?@"NSError">24
 v36@0:8@"SecureBackup"16B24@?<v@?@"NSError">28
 v44@0:8@"SecureBackup"16B24@"NSString"28@?<v@?@"SecureBackupBeginPasscodeRequestResults"@"NSError">36
+v32@0:8@"SecureBackup"16@?<v@?@"NSDictionary"@"NSData"@"NSError">24
 v24@0:8@?<v@?I@"NSError">16
 I24@0:8^@16
 v24@0:8@"NSCoder"16
@@ -1927,8 +1938,10 @@ updateMetadataWithRequest came back with %@
 enableWithRequest came back with %@
 calling prepareHSA2EscrowRecordContents in daemon
 prepareHSA2EscrowRecordContents came back with %@
+initial state fetch completed with: %d %@
 unable to fetch passcode_request token
 unable to fetch state of passcode_request token (%d)
+do initial state fetch in the background
 No need for passcode
 daemon unable to determine passcode status due to keybag lock; relying on dispatch state
 unable to ask daemon for confirmation of passcode request: %@
@@ -1941,6 +1954,7 @@ calling daemonPasscodeRequestOpinion in daemon
 daemonPasscodeRequestOpinion came back with %@
 calling beginHSA2PasscodeRequest in daemon
 beginHSA2PasscodeRequest came back with %@
+calling getCertificatesWithRequest in daemon
 got response from host %@ path %@ uuid %@
 Error returned from iCloud: %@
 HTTP Error: %@
@@ -2122,7 +2136,6 @@ calling synchronizeWithCompletionHandler
 got error back from synchronizeWithCompletionHandler: %@
 calling handler on connection queue
 Unknown passphrase type: %d
-In %s
 stashRecoveryDataWithRequest called without EMCS mode set?
 enableWithRequest request.recoveryKey: %@
 setNewRecoveryKeyWithData() succeeded!
@@ -2173,11 +2186,18 @@ Time of escrow: %@
 Escrow version: %@
 Keybag digest: %@
 backup data version does not match version in escrow
+Attempting recovery of record %@ with metadata: %@
 escrowService recoverRecordWithRequest: returned: %@
 silent attempt succeeded for record ID %@
+recovery attempt succeeded for record ID %@
+=== Escrow record ===
+Time of escrow: %@
+Escrow version: %@
+Keybag digest: %@
+Metadata: %@
 backup keybag digest does not match version in escrow: %@
-adding bottleID and bottle validity to results; bottleID:%@ entropy present: %d (%llu bytes)
-skipping setting bottle; bottleID:%@ entropy present: %d (%llu bytes)
+adding bottleID:%@ and validity:%@ to results; entropy present: %d (%llu bytes)
+skipping setting bottle; bottleID:%@ validity:%@ entropy present: %d (%llu bytes)
 Performing IDMS Recovery
 escrowService iDMS recoverRecordWithRequest: returned: %@
 === Escrow record ===
@@ -2266,6 +2286,7 @@ daemonPasscodeRequestOpinion: no outstanding request
 daemonPasscodeRequestOpinion: found outstanding request %@
 daemonPasscodeRequestOpinion: notify unable to fetch the state: %d
 daemonPasscodeRequestOpinion: notify lost our state. Setting back on...
+In %s
 retry-after date has not passed, throttling calls to escrow proxy until %@
 clearing retry-after date
 redirect: current URL = %@, original URL = %@, new URL = %@, response headers = %@
@@ -2384,12 +2405,13 @@ candidate can recover same number of views but is not newer
 checking escrow record: %@ from %@
 metadata containing bottle: %@
 found clean record with passlen: %lu
+found %@ candidate
 keeping current candidate
 escrow passphrase length (%lu) longer than silent attempt passphrase (%lu), skipping
-found %@ candidate
 escrow record not same platform, skipping
 candidate not eligible: remaining attempts = %d, silent attempt %@allowed
 found silent attempt record with id %@ (metadata present %@)
+Our idea of the best silent metadata is: %@
 No code for POSIX error: %s (%d)
 invalid request: %@
 srp recovery blob too large: %lu bytes
@@ -2425,8 +2447,7 @@ clubh_recover_req_pkt_t too small: %lu
 clubh_recover_req_pkt_check_hdr failed=%d
 clubh_recover_req_pkt_t sect %d is malformed
 333333
-@@(#)PROGRAM:com.apple.sbd  PROJECT:CloudServices-384.40.7
-fffff
+@@(#)PROGRAM:com.apple.sbd  PROJECT:CloudServices-384.60.6
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
