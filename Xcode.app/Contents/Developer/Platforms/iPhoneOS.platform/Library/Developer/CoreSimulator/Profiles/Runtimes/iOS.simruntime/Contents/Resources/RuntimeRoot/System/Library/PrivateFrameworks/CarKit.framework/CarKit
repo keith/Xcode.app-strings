@@ -47,12 +47,17 @@ app %@ has entitlement but doesn't support intent %@
 Failed to lookup app %@
 app %@ has entitlement but doesn't support intents %@
 car intents applications: %@
+Falling back to cached vehicleAccessoryInfoKeys while accessory is not available
 Vehicle did not have display name, falling back to "%@"
 beginOOBBTPairingWithCompletionBlock %i %@
 requesting WiFi credentials
 sending device transport identifiers BT: %@ USB: %@
 Accessory %@ does not support CarPlay
 Accessory %@ does not have a certificate serial number
+Accessory %@ added to vehiclesBySerialNumber
+No available serial for Vehicle Info data request for %@
+Fetched Vehicle Info data from cache for %@
+Fetching Vehicle Info data from accessory for %@
 Checking vehicle storage for CarPlay tips.
 CarPlay Tips vehicle storage indicates %@
 analytics set %{public}@ to %lli
@@ -548,9 +553,6 @@ engineTypeElectric
 engineTypeDiesel
 engineTypeCNG
 destinationSharing
-CARAnalyticsDescription
-T@"NSDictionary",R,N
-CARVehicleAccessoryInfoKeys
 %@ (protocols: %@, bluetoothAddress: %@)
 Name: %@
 Accessory Name: %@
@@ -575,12 +577,18 @@ supportsWiredBluetoothPairing
 TB,N,V_supportsWiredBluetoothPairing
 accessory
 T@"EAAccessory",W,N,V_accessory
+vehicleInfoDataCache
+T@"NSDictionary",C,N,V_vehicleInfoDataCache
+vehicleAccessoryInfoKeysCache
+T@"NSDictionary",C,N,V_vehicleAccessoryInfoKeysCache
 com.apple.carkit.vehicleAccessoryManager
 00:00:00:00:00:00
 accessoryManager
 T@"EAAccessoryManager",&,N,V_accessoryManager
 vehiclesBySerialNumber
 T@"NSMutableDictionary",&,N,V_vehiclesBySerialNumber
+observers
+T@"CARObserverHashTable",&,N,V_observers
 vehicleAccessoryDelegate
 T@"<CRVehicleAccessoryManagerDelegate>",W,N,V_vehicleAccessoryDelegate
 com.apple.CarPlay.VehicleCount
@@ -694,8 +702,6 @@ authenticated
 TB,R,N,GisAuthenticated,V_authenticated
 inputDeviceManager
 T@"CARInputDeviceManager",&,N,V_inputDeviceManager
-observers
-T@"CARObserverHashTable",&,N,V_observers
 configuration
 T@"CARSessionConfiguration",R,N,V_configuration
 TB,R,N,V_isPaired
@@ -803,8 +809,8 @@ CRVehiclePolicyMonitor
 CRCarPlayAppDeclaration
 CRCarPlayAppPolicy
 CRCarPlayAppPolicyEvaluator
-CARDescribing
 CRVehicleAccessory
+CRVehicleAccessoryManagerDelegate
 CRVehicleAccessoryManager
 CRUsageInformation
 CRCarPlayCapabilities
@@ -1499,23 +1505,24 @@ setGeoSupported:
 _geoSupported
 _blacklist
 postNotificationName:object:userInfo:
-getVehicleInfoData
-vehicleInfoInitialData
+accessory
 manufacturer
 modelNumber
-serialNumber
-ppid
 firmwareRevision
 hardwareRevision
+serialNumber
+supportsWirelessCarPlay
+accessoryCapabilities
+vehicleAccessoryInfoKeys
+dictionaryWithDictionary:
+vehicleInfoDataCache
+vehicleAccessoryInfoKeysCache
+vehicleInfoInitialData
+ppid
 destinationSharingOptions
 unsignedIntegerValue
 numberWithUnsignedInt:
-CARVehicleAccessoryInfoKeys
-dictionaryWithDictionary:
-CARAnalyticsDescription
-accessory
-supportsWirelessCarPlay
-accessoryCapabilities
+setVehicleAccessoryInfoKeysCache:
 newlineCharacterSet
 componentsSeparatedByCharactersInSet:
 whitespaceAndNewlineCharacterSet
@@ -1526,7 +1533,6 @@ sendDeviceIdentifierNotification:usbIdentifier:
 isBluetoothConnected
 radarDescription
 analyticsDescription
-vehicleAccessoryInfoKeys
 _updateName
 beginWiredBluetoothPairing:
 requestWiFiCredentials
@@ -1539,14 +1545,21 @@ setSupportsWiredBluetoothPairing:
 connectionID
 setConnectionID:
 setAccessory:
+setVehicleInfoDataCache:
 _supportsUSBCarPlay
 _supportsWirelessCarPlay
 _supportsWiredBluetoothPairing
 _connectionID
 _accessory
+_vehicleInfoDataCache
+_vehicleAccessoryInfoKeysCache
 macAddress
 _isValidAccessoryMacAddress:
 supportsCarPlay
+accessoryManager:didConnectVehicleAccessory:
+accessoryManager:didUpdateVehicleAccessory:
+accessoryManager:didDisconnectVehicleAccessory:
+initWithProtocol:
 setVehiclesBySerialNumber:
 sharedAccessoryManager
 setAccessoryManager:
@@ -1557,6 +1570,7 @@ handleAccessoryDisconnect:
 handleAccessoryInformationUpdate:
 _primeConnectedVehicleAccessories
 unregisterForLocalNotifications
+observers
 connectedAccessories
 _vehicleForAccessory:
 _isVehicleAccessory:
@@ -1564,21 +1578,23 @@ _certificateSerialNumberForAccessory:
 vehicleAccessQueue
 vehiclesBySerialNumber
 _updateVehicle:usingAccessory:
+_vehicleInfoDataForAccessory:
 protocolStrings
 supportsOOBBTPairing
 supportsOOBBTPairing2
 supportsCarPlayAppLinks
+managerInfoDataCache
+getVehicleInfoData
 userInfo
-vehicleAccessoryDelegate
-accessoryManager:didConnectVehicleAccessory:
 allValues
-accessoryManager:didDisconnectVehicleAccessory:
-accessoryManager:didUpdateVehicleAccessory:
-vehicleAccessoryForiAPConnectionIdentifier:
 setVehicleAccessoryDelegate:
+vehicleAccessoryForiAPConnectionIdentifier:
+vehicleAccessoryDelegate
+setObservers:
 _vehicleAccessoryDelegate
 _accessoryManager
 _vehiclesBySerialNumber
+_observers
 shouldSuggestCarPlayTips
 numberWithLongLong:
 valueWithEdgeInsets:
@@ -1627,12 +1643,10 @@ selector
 invokeWithTarget:
 retainArguments
 callbackQueue
-initWithProtocol:
 hasObservers
 methodSignatureForSelector:
 forwardInvocation:
 _protocol
-_observers
 _observersLock
 _callbackQueue
 session:openURL:
@@ -1646,7 +1660,6 @@ _fetchAuthenticationStatus
 isAuthenticated
 _updateConfiguration
 firstObject
-observers
 data
 requestCarUIForURL:
 null
@@ -1676,7 +1689,6 @@ sendCommand:withParameters:
 APEndPointInfo
 sourceVersion
 setInputDeviceManager:
-setObservers:
 _endpoint
 _isPaired
 _authenticated
@@ -1872,9 +1884,11 @@ Q32@0:8@16@24
 @"CRCarPlayAppBlacklist"
 @"NSNumber"
 @"EAAccessory"
+v32@0:8@"CRVehicleAccessoryManager"16@"CRVehicleAccessory"24
 @"<CRVehicleAccessoryManagerDelegate>"
 @"EAAccessoryManager"
 @"NSMutableDictionary"
+@"CARObserverHashTable"
 @"NSValue"
 @"Protocol"
 @"NSHashTable"
@@ -1898,7 +1912,6 @@ v32@0:8Q16@24
 ^{OpaqueFigEndpoint=}
 @"CARSessionConfiguration"
 @"CARInputDeviceManager"
-@"CARObserverHashTable"
 @"<CARSessionObserving>"
 @"CARSession"
 @"CARSessionChangedNotificationConverter"
