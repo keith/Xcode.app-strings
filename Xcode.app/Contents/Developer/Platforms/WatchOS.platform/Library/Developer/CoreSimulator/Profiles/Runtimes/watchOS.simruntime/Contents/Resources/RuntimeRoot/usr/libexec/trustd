@@ -1,7 +1,7 @@
 <9:2
 333333
-@(#)PROGRAM:trustd  PROJECT:Security-59306.60.56
-3333S
+@(#)PROGRAM:trustd  PROJECT:Security-59306.100.65.0.1
+3333C
 Pc4:
 |O\uo0
 m}se
@@ -384,16 +384,18 @@ Error
 ExceptionResetCount
 SecPlistFileExistsInKeychainDirectory
 com.apple.security.exception_reset_counter.plist
-CREATE TABLE ocsp(issuerNameHash BLOB NOT NULL,issuerPubKeyHash BLOB NOT NULL,serialNum BLOB NOT NULL,hashAlgorithm BLOB NOT NULL,responseId INTEGER NOT NULL);CREATE INDEX iResponseId ON ocsp(responseId);CREATE INDEX iserialNum ON ocsp(serialNum);CREATE INDEX iSNumDAlg ON ocsp(serialNum,hashAlgorithm);CREATE TABLE responses(responseId INTEGER PRIMARY KEY,ocspResponse BLOB NOT NULL,responderURI BLOB,expires DOUBLE NOT NULL,lastUsed DOUBLE NOT NULL);CREATE INDEX iexpires ON responses(expires);CREATE TRIGGER tocspdel BEFORE DELETE ON responses FOR EACH ROW BEGIN DELETE FROM ocsp WHERE responseId=OLD.responseId; END;
-SELECT DISTINCT hashAlgorithm FROM ocsp WHERE serialNum=?
 ocspcache.sqlite3
+ALTER TABLE ocsp ADD COLUMN certStatus INTEGER NOT NULL DEFAULT 255
+SELECT issuerNameHash FROM ocsp WHERE certStatus=0 LIMIT 1
+CREATE TABLE ocsp(issuerNameHash BLOB NOT NULL,issuerPubKeyHash BLOB NOT NULL,serialNum BLOB NOT NULL,hashAlgorithm BLOB NOT NULL,responseId INTEGER NOT NULL,certStatus INTEGER NOT NULL DEFAULT 255);CREATE INDEX iResponseId ON ocsp(responseId);CREATE INDEX iserialNum ON ocsp(serialNum);CREATE INDEX iSNumDAlg ON ocsp(serialNum,hashAlgorithm);CREATE TABLE responses(responseId INTEGER PRIMARY KEY,ocspResponse BLOB NOT NULL,responderURI BLOB,expires DOUBLE NOT NULL,lastUsed DOUBLE NOT NULL);CREATE INDEX iexpires ON responses(expires);CREATE TRIGGER tocspdel BEFORE DELETE ON responses FOR EACH ROW BEGIN DELETE FROM ocsp WHERE responseId=OLD.responseId; END;
+SELECT DISTINCT hashAlgorithm FROM ocsp WHERE serialNum=?
 v16@?0^{__SecOCSPCache=^{__OpaqueSecDb}}8
-DELETE FROM responses WHERE expires<?
-INSERT INTO ocsp (hashAlgorithm,issuerNameHash,issuerPubKeyHash,serialNum,responseId) VALUES (?,?,?,?,?)
+DELETE FROM responses WHERE expires<? AND responseId NOT IN (SELECT responseId FROM ocsp WHERE certStatus=1)
+INSERT INTO ocsp (hashAlgorithm,issuerNameHash,issuerPubKeyHash,serialNum,responseId,certStatus) VALUES (?,?,?,?,?,?)
 INSERT INTO responses (ocspResponse,responderURI,expires,lastUsed) VALUES (?,?,?,?)
 DELETE FROM responses WHERE responseId=?
 SELECT ocspResponse,responseId FROM responses WHERE lastUsed>? AND responseId=(SELECT responseId FROM ocsp WHERE issuerNameHash=? AND issuerPubKeyHash=? AND serialNum=? AND hashAlgorithm=?) ORDER BY expires DESC
-DELETE FROM responses
+DELETE FROM ocsp WHERE certStatus!=1; DELETE FROM responses WHERE responseId NOT IN (SELECT responseId FROM ocsp WHERE certStatus=1)
 hash
 TQ,R
 superclass
@@ -515,6 +517,7 @@ path
 custom
 leaf
 force
+kSecTrustSettingsAllowedError
 IssuerNameConstraints
 IssuerPolicyConstraints
 Revocation
@@ -523,7 +526,6 @@ BlackListedKey
 BlackListedLeaf
 WeakSignature
 WeakKeySize
-kSecTrustSettingsAllowedError
 1.3.6.1.5.5.7.3.1
 TestSystemRoot
 IgnoreMaximumValidityPeriod
@@ -712,14 +714,12 @@ OTAPKIGetNewAsset
 OTASecExperimentGetNewAsset
 OTASecExperimentGetAsset
 AcceptApplicants
-ApplyToARing
 BailFromCircle
 CanAuthenticate
 CopyApplicantPeerInfo
 CopyConcurringPeerPeerInfo
 CopyEngineState
 CopyGenerationPeerInfo
-CopyIncompatibilityInfo
 CopyMyPeerInfo
 CopyNotValidPeerPeerInfo
 CopyPeerPeerInfo
@@ -727,8 +727,6 @@ CopyRetirementPeerInfo
 CopyValidPeerPeerInfo
 CopyViewUnawarePeerInfo
 DeviceInCircle
-EnableRing
-GetAllTheRings
 GetLastDepartureReason
 LoggedOutOfAccount
 ProcessSyncWithAllPeers
@@ -740,7 +738,6 @@ RemoveThisDeviceFromCircle
 RemoveThisDeviceFromCircleWithAnalytics
 RemovePeersFromCircle
 RemovePeersFromCircleWithAnalytics
-RequestEnsureFreshParameters
 RequestToJoin
 RequestToJoinWithAnalytics
 RequestToJoinAfterRestore
@@ -748,7 +745,6 @@ RequestToJoinAfterRestoreWithAnalytics
 ResetToEmpty
 ResetToEmptyWithAnalytics
 ResetToOffering
-RingStatus
 RollKeys
 SetBagForAllSlices
 SetLastDepartureReason
@@ -759,7 +755,6 @@ SetUserCredentialsAndDSIDWithAnalytics
 TryUserCredentials
 ValidateUserPublic
 View
-WithdrawlFromARing
 add_shared_web_credential
 copy_shared_web_credential
 delete_all
@@ -788,21 +783,13 @@ trust_store_copy_all
 trust_store_copy_usage_constraints
 ocsp_cache_flush
 EnsurePeerRegistration
-SetEscrowRecord
-GetEscrowRecord
 WhoAmI
 TransmogrifyToSyncBubble
-WrapToBackupSliceKeyBagForView
-CopyAccountDataFromKeychain
-DeleteAccountDataFromKeychain
-CopyEngineDataFromKeychain
-DeleteEngineDataFromKeychain
 UpdateTokenItems
 sec_delete_items_with_access_groups_id
 kSecXPCOpPeersHaveViewsEnabled
 RegisterRecoveryPublicKey
 GetRecoveryPublicKey
-CopyBackupInformation
 MessageFromPeerIsPending
 SendToPeerIsPending
 copy_parent_certificates
@@ -957,6 +944,7 @@ Current exceptions epoch value is too large. (%llu) Won't increment.
 Failed to allocate memory for the exceptions epoch structure.
 Failed to write to permanent storage at '%{public}@'.
 '%{public}@' has been committed to permanent storage at '%{public}@'.
+OCSP table update failed: %@
 _SecOCSPCacheAddResponse failed: %@
 ocsp cache lookup failed: %@
 Session %@ task %@ failed with error %@
@@ -1199,7 +1187,6 @@ URLWithString:relativeToURL:
 dictionaryWithContentsOfURL:error:
 dictionaryWithContentsOfURL:
 initWithFormat:arguments:
-init
 setObject:forKeyedSubscript:
 errorWithDomain:code:userInfo:
 numberWithUnsignedLongLong:
@@ -1308,7 +1295,6 @@ _currentUpdateFileURL
 reschedule
 updateDb:
 versionFromTask:
-.cxx_destruct
 handler
 setHandler:
 revDbUpdateQueue
@@ -1323,6 +1309,7 @@ currentUpdateFileURL
 setCurrentUpdateFileURL:
 finishedDownloading
 setFinishedDownloading:
+.cxx_destruct
 numberWithDouble:
 timeIntervalSince1970
 closeFile
@@ -1392,6 +1379,7 @@ updateDb:error:pinningList:updateSchema:updateContent:
 createAtPath
 pinningDbPath
 initializedDb
+init
 dealloc
 isPinningDisabled:
 queryForDomain:

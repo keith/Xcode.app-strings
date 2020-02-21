@@ -1802,16 +1802,19 @@ def ValidatePayloadBundle (bundle, ipa, level = 0)
     if platform
       for machoFile in bundle.machoFiles
         if machoFile.machoImages.any?{|mi| mi.hasBitcode }
-          out_str, status = Open3.capture2e('bitcode-build-tool',
-                                            "-t", (OPTIONS.toolchainDir + "bin").to_s,
-                                            "--sdk", platform.sdkPath.to_s,
-                                            '--verify', machoFile.path.to_s,
-                                           )
-          if !status.success?
-            if status.exitstatus == 1
-              EmitIPAPayloadValidationError("Failed to verify bitcode in #{machoFile.path.relative_path_from(machoFile.path.parent.parent)}:\n" + out_str)
+          begin
+            CmdSpec.new(locate_tool("python3"),
+                        [
+                          locate_tool("bitcode-build-tool"),
+                          "-t", (OPTIONS.toolchainDir + "bin").to_s,
+                          "--sdk", platform.sdkPath.to_s,
+                          '--verify', machoFile.path.to_s,
+                        ]).run(level)
+          rescue CmdSpec::NonZeroExitException => ex
+            if ex.status.exitstatus == 1
+              EmitIPAPayloadValidationError("Failed to verify bitcode in #{machoFile.path.relative_path_from(machoFile.path.parent.parent)}:\nStdout:\n#{ex.out_str}\nStderr:\n#{ex.err_str}")
             else
-              raise ("bitcode-build-tool failed with #{status}: " + out_str)
+              raise
             end
           end
         end
@@ -2170,7 +2173,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
           translating_watch = machoImage.arch == "armv7k" && arch == "arm64_32"
           # Invoke the bitcode-build-tool(1) tool to compile and link the bitcode in the thin Mach-O file.
           begin
-            cmdln  = []
+            cmdln  = [locate_tool("bitcode-build-tool")]
             cmdln += [ "-v" ]
             cmdln += [ "-t", options.toolchainDir + "bin" ]
             cmdln += ipa.linkageGraph[machoImage].map{|img| img.thinnedOutputPath(ipa, options, arch).parent }.uniq.map{|p| ["-L", p] }.flatten
@@ -2189,7 +2192,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
               cmdln += [ "--translate-watchos" ]
             end
             cmdln += [ machoImage.thinnedInputPath(ipa, options) ]
-            CmdSpec.new(locate_tool("bitcode-build-tool", [machoImage.platform.toolsPath]), cmdln).run(level)
+            CmdSpec.new(locate_tool("python3"), cmdln).run(level)
           end
           outputImages = GetMachOImagesFromOToolInfoForFile(machoImageOutputPath)
           assert(outputImages.count == 1, "Expected a single output after bitcode recompilation")

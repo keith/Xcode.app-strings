@@ -1,4 +1,5 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1738.63.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1738.100.36
+fffff(
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -22,7 +23,6 @@ markStarted:
 markStopped:
 totalElapsed
 random_initial_delay
-.cxx_destruct
 token
 setToken:
 seqno
@@ -117,6 +117,7 @@ group_name
 setGroup_name:
 group_concurrency_limit
 setGroup_concurrency_limit:
+.cxx_destruct
 _unmanaged
 _eligible
 _das_eligible
@@ -171,7 +172,6 @@ _desired_motion_state
 _das_data
 _group_name
 _group_concurrency_limit
-init
 UTF8String
 removeObject:
 initWithSuiteName:
@@ -199,6 +199,7 @@ setSecond:
 calendar
 date
 nextDateAfterDate:matchingComponents:options:
+init
 setCalendar:
 parseComponent:inEvent:
 setEveryMinuteIfNothingElseSet
