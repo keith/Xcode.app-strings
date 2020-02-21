@@ -142,13 +142,14 @@ extensionMatchContext
 mountPointForUUID:
 applicationExtensions
 copyServices
+hasPrefix:
+doNotQuery
 initWithInfo:services:volumes:
 setResultCache:
 setAnalyticsReporter:
 registerOperation:
 startOperation:
-allKeys
-pruneWithServices:
+prune
 operations_queue
 initWithCapacity:
 updateRecentResultsForVolumes:withInfo:qos:receiveResults:
@@ -158,6 +159,7 @@ siblings
 currentConnection
 _xpcConnection
 intValue
+_recentInfoForVolumes:atUrgency:validateResults:
 recentPurgeableTotals:
 hasSnapshotsExcludingTimeMachine
 keysOfEntriesPassingTest:
@@ -173,6 +175,7 @@ appendFormat:
 componentsJoinedByString:
 appendString:
 prunePurgeHistory
+allKeys
 purgeOperations
 forcePurgeNotify:
 componentsSeparatedByString:
@@ -248,6 +251,7 @@ serviceWithID:
 beginListening
 cancelPersistenceTimer
 log_recent_info
+validateService:
 removeOperation:
 debugState
 setListener:
@@ -298,10 +302,13 @@ decodeObjectForKey:
 isEqualToNumber:
 version
 encodeObject:forKey:
-recentInfoAtUrgency:
+_recentInfoAtUrgency:validateResults:
+_recentInfoForVolume:atUrgency:validateResults:
 volumeState
 CDRecentVolumeInfo:
 setVolumeState:
+removeServiceInfo:forVolume:
+prunePreserving:
 updateServiceInfoAmount:forService:atUrgency:withTimestamp:nonPurgeableAmount:
 lookupAmountForService:atUrgency:
 isEmpty
@@ -340,7 +347,6 @@ removeAllObjects
 _reportPurgeTimingInfo:
 _reportPurgeableTimingInfo:
 buildType
-hasPrefix:
 dailyPurgeableStats:
 stringForUrgency:
 setWithArray:
@@ -507,6 +513,7 @@ name
 archivedDataWithRootObject:requiringSecureCoding:error:
 writeToFile:options:error:
 primary
+_recentPurgeableTotals:validateResults:
 distantFuture
 dateWithTimeInterval:sinceDate:
 timeIntervalSinceReferenceDate
@@ -559,6 +566,7 @@ containsValueForKey:
 decodeIntegerForKey:
 encodeInteger:forKey:
 removeObjectsForKeys:
+recentInfoAtUrgency:
 diagnostics
 setDiagnostics:
 _volume
@@ -648,7 +656,6 @@ _purge_amount_needed
 _purge_amount_reported
 _purgeResult
 objectAtIndex:
-doNotQuery
 setInflight_q:
 setInflight:
 inflight_q
@@ -834,6 +841,7 @@ v24@?0@"NSArray"8@"NSError"16
 %@/%s
 CacheDeletePurgeHistory.txt
 CACHE_DELETE_FSPURGED_VOLUMES
+CACHE_DELETE_
 CACHE_DELETE_NO_CACHE
 com.apple.deleted_helper
 CACHE_DELETE_TOTAL_PURGEABLE
@@ -846,9 +854,11 @@ INVALID VOLUME
 Calling process id: %d
 Calling process: %s, id: %d
 CACHE_DELETE_CALLING_PROCESS
+CACHE_DELETE_PURGEABLE_RESULT_CACHE
 B32@?0@"NSString"8@"NSNumber"16^B24
 CACHE_DELETE_TOTAL_AVAILABLE
 CACHE_DELETE_SERVICES_INFLIGHT
+CACHE_DELETE_OPERATION_DIAGNOSTICS
 CACHE_DELETE_SERVICES
 CACHE_DELETE_ITEMIZED_NONPURGEABLE
 CACHE_DELETE_NONPURGEABLE_AMOUNT
@@ -1180,10 +1190,12 @@ T@"NSArray",&,N
 periodicResult
 T@"CDPeriodicOperationResult",&,N,V_periodicResult
 CACHE_DELETE_SERVICE_INFO
-urgency %d, amount : %llu, timestamp: %@
+u:%d : %llu : %@
 itemizedNonPurgeable
 T@"NSDictionary",&,N,V_itemizedNonPurgeable
 CACHE_DELETE_VOLUME_STATE
+-[CDRecentVolumeInfo _recentInfoAtUrgency:validateResults:]
+-[CDRecentVolumeInfo prunePreserving:]
 v32@?0@"NSString"8@"CDRecentServiceInfo"16^B24
 volume
 T@"NSString",&,N,V_volume
@@ -1459,6 +1471,9 @@ extensionDict is not class NSDictionary, skipping: %@
 Waiting for extensions. Context: %@
 prunePurgeHistory: pruning: %s
 prunePurgeHistory: Unable to get caches directory path
+NO services: %@
+%d ***** %@ invalid: not registered and not mapped to an FSPurgeable type *****
+%d ***** %@ does not respond to purgeable query *****
 parameter error, info dictionary is nil.
 %{public}s APFS Purgeable update ET: %f,  results:
 %{public}@ : %{public}@
@@ -1470,13 +1485,11 @@ totalAvailable ENTRY, info:
 CACHE_DELETE_INVALIDATE_CACHE_KEY: Invalidated the results cache
 caller has requested a forceRefresh (CACHE_DELETE_NO_CACHE = YES)
 caller has NOT requested a forceRefresh (CACHE_DELETE_NO_CACHE = NO, or is not present)
-diagnostics can only be used with CACHE_DELETE_NO_CACHE_KEY
 unable to validate volume "%@"
 totalAvailable thresholds for "%{public}@":
 %@ : %@
 Siblings of %@ = %@
-Calling process id: %d
-Calling process: %s, id: %d
+totalAvailable: %@
 GrandTotal request for urgency: %@
 Volume %{public}@ has 0 purgeable because it has been snapshotted
 Volume %{public}@ has snapshots, returning 0 purgeable space
@@ -1559,6 +1572,7 @@ notify_post failed: %s
 poll_vfs_lowdisk
 CacheDelete, open for business!
 quotactl error: %s
+RECEIVED SIGKILL
 RECEIVED SIGTERM
 RECEIVED SIGQUIT
 *** CacheDelete SigInfo ***
@@ -1569,6 +1583,7 @@ RECEIVED SIGQUIT
 * Services = {
 * Purgeable (Root Volume) = {
 %@ = %@
+* CDPurgeableResultCache sharedPurgeableResultsCache = {
 *** Posting Daily Stats ***
 incompatible version: %@
 got a compatible version
@@ -1621,6 +1636,8 @@ timed out (%llu seconds) waiting for:
 %{public}@
 parameter error, must supply amount and urgency
      urgency %d, amount : %llu, timestamp: %@
+%d : %s excluding: volume: %@, service: %@, value: %@
+%d %s ***** pruning volume: %@, service: %@, value: %@
   timestamp: %@, freespace: %@
    service: %@
 Invalid parameter: volume: %@, freespace: %@, threshold: %@
@@ -1830,6 +1847,7 @@ v16@0:8
 v40@0:8@16@24@32
 {VolumeThresholdsAndGoals=QQQQ}24@0:8@16
 @40@0:8@16@24@?32
+B24@0:8@16
 v44@0:8@16@24I32@?36
 @48@0:8@16@24@32@?40
 v40@0:8I16I20@24@?32
@@ -1856,6 +1874,7 @@ v24@0:8@"NSCoder"16
 @24@0:8^{_NSZone=}16
 B36@0:8@16@24i32
 @28@0:8@16i24
+@32@0:8@16i24B28
 q24@0:8@16
 B32@0:8q16@24
 B60@0:8@16@24@32i40d44@52
@@ -1869,7 +1888,6 @@ d32@0:8Q16Q24
 v32@0:8@16d24
 r*20@0:8i16
 r*24@0:8d16
-B24@0:8@16
 @20@0:8B16
 @"<CDPurgeableResultCache>"
 @"<CacheDeleteServiceProvider>"
@@ -1898,7 +1916,9 @@ v24@0:8@"NSURLSession"16
 @24@0:8Q16
 @20@0:8i16
 @"NSDictionary"20@0:8i16
+@"NSDictionary"32@0:8@"CacheDeleteDaemonVolume"16i24B28
 @"NSDictionary"28@0:8@"CacheDeleteDaemonVolume"16i24
+@"NSDictionary"32@0:8@"NSArray"16i24B28
 @"NSDictionary"28@0:8@"NSArray"16i24
 q24@0:8@"CacheDeleteDaemonVolume"16
 v40@0:8@"NSString"16@"CacheDeleteDaemonVolume"24@"NSDictionary"32
@@ -1907,6 +1927,7 @@ v24@0:8@"NSSet"16
 v24@0:8@"CacheDeleteDaemonVolume"16
 @"NSSet"32@0:8@"CacheDeleteDaemonVolume"16@"NSNumber"24
 v24@0:8@?<v@?B>16
+@24@0:8i16B20
 v36@0:8@16@24i32
 @?16@0:8
 @"CDRecentInfo"

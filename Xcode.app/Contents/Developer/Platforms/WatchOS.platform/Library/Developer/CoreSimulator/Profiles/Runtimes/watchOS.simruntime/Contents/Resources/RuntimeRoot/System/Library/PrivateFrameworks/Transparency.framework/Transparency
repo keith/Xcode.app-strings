@@ -85,11 +85,17 @@ connection
 T@"NSXPCConnection",&,V_connection
 verifierKey
 dataStoreKey
+startRevisionKey
+ConsistencyProofTime
 log consistency response missing data required for verification
 duplicate revision found with different head hash from consistent SLH
+B24@?0^@8^@16
+VerifyConsistencyProofEvent
 verifier
 T@"TransparencyConsistencyProofVerifier",&
 T@"TransparencyManagedDataStore",&
+startRevision
+T@"NSNumber",&
 <%@ %p> { %@ }
 v24@?0I8I12^B16
 count
@@ -182,7 +188,6 @@ trustedKeyStore
 T@"TransparencyTrustedKeyStore",&,V_trustedKeyStore
 per-app tree verification failed
 per-app tree (config) inclusion proof not position 0; instead position %llu
-B24@?0^@8^@16
 VerifyPATInclusionProofEvent
 T@"KTApplicationPublicKeyStore",R,V_keyStore
 application
@@ -436,7 +441,6 @@ requestsArray
 requestsArray_Count
 ConsistencyProofRequest
 logType
-startRevision
 endRevision
 ConsistencyProofResponse_LogConsistencyResponse
 responsesArray
@@ -901,6 +905,9 @@ logHeadHash != %@ && application == %@ && logBeginTime == %lld && logType == %ll
 application = %@ && logBeginTime == %llu && verificationResult == %d
 application == %@ && logBeginTime == %llu && verificationResult == %d
 logHeadHash == nil
+application == %@ && verificationResult == %d && receiptTime < %@
+application == %@ && signatureVerified == %d && verificationResult == %d && failures.@count=0
+receiptTime < %@ && (verificationResult == %d || verificationResult == %d) && application == %@ && revision != %llu
 DownloadRecord
 application = %@
 downloadId = %@
@@ -927,6 +934,11 @@ persistentContainer
 T@"NSPersistentContainer",&,V_persistentContainer
 T@"NSManagedObjectContext",R,N,V_context
 TAq,V_sequenceId
+NetworkConsistencyProofSize
+NetworkConsistencyProofEvent
+v16@?0@"DownloadRecord"8
+NetworkQueryBackgroundSize
+NetworkQueryBackgroundEvent
 v32@?0@8@16^B24
 KT PAT Config proof missing VRFPublicKey
 failed to decode Per Application Tree config node: %@
@@ -1215,12 +1227,12 @@ failed to delete failed download record: %@
 Consistency proof response verification failed for %@: %@
 server failed to produce consistency proof: %d
 response failed to parse: %@
+STH verification failure after maximum proof delay for revision %lld of %@
 failed to fetch download record: %@
 Consistency proof verification for %@ succeeded
 Verification of consistency proof download record failed. Record was deleted
 existing download record for %@
 duty cycle deferred
-duty cycle: verify pending SMTs
 failed to decode per-app tree node: %@
 per-app tree entry does not contain the SMH in the map entry
 Failed to load stack: %@
@@ -1238,10 +1250,12 @@ latest verified revision %@ for %@
 earliest pending revision %@ for %@
 failed to get pending tree head revisions
 failed to populate log head hash in KTTreeHead: %@
+unable to read old pending STHs: %@
+unable to read STHs with unverified signatures: %@
 failed to delete download record for UUID %@: %@
 failed to delete download record for %@: %@
 received response for deleted record: %@
-failed to garbage collect completed requests: %@
+failed to garbage collect %@: %@
 failed to delete tree heads from prior epoch: %@
 failed to reset requests to pending state: %@
 failed to get outstanding requests for %@: %@
@@ -1261,15 +1275,15 @@ Wrote %lld bytes of %lld total bytes for request %@
 Failed persisting request %@: %@
 Failed to find request with ID %@
 Failed to store consistency proof response: %@
+Failed to fetch download record %@: %@
 Failed fetching an existing request: %@
 Failed fetching any pending downloads from the data store for UUID %@: %@
 Download task %@ completed successfully
 Failed to delete %@: %@
 Consistency Proof download task %@ for downloadID %@ failed: %@
-Consistency Proof download task %@ for downloadID %@ completed with response code %zu
 Failed deleting download record for UUID %@: %@
+Failed to fetch download record %@ for failed download: %@
 Query download task %@ for requestID %@ completed with error %@
-Query download task %@ for requestID %@ completed with response code %zu
 KT PAT Config proof missing VRFPublicKey
 failed to decode Per Application Tree config node: %@
 VRF Public key missing from per-app tree config node
@@ -1298,6 +1312,7 @@ URI VRF witness failed for %@
 request accountId %@ does not match response accountId %@
 LogConsistencyResponse omits application, but log type or verifier is not TLT
 LogConsistencyResponse for wrong application or tree
+STH signature verification failure after maxmimum proof delay for revision %lld of %@
 Unknown application %@
 Unknown application identifier: %@
 Unknown invokeXPCAsynchronousCallWithBlock error: %@
@@ -1396,7 +1411,7 @@ CardinalityUnknown
 CardinalityOptional
 CardinalityRequired
 CardinalityRepeated
-QxP
+Qx`
 zPLR
 zPLR
 zPLR
@@ -1675,6 +1690,7 @@ numberWithInteger:
 logMetric:withName:
 logSTHMetricsForApplication:error:
 handlePendingSTHs:
+garbageCollectSTHs:
 numberWithInt:
 dictionaryWithObjects:forKeys:count:
 logSoftFailureForEventNamed:withAttributes:
@@ -1684,7 +1700,7 @@ logSuccessForEventNamed:
 applicationID
 logHardFailureForEventNamed:withAttributes:
 runDutyCycleProcessingStepForActivity:context:logClient:
-verifyTLTConsistency:
+verifyTLTConsistencyAndGarbageCollectSTHs:
 noteEventNamed:
 runDutyCycleConfigurationStepForActivity:logClient:
 transcript
@@ -1825,6 +1841,9 @@ code
 setErrorCode:
 setProofOfFailure:
 setSth:
+receiptTime
+application
+formatEventName:application:
 hasStartSlh
 startSlh
 hasEndSlh
@@ -1838,13 +1857,19 @@ setVerifier:
 verifyConsistencyProof:startLogHead:endLogHead:error:
 copyManagedObject:
 setResult:treeHead:error:
+verificationResult
+revision
+startRevision
+longLongValue
 logHeadHash
-application
 logBeginTime
 logType
-revision
 fetchTreeHeadsWithoutHash:application:logBeginTime:logType:revision:error:
 performBlockAndWait:
+parsedLogHead
+applicationIdentifierForValue:
+doWithAnalyticsForEventName:error:block:
+setStartRevision:
 verifyWithError:
 keyEnumerator
 nextObject
@@ -1900,7 +1925,6 @@ setUInt64:forKey:
 removeUInt64ForKey:
 initWithInt64s:forKeys:count:
 numberWithLongLong:
-longLongValue
 enumerateKeysAndInt64sUsingBlock:
 getInt64:forKey:
 setInt64:forKey:
@@ -2067,7 +2091,6 @@ dataWithBytes:length:
 appendData:
 sha256
 errorWithDomain:code:underlyingError:description:
-parsedLogHead
 logSize
 verifyConsistencyProof:startHash:startSize:endHash:endSize:error:
 initWithTrustedKeyStore:
@@ -2076,8 +2099,6 @@ _trustedKeyStore
 hasInternalDiagnostics
 base64EncodedStringWithOptions:
 nodePosition
-formatEventName:application:
-doWithAnalyticsForEventName:error:block:
 verifyTLTEntryForPerApplicationLogHead:error:
 initWithKeyStore:application:
 verifyPatConfigInclusionProofWithPerAppLogEntry:topLevelTreeEntry:error:
@@ -2097,7 +2118,6 @@ mapLeaf
 hashesOfPeersInPathToRootArray
 verifyMapEntryWithMapLeaf:hashesToRoot:signedMapHead:error:
 applicationValueForIdentifier:
-applicationIdentifierForValue:
 initWithIdentifier:
 applicationIdentifier
 setApplicationIdentifier:
@@ -2583,7 +2603,7 @@ deleteDownloadRecord:error:
 resetRequestsToPending:error:
 deleteSMTs:mutationTimeLessThan:error:
 verifyCertificates:intermediates:application:error:
-copyVRFKeyFromConfigProof:error:
+copyVRFKeyFromConfigProof:saveTreeHeads:error:
 detectEpochChangeAndResetData:patLogBeginningMs:error:
 status
 hasPatConfigProof
@@ -2593,7 +2613,7 @@ appLeafsArray_Count
 tltLeafsArray
 tltLeafsArray_Count
 intermediatesArray
-processKeyData:tltLeafs:intermediates:patConfigProof:error:
+processKeyData:tltLeafs:intermediates:patConfigProof:saveTreeHeads:error:
 addMultiSamplerForName:withTimeInterval:block:
 processPublicKeysResponse:error:
 startLogBeginTimesSampler
@@ -2838,7 +2858,6 @@ arrayByAddingObjectsFromArray:
 buildQueryRequest:accountID:loggableDatas:application:error:
 persistAndRefaultObject:error:
 performAndWaitForRequestId:error:block:
-verificationResult
 handleVerifyPeerResponse:request:transparentData:error:
 setServerHint:
 analyticsForRequestValidation:initialResult:result:
@@ -2879,6 +2898,7 @@ validateKTSMTsMerged:request:
 performForRequestsWithPendingSMTs:error:block:
 verifyKTSMTs:
 performForSMTsWithUnverifiedSignature:error:block:
+garbageCollectSTHs:logBeginMs:olderThan:error:
 garbageCollectRequests:olderThan:error:
 latestVerifiedTreeHeadRevision:logBeginMs:error:
 unverifiedRevisions:logBeginMs:error:
@@ -2889,10 +2909,16 @@ createDownloadRecord:
 downloadId
 setStartSLHRevision:
 response
-verifyConsistencyProofResponse:error:
+startSLHRevision
+verifyConsistencyProofResponse:startRevision:error:
+performForPendingSTHs:olderThan:error:block:
+verifySTHs:
+performForSTHsWithUnverifiedSignature:error:block:
+handleSTHsWithUnverifiedSignature:
 fetchDownloadRecord:error:
 handleConsistencyProofDownloadRecord:error:
 downloadConsistencyProof:
+failExpiredSTHs:
 numberWithUnsignedChar:
 handleGarbageCollection:error:
 logFinishFailureEvent:error:
@@ -2957,6 +2983,7 @@ setLogHeadHash:
 setLogType:
 setRevision:
 setResultType:
+gargabeCollectEntity:predicate:error:
 setDownloadId:
 fetchDownloadRecordById:error:
 setResponse:
@@ -3051,7 +3078,6 @@ mutationTime
 reportVerifySMTFailure:error:
 deleteSMT:error:
 verifyMutation:record:
-receiptTime
 deviceId
 clientDataWitnessArray
 verifyClientDataWitnesses:clientDatas:loggableDatas:uriVRFOutput:error:
@@ -3062,7 +3088,6 @@ setDevicesArray:
 setDeviceId:
 setClientDataArray:
 setRequestsArray:
-setStartRevision:
 setEndRevision:
 requestsArray
 validatePeerUri:accountID:loggableDatas:queryRequest:queryResponse:error:
@@ -3449,7 +3474,9 @@ v24@0:8^i16
 ^{__CFDictionary=}
 @"GPBUInt64Array"
 @"GPBUInt32Array"
+@36@0:8@16B24^@28
 B40@0:8Q16Q24^@32
+B60@0:8@16@24@32@40B48^@52
 @48@0:8@16@24@32^@40
 v32@0:8@16^@24
 v72@0:8@16@24@32@40@48@56@?64
@@ -3534,10 +3561,11 @@ v56@0:8@16@24@32^@40@?48
 B64@0:8@16@24q32q40q48^@56
 @64@0:8@16@24q32q40q48^@56
 @40@0:8@16Q24^@32
+v48@0:8@16@24^@32@?40
+v48@0:8@16Q24@32^@40
 v40@0:8@16@24^@32
 B40@0:8@16Q24^@32
 Q32@0:8@16^@24
-v48@0:8@16@24^@32@?40
 @"NSManagedObjectContext"
 @"NSPersistentContainer"
 v56@0:8@16@24q32q40q48
@@ -3548,6 +3576,7 @@ B64@0:8@16@24@32Q40@48^@56
 q32@0:8@16@24
 v48@0:8@16@24@32q40
 B40@0:8@16^@24^@32
+B40@0:8@16q24^@32
 @56@0:8@16@24@32@40^@48
 v32@0:8@?16@?24
 v56@0:8@16@24@32@40@?48

@@ -15,7 +15,6 @@
 %s #myriad BTLE lift time delta %f, adjusting by %d
 %s #myriad BTLE connected to carplay, adjusting by %d
 %s #myriad BTLE Myriad voice trigger advertising while isVisible
-%s #myriad BTLE Alert firing voice trigger advertising needed [isTimerFiring = %d , isAlarmFiring = %d]
 %s #myriad BTLE Myriad voice trigger advertising needed adjusted by lt=%d + cp=%d + rtw=%d = %d
 %s #myriad BTLE Myriad direct trigger advertising needed
 %s #myriad BTLE CarPlay delayed for Myriad decision, evt = %ld
@@ -26,13 +25,6 @@
 %s #myriad BTLE Myriad voice trigger advertising while is visible [isVoiceTrigger %d]
 %s #myriad BTLE observerCalled transition=%@
 %s #myriad BTLE wake gesture noted
-%s #myriad %@
-%s #myriad Alarm did fire: %@
-%s #myriad Firing alarm did dismiss: %@
-%s #myriad Alarm snapshot updated %@ -> %@
-%s #myriad Timer did fire: %@
-%s #myriad Firing timer did dismiss: %@
-%s #myriad Timer snapshot updated %@ -> %@
 %s %p
 %s %p #activation Unable to establish connection to un-entitled remote process: %@
 %s Unexpectedly attempted to assign a new connection to the activation server with an existing connection: %{public}@
@@ -248,6 +240,7 @@ SASDismissalReasonBluetoothDeviceDeactivation
 SASDismissalReasonPresentationUnregistered
 SASDismissalReasonCarPlayHardwareButton
 SASDismissalReasonUnexpectedError
+SASDismissalReasonCarPlayUnpaired
 contextOverride
 T@"SiriContextOverride",&,N,V_contextOverride
 SiriButtonIdentifierLongPressUndefined
@@ -312,23 +305,10 @@ pendingAnalyticsEventQueue
 T@"NSMutableArray",&,N,V_pendingAnalyticsEventQueue
 v16@?0@"CMMotionActivity"8
 v32@?0@"FBSDisplayLayoutMonitor"8@"FBSDisplayLayout"16@"FBSDisplayLayoutTransitionContext"24
-com.siri-activation.myriad-work-queue
-v16@?0@"AFClockAlarmSnapshot"8
-v16@?0@"AFClockTimerSnapshot"8
 -[SASMyriadController setCanceledByMyriad:]
 -[SASMyriadController activateForRequest:visible:]
-v32@?0@"NSUUID"8@"AFClockAlarm"16^B24
-v32@?0@"NSUUID"8@"AFClockTimer"16^B24
 -[SASMyriadController activateForInTaskRequest:isVisible:]
 -[SASMyriadController _updateRaiseToWakeTimeForTransition:]
--[SASMyriadController _setAlarmSnapshot:]
--[SASMyriadController clockAlarmObserver:alarmDidFire:]
--[SASMyriadController clockAlarmObserver:alarmDidDismiss:]
--[SASMyriadController clockAlarmObserver:snapshotDidUpdateFrom:to:]
--[SASMyriadController _setTimerSnapshot:]
--[SASMyriadController clockTimerObserver:timerDidFire:]
--[SASMyriadController clockTimerObserver:timerDidDismiss:]
--[SASMyriadController clockTimerObserver:snapshotDidUpdateFrom:to:]
 canceledByMyriad
 TB,N,V_canceledByMyriad
 SiriContextOverrideKey
@@ -944,8 +924,7 @@ SiriPunchoutRequest
 NSCopying
 SASAnalytics
 SASMyriadController
-AFClockAlarmListening
-AFClockTimerListening
+SASLockStateMonitorDelegate
 SiriContextOverride
 NSSecureCoding
 NSCoding
@@ -960,7 +939,6 @@ SASRequestOptionsBuilderDataSource
 SASRequestOptionsBuilderDataSourceForTesting
 SASHeaterDelegate
 AFMyriadDelegate
-SASLockStateMonitorDelegate
 SASBulletinManagerDelegate
 SASStateChangeListener
 SiriSpotlightSource
@@ -1234,28 +1212,13 @@ configurationForDefaultMainDisplayMonitor
 _updateRaiseToWakeTimeForTransition:
 setTransitionHandler:
 monitorWithConfiguration:
-_myrWorkQueue
-_setAlarmSnapshot:
-getAlarmSnapshotWithCompletion:
-addListener:
-_setTimerSnapshot:
-getTimerSnapshotWithCompletion:
-removeListener:
 currentCoordinator
 isVoiceRequest
-alarmsByID
-isSnoozed
-isFiring
-dismissedDate
-enumerateKeysAndObjectsUsingBlock:
-timersByID
-state
 isVoiceTrigger
 myriadContext
 setCanceledByMyriad:
 startAdvertisingFromInTaskTriggerWithContext:
 startAdvertisingFromInTaskVoiceTrigger
-startAdvertisingFromAlertFiringVoiceTrigger
 startAdvertisingFromVoiceTriggerAdjusted:withContext:
 startAdvertisingFromVoiceTriggerAdjusted:
 startAdvertisingFromDirectTriggerWithContext:
@@ -1264,18 +1227,10 @@ activationEvent
 transitionReasons
 stationary
 currentController
-clockAlarmObserver:alarmDidFire:
-clockAlarmObserver:alarmDidDismiss:
-clockAlarmObserver:snapshotDidUpdateFrom:to:
-clockTimerObserver:timerDidFire:
-clockTimerObserver:timerDidDismiss:
-clockTimerObserver:snapshotDidUpdateFrom:to:
+didChangeLockState:
+didChangeLockState:toState:
 activateForRequest:visible:
 activateForInTaskRequest:isVisible:
-_alarmObserver
-_alarmSnapshot
-_timerObserver
-_timerSnapshot
 canceledByMyriad
 _myriadFinishedSemaphore
 _activityManager
@@ -1285,8 +1240,6 @@ _isLocked
 _lockStateMonitor
 _displayMonitor
 _raiseToWakeTime
-_mobileClockObserver
-_myriadWorkQueue
 _canceledByMyriad
 setCurrentSpokenLanguageCode:
 setUnlockedSinceBoot:
@@ -1579,7 +1532,6 @@ advertisingDidBegin:
 advertisingDidEnd:
 listeningDidBegin:
 listeningDidEnd:
-didChangeLockState:
 bulletinManagerDidChangeBulletins:
 callStateChangedToIsActive:isOutgoing:
 registerActivationSource:withIdentifier:
@@ -1913,6 +1865,7 @@ bestSupportedLanguageCodeForLanguageCode:
 applicationStateHelper
 foregroundAppInfosForCarPlay
 foregroundAppInfos
+state
 setEnabled:
 enabled
 isCurrentLocaleNativelySupported
@@ -2051,19 +2004,14 @@ v24@0:8@?16
 v32@0:8q16@24
 @"NSObject<OS_dispatch_queue>"
 @"NSMutableArray"
-v32@0:8@16@24
-v40@0:8@16@24@32
-v32@0:8@"AFClockAlarmObserver"16@"NSUUID"24
-v40@0:8@"AFClockAlarmObserver"16@"AFClockAlarmSnapshot"24@"AFClockAlarmSnapshot"32
-v32@0:8@"AFClockTimerObserver"16@"NSUUID"24
-v40@0:8@"AFClockTimerObserver"16@"AFClockTimerSnapshot"24@"AFClockTimerSnapshot"32
+v24@0:8Q16
+v32@0:8Q16Q24
 B28@0:8@16B24
 v24@0:8B16B20
 @"NSObject<OS_dispatch_semaphore>"
 @"CMMotionActivityManager"
 @"SASLockStateMonitor"
 @"FBSDisplayLayoutMonitor"
-{?="alarmObserver"@"AFClockAlarmObserver""alarmSnapshot"@"AFClockAlarmSnapshot""timerObserver"@"AFClockTimerObserver""timerSnapshot"@"AFClockTimerSnapshot"}
 @24@0:8@16
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
@@ -2097,12 +2045,13 @@ Q32@0:8@"SASRequestOptionsBuilder"16@"SASActivationRequest"24
 v24@0:8@"SASHeater"16
 v24@0:8f16f20
 v24@0:8@"AFMyriadCoordinator"16
-v24@0:8Q16
 v24@0:8@"SASBulletinManager"16
 B24@0:8q16
+v32@0:8@16@24
 v40@0:8q16@24@32
 v32@0:8q16d24
 v40@0:8q16@24@?32
+v40@0:8@16@24@32
 v28@0:8@16B24
 @"AFMyriadCoordinator"
 @"SASMyriadController"
