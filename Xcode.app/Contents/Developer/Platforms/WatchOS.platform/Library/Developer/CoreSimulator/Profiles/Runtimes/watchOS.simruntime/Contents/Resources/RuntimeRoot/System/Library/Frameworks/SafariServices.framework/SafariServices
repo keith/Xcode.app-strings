@@ -1097,6 +1097,7 @@ RemoteAutomationEnabled
 allowsRemoteAutomation
 estimatedProgress
 hasOnlySecureContent
+_negotiatedLegacyTLS
 _webProcessIsResponsive
 v20@?0B8@"NSString"12
 T@"<SFWebViewControllerDelegate>",W,N,V_delegate
@@ -1713,6 +1714,7 @@ drawsBackButton
 TB,N,V_drawsBackButton
 DownloadsToolbarButton@2x
 v16@?0^{CGContext=}8
+T@"UIBarButtonItem",W,N,V_barButtonItem
 arrow.down.circle
 Downloads (toolbar accessibility title)
 Td,N,V_progress
@@ -2239,10 +2241,14 @@ ALTER TABLE tabs RENAME TO tabs_old
 INSERT INTO tabs (id, uuid, title, url, user_visible_url, order_index, last_viewed_time, readinglist_bookmark_id, opened_from_link, showing_reader, reader_view_top_scroll_offset, private_browsing, displaying_standalone_image, browser_window_uuid, browser_window_id)SELECT tabs_old.id, tabs_old.uuid, tabs_old.title, tabs_old.url, tabs_old.user_visible_url, tabs_old.order_index, tabs_old.last_viewed_time, tabs_old.readinglist_bookmark_id, tabs_old.opened_from_link, tabs_old.showing_reader, tabs_old.reader_view_top_scroll_offset, tabs_old.private_browsing, tabs_old.displaying_standalone_image, tabs_old.browser_window_uuid, tabs_old.browser_window_id FROM tabs_old
 INSERT INTO tab_sessions (tab_uuid, session_data, uncompressed_session_data_size)SELECT tabs_old.uuid, tabs_old.session_data, tabs_old.uncompressed_session_data_size FROM tabs_old
 DROP TABLE tabs_old
+DROP INDEX IF EXISTS tab_sessions__uuid
+ALTER TABLE tab_sessions RENAME TO tab_sessions_old
+INSERT INTO tab_sessions (tab_uuid, session_data, uncompressed_session_data_size)SELECT tab_sessions_old.tab_uuid, tab_sessions_old.session_data, tab_sessions_old.uncompressed_session_data_size FROM tab_sessions_old
+DROP TABLE tab_sessions_old
 DROP TABLE IF EXISTS tab_sessions
 DROP TABLE IF EXISTS tabs_old
 DROP TABLE IF EXISTS tabs
-CREATE TABLE tab_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT,tab_uuid TEXT NOT NULL UNIQUE,session_data BLOB DEFAULT NULL,uncompressed_session_data_size INTEGER NOT NULL DEFAULT 0,FOREIGN KEY(tab_uuid) REFERENCES tabs(uuid) ON DELETE CASCADE)
+CREATE TABLE tab_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT,tab_uuid TEXT NOT NULL UNIQUE,session_data BLOB DEFAULT NULL,uncompressed_session_data_size INTEGER NOT NULL DEFAULT 0,FOREIGN KEY(tab_uuid) REFERENCES tabs(uuid) ON DELETE CASCADE ON UPDATE CASCADE)
 CREATE INDEX tab_sessions__uuid ON tab_sessions (tab_uuid)
 CREATE TABLE tabs (id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,title TEXT,url TEXT COLLATE NOCASE,user_visible_url TEXT COLLATE NOCASE,order_index INTEGER NOT NULL,last_viewed_time REAL DEFAULT NULL,readinglist_bookmark_id INTEGER DEFAULT 0,opened_from_link BOOL DEFAULT 0,showing_reader BOOL DEFAULT 0,reader_view_top_scroll_offset INTEGER DEFAULT 0,private_browsing BOOL DEFAULT 0,displaying_standalone_image BOOL DEFAULT 0,browser_window_uuid TEXT NOT NULL,browser_window_id INTEGER NOT NULL,FOREIGN KEY(browser_window_id) REFERENCES browser_windows(id) ON DELETE CASCADE)
 CREATE INDEX tabs__uuid ON tabs (uuid)
@@ -2289,6 +2295,8 @@ DELETE FROM browser_windows
 PRAGMA secure_delete = ON
 PRAGMA secure_delete = OFF
 VACUUM
+sf_generate_uuid
+UPDATE tabs SET uuid = sf_generate_uuid()
 browserWindows
 recentlyClosedWindows
 /Library/Safari/SuspendState.plist
@@ -3267,6 +3275,11 @@ Failed to rename table tabs to tabs_old: %{public}@ (%d)
 Failed to move tabs_old table to tabs table: %{public}@ (%d)
 Failed to move tabs_old session data to tab_sessions table: %{public}@ (%d)
 Failed to drop tabs_old table: %{public}@ (%d)
+Failed to drop index in tab_sessions table: %{public}@ (%d)
+Failed to rename table tab_sessions to tab_sessions_old: %{public}@ (%d)
+Failed to create table tab_sessions: %{public}@ (%d)
+Failed to move tabs_session_old data to tab_sessions table: %{public}@ (%d)
+Failed to drop tab_sessions_old table: %{public}@ (%d)
 Failed to drop tab_sessions table: %{public}@ (%d)
 Failed to drop tabs table: %{public}@ (%d)
 Failed to create the tab_sessions table: %{public}@ (%d)
@@ -3296,6 +3309,7 @@ Checkpointed write ahead log. Log frame count: %d, checkpointed frame count: %d
 Failed to checkpoint write ahead log: %{public}@ (%d)
 Failed to toggle secure_delete pragma: %{public}@ (%d) (%d)
 Failed to vacuum database: %{public}@ (%d)
+Failed to regenerate tab UUIDs: %{public}@ (%d)
 In-process view controller %p attempting to get remote password picker view controller
 Failed to get remote password picker view controller with error: %{public}@
 In-process view controller %p got remote password picker view controller %{public}@ <%p>
@@ -4375,6 +4389,7 @@ setApplicationNameForUserAgent:
 _setNeedsStorageAccessFromFileURLsQuirk:
 setURLSchemeHandler:forURLScheme:
 initWithFrame:configuration:
+_grantAccessToAssetServices
 _setBackgroundExtendsBeyondPage:
 setAllowsLinkPreview:
 setUIDelegate:
@@ -5849,6 +5864,7 @@ setPrintingItem:
 _webViewPrintFormatter
 setFrameToPrint:
 setSnapshotFirstPage:
+setShowsPaperSelectionForLoadedPapers:
 prepareReaderPrintingIFrameWithCompletion:
 updatePrintInfo
 _didFinishPrintingCurrentItemWithResult:fromPrintInteractionControllerCompletion:
@@ -6828,6 +6844,7 @@ removeAnnotation:forSelectionOffset:length:
 pasteWithCompletionHandler:
 willFinishIgnoringCalloutBarFadeAfterPerformingAction
 shouldAllowHidingSelectionCommands
+supportsTextSelectionWithCharacterGranularity
 _simulatedWebEventForReturnKeyWithType:
 _setUpFormContextViewWithSensitiveInput:
 hasOnlySecureContent
@@ -7709,6 +7726,7 @@ setLoading:
 owningWebViewDidCommitNavigationWithURL:
 webViewController:didCommitNavigation:
 webViewController:didSameDocumentNavigation:ofType:
+webViewController:willEndNavigationGestureToBackForwardListItem:
 webViewController:didEndNavigationGestureToBackForwardListItem:
 webViewController:decidePolicyForNavigationResponse:decisionHandler:
 webViewController:didFailNavigation:withError:
@@ -8729,10 +8747,10 @@ _drawsBackButton
 containerView
 animateTransition:
 interactionControllerIfInteracting
+setBarButtonItem:
 packageWithContentsOfURL:type:options:error:
 rootLayer
 safari_imageWithSize:actions:
-setContentVerticalAlignment:
 _buttonPressed
 addSublayer:
 initWithLayer:
@@ -8744,13 +8762,14 @@ setState:ofLayer:transitionSpeed:
 sendAction:to:from:forEvent:
 _sf_firstAncestorViewOfClass:
 setState:ofLayer:
+buttonWithBarButtonItem:
 deferrableUpdateViewState
 stateController:didSetStateOfLayer:
 stateController:transitionDidStart:speed:
 stateController:transitionDidStop:completed:
-initWithBarButtonItem:
-_innerButton
+_barButtonItemWidth
 _stateController
+_barButtonItem
 setAction:
 setCustomView:
 _buttonView
@@ -9107,7 +9126,6 @@ touchesBegan:withEvent:
 _invokeLongPressAction
 setMinimumPressDuration:
 gestureRecognizerTarget:longPressAction:touchDownAction:attachedToBarButtonItem:
-_barButtonItem
 _longPressAction
 _touchDownAction
 _gestureRecognizers
@@ -9647,6 +9665,7 @@ _migrateToSchemaVersion_2
 _recoverFromDatabaseInconsistencyFromSchemaVersion3Migration
 _migrateToSchemaVersion_3
 _migrateToSchemaVersion_4
+_migrateToSchemaVersion_5
 lastResultCode
 _createTableForTabs
 _createTableForTabSession
@@ -9684,6 +9703,7 @@ dataAtIndex:
 _readSavedSessionStateDataForTabWithUUIDString:
 _vacuum
 checkpointWriteAheadLogWithLogFrameCount:checkpointedFrameCount:
+_regenerateTabUUIDsForDeviceRestoration
 mergeAllWindows
 updateSceneID:
 closeDatabase
@@ -9704,12 +9724,14 @@ removeTabWithTabData:
 deleteAllSavedStates
 checkPointWriteAheadLog
 setSecureDeleteEnabled:
+regenerateTabUUIDsForDeviceRestoration
 _databaseURL
 _database
 _databaseQueue
 _tabUUIDStrings
 _browserWindowDatabaseIDs
 _cachedTabDeleteStatement
+_generateUUIDFunctionAttached
 initWithDatabase:query:error:
 reportErrorWithCode:statement:error:
 fetch
@@ -9959,6 +9981,7 @@ _updateUserActivitySoon
 snapshotViewAfterScreenUpdates:
 _setUpReaderViewController
 _safeBrowsingWarning
+_negotiatedLegacyTLS
 evOrganizationName
 UIShouldReflectCommittedURLInsteadOfCurrentURL
 _EVOrganizationName
@@ -10188,6 +10211,7 @@ _lastLoadErrorForFormatMenu
 _loadWasUserDriven
 _webViewIsInFullScreen
 _pendingNavigationActionDueToExternalSchemePromptHandler
+_gestureRequiresGoingBackToOwnerWebView
 _remoteSwipeGestureEnabled
 _webViewLayoutUnderlapsStatusBar
 _isBlockedByScreenTime
@@ -10878,7 +10902,6 @@ _urlLabelAccessoryLockItemVerticalOffset
 _distanceFromLabelBaselineToURLOutlineBottom
 _setIgnoreBarButtonItemSiblings:
 updatePopoverPosition
-setBarButtonItem:
 attachDelegateToPopoverPresentationController:anchoredToURLOutlineInNavigationBar:usesAdaptivePresentationInCompact:
 attachDelegateToPopoverPresentationController:anchoredToReloadButtonInNavigationBar:
 attachDelegateToPopoverPresentationController:anchoredToURLOutlineInNavigationBar:

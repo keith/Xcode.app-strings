@@ -70,6 +70,7 @@ ServerTTSErrorDomain
 Use `initWithRequest:shouldSpeak:`.
 %@:%@:server
 %@:server
+%@ %@
 Unable to create playback service
 EagerTTS:%@:%@:%@:%@:%@:%@:%@:%@:%@
 v24@?0@"VSAudioData"8@"NSArray"16
@@ -149,6 +150,7 @@ Osprey round-trip TTS timed out
 v28@?0@"VSVoiceAsset"8@"VSVoiceResourceAsset"16f24
 Osprey streaming network stall
 Osprey streaming TTS timed out
+Osprey core is not able to provide audio in time
 serverTTSClient
 T@"VSServerTTSClient",&,N,V_serverTTSClient
 serverConfig
@@ -156,10 +158,13 @@ T@"VSServerTTSConfig",&,N,V_serverConfig
 bufferDurationLimit
 Td,N,V_bufferDurationLimit
 T@"VSTimeoutCondition",&,N,V_timeoutCondition
+didReceiveAudio
+TB,N,V_didReceiveAudio
+didReceiveAudioCondition
+T@"NSCondition",&,N,V_didReceiveAudioCondition
 T@"VSSpeechRequest",R,N,V_request
 T@"<VSOspreyTTSCoreDelegate>",W,N,V_delegate
 T@"VSInstrumentMetrics",W,N,V_instrumentMetrics
-T@"VSAudioData",R,N,V_audio
 T@"VSVoiceAsset",&,N,V_voice
 com.apple.voiced.postInstall
 VSPostInstallService
@@ -182,6 +187,7 @@ T@"NSData",&,N,V_packetDescriptions
 magicVersion
 Tq,R,N,V_magicVersion
 T@"NSArray",R,N,V_timingInfos
+T@"VSAudioData",R,N,V_audio
 /var/mobile/Library/VoiceServices/SpeechCache
 TTSResources/PreinstallCache/
 VSSpeechCacheErrorDomain
@@ -384,7 +390,6 @@ cacheTimer
 T@"NSCache",&,N,V_cacheTimer
 Use `initWithRequest:withStreamID:`.
 Unknown inline streaming error %d, %@
-%@ %@
 voice_resource
 streamID
 T@"NSString",&,N,V_streamID
@@ -566,13 +571,14 @@ forceOsprey is on
 Using requestCreatedTimestamp inside voiced
 Received server TTS response. Use Server TTS.
 Received device synthesis previously, ignore server TTS.
+Encountered Osprey streaming network stall. Retry with device TTS.
 Server network error: %@
 Device fallback synthesis is disabled.
 Start playing device synthesis instead.
 Device racing is disabled.
 Received server TTS previously, ignore device TTS
-Device synthesis finished. Use device synthesis immediately.
-Device synthesis finished, but it's deferred.
+Received audio from device synthesis. Use device synthesis immediately.
+Received audio from device synthesis, but it's deferred.
 Inline server TTS is previously cached.
 Eager server TTS is previously cached.
 Server TTS Ace round-trip retry times: %ld
@@ -601,6 +607,12 @@ client '%@' set auto download voice assets:%@
 Ignore stream object with nil stream ID: %@
 Enqueue stream object %@, streamId: %@
 Received killDaemon, shutting down
+Simulate network stall is on, ignore audio object
+Refresh timeout value as %.2f
+Simulate network stall is on, ignore completion callback
+Network stall in osprey streaming
+Timeout in osprey streaming
+Osprey core %p is cancelled
 xpc activity com.apple.voiced.postInstall state: %d
 Migration service finished.
 xpc activity com.apple.voiced.postInstall, failed to set state to done.
@@ -766,7 +778,7 @@ Unable to mmap '%s', error: %s
 fcntl called on file '%@', size: %lu
 N11flatbuffers16DefaultAllocatorE
 N11flatbuffers9AllocatorE
-mcpl
+$@mcpl
 ?NSt3__110__function6__funcIU8__strongU13block_pointerFiN14TTSSynthesizer15CallbackMessageEENS_9allocatorIS6_EES4_EE
 NSt3__110__function6__baseIFiN14TTSSynthesizer15CallbackMessageEEEE
 U13block_pointerFiN14TTSSynthesizer15CallbackMessageEE
@@ -1099,19 +1111,22 @@ playAudioData:
 serverAudio
 setServerAudio:
 concatenateWithAudio:
+localizedInterstitialStringForKey:language:gender:
+copy
+setText:
 localizedDescription
 setIsServerTimeout:
 internalSettings
 disableDeviceRacing
 setUseDeviceSynthesis:
 deferredTTSTimingInfo
+setSourceOfTTS:
 domain
 isEqualToString:
 code
 serverTTSConfig
 deviceWaitTimeForAppId:
 shouldDeferDeviceTTS
-setSourceOfTTS:
 setDeferredTTSTimingInfo:
 shouldSpeak
 initWithAudioSessionID:asbd:
@@ -1148,8 +1163,9 @@ setVoiceName:
 setIsServerTTSRacing:
 isExecuting
 waitUntilFinished
-waitFor:
+waitUntilFinishedIfAudioReceivedWithin:
 waitSiriRoundTripToFinish
+speakRetryPhrase
 fallbackToDeviceSynthesis
 serverTTSTimeout
 timeoutForAppId:
@@ -1314,14 +1330,25 @@ _connectionIdentifier
 _audioPowerUpdateQueue
 _audioPowerUpdater
 serverConfig
+didReceiveAudioCondition
+lock
+broadcast
+unlock
 timeout
 initWithTimeoutValue:
 serverTTSClient
+setDidReceiveAudio:
 ospreyStartSynthesisRequest:responseHandler:completion:
 wait
+simulateNetworkStall
+didReceiveAudio
 bufferDurationLimit
 count
 objectAtIndexedSubscript:
+dateByAddingTimeInterval:
+timeIntervalSinceNow
+setTimeoutValue:
+timeoutValue
 refresh
 setVoice:
 streamBufferDuration
@@ -1330,12 +1357,17 @@ ospreyStartStreamingRequest:dataHandler:metaInfoHandler:completion:
 disableOspreyStreaming
 performStreamingOspreyTTS
 performRoundTripOspreyTTS
+dateWithTimeIntervalSinceNow:
+waitUntilDate:
 setServerTTSClient:
 setServerConfig:
+setDidReceiveAudioCondition:
+_didReceiveAudio
 _voice
 _serverTTSClient
 _serverConfig
 _bufferDurationLimit
+_didReceiveAudioCondition
 resetMobileAssetDefaults
 migrateAssets
 clearSynthesisCache
@@ -1395,7 +1427,6 @@ setPreinstalledCacheDir:
 _dirPath
 _preinstalledCacheDir
 allocWithZone:
-copy
 mutableAudioData
 mutableDescription
 setData:
@@ -1480,7 +1511,6 @@ defaultCenter
 handleMediaServerReset
 addObserver:selector:name:object:
 removeObserver:
-dateByAddingTimeInterval:
 internalBuild
 base64EncodedStringWithOptions:
 waitForAudioQueueStop
@@ -1566,15 +1596,9 @@ purge:urgency:
 periodic:urgency:
 registerCacheDelete
 refreshTimeoutCondition
-lock
-dateWithTimeIntervalSinceNow:
-waitUntilDate:
-unlock
 signal
-timeoutValue
 _waitForTimeInterval:
 shouldStop
-setTimeoutValue:
 setRefreshTimeoutCondition:
 setShouldStop:
 _shouldStop
@@ -1634,7 +1658,6 @@ _cacheTimer
 setIsServerStreamTTS:
 streamID
 removeNotificationName:
-simulateNetworkStall
 object
 handleBegin:
 handleChunk:
@@ -1662,9 +1685,7 @@ retryDeviceOnNetworkStall
 setFinalAudio:
 finalTimingInfo
 removeAllObjects
-localizedInterstitialStringForKey:language:gender:
 deviceTTSCore
-setText:
 setStreamID:
 setDeviceTTSCore:
 setFinalTimingInfo:
@@ -2049,6 +2070,7 @@ v24@0:8d16
 @"VSVoiceAsset"
 @"VSServerTTSClient"
 @"VSTimeoutCondition"
+@"NSCondition"
 v24@0:8@?16
 @"NSData"16@0:8
 @32@0:8@"NSString"16@"NSData"24
@@ -2137,7 +2159,6 @@ v20@0:8I16
 q24@0:8@16
 @24@0:8d16
 B24@0:8d16
-@"NSCondition"
 @24@0:8Q16
 v32@0:8@16@?24
 v56@0:8@16@?24@?32@?40@?48
