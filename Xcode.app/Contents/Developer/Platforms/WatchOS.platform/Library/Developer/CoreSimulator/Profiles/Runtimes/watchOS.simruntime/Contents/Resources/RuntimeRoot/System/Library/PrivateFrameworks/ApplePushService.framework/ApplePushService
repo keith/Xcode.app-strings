@@ -15,6 +15,7 @@ v32@?0@"NSString"8@"APSDNSResponse"16@"NSError"24
 v16@?0@"NSError"8
 telemetry
 topicManager
+topicManager-oversized
 daemon
 pushHistory
 database
@@ -32,12 +33,13 @@ connectionServer
 taskManager
 ttlCollection
 T@"NSObject<OS_os_log>",R
+topicManagerOversized
 courierOversized
     
 com.apple.apsd
 APSConnection-ivarQueue: %@
 %s unable to convert nameOfPort argument to UTF8 string less than %i characters
--[APSConnection initWithEnvironmentName:namedDelegatePort:queue:]
+-[APSConnection _initWithEnvironmentName:namedDelegatePort:enablePushDuringSleep:queue:]
 Unable to bootstrap_check_in() to namedDelegatePort '%@'. APS connections will not persist past process lifetime.
 %s unable to allocate delegate port: %s
 APSPortQueue
@@ -48,7 +50,6 @@ APSConnectionQueue
 environmentName
 portName
 processName
-portNameIsBundleId
 connectQueue
 Received reply is not of type dictionary!
 no reply received!
@@ -56,6 +57,12 @@ publicToken
 messageSize
 largeMessageSize
 isConnected
+APSTopicListEnabled
+APSTopicListOpportunistic
+APSTopicListIgnored
+APSTopicListNonWaking
+APSTopicListCount
+Unknown List
 copyIdentityQueue
 APSClientIdentity
 SecItemCopyMatching() failed: %ld
@@ -99,6 +106,14 @@ T@"NSObject<OS_dispatch_queue>",R,N,V_ivarQueue
 isShutdown
 TB,R,N,V_isShutdown
 TQ,N
+enabledTopics
+T@"NSArray",&,N,S_setEnabledTopics:,V_enabledTopics
+ignoredTopics
+T@"NSArray",&,N,S_setIgnoredTopics:,V_ignoredTopics
+opportunisticTopics
+T@"NSArray",&,N,S_setOpportunisticTopics:,V_opportunisticTopics
+nonWakingTopics
+T@"NSArray",&,N,S_setNonWakingTopics:,V_nonWakingTopics
 T@"NSData",R,&,N
 TB,N
 delegate
@@ -196,9 +211,6 @@ storeInMessageStore
 T@"CUTCheckpointRange",R,N,V_storeInMessageStore
 %02x
 %s_connection_queue
-enabledTopics
-ignoredTopics
-opportunisticTopics
 argument can't be converted to a property list
 message-type
 com.apple.apsd.nsxpc
@@ -294,9 +306,13 @@ We should not call scheduleInRunLoop if _queue is not null!
 %@ scheduleInRunLoop called with main runloop. Scheduling on main serial queue.
 %@ scheduleInRunLoop called with non-main runloop. Scheduling on non-main serial queue.
 %@ removeFromRunLoop
-%@ setEnabledTopics %@ ignoredTopics %@ opportunisticTopics %@ sendToDaemon: %@
+%@ setEnabledTopics %@ ignoredTopics %@ opportunisticTopics %@ nonWakingTopics %@ sendToDaemon: %@ completion: %@
 %@ got all nil topics, considering this as a change to flush any cached topics in apsd for named ports.
+%@ calling topics completion
+%@ provided setTopics completion block without delegate queue to callback on -- dropping
 APS %@ _connection is NULL in _sendEnabledTopics:ignoredTopics:opportunisticTopics:!
+Unable to move topic %@, This topic was not in the list provided! %@
+Invalid APSTopicList passed to moveTopic:fromList:toList!
 %@ asked for publicToken, got %@
 %@ setMessageSize: %lu
 %@ setLargeMessageSize: %lu
@@ -323,7 +339,7 @@ Flushing cached identity
 APSSendToClient
 END %@
 APSIncomingMessage
-%@ Received message from apsd: %@ but it didn't match the enabled topics: %@ or opportunistic topics: %@
+%@ Received message from apsd: %@ but it didn't match the enabled topics: %@ or opportunistic topics: %@ or non-waking topics: %@
 %@ responding with an ack for message with guid %@
 %@ _connection is NULL in _deliverMessage:.
 %@ Delivering did reconnect apsd
@@ -482,6 +498,7 @@ _environment
 taskManager
 telemetry
 topicManager
+topicManagerOversized
 daemon
 pushHistory
 database
@@ -504,6 +521,7 @@ objectForKey:
 appendFormat:
 compare:
 initWithEnvironmentName:namedDelegatePort:queue:
+_initWithEnvironmentName:namedDelegatePort:enablePushDuringSleep:queue:
 stringWithFormat:
 UTF8String
 processInfo
@@ -519,7 +537,7 @@ _shutdownFromDealloc
 object
 weakRefWithObject:
 count
-_callDelegateOnIvarQueueWithBlock:
+_asyncOnDelegateQueueWithBlock:
 connection:didChangeConnectedStatus:
 setEnableStatusNotifications:
 _cancelConnectionOnIvarQueue
@@ -530,10 +548,11 @@ _connectIfNecessary
 allValues
 messageID
 _deliverOutgoingMessageResultWithID:error:sendRTT:
+_createXPCConnectionWithQueueName:
 _addEnableCriticalReliabilityToXPCMessage:
 _addEnableStatusNotificationsToXPCMessage:
 _addUsesAppLaunchStatsToXPCMessage:
-_setEnabledTopics:ignoredTopics:opportunisticTopics:sendToDaemon:
+_setEnabledTopics:ignoredTopics:opportunisticTopics:nonWakingTopics:sendToDaemon:completion:
 _setEnableCriticalReliability:sendToDaemon:
 _setUsesAppLaunchStats:sendToDaemon:
 _setEnableStatusNotifications:sendToDaemon:
@@ -547,8 +566,13 @@ getCFRunLoop
 mainRunLoop
 isEqualToArray:
 _handleEvent:withHandler:
-_onIvarQueue_setEnabledTopics:ignoredTopics:opportunisticTopics:sendToDaemon:
+_onIvarQueue_setEnabledTopics:ignoredTopics:opportunisticTopics:nonWakingTopics:sendToDaemon:completion:
+_setEnabledTopics:
+_setOpportunisticTopics:
+_setIgnoredTopics:
+_setNonWakingTopics:
 _listForIdentifierOnIvarQueue:
+_topicListNameForLogging:
 mutableCopy
 removeObjectAtIndex:
 initWithArray:
@@ -610,7 +634,6 @@ connectionsDebuggingState
 notifySafeToSendFilter
 initWithEnvironmentName:
 initWithEnvironmentName:namedDelegatePort:
-initWithEnvironmentName:launchBundleIdOnDemand:queue:
 initWithEnvironmentName:queue:
 shutdown
 delegate
@@ -620,14 +643,18 @@ _disconnect
 _disconnectFromDealloc
 scheduleInRunLoop:
 removeFromRunLoop
+setEnabledTopics:ignoredTopics:opportunisticTopics:nonWakingTopics:completion:
+setEnabledTopics:ignoredTopics:opportunisticTopics:nonWakingTopics:
 setEnabledTopics:ignoredTopics:opportunisticTopics:
 setEnabledTopics:ignoredTopics:
 setEnabledTopics:
 setOpportunisticTopics:
 setIgnoredTopics:
+setNonWakingTopics:
 enabledTopics
 ignoredTopics
 opportunisticTopics
+nonWakingTopics
 moveTopic:fromList:toList:
 publicToken
 messageSize
@@ -658,10 +685,6 @@ _messageSize
 _largeMessageSize
 _connectionPortName
 _connectionPort
-_portNameIsBundleId
-_enabledTopics
-_ignoredTopics
-_opportunisticTopics
 _enableCriticalReliability
 _enableStatusNotifications
 _isConnected
@@ -679,6 +702,10 @@ _isReconnectScheduled
 _isDisconnected
 _isShutdown
 _isDeallocing
+_enabledTopics
+_ignoredTopics
+_opportunisticTopics
+_nonWakingTopics
 environmentForAuditToken:
 initWithCoder:
 decodeObjectForKey:
@@ -850,9 +877,13 @@ v24@0:8@16
 v32@0:8@?16@?24
 d16@0:8
 d24@0:8@16
+@24@0:8r*16
 @40@0:8@16@24@32
+@44@0:8@16@24B32@36
 v24@0:8@?16
-v44@0:8@16@24@32B40
+v60@0:8@16@24@32@40B48@?52
+v56@0:8@16@24@32@40@?48
+v48@0:8@16@24@32@40
 v40@0:8@16@24@32
 v32@0:8@16@24
 @24@0:8Q16
@@ -865,10 +896,10 @@ v40@0:8Q16@24Q32
 v28@0:8@16B24
 @"CUTWeakReference"
 @"NSData"
-@"NSArray"
 @"NSMutableDictionary"
 @"NSObject<OS_dispatch_source>"
 @"NSObject<OS_xpc_object>"
+@"NSArray"
 @48@0:8{?=[8I]}16
 q16@0:8
 I16@0:8

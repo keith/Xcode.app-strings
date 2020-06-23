@@ -11,6 +11,9 @@ appToken
 inputEightDotBraille
 TB,N
 wordWrapEnabled
+autoAdvanceEnabled
+autoAdvanceDuration
+Td,N
 inputContractionMode
 Ti,N
 VOTEventCommandBraillePanLeft
@@ -105,22 +108,24 @@ Error: unable to instantiate braille driver: %@
 SCROBrailleDriverProtocolUnloadNotification
 SCROBrailleDriverProtocolConfigurationChangeNotification
 SCROBrailleDriverProtocolSleepNotification
+v16@?0@"NSTimer"8
 unreadAnnouncements
 Server
 currentAnnouncementUnread
 canPanLeft
 canPanRight
-checked
-unchecked
 0x33
 SCROBrailleDriverProtocolSleepNotificationIsSleepingKey
 brailleKeyDebounceTimeout
 Td,N,V_brailleKeyDebounceTimeout
+autoAdvanceTimer
+T@"NSTimer",&,N,V_autoAdvanceTimer
 delegateWantsDisplayCallback
 inputAllowed
 TB,N,V_inputAllowed
 automaticBrailleTranslationEnabled
 TB,N,V_automaticBrailleTranslationEnabled
+Td,N,V_autoAdvanceDuration
 Ti,N,V_inputContractionMode
 outputContractionMode
 Ti,N,V_outputContractionMode
@@ -169,6 +174,8 @@ element
 driverID
 T@"<SCROSBrailleDisplayManagerDelegate>",W,N
 TI,N
+lastUserInteractionTime
+Td,N,V_lastUserInteractionTime
 managedDisplayQueue
 T@"SCROBrailleDisplayManagedQueue",R,N,V_managedDisplayQueue
 display manager event queue
@@ -247,8 +254,7 @@ TB,N,V_isForwardDelete
 pendingBraille
 T@"NSString",R,N,V_pendingBraille
 T@"NSArray",R,N,V_modifiers
-/Library/Caches/com.apple.xbs/Sources/MobileBrailleSupport_Sim/MobileBrailleSupport-247.5/Sources/SCROBrailleLine.m
-<Unknown File>
+SCROBrailleLine.m
 Error: newLineDescriptor range out of bounds
 v40@?0@"NSString"8{_NSRange=QQ}16^B32
 v40@?0@"NSDictionary"8{_NSRange=QQ}16^B32
@@ -275,6 +281,14 @@ translationDelegate
 T@"<BRLTBrailleStateManagerDelegate>",W,N,V_translationDelegate
 T@"BRLTBrailleStateManager",R,N
 com.apple.scrod.braille.driver.stealth.caption
+BrailleSubstitutions
+strings
+_FULL
+_SHORT
+CHECKED_SHORT
+UNCHECKED_SHORT
+B32@?0@"NSString"8Q16^B24
+v56@?0@"NSString"8{_NSRange=QQ}16{_NSRange=QQ}32^B48
 en-US
 com.apple.ScreenReaderOutput.brailleTranslationService.clientQueue
 xctest
@@ -626,6 +640,7 @@ SCROPendingBrailleModifierPair
 SCROBrailleLine
 UnitTesting
 SCROBrailleStealthDriver
+SCROBrailleSubstitutionManager
 SCROBrailleTranslationManager
 SCROBundleExtras
 SCROCallback
@@ -676,7 +691,6 @@ cancel
 handlerValueForKey:
 boolValue
 connectionClass
-alloc
 initWithHandlerType:delegate:
 registerHandlerCallbackForKey:
 handleBrailleDidDisconnect:
@@ -715,6 +729,7 @@ intValue
 numberWithInteger:
 integerValue
 numberWithUnsignedInt:
+doubleValue
 performHandlerActionForKey:
 initWithObjectsAndKeys:
 handlerValueForKey:withObject:
@@ -774,9 +789,14 @@ setAutomaticBrailleTranslationEnabled:
 automaticBrailleTranslationEnabled
 setWordWrapEnabled:
 wordWrapEnabled
+setAutoAdvanceEnabled:
+autoAdvanceEnabled
+setAutoAdvanceDuration:
+autoAdvanceDuration
 displayMode
 persistentKeyModifiers
 setPersistentKeyModifiers:
+setLastUserInteractionTime:
 setExpandedStatusDisplayModeWithStatus:
 setAnnouncementsDisplayMode
 exitCurrentDisplayMode
@@ -796,6 +816,7 @@ showPreviousAnnouncement
 showNextAnnouncement
 setPrepareToMemorizeNextKey:immediate:forDisplayWithToken:
 setPrimaryBrailleDisplay:
+resetEditingManager
 handleCallback:
 isConnected
 setSingleLetterInputIsOn:
@@ -1016,12 +1037,16 @@ brailleDisplay:driverDidLoad:
 removeObserver:
 newLineDescriptor
 identifier
+_beginAutoAdvanceIfEnabled
+autoAdvanceTimer
+eventWithType:data:
+enqueueEvent:
+scheduledTimerWithTimeInterval:repeats:block:
+setAutoAdvanceTimer:
 dictionaryWithCapacity:
 setObject:forKey:
 transport
 numberWithUnsignedInteger:
-eventWithType:data:
-enqueueEvent:
 eventWithType:data:data2:data3:
 tokenForRouterIndex:location:appToken:
 type
@@ -1029,8 +1054,9 @@ _setBrailleFormatterHandler:
 _statusDisplayHandler:
 _aggregatedStatusHandler:
 _setDelegateWantsDisplayCallbackHandler:
-_panHandler:
 data
+_autoAdvancePanHandler:
+_panHandler:
 data2
 _isMemorizingKeys
 discardEdits
@@ -1043,7 +1069,6 @@ _setBatchUpdates:
 _singleLetterInputHandler:
 _textSearchModeHandler:
 _translateBrailleToClipboard
-doubleValue
 _setBrailleKeyDebounceTimeoutHandler:
 eventHandled
 brailleDriverDisconnected:
@@ -1056,6 +1081,8 @@ currentUnread
 canPanLeft
 canPanRight
 appendFormat:
+sharedInstance
+brailleSubstitutionForType:withLanguage:
 _setBrailleFormatter:
 _unpauseInput
 _processKeyEvents:
@@ -1121,7 +1148,8 @@ initWithObjects:
 moveCursorLeft
 playBorderHitSoundForBrailleDisplay:
 moveCursorRight
-moveCursorToRouterIndex:forwardToScreenReader:
+moveCursorToRouterIndex:forwardToScreenReader:updateRouterLocation:
+setRouterIndex:token:location:appToken:
 arrayWithObjects:count:
 playCommandNotSupportedSoundForBrailleDisplay:
 deleteAtCursor
@@ -1138,7 +1166,6 @@ setModifiers:
 lowercaseString
 characterAtIndex:
 setKeyCode:
-dictionaryWithObjects:forKeys:count:
 stringWithCharacters:length:
 _inputEventHandler
 _hasKeyChord
@@ -1222,6 +1249,8 @@ _shouldBatchUpdates
 _needsUpdating
 _automaticBrailleTranslationEnabled
 _wordWrapEnabled
+_autoAdvanceEnabled
+_autoAdvanceDuration
 _driverIdentifier
 _driverModelIdentifier
 _mainSize
@@ -1244,8 +1273,8 @@ _delegateWantsDisplayCallback
 _persistentKeyModifiers
 _eventHandled
 _brailleKeyDebounceTimeout
+_autoAdvanceTimer
 numberWithUnsignedLong:
-setRouterIndex:token:location:appToken:
 initWithBits:
 stringByAppendingString:
 allocWithZone:
@@ -1423,6 +1452,8 @@ _eventQueue_setInputEightDotBraille:
 _refreshEightDotEnabledOnDisplays
 _eventQueue_setAutomaticBrailleTranslationEnabled:
 _eventQueue_setWordWrapEnabled:
+_eventQueue_setAutoAdvanceEnabled:
+_eventQueue_setAutoAdvanceDuration:
 _eventQueue_setInputContractionMode:
 _eventQueue_setPersistentKeyModifiers:
 _eventQueue_showDotsSevenAndEight:
@@ -1438,6 +1469,7 @@ _eventQueue_setSingleLetterInputIsOn:
 _eventQueue_setTextSearchModeIsOn:
 _eventQueue_translateBrailleToClipboard
 _eventQueue_setBrailleKeyDebounceTimeout:
+_eventQueue_resetEditingManager
 _eventQueue_refreshEightDotEnabledOnDisplays
 _enableAutoDetect
 loadBluetoothDriverWithAddress:
@@ -1451,6 +1483,7 @@ configureTableWithIdentifier:
 automaticBrailleTranslation
 setLineDescriptorDisplayCallbackEnabled:
 lineDescriptorDisplayCallbackEnabled
+lastUserInteractionTime
 managedDisplayQueue
 _eventQueue
 _managedDisplayQueue
@@ -1475,6 +1508,7 @@ _alertTimeout
 _alertPriority
 _inputAccessMode
 _blankUIString
+_lastUserInteractionTime
 initWithType:data:data2:data3:
 stringWithFormat:
 data3
@@ -1515,7 +1549,6 @@ scriptRangeOfBrailleCellRepresentingCharacterAtScriptIndex:
 translate:
 printBrailleForText:language:mode:textPositionsRange:locations:
 bits
-resetEditingManager
 addText:language:selection:token:focus:technical:isEditableText:
 setOutputDelegate:
 stateManager
@@ -1539,6 +1572,7 @@ handlePerformActionForKey:trusted:
 initWithKey:object:
 callbackDelegate
 postToHandler:
+dictionaryWithObjects:forKeys:count:
 setIsAtomic:
 initWithBrailleDisplayManager:
 _brailleDisplayManager
@@ -1609,7 +1643,6 @@ range
 characterIsMember:
 substringWithRange:
 whitespaceAndNewlineCharacterSet
-stringWithUTF8String:
 currentHandler
 handleFailureInMethod:object:file:lineNumber:description:
 enumerateWordsBetweenCharacters:text:inRange:usingBlock:
@@ -1698,6 +1731,28 @@ _translationDelegate
 _pendingBrailleStringDictionaries
 _isDriverLoaded
 _modelIdentifier
+languageCode
+setObject:forKeyedSubscript:
+URLForResource:withExtension:
+dictionaryWithContentsOfURL:
+_loadLanguageSubstitutions:intoDictionary:
+stringByReplacingOccurrencesOfString:withString:
+localeWithLocaleIdentifier:
+bundleURL
+pathsForResourcesOfType:inDirectory:forLocalization:
+containsString:
+ax_filteredArrayUsingBlock:
+firstObject
+dictionaryWithContentsOfFile:
+initWithTagSchemes:options:
+setString:
+_ensureLanguageDataPresent:
+defaultOrthographyForLanguage:
+setOrthography:range:
+enumerateTagsInRange:scheme:options:usingBlock:
+stringWithBrailleSubstitutions:withLanguage:
+_lookup
+_lingusticTagger
 loadTranslatorWithServiceIdentifier:forUnitTesting:
 queue
 translationService
@@ -1717,6 +1772,7 @@ _alwaysUsesNemethCodeForTechnicalText
 _queue_defaultLanguage
 _translationService
 initWithBytes:length:
+stringWithUTF8String:
 stringByAppendingPathComponent:
 reverseObjectEnumerator
 dictionary
@@ -1882,6 +1938,8 @@ v20@0:8i16
 i16@0:8
 v24@0:8q16
 q16@0:8
+v24@0:8d16
+d16@0:8
 I16@0:8
 v20@0:8I16
 q44@0:8q16^q24^@32i40
@@ -1889,7 +1947,6 @@ q44@0:8q16^q24^@32i40
 v40@0:8{_NSRange=QQ}16q32
 v28@0:8B16q20
 v28@0:8B16B20i24
-v24@0:8d16
 @"SCROConnection"
 @"NSLock"
 @"NSMutableAttributedString"
@@ -1912,7 +1969,6 @@ v24@0:8@"<SCROBrailleDisplayCommandDispatcherDelegate>"16
 @"NSDictionary"
 @"<SCROBrailleDisplayCommandDispatcherDelegate>"
 {_NSRange=QQ}36@0:8{_NSRange=QQ}16B32
-d16@0:8
 ^{__CFArray=}16@0:8
 v24@0:8^{__CFArray=}16
 ^{__CFSet=}16@0:8
@@ -1955,6 +2011,7 @@ v24@0:8@?16
 ^{__CFRunLoopTimer=}
 @"NSMutableArray"
 @"SCROBrailleDisplayInput"
+@"NSTimer"
 B36@0:8@16@24i32
 ^{IONotificationPort=}
 @"NSMutableDictionary"
@@ -2044,7 +2101,7 @@ q32@0:8q16@24
 {_NSRange=QQ}32@0:8{_NSRange=QQ}16
 B20@0:8B16
 Q24@0:8Q16
-B32@0:8Q16o^B24
+B40@0:8Q16o^B24^q32
 B36@0:8@16@24B32
 @28@0:8@16B24
 @36@0:8@16@24B32
@@ -2052,6 +2109,8 @@ B36@0:8@16@24B32
 @32@0:8@16o^B24
 {_NSRange="location"Q"length"Q}
 @"SCROBrailleLineVirtualStatus"
+@32@0:8q16@24
+@"NSLinguisticTagger"
 @"BRLTTranslationService"
 @64@0:8^I16{?=[8I]}24^I56
 q20@0:8I16

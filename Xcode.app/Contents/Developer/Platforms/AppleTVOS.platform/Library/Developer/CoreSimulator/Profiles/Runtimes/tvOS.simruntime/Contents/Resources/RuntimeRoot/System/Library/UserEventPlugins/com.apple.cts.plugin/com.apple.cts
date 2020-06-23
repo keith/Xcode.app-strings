@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-1738.103.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2001
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -22,6 +22,8 @@ markStarted:
 markStopped:
 totalElapsed
 random_initial_delay
+stringWithFormat:
+description
 token
 setToken:
 seqno
@@ -112,6 +114,8 @@ duet_power_budgeted
 setDuet_power_budgeted:
 bgtask_debug
 setBgtask_debug:
+confirmed_run
+setConfirmed_run:
 group_name
 setGroup_name:
 group_concurrency_limit
@@ -142,6 +146,7 @@ _communicates_with_paired_device
 _schedule_rtc_wake
 _duet_power_budgeted
 _bgtask_debug
+_confirmed_run
 _bgwake_count
 _power_assertion
 _pid
@@ -223,21 +228,19 @@ newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@
 Adding random initial delay %{public}d/%{public}d
-failed to register user idle notification
 Control channel connection: %d
 evaluating activities
 activity timer fired
-User %s
 %{public}@ state change %ld -> %ld
 Initiating XPC Activity: %{public}@
 Created temporary power assertion for %{public}@: %d
 Deferring XPC Activity: %{public}@
 Completed XPC Activity: %{public}@
 Rescheduling XPC Activity: %{public}@
-releasing power assertion: %d
+releasing power assertion: %d for %{public}@
 XPC Activity client connection closed: %{public}@
 Unregistered unmanaged XPC Activity: %{public}@
-Running XPC Activity (PID %d): %{pubilc}@
+Running XPC Activity (PID %d): %{public}@
 taking power assertion: %{public}@: %d
 releasing temporary power assertion: %{public}@: %d
 Scheduling activity timer for [%{public}@] in %lld seconds
@@ -245,20 +248,22 @@ activities are suspended
 Activity %{public}@ is eligible to run.
 Updating XPC Activity: %{public}@ (eligible=%s)
 Updating XPC Activity (deferred): %{public}@ (eligible=%s)
-Time Change: resubmitting %{public}@
+Time Change: resubmitting actiivty %{public}@
 No name in unmanaged activity request. Rejecting request.
 Failed to register unmanaged XPC Activity: %{public}s
+Created unmanaged XPC Activity: %{public}@
 Registered unmanaged XPC Activity: %{public}@
 %{public}s: %{public}s
 %{public}@: permissible values for priority are %s or %s
 %{public}@: postinstall activites are not allowed to repeat; interval property ignored.
 %{public}@: postinstall activites are not allowed to repeat; repeating property ignored.
 Control Channel: %{public}s %{public}s
-Creating XPC Activity: %{public}s
+Creating XPC Activity on XPC add event: %{public}s
 Failed to create XPC Activity: %{public}s
+Created XPC Activity: %{public}@
 Registered XPC Activity: %{public}@
 %{public}@: %{public}s
-Unregistered XPC Activity: %{public}@
+Unregistered XPC Activity on XPC remove event: %{public}@
 The interval for key "%s" is not between %d and %d (inclusive).
 Registered StartCalendarInterval: %{public}@: %{public}@
 Unregistered StartCalendarInterval: %s
@@ -270,9 +275,9 @@ CTSCalendarInterval
 v16@0:8
 q16@0:8
 v24@0:8q16
+@16@0:8
 Q16@0:8
 v24@0:8Q16
-@16@0:8
 v24@0:8@16
 B16@0:8
 v20@0:8B16
@@ -295,8 +300,6 @@ ActivityBaseDates
 com.apple.xpc.activity2
 DateCompleted
 DateSubmitted
-v12@?0i8
-com.apple.appletv.backgroundstate
 BackgroundTask
 PreventUserIdleSystemSleep
 TEMP:%s
@@ -309,6 +312,7 @@ TimeoutActionTurnOff
 TimeoutSeconds
 AssertLevel
 AssertionOnBehalfOfPID
+%@ (%p)
 token
 TQ,N,V_token
 seqno
@@ -409,6 +413,8 @@ duet_power_budgeted
 TB,N,V_duet_power_budgeted
 bgtask_debug
 TB,N,V_bgtask_debug
+confirmed_run
+TB,N,V_confirmed_run
 group_name
 T@"NSString",&,N,V_group_name
 group_concurrency_limit
@@ -419,9 +425,8 @@ com.apple.xpc.activity.unmanaged
 v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.xpc.activity.control
 v8@?0
-Idle
-Active
 com.apple.xpc.activity.debug.trigger
+v12@?0i8
 DisableSmartPowerNap
 name
 state
@@ -441,6 +446,7 @@ Result
 State
 CheckIn
 Wait
+ConfirmedRun
 Defer
 Continue
 Done

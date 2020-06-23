@@ -47,6 +47,9 @@ NULL == meth->target
 (in) 
 (out)
 meth->cls == cls
+error: OSAction class not found
+OSAction_%s_%s
+actionName
 EmitRPCTypes
 meth->msgid
 %s_%s_%s
@@ -115,6 +118,8 @@ public:
 OSMetaClassBase * target
     %s_Invoke(const IORPC rpc,
         OSMetaClassBase * target,
+        %s_Handler func,
+        const OSMetaClass * targetActionClass);
         %s_Handler func);
 #define %s_KernelMethods 
 protected:
@@ -122,7 +127,7 @@ protected:
     %s_%s(%s_%s_Args);
 #define %s_VirtualMethods 
 /* iig(%s) generated from %s */
-DriverKit-73.100.4
+DriverKit-99
 /* %s:%d-%d */
 /* source class %s %s:%d-%d */
 #if __DOCUMENTATION__
@@ -130,10 +135,59 @@ DriverKit-73.100.4
 #undef KERNEL
 #else /* __DOCUMENTATION__ */
 /* generated class %s %s:%d-%d */
-EmitHeader
-output: %s::%s (%s)
-root
-override
+#endif /* !__DOCUMENTATION__ */
+/* %s:%d- */
+fprintpstrf
+len < 256
+"\%03o%s"
+@iig end
+/* %s */
+/* @iig end */
+#undef
+IIG_IMPLEMENTATION
+#define
+IIG_IMPLEMENTATION 
+#if KERNEL
+#include <libkern/c++/OSString.h>
+#else
+#include <DriverKit/DriverKit.h>
+#endif /* KERNEL */
+#include <DriverKit/IOReturn.h>
+#include <%s/%s.h>
+#include "%s.h"
+@iig implementation
+#if __has_builtin(__builtin_load_member_function_pointer)
+#define SimpleMemberFunctionCast(cfnty, self, func) (cfnty)__builtin_load_member_function_pointer(self, func)
+#define SimpleMemberFunctionCast(cfnty, self, func) ({ union { typeof(func) memfun; cfnty cfun; } pair; pair.memfun = func; pair.cfun; })
+#endif
+#if !KERNEL
+OSMetaClass
+extern OSMetaClass * g%sMetaClass;
+#endif /* !KERNEL */
+usage: %s --def <def input file> --header <header output file> --impl <implementation output file> [--log <log file>] [--framework-name <name>] -- <clang args>
+header
+impl
+help
+version
+framework-name
+h:i:s:
+x86_64
+-arch
+-target
+-triple
+error: -arch, -target, and -triple arguments are not permitted
+-isysroot
+iPhoneOS
+WatchOS
+BridgeOS
+AppleTVOS
+arm64
+clang_createTranslationUnitFromSourceFile error
+compile failed
+visit:
+construct:
+emit:
+EmitHeaderForClass
 #define %s_%s_ID            0x%016qxULL
 #define %s_%s_Args \
         const IORPC rpc%s
@@ -153,10 +207,8 @@ public:
 struct %s_IVars;
 struct %s_LocalIVars;
 class %s : public %s, public %sInterface
-#if KERNEL
     OSDeclareDefaultStructorsWithDispatch(%s);
 #endif /* KERNEL */
-#if !KERNEL
     friend class %sMetaClass;
     union
         %s_IVars * ivars;
@@ -166,25 +218,6 @@ class %s : public %s, public %sInterface
     using super = %s;
     %s_Methods
     %s_VirtualMethods
-#endif /* !__DOCUMENTATION__ */
-/* %s:%d- */
-fprintpstrf
-len < 256
-"\%03o%s"
-@iig end
-/* %s */
-/* @iig end */
-#undef
-IIG_IMPLEMENTATION
-#define
-IIG_IMPLEMENTATION 
-#include <DriverKit/IOReturn.h>
-#include <%s/%s.h>
-#include "%s.h"
-@iig implementation
-OSMetaClass
-extern OSMetaClass * g%sMetaClass;
-#endif /* !KERNEL */
 OSDefineMetaClassAndStructors(%s, %s);
 #define %s_QueueNames  ""
     
@@ -265,12 +298,8 @@ kern_return_t
             ret = %s::%s_Invoke(rpc, &%s::%s_Impl);
             break;
         {
-            union {
-                %s (%s::*fIn)(%s_%s_Args);
-                %s::%s_Handler handler;
-            } map;
-            map.fIn = &%s::%s_Impl;
-            ret = %s::%s_Invoke(rpc, self, map.handler);
+            ret = %s::%s_Invoke(rpc, self, SimpleMemberFunctionCast(%s::%s_Handler, *self, &%s::%s_Impl), OSTypeID(OSAction_%s_%s));
+            ret = %s::%s_Invoke(rpc, self, SimpleMemberFunctionCast(%s::%s_Handler, *self, &%s::%s_Impl));
         }
         default:
             ret = OSMetaClassBase::Dispatch(rpc);
@@ -280,10 +309,22 @@ kern_return_t
     return (ret);
 %s::CreateAction%s(size_t referenceSize, OSAction ** action)
     kern_return_t ret;
-    ret = OSAction::Create(this,
+#if defined(IOKIT_ENABLE_SHARED_PTR)
+    OSSharedPtr<OSString>
+#else /* defined(IOKIT_ENABLE_SHARED_PTR) */
+    OSString *
+#endif /* !defined(IOKIT_ENABLE_SHARED_PTR) */
+    typeName = OSString::withCString("OSAction_%s_%s");
+    if (!typeName) {
+        return kIOReturnNoMemory;
+    ret = OSAction_%s_%s::CreateWithTypeName(this,
                            %s_%s_ID,
                            referenceSize,
+                           typeName.get(),
+                           typeName,
                            action);
+#if !defined(IOKIT_ENABLE_SHARED_PTR)
+    typeName->release();
     return (ret);
 %s::%s%s(
 _Call
@@ -374,19 +415,26 @@ char
     }
 %s::%s_Invoke(const IORPC _rpc,
         %s_Handler func)
+    return %s::%s_Invoke(_rpc, target, func, NULL);
+    return %s::%s_Invoke(_rpc, func, NULL);
+        const OSMetaClass * targetActionClass)
     %s_%s_Invocation rpc = { _rpc };
     %s * %s;
     %s %s = (sizeof(rpc.message->content.__%s) / sizeof(rpc.message->content.__%s[0]));
     %s %s = (sizeof(rpc.reply->content.__%s) / sizeof(rpc.reply->content.__%s[0]));
     if (%s_%s_Msg_ObjRefs != rpc.message->content.__hdr.objectRefs) return (kIOReturnIPCError);
+    if (targetActionClass) {
+        %s = (OSAction *) OSMetaClassBase::safeMetaCast((OSObject *) rpc.message->content.%s, targetActionClass);
+    } else {
+        %s = OSDynamicCast(OSAction, (OSObject *) rpc.message->content.%s);
     %s = OSDynamicCast(%s, (OSObject *) rpc.message->content.%s);
     if (!%s && rpc.message->content.%s) return (kIOReturnBadArgument);
     if (%s > rpc.message->content.%s) %s = rpc.message->content.%s;
     if (strnlen(&rpc.message->content.__%s[0], sizeof(rpc.message->content.__%s)) >= sizeof(rpc.message->content.__%s)) return kIOReturnBadArgument;
     %s(*func)(
 ret = 
-        %s%s
-rpc.rpc,
+target%s
+        rpc.rpc%s
         &rpc.message->content.__%s[0]
         &rpc.reply->content.__%s[0]
         %s
@@ -416,23 +464,3 @@ kIORPCVersion190615Reply
     rpc.reply->%s__descriptor.disposition = %s;
     return (%s);
 kIOReturnSuccess
-usage: %s --def <def input file> --header <header output file> --impl <implementation output file> [--log <log file>] [--framework-name <name>] -- <clang args>
-header
-impl
-version
-framework-name
-h:i:s:
-x86_64
--arch
--isysroot
-iPhoneOS
-WatchOS
-BridgeOS
-AppleTVOS
-arm64
-clang: %s
-clang_createTranslationUnitFromSourceFile error
-compile failed
-visit:
-construct:
-emit:

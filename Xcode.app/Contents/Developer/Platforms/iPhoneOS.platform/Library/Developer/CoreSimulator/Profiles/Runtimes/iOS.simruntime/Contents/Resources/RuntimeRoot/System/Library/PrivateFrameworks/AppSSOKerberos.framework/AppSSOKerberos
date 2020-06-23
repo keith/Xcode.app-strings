@@ -64,8 +64,10 @@ using credential from cache: %@
 using sitecode: %@
 starting site code discovery
 found existing credential received: %@
+UUID nil after find credential for calling app: %{public}@
 response for find existing credential: %lu
 new credential received: %@
+UUID nil after authentication for calling app: %{public}@
 response for new credential: %lu
 error for new credential: %{public}@
 using credential: %{public}@
@@ -88,9 +90,15 @@ using certificate: %@ for token id: %@
 Could not get a SecIdentityRef for token id: %@
 password is missing
 using cache: %@
+complete bundleIdACL: %{public}@
+using source app signing identifier: %{public}@
 findExistingCredentialUsingContext
+%s using upn: %{public}@ on %@
+changePasswordForUPN result: %{public}@
+error during changePasswordForUPN: %{public}@
 start of determineNetworkFingerprint
 using bundleIdentifier: %{public}@
+using audit token
 path has not changed
 path is not satisfied, return nil
 vpn config uuid: %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x
@@ -111,16 +119,16 @@ loading from file: %@
 Error reading plist file: %{public}@, message: %{public}@
 Error deserializing plist: %{public}@
 Error using cached credential: %{public}@
-CreateName failed with: %{public}@
+createGSSName failed with: %{public}@
 removing expired credential: %@
 kerbGetTGTForUser: User entered a UPN in the username field.
 kerbGetTGTForUser: User entered a standard username in the username field.
-CreateName failed with: %@
 kerbValidatePassword: krb5_init_context failed with error: %d - %s
 kerbValidatePassword: krb5_parse_name failed with error: %d - %s
 kerbValidatePassword: krb5_get_init_creds_password failed with error: %d - %s
 error parsing krb5 principal
 error importing krb5 principal
+GSSCreateName failed with: %{public}@
 gss_aapl_initial_cred failed with: %{public}@
 destroyCredentialForUPN - no UPN
 failed to import %@: %{public}@
@@ -226,6 +234,10 @@ datePasswordExpires
 T@"NSString",&,N,V_datePasswordExpires
 networkHomeDirectory
 T@"NSString",&,N,V_networkHomeDirectory
+delayUserSetupCleared
+T@"NSNumber",&,N,V_delayUserSetupCleared
+networkAvailable
+T@"NSNumber",&,N,V_networkAvailable
 SOKerberosRealmSettings
 +[SOKeychainHelper addCredentialsToKeychainWithService:withUsername:withPassword:requireUserPresence:]
 +[SOKeychainHelper retrieveCredentialsFromKeychainWithService:returnedUsername:returnedPassword:]
@@ -242,6 +254,8 @@ useSiteAutoDiscovery
 TB,N,V_useSiteAutoDiscovery
 credentialBundleIdACL
 T@"NSArray",&,N,V_credentialBundleIdACL
+includeManagedAppsInBundleIdACL
+TB,N,V_includeManagedAppsInBundleIdACL
 allowPasswordChange
 TB,N,V_allowPasswordChange
 allowAutomaticLogin
@@ -264,10 +278,18 @@ pwReqHistory
 T@"NSNumber",&,N,V_pwReqHistory
 pwReqText
 T@"NSString",&,N,V_pwReqText
+helpText
+T@"NSString",&,N,V_helpText
+customUsernameLabel
+T@"NSString",&,N,V_customUsernameLabel
 replicationTime
 T@"NSNumber",&,N,V_replicationTime
 syncLocalPassword
 TB,V_syncLocalPassword
+monitorCredentialsCache
+TB,V_monitorCredentialsCache
+delayUserSetup
+TB,V_delayUserSetup
 %@@%@
 Kerberos:%@
 HTTP/1.1
@@ -308,6 +330,8 @@ TB,N,V_returnCredentialOnly
 T@"SOKerberosRealmSettings",R,N
 callerBundleIdentifier
 T@"NSString",&,N,V_callerBundleIdentifier
+callerLocalizedName
+T@"NSString",&,N,V_callerLocalizedName
 credsCameFromKeychain
 TB,N,V_credsCameFromKeychain
 attemptedToGetCredsFromKeychain
@@ -320,6 +344,12 @@ siteCodeGroup
 T@"NSObject<OS_dispatch_group>",&,N,V_siteCodeGroup
 networkIdentity
 T@"SONetworkIdentity",&,N,V_networkIdentity
+auditToken
+T@"NSData",R,N,V_auditToken
+isManagedApp
+TB,R,N,V_isManagedApp
+smartCardNeedsInsert
+TB,N,V_smartCardNeedsInsert
 SOKerberosContext
 (&(DnsDomain=%@)(NtVer=\06\00\00\00))
 netlogon
@@ -363,6 +393,8 @@ com.apple.KerberosPlugin.InternalNetworkAvailable
 com.apple.KerberosPlugin.InternalNetworkNotAvailable
 com.apple.KerberosExtension.gotNewCredential
 com.apple.KerberosExtension.passwordChangedWithPasswordSync
+com.apple.KerberosExtension.userSignedOut
+com.apple.KerberosExtension.configRemoved
 name
 T@"NSString",&,V_name
 lifetime
@@ -374,9 +406,11 @@ kGSSICPassword
 API:%@
 kGSSICKerberosCacheName
 kGSSICSiteName
+com.apple.private.gssapi.allowmanagedapps
 kGSSICAppIdentifierACL
 kGSSICAppleSourceAppSigningIdentity
 kGSSICAppleSourceApp
+-[SOKerberosAuthentication changePasswordWithContext:withError:]
 kGSSMinorErrorCode
 siteDiscoveryInProgress
 TB,V_siteDiscoveryInProgress
@@ -387,6 +421,7 @@ NetworkExtension
 T@"NSString",&,N,V_networkFingerprint
 lastpath
 T@"NSObject<OS_nw_path>",&,N,V_lastpath
+T@"NSData",&,N,V_auditToken
 SONetworkIdentity
 SOKerberosFileManager
 failed to find credential: %@
@@ -394,6 +429,7 @@ kGSSChangePasswordOldPassword
 kGSSChangePasswordNewPassword
 Enterprise Connect
 v24@?0^{gss_OID_desc_struct=I^v}8^{gss_cred_id_t_desc_struct=}16
+failed to find credential to destroy: %@
 http
 SOKerberosHelper
 com.apple.AppSSO.wrapper
@@ -446,7 +482,6 @@ localizedStringForKey:value:table:
 dictionaryWithObjects:forKeys:count:
 objectForKeyedSubscript:
 evaluateAccessControl:operation:options:error:
-numberWithBool:
 code
 searchForCachedIdentityWithSerial:withIssuer:withTokenID:
 objectForKey:
@@ -581,6 +616,8 @@ datePasswordLastChanged
 dateLocalPasswordLastChanged
 datePasswordExpires
 networkHomeDirectory
+delayUserSetupCleared
+networkAvailable
 arrayWithObjects:count:
 setWithArray:
 decodeObjectOfClasses:forKey:
@@ -599,6 +636,8 @@ setDatePasswordLastChanged:
 setDateLocalPasswordLastChanged:
 setDatePasswordExpires:
 setNetworkHomeDirectory:
+setDelayUserSetupCleared:
+setNetworkAvailable:
 setSiteCodeCache:
 _userPrincipalName
 _userName
@@ -612,6 +651,8 @@ _datePasswordLastChanged
 _dateLocalPasswordLastChanged
 _datePasswordExpires
 _networkHomeDirectory
+_delayUserSetupCleared
+_networkAvailable
 _siteCodeCache
 dataUsingEncoding:
 lowercaseString
@@ -638,21 +679,27 @@ pwReqLength
 pwReqMinAge
 pwReqHistory
 pwReqText
+helpText
+customUsernameLabel
 principalName
 certificateUUID
 useSiteAutoDiscovery
 allowAutomaticLogin
 requireUserPresence
+monitorCredentialsCache
 replicationTime
 numberWithDouble:
 credentialBundleIdACL
 array
 allowPasswordChange
+delayUserSetup
+includeManagedAppsInBundleIdACL
 initAndPopulateExtensionData
 setPrincipalName:
 setCertificateUUID:
 setUseSiteAutoDiscovery:
 setCredentialBundleIdACL:
+setIncludeManagedAppsInBundleIdACL:
 setAllowPasswordChange:
 setAllowAutomaticLogin:
 setRequireUserPresence:
@@ -664,14 +711,21 @@ setPwReqLength:
 setPwReqMinAge:
 setPwReqHistory:
 setPwReqText:
+setHelpText:
+setCustomUsernameLabel:
 setReplicationTime:
 setSyncLocalPassword:
+setMonitorCredentialsCache:
+setDelayUserSetup:
 _useSiteAutoDiscovery
+_includeManagedAppsInBundleIdACL
 _allowPasswordChange
 _allowAutomaticLogin
 _requireUserPresence
 _pwReqComplexity
 _syncLocalPassword
+_monitorCredentialsCache
+_delayUserSetup
 _principalName
 _certificateUUID
 _credentialBundleIdACL
@@ -682,8 +736,14 @@ _pwReqLength
 _pwReqMinAge
 _pwReqHistory
 _pwReqText
+_helpText
+_customUsernameLabel
 _replicationTime
+authorizationRequest
+localizedCallerDisplayName
 callerBundleIdentifier
+isCallerManaged
+auditTokenData
 httpHeaders
 hasSuffix:
 stringByReplacingOccurrencesOfString:withString:options:range:
@@ -692,7 +752,6 @@ setRequestStarted:
 dispatchGroup
 cancelRequest:
 setRequestCancelled:
-authorizationRequest
 cancel
 finishRequest
 complete
@@ -738,6 +797,8 @@ setCertificateTokenID:
 returnCredentialOnly
 setReturnCredentialOnly:
 setCallerBundleIdentifier:
+callerLocalizedName
+setCallerLocalizedName:
 credsCameFromKeychain
 setCredsCameFromKeychain:
 requestCancelled
@@ -751,6 +812,10 @@ siteCodeGroup
 setSiteCodeGroup:
 networkIdentity
 setNetworkIdentity:
+auditToken
+isManagedApp
+smartCardNeedsInsert
+setSmartCardNeedsInsert:
 setAuthorizationRequest:
 setDispatchGroup:
 setSettingsManager:
@@ -760,6 +825,8 @@ _credsCameFromKeychain
 _requestCancelled
 _attemptedToGetCredsFromKeychain
 _forceLoginViewController
+_isManagedApp
+_smartCardNeedsInsert
 _requestStarted
 _extensionData
 _extensionUserData
@@ -772,9 +839,11 @@ _certificateSerialNumber
 _certificateIssuer
 _certificateTokenID
 _callerBundleIdentifier
+_callerLocalizedName
 _loginTimeStamp
 _siteCodeGroup
 _networkIdentity
+_auditToken
 _authorizationRequest
 _dispatchGroup
 _settingsManager
@@ -801,6 +870,7 @@ uuid
 _lifetime
 _name
 _uuid
+triggerVPNIfNeededUsingRealm:bundleIdentifier:auditToken:
 acquireCredentialForUUID:
 UUIDString
 determineNetworkFingerprint
@@ -817,15 +887,19 @@ setSiteDiscoveryInProgress:
 addObjectsFromArray:
 createCredential:withOptions:andError:
 acquireCredentialForUPN:
+changePasswordForUPN:withOldPassword:withNewPassword:withError:
+localizedDescription
 userInfo
 numberWithLong:
 isEqualToNumber:
 initWithRealm:andSettingsManager:
 attemptKerberosWithContext:returningToken:orError:
+changePasswordWithContext:withError:
 myLAContext
 setMyLAContext:
 _siteDiscoveryInProgress
 _myLAContext
+auditTokenFromData:auditToken:
 lastpath
 setLastpath:
 setNetworkFingerprint:
@@ -833,7 +907,8 @@ getVPNServerSignature:
 stringWithUTF8String:
 getInterfaceSignature:
 appendBytes:length:
-initForRealm:andBundleIdentifier:
+initForRealm:bundleIdentifier:auditToken:
+setAuditToken:
 _lastpath
 documentsDirectoryURLForFileName:
 archivedDataWithRootObject:requiringSecureCoding:error:
@@ -842,13 +917,13 @@ dataWithContentsOfURL:options:error:
 unarchivedObjectOfClasses:fromData:error:
 URLsForDirectory:inDomains:
 URLByAppendingPathComponent:
+createGSSName:gname:error:
 regularExpressionWithPattern:options:error:
 numberOfMatchesInString:options:range:
 _testForUPNForUser:
 componentsSeparatedByString:
 hasPrefix:
 initWithBytes:length:
-changePasswordForUPN:withOldPassword:withNewPassword:withError:
 validatePassword:forUser:
 destroyAllCredentials
 destroyCredential:
@@ -936,13 +1011,13 @@ d16@0:8
 @"NSDate"
 @"NSUUID"
 @"NSData"
+@"NSNumber"
 @"NSMutableArray"
 ^{__SecIdentity=}24@0:8@16
 i44@0:8@16@24@32B40
 i40@0:8@16^@24^@32
 i24@0:8@16
 @"NSArray"
-@"NSNumber"
 @40@0:8@16@24@32
 @"SOKerberosExtensionData"
 @"SOKerberosExtensionUserData"
@@ -957,6 +1032,7 @@ v20@0:8I16
 Q40@0:8@16^@24^@32
 v40@0:8@16@24@32
 Q40@0:8@16^^{gss_cred_id_t_desc_struct}24^@32
+B32@0:8@16^@24
 Q24@0:8@16
 @"LAContext"
 @"NSObject<OS_nw_path>"
@@ -964,6 +1040,7 @@ B32@0:8@16@24
 ^{gss_cred_id_t_desc_struct=}24@0:8@16
 B24@0:8@16
 B48@0:8@16@24@32^@40
+I40@0:8@16^^{gss_name_t_desc_struct}24^@32
 ^{gss_cred_id_t_desc_struct=}40@0:8@16@24^@32
 B48@0:8^{gss_cred_id_t_desc_struct=}16@24^@32^@40
 #16@0:8

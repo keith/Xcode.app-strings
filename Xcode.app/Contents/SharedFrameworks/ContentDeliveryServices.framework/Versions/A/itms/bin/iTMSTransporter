@@ -1,6 +1,8 @@
 #!/bin/bash
 export PATH
 PATH=/usr/xpg4/bin:${PATH}:/bin:/usr/bin
+ITMS_TX_DIR=$(cd "$(dirname "$0")/.."; pwd -P)
+#echo ${ITMS_TX_DIR}
 # if the user has run the script via symlink (xcrun)
 #    then resolve the symlink
 # else if the user has the run script in their PATH
@@ -96,7 +98,7 @@ esac
 # Define some arguments that we always want to pass to the JVM.  These can be
 # overridden on the command line.
 DEFAULT_JVM_OPTIONS="${CONTAINER_JAVA_TOOL_OPTIONS} -DWORootDirectory=\"${WOROOT}\" -DWOLocalRootDirectory=\"${LOCALROOT}\" -DWOUserDirectory=\"${CURRDIR}\" -DWOEnvClassPath=\"${CLASSPATH}\" -DWOApplicationClass=${APPLICATION_CLASS} -DWOPlatform=${PLATFORM_DESCRIPTOR} -Dcom.webobjects.pid=$$"
-JVM_OPTIONS="-Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.1,TLSv1.2"
+JVM_OPTIONS="-Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.3,TLSv1.2,TLSv1.1"
 JVM_EXECUTABLE=java
 APPLICATION_CLASS=com.apple.transporter.launcher.Application
 JAVA_MODULES=""
@@ -121,6 +123,8 @@ then
         # Override the ext directory
         DEFAULT_JVM_OPTIONS="-Djava.ext.dirs=\"${JAVA_EXT_OVERRIDE}\"${DEFAULT_JVM_OPTIONS:+ $DEFAULT_JVM_OPTIONS}"
     fi
+    JVM_LIB_PATH="-Djava.library.path=${ITMS_TX_DIR}/macOS/lib"
+    JAVA_SECURITY_URL="-Djava.security.properties=file://${ITMS_TX_DIR}/macOS/conf/java.security"
 JAVA_EXECUTABLE=${JVM_EXECUTABLE}
 JAVA_EXECUTABLE_ARGS="${DEFAULT_JVM_OPTIONS:+$DEFAULT_JVM_OPTIONS }${JVM_OPTIONS:+$JVM_OPTIONS }"
 # We need to make sure they are running the correct version of java
@@ -131,8 +135,12 @@ JAVA_VERSION_MAJOR="${?}"
 if [ "${JAVA_VERSION_MAJOR}" -ge 11 ]
 then
     # user is running on JDK 11+ (NO J2EE Packages), so add in activation, and JAXB
-    JAVA_MODULES="-p ${WOA_TOP_LEVEL}/modules --add-modules=java.activation,java.sql,java.xml,java.xml.bind --illegal-access=deny --add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED"
-    #echo "JAVA-MODULES = ${JAVA_MODULES}"
+    JAVA_MODULES="${JAVA_MODULES} --illegal-access=deny"
+    JAVA_MODULES="${JAVA_MODULES} -p \"${WOA_TOP_LEVEL}/modules\""
+    JAVA_MODULES="${JAVA_MODULES} --add-modules=java.activation,java.net.http,java.sql,java.xml,java.xml.bind"
+    JAVA_MODULES="${JAVA_MODULES} --add-exports=java.base/sun.security.provider.certpath=ALL-UNNAMED"
+    JAVA_MODULES="${JAVA_MODULES} --add-opens=java.xml/com.sun.org.apache.xalan.internal.xsltc.trax=ALL-UNNAMED"
+    # echo "JAVA-MODULES = ${JAVA_MODULES}"
 elif [ "${JAVA_VERSION_MAJOR}" -ge 9 ]
 then
     # user is running JDK 9 or 10
@@ -201,6 +209,6 @@ for arg in "$@"
     esac
 done
 # Launch the application.
-COMMAND="\"${JAVA_EXECUTABLE}\" ${JAVA_EXECUTABLE_ARGS} ${JAVA_MODULES} -jar ./lib/itmstransporter-launcher.jar ${COMMAND_LINE_ARGS}"
+COMMAND="\"${JAVA_EXECUTABLE}\" ${JAVA_EXECUTABLE_ARGS} ${JVM_LIB_PATH} ${JAVA_SECURITY_URL} ${JAVA_MODULES} -jar ./lib/itmstransporter-launcher.jar ${COMMAND_LINE_ARGS}"
 #echo "${COMMAND}"
 eval exec "${COMMAND}"

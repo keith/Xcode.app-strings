@@ -1,3 +1,4 @@
+@(#)PROGRAM:IMAssistantCore  PROJECT:IMAssistantCore-
 INMessage %@
 Conversation identifier: %@
 Group name: %@
@@ -28,6 +29,8 @@ v16@?0@"INSendMessageIntentResponse"8
 Send Message Intent: GroupName: %@
 Send Message Intent: Recipients: %@
 Send Message Intent: Conversation Identifier: %@
+Will try to send a current location message.
+Will try to send a Audio Message with attachment: %@
 Sending message to chat with identifier specified in intent. chat=%@
 Using stored conversation identifier that was resolved during recipient resolution. conversationIdentifier=%@
 Sending message to chat that has already been resolved. chat=%@
@@ -42,6 +45,9 @@ Failed to determine the prefferred sender identity, returning failure requiring 
 Sending message to a new chat. Attempting to determine best sender identity.
 @16@?0@"IMHandle"8
 Could not determine preferred sender identity for handleIDs. This may mean that the user has conflicting sim preferences for these recipients.
+Resolving Outgoing Message Type with Text (%ld)
+Resolving Outgoing Message Type with Audio (%ld)
+Resolving Outgoing Message Type with Unsupported (%ld)
 Resolve recipients results: %@
 v16@?0@"NSArray"8
 Intent contains an attachment and no content. Returning notRequired for content.
@@ -75,6 +81,7 @@ Could not find any chats matching requested spokenPhrase. Returning unsupported 
 Resolved group name result: %@
 Have not determined authorization to send current location message for bundle %@. Returning failure, prompting user to determine authorization for the bundle.
 Authorization to send current location has been explicitly disabled for bundle %@. Returning failure, prompting user to determine authorization for the bundle.
+Authorization to get precise location has been disabled for bundle %@. Returning failure, prompting user to determine authorization for the bundle.
 Send Messages Intent: Failed. Downtime enabled, chat contained nonwhitelisted handles: %@
 Send Messages Intent: Failed. Will not send to chat in Un-Joined state: %@
 Using sourceApplicationID %@ for executionContext %ld.
@@ -83,6 +90,7 @@ Authorized to send current location message. Sending.
 com.apple.MobileSMS.MessagesAssistantExtension
 Intent contains just currentLocation, and no other content. Returning success.
 Message content is nil. Returning failure.
+Unable to build an Audio message as requested. Returning failure.
 Setting expressiveSendStyleID on message: %@ 
 Setting source application ID on message: %@
 Setting IDS identifier on IMMessage: %@ 
@@ -189,6 +197,8 @@ messageSendHandlerDelegate
 T@"<IMAssistantMessageSendHandlerDelegate>",&,N,V_messageSendHandlerDelegate
 Intent contains an current location attachment: %@
 Intent contains an unsupported attachment: %@
+Intent contains an audio message request, looking for the attachment
+Intent contains a file attachment: %@
 Intent contains a conversation identifier. Using that to find an existing chat. conversationIdentifier=%@
 Intent contains a group name vocabulary identifier. Using that to find an existing chat. vocabularyIdentifier=%@ chatIdentifier=%@
 Could not find a chat with the vocabularyIdentifier %@ chatIdentifier %@, ignoring
@@ -202,6 +212,10 @@ q24@?0@"IMChat"8@"IMChat"16
 Only one disambiguation option remains, returning success with resolved name: %@
 Asking user to disambiguate among %ld disambiguation options: %@
 No disambiguation options remain. Returning unsupported (a.k.a. notFound)
+Building an audio message based on a file at %@
+Copied an attachment file from %@ to %@
+Error occurred copying attachment file from %@ to %@, error: %@
+The audio message has a file transfer guid of: %@
 com.apple.MobileSMS
 SuppressingSendSoundMessageGUIDs
 B16@?0@"IMChat"8
@@ -272,6 +286,7 @@ handleFromContact
 T@"IMAssistantHandleFromContact",R,N,V_handleFromContact
 __kIMAssistantContinuityHandlesKey
 __kIMAssistantContinuityChatsKey
+__kIMAssistantMessageHandlerErrorDomain
 Person resolved to %ld contacts via siriMatches. Person: %@, Contacts: %@
 Person contained siriMatches that did not resolve to any contacts. Person: %@
 Person to resolve contains no siriMatches. Person: %@
@@ -316,6 +331,10 @@ coreTelephonySubscriptionsDataSource
 T@"<IMAssistantCoreTelephonySubscriptionsDataSource>",R,N
 locationManagerDataSource
 T@"<IMLocationManager>",R,N
+fileManagerDataSource
+T@"<IMAssistantFileManager>",R,N
+fileTransferCenterDataSource
+T@"<IMFileTransferCenter>",R,N
 handleToContactIdentifierCache
 T@"NSCache",R,N
 spiHandleToPersonCache
@@ -453,7 +472,6 @@ Looking up %ld messages with IMSPIQueryMessagesWithRowIDs
 Looking up %ld messages with IMSPIQueryMessagesWithGUIDs
 Could not canonicalize handle "%@" because it is neither a phone number nor an email address.
 IMAssistantIMSPIQueue
-@(#)PROGRAM:IMAssistantCore  PROJECT:IMAssistantCore-
 confirmSendMessageIntent
 handleSendMessageIntent
 resolveRecipientsForSendMessage
@@ -616,7 +634,7 @@ effect
 expressiveSendIdFromMessageEffectType:
 _executionContext
 chatDataSource
-sendMessageWithText:currentLocation:expressiveSendStyleID:idsIdentifier:executionContext:toChat:
+sendMessageWithText:currentLocation:audioMessageAttachment:expressiveSendStyleID:idsIdentifier:executionContext:toChat:
 length
 arrayWithCapacity:
 countByEnumeratingWithState:objects:count:
@@ -641,6 +659,9 @@ handleIDForSenderIdentity:
 simIDForSenderIdentity:
 setLastAddressedHandleID:
 setLastAddressedSIMID:
+outgoingMessageType
+successWithResolvedOutgoingMessageType:
+unsupported
 resolveRecipients:forIntent:completion:
 attachments
 notRequired
@@ -649,8 +670,7 @@ vocabularyIdentifier
 alternativeSpeakableMatches
 existingChatWithChatIdentifier:
 isBusinessChat
-screentimeAllowedToShowChat:
-unsupported
+screentimeAllowedToShowChat:error:
 successWithResolvedString:
 array
 isGroupChat
@@ -658,10 +678,14 @@ joinState
 locationAuthorizationDetermined
 mainBundle
 locationAuthorizationDenied
+preciseLocationAuthorized
+code
 isMemberOfChat:
 sendCurrentLocationMessageWithChat:withLocationManager:withSourceApplicationIdentifier:foregroundAssertionForBundleIdentifier:
+fileManagerDataSource
+fileTransferCenterDataSource
 initWithString:
-instantMessageWithText:flags:
+instantMessageWithText:flags:threadIdentifier:
 setExpressiveSendStyleID:
 setSourceApplicationID:
 setNotificationIDSTokenURI:
@@ -684,7 +708,7 @@ unsupportedForReason:
 arrayWithObjects:count:
 resolvedRecipientsFromChat:
 __imcore__containsNonSuccess:
-recipientHandleResolutionResultsAllowedByScreentime:
+recipientHandleResolutionResultsAllowedByScreentime:error:
 dictionaryWithCapacity:
 __im_assistant_handleType
 contactsMatchingINPerson:
@@ -712,7 +736,7 @@ contactResolutionResultForContacts:matchingRecipient:
 __im_assistant_arrayByApplyingBlockWithIndex:
 resolvedValue
 handleResolutionResultForHandles:resolvedContactForAlternatives:recipient:
-screentimeAllowedToShowConversationWithHandleIDs:
+screentimeAllowedToShowConversationWithHandleIDs:error:
 contactIdentifiersMatchingHandle:
 cnContactWithKeys:
 contactWithIdentifier:
@@ -757,6 +781,7 @@ confirmSendMessage:completion:
 resolveRecipientsForSendMessage:withCompletion:
 resolveRecipientsForSendMessage:completion:
 resolveGroupNameForSendMessage:withCompletion:
+resolveOutgoingMessageTypeForSendMessage:withCompletion:
 resolveContentForSendMessage:withCompletion:
 resolveSpeakableGroupNameForSendMessage:withCompletion:
 initWithDataSource:delegate:intentIdentifier:
@@ -765,6 +790,8 @@ _conversationIdentifierResolvedDuringRecipientResolution
 _messageSendHandlerDelegate
 sendMessage:
 currentLocation
+file
+fileURL
 allExistingChats
 displayName
 isEqualToString:
@@ -773,6 +800,17 @@ compare:
 allValues
 sortedArrayUsingComparator:
 disambiguationWithStringsToDisambiguate:
+startAccessingSecurityScopedResource
+lastPathComponent
+stringByAppendingString:
+initFileURLWithPath:
+copyItemAtURL:toURL:error:
+stopAccessingSecurityScopedResource
+guidForNewOutgoingTransferWithLocalURL:
+registerTransferWithDaemon:
+initWithCharacters:length:
+initWithString:attributes:
+instantMessageWithText:messageSubject:fileTransferGUIDs:flags:threadIdentifier:
 arrayByAddingObject:
 account
 isOperational
@@ -909,15 +947,18 @@ _keysToFetch
 _intentIdentifier
 chatGUIDsForChat:
 blackholedChatsExist
-alloc
+defaultManager
 registerForContactStoreChangeNotificationsIfNecessary
 removeAllObjects
 defaultCenter
 contactStoreDidChange:
 addObserver:selector:name:object:
 isInternationalSpamFilteringEnabled
+conversationContext
+allowedByScreenTime
+applicationCurrentlyLimited
+errorWithDomain:code:userInfo:
 isContactLimitsFeatureEnabled
-allowedToShowConversationSync
 allowedToShowConversationWithHandleIDs:sync:context:
 contactStore
 setContactStore:
@@ -931,10 +972,10 @@ playSendSoundForMessageGUID:
 playSendSoundForMessageGUID:callerOrigin:
 handlePlayMessageSound:completion:
 confirmPlayMessageSound:completion:
-numberWithInteger:
 dictionaryWithObjects:forKeys:count:
 messageEffectTypeToExpressiveSendIdDictionary
 integerValue
+numberWithInteger:
 allKeysForObject:
 images
 absoluteString
@@ -1038,7 +1079,6 @@ initWithStartDate:endDate:
 messageContentsPredicate:
 recipientsPredicate:
 sendersPredicate:
-allowedByScreenTime
 messageIsFromBlackholedChat:
 containsDate:
 isRead
@@ -1093,12 +1133,14 @@ v32@0:8@16@?24
 v32@0:8@"INSendMessageIntent"16@?<v@?@"INSendMessageIntentResponse">24
 v32@0:8@"INSendMessageIntent"16@?<v@?@"NSArray">24
 v32@0:8@"INSendMessageIntent"16@?<v@?@"INStringResolutionResult">24
+v32@0:8@"INSendMessageIntent"16@?<v@?@"INOutgoingMessageTypeResolutionResult">24
 v32@0:8@"INSendMessageIntent"16@?<v@?@"INSpeakableStringResolutionResult">24
 @40@0:8@16@24@32
 B32@0:8@16^q24
-@60@0:8@16B24@28@36q44@52
+@68@0:8@16B24@28@36@44q52@60
 @24@0:8@16
 v40@0:8@16@24@?32
+B32@0:8@16^@24
 B32@0:8@16@24
 @"<IMAssistantMessageSendHandlerDelegate>"
 v32@0:8@"IMMessage"16@"IMChat"24
@@ -1135,13 +1177,15 @@ v32@0:8@"INPlayAudioMessageIntent"16@?<v@?@"INPlayAudioMessageIntentResponse">24
 @"IMHandle"24@0:8@"NSString"16
 @"TUSenderIdentity"24@0:8@"NSArray"16
 @"NSString"24@0:8@"TUSenderIdentity"16
-B24@0:8@"IMChat"16
-B24@0:8@"NSArray"16
+B32@0:8@"IMChat"16^@24
+B32@0:8@"NSArray"16^@24
 @"<IMAssistantContactsDataSource>"16@0:8
 @"<IMAssistantChatDataSource>"16@0:8
 @"<IMAssistantAccountDataSource>"16@0:8
 @"<IMAssistantCoreTelephonySubscriptionsDataSource>"16@0:8
 @"<IMLocationManager>"16@0:8
+@"<IMAssistantFileManager>"16@0:8
+@"<IMFileTransferCenter>"16@0:8
 @"NSCache"16@0:8
 v20@0:8B16
 @"CNContactStore"
