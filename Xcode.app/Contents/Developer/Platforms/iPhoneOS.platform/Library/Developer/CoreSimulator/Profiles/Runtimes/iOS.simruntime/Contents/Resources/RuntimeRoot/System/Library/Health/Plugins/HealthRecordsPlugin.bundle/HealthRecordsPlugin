@@ -168,6 +168,8 @@ START ingestion task %{public}@
 FINISH ingestion task %{public}@. Runtime: %.2f sec
 %{public}@ Account %{public}@: no update gateways operation created
 %{public}@ skipping _prepareUpdateGatewaysOperationsForAccounts %{public}@
+%{public}@ Error retrieving the number of buggy accounts %{public}@
+%{public}@ Error detected %ld accounts that are missing credentials and are NOT marked as needing relogin
 %{public}@ Account %{public}@: saveResourcesObjects error: %{public}@
 %{public}@ failed to check base URL for next page URL: %@
 <%{public}@:%{public}@> Failed to perform journaled session creation for initial login: %{public}@
@@ -220,7 +222,6 @@ Failed to delete access token after failing to store refresh tokens: %{public}@
 %{public}@ error: %{public}@
 %{public}@ content analytics anchors were reset
 %{public}@: cannot begin content analytics collection without access to protected data
-%{public}@: account creation date analytics failed, error: %@
 %{public}@ content analytics collection is not enabled by the user
 %{public}@: cannot read the content analytics start anchor
 %{public}@: content analytics batch %ld starting at anchor %ld
@@ -283,6 +284,7 @@ Error instantiating resource schema: %@
 %{public}@ Unexpectedly found more than 1 clinical record for FHIR resource %{public}@!
 %{public}@ Failed to insert journaled clinical records: %{public}@
 %{public}@ Failed to instantiate FHIR credential for entity with ID %lld
+%{public}@: account creation date analytics failed, error: %@
 %{public}@ starting at %@
 %{public}@ completed fetch for %@ with %s: %{public}@
 %{public}@ error response for %@: %@
@@ -359,7 +361,7 @@ client request, file ingestion
 Unable to determine account identifier for source %@
 Expected NSData for private metadata key but received %@
 @16@?0@"HDHRSExtractionFailureRecord"8
-v28@?0B8@"HDClinicalContentAnalyticsAccumulator"12@"NSError"20
+v24@?0@"HDClinicalContentAnalyticsAccumulator"8@"NSError"16
 @"HKClinicalAccount"16@?0@"HDClinicalAccount"8
 hash
 TQ,R
@@ -465,7 +467,6 @@ protected data available after extraction was requested
 unextracted resources present
 sync entities inserted
 HEALTH_RECORDS_NOTIF_TITLE
-HEALTH_RECORDS_NOTIF_BODY_NEW_DATA_PROFILE_%@
 HEALTH_RECORDS_NOTIF_BODY_NEW_DATA
 unitTesting_preventExtractionScheduling
 TB,N,V_unitTesting_preventExtractionScheduling
@@ -611,6 +612,8 @@ accountManager
 T@"HDClinicalAccountManager",R,N,V_accountManager
 analyticsManager
 T@"HDClinicalAnalyticsManager",R,N,V_analyticsManager
+dailyAnalyticsManager
+T@"HDClinicalDailyAnalyticsManager",R,N,V_dailyAnalyticsManager
 APIReminderRegistry
 T@"HDHealthRecordsAPIReminderRegistry",R,N,V_APIReminderRegistry
 ingestionManager
@@ -648,7 +651,6 @@ B16@?0@"HDClinicalAccountEntity"8
 SELECT 1 FROM (SELECT MAX(A.%@) > COALESCE(B.%@, 0) as result FROM %@ A INNER JOIN %@ B WHERE A.%@ = B.%@ GROUP BY B.%@) WHERE result != 0 LIMIT 1;
 v16@?0^{sqlite3_stmt=}8
 Account is missing a credential, unable to update with authResponse
-Attempting to update account failed because attempt to delete credential failed to populate requestedScope
 Unable to store tokens for credential for account
 Unable to insert credential for account
 v16@?0^{HDSQLiteStatementBinder=}8
@@ -1234,10 +1236,6 @@ com.apple.healthd.healthrecords-analytics-activity
 healthrecords-analytics
 contentAnalyticsAnchor
 %@ content analytics collection (%@: %@)
-com.apple.HealthRecords.WeeklyAnalytics
-Weekly analytics even not in use
-isOnboarded
-weeksSinceOnboarded
 Data Typde Code (%ld) cannot be mapped to a medical record entity class
 (%@, %@, %@)
 Tq,R,N,V_interactionType
@@ -1360,6 +1358,13 @@ T@"NSDictionary",R,C,N,V_authorizationSchemas
 Clinical records with a nil FHIR resource are invalid, not inserting %@
 HDFHIRCredentialEntity+HealthRecordsPlugin.m
 Failed to populate FHIR credential object from credential entity %lld
+com.apple.healthd.healthrecords-daily-analytics-activity
+%@ daily content analytics collection (%@)
+com.apple.HealthRecords.DailyAnalytics
+Health records daily analytics event not in use
+isOnboarded
+weeksSinceOnboarded
+isImproveHealthRecordsAllowed
 HDCPSFetchJSONTask.m
 response == nil || (response != nil && [response isKindOfClass:NSHTTPURLResponse.class])
 empty response data
@@ -1700,6 +1705,8 @@ HDClinicalIngestionResponseTimeMetricElement
 HDFHIRSpecification
 HealthRecordsPluginInternal
 HDClinicalRecordJournalEntry
+HDClinicalDailyAnalyticsManager
+HDAnalyticsSubmissionCoordinatorDelegate
 HDCPSFetchJSONTask
 HDFHIRResourceExtractionBatch
 HDHealthRecordsPluginProtectedDatabaseSchema
@@ -2199,8 +2206,6 @@ contentProtectionManager
 notificationManager
 healthAppHidden
 localizedUserNotificationStringForKey:arguments:
-profileType
-formattedName
 postNotificationWithTitle:body:categoryIdentifier:subtitle:domain:completion:
 daemonReady:
 database:protectedDataDidBecomeAvailable:
@@ -2376,6 +2381,7 @@ addAccountEventObserver:
 removeAccountEventObserver:
 unitTesting_triggerLocaleDidChangeNotification
 unitTesting_replaceHealthRecordsPluginAndSetCompleteScheduledExtractionHandler:
+dailyAnalyticsManager
 medicalCodingDataManager
 unitTesting_supportedFHIRConfigurationOverride
 setUnitTesting_supportedFHIRConfigurationOverride:
@@ -2387,6 +2393,7 @@ _accountEventObservers
 _ivarLock
 _accountManager
 _analyticsManager
+_dailyAnalyticsManager
 _APIReminderRegistry
 _ingestionManager
 _optInStudy
@@ -2401,13 +2408,16 @@ negatedPredicate:
 predicateMatchingAllPredicates:
 _predicateForUserFetchEligible
 _predicateForRemoteFetchEligible
+isNullPredicateWithProperty:
+_predicateForDefaultCredentialState
+_predicateForActiveDefaultCredentialState
+_predicateForMissingCredential
 truePredicate
 _predicateForAccountWithIdentifier:
 predicateMatchingAnyPredicates:
 _predicateForAccountsWithIdentifiers:
 _predicateForFetchable
 _predicateForAccountForGatewayWithExternalID:
-isNullPredicateWithProperty:
 disambiguatedDatabaseTable
 innerJoinClauseFromTable:toTargetEntity:as:localReference:targetKey:
 setWithObject:
@@ -2476,6 +2486,8 @@ accountsNeedExtractionSQL
 executeSQL:error:bindingHandler:enumerationHandler:
 _predicateForActiveNeedsRelogin
 numberWithInt:
+_predicateForActiveDefaultCredentialStateMissingCredential
+countOfObjectsWithPredicate:healthDatabase:error:
 _updateCredentialFromAuthResponse:requestedScope:database:error:
 _updateAccountCredentialState:identifier:transaction:healthDatabase:error:
 initWithAuthResponse:accountIdentifier:requestedScope:
@@ -2574,6 +2586,7 @@ hasAccountsInHealthDatabase:error:
 userFetchEligibleAccountsWithIdentifiers:profile:error:
 accountsForGatewayExternalIDs:healthDatabase:error:
 hasActiveAccountNeedingReloginInHealthDatabase:error:
+numberOfActiveAccountsWithDefaultCredentialStateMissingCredential:error:
 updateAccountCredentialFromAuthResponse:accountIdentifier:requestedScope:healthDatabase:updatedCredential:error:
 createAccountCredentialFromAuthResponse:accountIdentifier:requestedScope:healthDatabase:createdCredential:error:
 _insertCodableAccounts:syncProvenance:profile:error:
@@ -2882,7 +2895,6 @@ signupURL
 type
 brand
 predicateWithProperty:greaterThanValue:
-countOfObjectsWithPredicate:healthDatabase:error:
 initWithProfile:startTime:
 startTime
 _hasNewRecords
@@ -3018,6 +3030,7 @@ sharedConnection
 isAutomaticAppUpdatesAllowed
 accountsWithIdentifiers:error:
 userFetchEligibleAccountsWithIdentifiers:error:
+numberOfActiveAccountsWithDefaultCredentialStateMissingCredentialWithError:
 hk_mapToDictionary:
 _gatewaysOperationForAccount:
 currentAnalyticsAccumulator
@@ -3284,6 +3297,7 @@ fetchDisplayFirstName:lastName:error:
 setFamilyName:
 setGivenName:
 localizedStringFromPersonNameComponents:style:options:
+formattedName
 initWithResources:FHIRResourceData:serverBaseURL:
 executeFHIRReferenceExtractionRequest:completion:
 setExtractionResult:
@@ -3366,17 +3380,12 @@ periodicActivity
 _queue_didTriggerClinicalAnalyticsForReason:success:error:
 _queue_triggerClinicalContentAnalyticsWithOptions:completion:
 _clinicalAnalyticsKeyValueDomain
-_queue_collectAccountCreationDateAnalyticsWithError:
 _queue_submitsAnalytics
 _queue_fetchRecordsForContentAnalyticsWithStartAnchor:limitCount:finalAnchor:error:
 _predicateForContentAnalyticMedicalRecordTypes
 orderingTermWithProperty:entityClass:ascending:
 queryWithDatabase:predicate:limit:orderingTerms:groupBy:
 _medicalRecordForObjectID:dataTypeCode:error:
-isEventUsed:
-currentCalendar
-components:fromDate:toDate:options:
-weekOfYear
 dataTypeWithCode:
 dataObjectClass
 hd_dataEntityClass
@@ -3423,6 +3432,7 @@ fetchableAccountsWithIdentifiers:error:
 updateCredentialStateForAccount:state:error:
 createStaticDSTU2AccountWithTitle:error:
 unitTesting_createAccountForGateway:authResponse:error:
+unitTesting_createAccountWithoutCredentialForGateway:authResponse:error:
 observerQueue
 stateChangeObservers
 setStateChangeObservers:
@@ -3494,6 +3504,14 @@ decodeArrayOfObjectsOfClass:forKey:
 _credentialWithRow:
 _predicateForCredentialWithPersistentID:
 _insertCredentialInDatabase:identifier:expiration:scopeString:patientID:creationDate:requestedScope:error:
+_queue_triggerClinicalContentAnalyticsWithCompletion:
+_queue_collectAccountCreationDateAnalyticsWithError:
+isEventUsed:
+currentCalendar
+components:fromDate:toDate:options:
+weekOfYear
+triggerDailyAnalyticsForReason:completion:
+reportDailyAnalyticsWithCoordinator:completion:
 initWithSession:request:maxRetriesAllowed:retryInterval:
 _startTaskWithCompletion:
 maxRetryCount
@@ -3937,6 +3955,7 @@ v24@0:8Q16
 @"HRSSupportedFHIRConfiguration"
 @"HDClinicalAccountManager"
 @"HDClinicalAnalyticsManager"
+@"HDClinicalDailyAnalyticsManager"
 @"HDHealthRecordsAPIReminderRegistry"
 @"HDClinicalIngestionManager"
 @"HDClinicalOptInDataCollectionManager"
@@ -3956,6 +3975,7 @@ B44@0:8@16B24@28^@36
 @40@0:8^{HDSQLiteRow=}16@24@32
 @32@0:8^{HDSQLiteRow=}16^@24
 @40@0:8@16@24o^@32
+q32@0:8@16^@24
 B64@0:8@16@24@32@40^@48^@56
 B48@0:8@16@24o^@32@?40
 B48@0:8@16q24@32o^@40
@@ -4039,7 +4059,6 @@ v32@0:8@16Q24
 @64@0:8q16@24@32@40@48^@56
 @"HDFHIRCredential"
 v32@0:8@"HDDatabaseMigrator"16@"NSString"24
-q32@0:8@16^@24
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 @40@0:8Q16@24^@32
@@ -4074,6 +4093,7 @@ B48@0:8@16@24q32o^@40
 v36@0:8q16B24@28
 @40@0:8@16@24q32
 B24@0:8o^@16
+q24@0:8^@16
 B40@0:8@16q24^@32
 B48@0:8@16q24q32^@40
 @72@0:8@16@24@32@40@48@56^@64
@@ -4089,6 +4109,7 @@ B32@0:8q16@24
 @"HDClinicalIngestionAnalyticsMetricKey"
 @24@0:8^{HDSQLiteRow=}16
 @80@0:8@16@24@32@40@48@56@64o^@72
+v32@0:8@"HDAnalyticsSubmissionCoordinator"16@?<v@?@"NSMutableDictionary"q@"NSError">24
 B40@0:8q16q24@?32
 {atomic_flag="_Value"AB}
 @"<NSCopying>"

@@ -50,6 +50,7 @@ The dataaccessd does not support addPersistMonitoringAccountID method, which is 
 The dataaccessd does not support removePersistMonitoringAccountID method, which is for Exchange acocunts
 The dataaccessd does not support clearPersistMonitoringAccountID method, which is for Exchange acocunts
 Removing subscribed calendar, as it's account id %@ isn't one of the account ids I know about: %@
+AppleAccounts returned an error while trying fetch accounts: %@
 DA is NOT removing orphan accounts, because we're in a holding pattern.
 DA is NOT removing orphan accounts, because some joker told us not to in behavior options
 ClearOrphanStores : Error Fetching com.apple.account.CardDAVLegacy AccountType %@. Bailing on orphan cleanup
@@ -59,6 +60,8 @@ ClearOrphanStores : ===== Starting CalDAV Orphan Store Cleanup ======
 ClearOrphanStores : Current DA CalDAV (events) Account IDs : %@
 ClearOrphanStores : ACCOUNTDCOERROR Removing calendar store, as its account id %@ isn't one of the account ids I know about: %@
 ClearOrphanStores : Removing Calendar change tracking client, as its change tracking identifier "%@" isn't one of the account ids I know about: %@
+ClearOrphanStores : ACCOUNTDCOERROR Local store is enabled, but it shouldn't be. Turning it off
+ClearOrphanStores : ACCOUNTDCOERROR Local store is enabled, but it shouldn't be. Leaving it alone because there are events in the local store
 ClearOrphanStores : ===== End CalDAV Orphan Store Cleanup ======
 ClearOrphanStores : ===== Starting CardDAV Orphan Store Cleanup ======
 ClearOrphanStores : Current DA CardDAV and LegacyCardDAV Account IDs : %@
@@ -68,6 +71,7 @@ ClearOrphanStores : Contact accountID %@ is a known DA CardDAV AccountID - NoCha
 ClearOrphanStores : ACCOUNTDCOERROR Removing contact store, as it's account id %@ isn't one of the account ids I know about: %@
 AClearOrphanStores : CCOUNTDCOERROR Removing contact search store, as it's account id %@ isn't one of the account ids I know about: %@
 ClearOrphanStores : Removing AB change tracking client, as its change tracking identifier "%@" doesn't belong to one of the account ids I know about: %@
+ClearOrphanStores : Deleting all iCloud delegate databases as no primary iCloud contacts account is enabled or exists
 ClearOrphanStores : ===== End CardDAV Orphan Store Cleanup ======
 Ignoring Notes orphan check.  You asked for it.
 ACCOUNTDCOERROR Removing notes store, as it's account id %@ isn't one of the account ids I know about: %@
@@ -338,6 +342,7 @@ T@"NSString",R,N
 com.apple.dataaccess.dataaccessd.PersistentPush
 v16@?0@"NSObject<OS_xpc_object>"8
 Should never call -init on DADAccessManager.  Use +sharedManager instead.
+Client %@ (%i) has %lu outstanding stop requests
 mainConnection
 T@"NSObject<OS_xpc_object>",&,N,V_mainConnection
 clients
@@ -371,6 +376,7 @@ type
 disableMonitoringAgents
 =======
 (Skipped %lu agents without interesting state)
+Outstanding shutdown tokens: %lu
 Somebody isn't maintaining their account setup correctly
 subCalHandlers
 T@"NSMutableArray",&,N,V_subCalHandlers
@@ -441,6 +447,8 @@ actionDelegatesById
 T@"NSMutableDictionary",&,N,V_actionDelegatesById
 clientName
 T@"NSString",&,N,V_clientName
+clientPID
+Ti,N,V_clientPID
 clientBundleID
 T@"NSString",&,N,V_clientBundleID
 clientUniqueID
@@ -451,6 +459,8 @@ simulatedCalDAVHostnames
 T@"NSCountedSet",&,N,V_simulatedCalDAVHostnames
 persistent
 TB,R,N,V_persistent
+outstandingStopMonitoringAgentRequests
+TQ,R,N
 folderIdToLastFolderContentsRequestDate
 T@"NSMutableDictionary",&,N,V_folderIdToLastFolderContentsRequestDate
 lastAllFolderContentsRequestDate
@@ -786,6 +796,11 @@ initWithClientID:
 beginMonitoringPersistentFolders:forAccount:
 clientUniqueID
 isMonitoringAccountID:folderID:
+copy
+outstandingStopMonitoringAgentRequests
+clientName
+clientPID
+appendFormat:
 sharedManager
 removeClient:
 addPersistentClientWithAccountID:clientID:watchedIDs:
@@ -820,7 +835,6 @@ identifiersOfAllRegisterdClients
 _addressBook
 sharedRunLoop
 getCFRunLoop
-copy
 useContactsFramework
 contactStore
 providerWithContactStore:
@@ -873,11 +887,17 @@ monitorFoldersWithIDs:
 stopMonitoringFoldersWithIDs:
 suspendMonitoringFoldersWithIDs:
 resumeMonitoringFoldersWithIDs:
+aa_appleAccountsWithError:
+aa_isAccountClass:
 isInHoldingPattern
 orphanCheckEnabled
+appleAccountsMatchingClass:errror:
+firstObject
 currentHandler
 handleFailureInMethod:object:file:lineNumber:description:
 isEnabledForDataclass:
+calIsiCloudCalDAVAccount
+displayAccount
 accountTypeWithAccountTypeIdentifier:error:
 accountsWithAccountType:options:error:
 sharedInstanceForAccountType:creatingClass:
@@ -887,6 +907,9 @@ _clearOrphanedSubscribedCalendars:eventAccountIds:
 hasPrefix:
 length
 substringFromIndex:
+isLocalStoreEnabledInDatabase:
+isLocalStoreEmptyInDatabase:
+setLocalStoreEnabled:inDatabase:
 calCloseDBAndSave:
 abOpenDBAsGenericClient
 changeTrackingID
@@ -902,6 +925,7 @@ updateSaveRequest:
 allContainers
 accountForContainerWithIdentifier:
 changeHistoryClerkWithDBHelper:
+removeDelegateDatabasesNotMatchingAltDSIDs:
 addSaveRequest:
 executeAllSaveRequests
 abCloseDBAndSave:
@@ -1091,7 +1115,6 @@ initWithAccountStore:
 accountWithIdentifier:
 handleAccountWillChange:withChangeInfo:store:accountUpdater:
 handleAccountDidChange:withChangeInfo:store:
-clientName
 changeType
 timersForAccountWithID:
 clientBehaviorForFolderIds:
@@ -1155,7 +1178,6 @@ beginSimulationWithHostname:
 endSimulationWithHostname:
 persistent
 _checkAccessForMessage:
-_clientName
 _sendAccessDeniedReplyForMessage:
 _checkAccountId:
 _beginMonitoringFolders:
@@ -1214,9 +1236,11 @@ applyClientStatusReportToAggregator:
 setClientBundleID:
 setClientUniqueID:
 setClientName:
+setClientPID:
 _persistent
 _numOutstandingBlockingClientCalls
 _numOutstandingRefreshPriorityClientCalls
+_clientPID
 _clientBundleID
 _clientUniqueID
 _conn
@@ -1224,6 +1248,7 @@ _busyIDs
 _updatedIDs
 _accountTimers
 _actionDelegatesById
+_clientName
 _agentMonitoringTokens
 _simulatedCalDAVHostnames
 cancelCalendarAvailabilityRequestWithID:
@@ -1380,7 +1405,6 @@ _contactStore
 _tearDownAllApsConnections
 string
 appendString:
-appendFormat:
 _apsEnvStringForDAEnvString:
 _portNameForEnvironmentName:
 initWithEnvironmentName:namedDelegatePort:queue:
@@ -1725,6 +1749,7 @@ v32@0:8@"NSArray"16@"NSError"24
 B32@0:8@16@24
 @32@0:8@16@24
 B32@0:8^v16@24
+@32@0:8@16^@24
 v24@0:8Q16
 B40@0:8@16q24B32B36
 B44@0:8@16@24q32B40

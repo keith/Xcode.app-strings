@@ -33,7 +33,7 @@ HMBPBO.qos
 HMBPBO.mi
 HMBPBO.r
 HMBPBO.dca
-v32@?0@"NSString"8@16^B24
+HMBPBO.dmc
 Message Name
 Message Identifier
 Label
@@ -41,8 +41,11 @@ Perform Delegate Callbacks
 Enqueue Mirror Output
 Roll Back
 Disallow Cellular
+Disallow Model Creation
 supportsSecureCoding
 TB,R
+disallowsModelCreation
+TB,V_disallowsModelCreation
 label
 T@"NSString",R,N,V_label
 messagePayload
@@ -64,6 +67,9 @@ TB,N,V_disallowsCellularAccessForMirrorOutput
 qualityOfService
 Tq,N,V_qualityOfService
 T@"HMFActivity",&,N,V_activity
+transactionItemsBatchLimit
+TQ,N,V_transactionItemsBatchLimit
+v32@?0@"NSString"8@16^B24
 options
 T@"HMBProcessingOptions",R,N,V_options
 actions
@@ -219,6 +225,7 @@ Notifying observers for model ID %@: %@
 Failed to delete null items/blocks: %@
 Rolling back block: %@
 Processing input block: %@
+Failed to delete zombie records: %@
 Skipping mirror output push for model ID %@ and row %ld since the model is set to exclude cloud storage
 B16@?0@"NSString"8
 Skipping mirror output push for updated model ID %@ and row %ld since the only set properties are excluded from cloud storage
@@ -230,7 +237,7 @@ Comparing record 1 modification date %@ with record 2 modification date %@
 lost self for processing block!
 v16@?0@"NAPromise"8
 __processRecords
-Beginning processing of block %lu:
+Beginning processing of block %lu
 Failed to fetch block row %lu from %@: %@
 Could not find block with row %lu
 Block %lu has not been committed. Ignoring process request.
@@ -256,9 +263,11 @@ Unable to remove corrupt record row %lu: %@
 Updating model %lu / %@ / %@
 Unable to merge old record with new values %@ / %@: %@
 Deleting model %lu / %@ / %@
+Not creating model because model creation is disallowed: %@
 Inserting model %@
 No previous or updated value found for model with ID %@
 Unable to encode object %@ (not attempting to push): %@
+Unable to encode model %@: %@
 Updating record row: %lu %@ %lu %@ %@ %@ %@ %@
 Received change from mirror while existing row has pending output push
 Reseting pending output push data due to change from mirror
@@ -521,12 +530,14 @@ SELECT _record_id, %@ FROM %@ WHERE _store_id = :_store_id AND _record_id > :_se
 deallocating: %@
 Not starting up local zone that has already started up
 Starting up local zone
-Unable to clean up and queue any blocks enqueued prior to shutdown: %@
 v24@?0@"NSNull"8@"NSError"16
-Submitting change with models to update: %@ model IDs to remove: %@ options: %@
-Removing models and child models with IDs %@ and options %@
+Submitting models to add: %@ model IDs to remove: %@ options: %@
+Cannot update a model with a nil hmbModelID or hmbParentModelID: %@
+info
+Cannot update a model with a nil hmbModelID or hmbParentModelID
+Removing models and descendant models with IDs: %@ depth: %lu options: %@
 Failed to encode processing options %@: %@
-Failed to stage removal for all records with model IDs %@: %@
+Failed to stage removal for models and descendant models with IDs %@: %@
 Removing all models of types %@ and options %@
 @16@?0#8
 Failed to stage removal for all models of types %@: %@
@@ -616,15 +627,15 @@ errorText
 [%lu]
 (key must be of string type (is %@))
 Cannot prepare model for container because modelID or parentModelID are missing: %@
-info
 hmbModelID and hmbParentModelID must be set prior to encoding
 Cannot prepare model for container because hmbDataVersion is missing: %@
 hmbDataVersion must be set prior to encoding
-/%@ (Cannot encode non-standard type %@ as NSObject generic)
-Cannot prepare model for container: %@
-Top level objects to be auto-encoded to NSData must support HMBModelObjectCoder (%@ at %@ does not)
+Cannot encode value of type %@ for property '%@' requring NSObject type
+Cannot prepare model %@ for container: %@
+Cannot encode value of type %@ for property '%@' because it does not conform to HMBModelObjectCoder
 /%@ (property could not be validated): %@
-/%@ (property could not be encoded as NSData)
+Cannot prepare model for container: %@
+Failed to encode value %@ for property '%@': %@
 underlyingError
 Model %@.%@.%@ suppressing validity check due to HMDBackingStoreModelObject backport.
 Model %@.%@.%@ is not valid for storage (modelID is not set).
@@ -652,6 +663,7 @@ Unable to get default value of property %@ from type %@ (no such property exists
  (default)
  (read-only)
   %@%@%@: %@
+@"NSString"16@?0@"NSString"8
 Unable to determine externality of property %@ from type %@ (no such property exists)
 %@%@
 %@.%@/%@
@@ -659,6 +671,7 @@ v@:@
 hmbShouldLogPrivateInformation
 hmbExternalProperties
 T@"NSSet",R,N
+hmbExternalRecordFields
 hmbSchemaHashRoot
 T@"NSUUID",R,N
 hmbExcludeFromCloudStorage
@@ -693,6 +706,8 @@ T@"NSSet",&,N,V_hmbReadOnlyProperties
 hmbRecordRow
 TQ,N,V_hmbRecordRow
 hmbExternallyFetched
+hmbSetExternalProperties
+hmbSetExternalRecordFields
 hmbDependentUUIDs
 hmbCanonicalType
 hmbSetProperties
@@ -827,6 +842,7 @@ Lost %@
 Unable to create sentinel model for %@: %@
 Pushing sentinel record: %@
 Sentinel model push failed with fatal error: %@
+localCloudZone
 Sentinel record already exists on the server. Returning server version.
 Unable to find appropriate error for sentinel record push: %@
 Unable to decode model from CK Record: %@
@@ -850,8 +866,9 @@ Successfully completed recovery.
 Failed recovery push with error (entering back into Holdoff): %@
 Going to try to rebuild again.
 Waiting for a rebuild.
+Starting up zone rebuilder
+Found existing sentinel model: %@
 Unable to fetch rebuild sentinel model: %@
-No sentinel model found in local database.
 Successfully fetched sentinel model: %@.
 Sentinel model fetch failed: %@.
 Came up in Manatee Key Loss. Going to try to blow things away and fix them.
@@ -874,6 +891,8 @@ remapped (or explicit map) is not a subclass of HMBModel (%@ is not a sub-class 
 expecting a versioning key named %@ but one does not exist
 Failed to populate model with dictionary %@: %@
 Cannot deserialize from unknown encoding: %lu
+inLocalZone
+inMirror
 Failed to OPACK encode dictionary %@: %@
 Failed to OPACK decode data: %@
 Result was not of class %@: %@
@@ -1143,7 +1162,7 @@ v32@?0@"CKRecordZoneID"8@"NSError"16^B24
 CKFetchRecordZonesOperation will be retried
 CKFetchRecordZonesOperation failed and cannot be retried: %@
 @"HMBCloudZoneID"16@?0@"CKRecordZoneID"8
-CKFetchRecordZonesOperation succeeded with %ld zones
+CKFetchRecordZonesOperation succeeded with zones: %@
 v24@?0@"NSDictionary"8@"NSError"16
 Starting CKFetchRecordZonesOperation for database: %@ operationID: %@
 __modifyRecordZoneOperation
@@ -1280,7 +1299,8 @@ Not removing record %lu because it appears to have changed.
 Unable to clear output columns for pushed record %lu: %@
 Not clearing output columns for record %lu because it appears to have changed.
 HMB.m
-self.localZone
+Local zone for associated container is nil: %@
+Cannot validate reference %@ because the referenced model can't be found: %@
 <MALFORMED UUID: %@>
 T@"NSUUID",R,N,V_hmbModelID
 HMB.a
@@ -1405,7 +1425,7 @@ __fetchSubscriptions
 CKFetchSubscriptionsOperation failed: %@
 CKFetchSubscriptionsOperation will be retried
 CKFetchSubscriptionsOperation failed and cannot be retried: %@
-CKFetchSubscriptionsOperation succeeded with result: %@
+CKFetchSubscriptionsOperation succeeded with subscription IDs: %@
 Starting CKFetchSubscriptionsOperation for database: %@ operationID: %@
 lost self for trigger output for output row.
 Ignoring push request for block row %lu. Appears to be in-progress.
@@ -1451,7 +1471,7 @@ Dropping cloud push record %@ due to conflict.
 v32@?0@"CKRecordID"8@"HMBCloudZoneConflict"16^B24
 Q16@?0@"NSDictionary"8
 table
-table.context == self.sql
+tableContext == self.sql
 Unable to determine index state of %@: %@
 Preparing to reindex table for %@
 Unable to rebuild index of %@: %@
@@ -1480,8 +1500,7 @@ TB,D
 No delegate supplied for '- (BOOL)shouldLogPrivateInformation' returning NO.
 HMBManager detected local corruption: %@
 v24@?0@"HMBCloudZoneShareParticipantModel"8^B16
-Unable to decode model from share %@: %@
-Decoded model was not a HMBCloudZoneShareModel: %@
+Unable to decode share model from share %@
 Unable to decode model from share participant record %@: %@
 Decoded model was not a HMBCloudZoneShareParticipantModel: %@
 Handling updated share: %@
@@ -1637,9 +1656,13 @@ Failed to fetch user record: %@
 CKFetchRecordsOperation did not retrieve user record, but no error was returned
 CKFetchRecordsOperation succeeded with record: %@
 Starting CKFetchRecordsOperation for current user record with operationID: %@
+Failed to insert deletion item with blockRow: %lu type: %lu modelID: %@: %@
+Failed to select records with parentModelID: %@: %@
+@"NSUUID"16@?0@"HMBLocalSQLContextRowRecord"8
 Removing block with row %lu
 %@.%@
 %@/%@/%@
+%@/%@/%@/%@/%@
 None
 DeleteSelf
 Validate
@@ -1726,8 +1749,6 @@ T@"NSURL",R,N,V_url
 readOnly
 TB,R,N,V_readOnly
 T@"NSOperationQueue",R,N,V_queue
-unable to get files in %@ (%@)
-unable to remove %@: %@
 [HMBSQLManager] Expecting parameter to open be a sub-class of HMBSQLContext
 manager initialization failed: %@
 unable to prepare context: %@
@@ -1749,6 +1770,8 @@ NULL statement
 NULL SQLite3 error for statement
 NULL SQLite3 statement
 NULL SQLite3 error for status
+unable to get files in %@ (%@)
+unable to remove %@: %@
 PRAGMA user_version;
 Current schema version: %@
 unhandled migration result: %ld
@@ -1788,7 +1811,6 @@ DELETE FROM transaction_v2 WHERE id=?1;
 DELETE FROM transaction_v2 where block_id=?1;
 DELETE FROM transaction_v2 WHERE store_v2_id=?1;
 DELETE FROM transaction_v2 WHERE store_v2_id=?1 AND type=?2 AND external_id=?3;
-SELECT id, external_id, external_data, model_encoding, model_data FROM transaction_v2 WHERE  store_v2_id=?1 AND type=?2 AND external_id=?3;
 SELECT id, external_id, external_data, model_encoding, model_data FROM transaction_v2 WHERE  block_id=?1 AND id>?2 ORDER BY id LIMIT ?3;
 SELECT id, external_id, external_data, model_encoding, model_data FROM transaction_v2 WHERE  block_id=?1;
 DELETE FROM transaction_v2 WHERE block_id IN (SELECT id FROM block_v2 WHERE store_v2_id=?1 AND options_data IS NULL)
@@ -2233,11 +2255,6 @@ commitWithOptions:error:
 _localZone
 _block
 _activity
-count
-dictionaryWithCapacity:
-countByEnumeratingWithState:objects:count:
-setObject:forKey:
-enumerateKeysAndObjectsUsingBlock:
 initWithLabel:
 optionsWithLabel:
 messagePayload
@@ -2257,8 +2274,8 @@ shouldPerformDelegateCallbacks
 shouldEnqueueMirrorOutput
 shouldRollBackIfMirrorOutputFails
 disallowsCellularAccessForMirrorOutput
+disallowsModelCreation
 copy
-messageResponseHandler
 isEqualToString:
 qualityOfService
 decodeObjectOfClass:forKey:
@@ -2271,26 +2288,36 @@ decodeIntegerForKey:
 setQualityOfService:
 setShouldRollBackIfMirrorOutputFails:
 setDisallowsCellularAccessForMirrorOutput:
+setDisallowsModelCreation:
 encodeObject:forKey:
 encodeBool:forKey:
 encodeInteger:forKey:
-supportsSecureCoding
 optionsWithMessage:
+supportsSecureCoding
 encodeWithCoder:
 initWithCoder:
 attributeDescriptions
-callMessageResponseHandlerWithPayload:error:
+messageResponseHandler
 setActivity:
+transactionItemsBatchLimit
+setTransactionItemsBatchLimit:
 _shouldPerformDelegateCallbacks
 _shouldEnqueueMirrorOutput
 _shouldRollBackIfMirrorOutputFails
 _disallowsCellularAccessForMirrorOutput
+_disallowsModelCreation
 _label
 _messagePayload
 _messageName
 _messageResponseHandler
 _messageTransactionIdentifier
 _qualityOfService
+_transactionItemsBatchLimit
+count
+dictionaryWithCapacity:
+countByEnumeratingWithState:objects:count:
+setObject:forKey:
+enumerateKeysAndObjectsUsingBlock:
 initWithOptions:actions:mirrorOutputResult:
 options
 actions
@@ -2327,13 +2354,13 @@ _context
 _statement
 _queryPlans
 decodeShareModelFromShare:
-decodeManateeCloudFrom:recordSource:error:
+decodeManateeCloudFromRecord:externalRecordFields:source:error:
 recordFromExternalData:error:
 encodeRecordFromModel:existingRecord:encodingContext:error:
 hmbAssociateWithContainer:
 encodeShareModel:
 encodeManateeCloudModel:existingRecord:encodingContext:error:
-decodeModelFrom:recordSource:error:
+decodeModelFromRecord:externalRecordFields:source:error:
 encodeRecordFromModel:externalData:encodingContext:error:
 rebuilderStatus
 keyStatus
@@ -2395,7 +2422,6 @@ setError:
 nextObject
 maximumRowsPerSelect
 setMaximumRowsPerSelect:
-initWithError:
 initWithStatement:initialSequence:maximumRowsPerSelect:
 fetchRowFromStatement:skip:updatedSequence:error:
 enumerateObjectsUsingBlock:
@@ -2521,7 +2547,6 @@ unarchivedObjectOfClass:fromData:error:
 removeBlockWithRow:error:
 _insertBlockWithZoneRow:type:error:
 _selectItemsWithBlockRow:rowGreaterThan:limit:returning:error:
-setWithCapacity:
 bytes
 initWithUUIDBytes:
 _selectRecordModelIDWithZoneRow:externalID:error:
@@ -2685,6 +2710,7 @@ fetchReadyBlocksWithType:error:
 firstObject
 removeObjectAtIndex:
 initWithClientRecord:serverRecord:ancestorRecord:
+initWithError:
 client
 server
 ancestor
@@ -2814,9 +2840,11 @@ removeAllRecordsWithError:
 _deleteZoneWithRow:error:
 sqlTransactionWithActivity:error:block:
 addOperationWithBlock:
+errorWithDomain:code:userInfo:
 insertBlockWithType:options:items:error:
-update:remove:options:
-insertBlockToRemoveAllModelsAndChildModelsWithType:modelIDs:options:error:
+addModels:andRemoveModelIDs:options:
+addModels:options:
+insertBlockToRemoveModelsAndDescendantModelsWithType:modelIDs:depth:options:error:
 typeNameForModelClass:
 insertBlockToRemoveAllModelsWithType:modelTypes:options:error:
 insertBlockToRemoveOrphanedModelsWithType:modelTypes:options:error:
@@ -2836,9 +2864,10 @@ modelIDForExternalID:error:
 setExternalData:forModelID:
 setExternalData:forExternalID:
 destroyWithError:
-update:options:
-remove:options:
-removeModelsAndChildModelsWithIDs:options:
+updateModels:andRemoveModelIDs:options:
+updateModels:options:
+removeModelIDs:options:
+removeModelsAndDescendantModelsWithIDs:depth:options:
 removeAllModelsOfTypes:options:
 removeOrphanedModelsOfTypes:options:
 setLocalDatabase:
@@ -2879,7 +2908,6 @@ classObj
 encrypted
 hmbSetObject:forKey:encrypted:
 cloudMetadataForModel:usingEncoding:
-errorWithDomain:code:userInfo:
 populateV4CloudRecord:withModel:metadataFieldData:startEncoding:endEncoding:error:
 recordIDForModel:
 initWithRecordType:recordID:
@@ -2931,6 +2959,7 @@ versionString
 validateType:path:
 isValidForContainer:updatedModelIDs:
 hmbGenericRepresentation
+setWithCapacity:
 hmbUnavailableProperties
 characterAtIndex:
 hmbReadOnlyBefore
@@ -2953,6 +2982,8 @@ hmbShouldLogPrivateInformation
 formattedStringForValue:
 loggingVisibility
 allocWithZone:
+na_filter:
+hmbSetExternalProperties
 hmf_boolForKey:
 numberWithBool:
 componentsSeparatedByString:
@@ -2964,6 +2995,7 @@ hmbResetModelsWithQueries
 hmbPrepareQueries
 hmbSchemaHashRoot
 propertyDiffersFrom:to:
+hmbExternalRecordFields
 hmbDefaultValueForPropertyNamed:
 hmbPropertyIsAvailable:
 populateModelWithDictionary:fromStorageLocation:
@@ -2974,6 +3006,7 @@ hmbMergeSetPropertiesFromModel:
 hmbIsDifferentFromModel:differingFields:
 setHmbIgnoredBefore:
 hmbCanonicalTypeInferred
+hmbSetExternalRecordFields
 hmbExternallyFetched
 hmbPropertyIsExternal:
 dumpDebug
@@ -3156,6 +3189,7 @@ performCloudPullWithFetchToken:options:
 setDesiredKeys:
 setPreviousServerChangeToken:
 initWithRecordZoneIDs:configurationsByRecordZoneID:
+desiredKeys
 setRecordChangedBlock:
 setRecordWithIDWasDeletedBlock:
 setRecordZoneFetchCompletionBlock:
@@ -3552,11 +3586,13 @@ fetchCurrentUserRecordOperation
 initWithModel:externalID:
 _insertDeletionItemsWithZoneRow:blockRow:type:modelType:error:
 _insertDeletionItemsForOrphanedRecordsWithZoneRow:blockRow:type:modelType:error:
+_insertDeletionItemsForModelsAndDescendantModelsWithBlockRow:context:type:modelIDs:currentDepth:maximumDepth:options:error:
 _insertDeletionItemWithZoneRow:blockRow:type:modelID:error:
-_insertDeletionItemsWithZoneRow:blockRow:type:parentModelID:error:
+_selectRecordsWithZoneRow:parentModelID:returning:error:
 _selectReadyBlocksWithZoneRow:type:error:
 _selectItemsWithBlockRow:returning:error:
 createOutputBlockWithError:
+modifiedByDevice
 initRequiringSecureCoding:
 encodeSystemFieldsWithCoder:
 finishEncoding
@@ -3643,10 +3679,6 @@ _readOnly
 _logIdentifier
 _url
 _mutation
-defaultManager
-URLByDeletingLastPathComponent
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-removeItemAtURL:error:
 contextLock
 contexts
 unlock
@@ -3663,6 +3695,10 @@ hmbErrorWithSQLContext:
 hmbErrorWithSQLContext:statement:
 hmbErrorWithSQLite3Status:
 stringWithCapacity:
+defaultManager
+URLByDeletingLastPathComponent
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+removeItemAtURL:error:
 hmfErrorWithCode:userInfo:
 fileSystemRepresentation
 _selectRecordWithRow:returning:error:
@@ -3674,7 +3710,6 @@ _deleteBlocksWithZoneRow:error:
 _deleteIndexSentinelsWithZoneRow:error:
 fetchModelWithModelID:recordRow:error:
 _selectRecordWithZoneRow:parentModelID:modelType:returning:error:
-_selectRecordWithZoneRow:parentModelID:returning:error:
 _selectRecordsWithZoneRow:returning:error:
 _selectRecordsWithZoneRow:modelType:returning:error:
 fetchAllModelsWithError:
@@ -3694,9 +3729,9 @@ keyEnumerator
 unlinkDatastoreAt:everything:
 _selectZoneWithRow:error:
 _updateZoneWithRow:replication:error:
+_insertDeletionItemsWithZoneRow:blockRow:type:parentModelID:error:
 _insertItemWithZoneRow:blockRow:type:modelType:error:
 _deleteItemWithZoneRow:type:externalID:error:
-_selectItemWithZoneRow:type:externalID:returning:error:
 _deleteNullItemsWithZoneRow:type:error:
 _deleteIndexSentinelsWithModelType:error:
 flush:
@@ -3729,7 +3764,6 @@ deleteItem
 deleteItemsBlock
 deleteItemsStore
 deleteItemStoreExternal
-selectItemBlockExteral
 selectItemsBlock
 selectItemsBlockLimit
 deleteNullItems
@@ -3831,7 +3865,6 @@ queryableFieldWithEncodeBlock:decodeBlock:
 queryableFieldWithEncodeBlock:decodeBlock:descriptionBlock:
 subscriptionID
 pushSubscriptionsForDatabase:subscriptionsToSave:subscriptionIDsToRemove:
-na_filter:
 unregisterPrivateSubscriptionForSubscriptionID:
 unregisterSharedSubscriptionForSubscriptionID:
 initWithSubscriptionID:
@@ -3869,12 +3902,12 @@ v16@0:8
 v24@0:8@16
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
-v32@0:8@16@24
 @?16@0:8
 v24@0:8@?16
 v20@0:8B16
 q16@0:8
 v24@0:8q16
+v24@0:8Q16
 @"NSString"
 @"NSDictionary"
 @"NSUUID"
@@ -3888,11 +3921,10 @@ i16@0:8
 v24@0:8^{sqlite3_stmt=}16
 @"HMBSQLContext"
 ^{sqlite3_stmt=}
-@40@0:8@16Q24^@32
+@48@0:8@16@24Q32^@40
 @48@0:8@16@24@32^@40
 @"HMBCloudZone"
 @"HMBCloudZoneRebuilderStatus"
-v24@0:8Q16
 @40@0:8@16@24Q32
 @48@0:8@16@24Q32@40
 @48@0:8^{sqlite3_stmt=}16^B24^Q32^@40
@@ -3932,6 +3964,7 @@ v24@0:8@"HMBLocalZone"16
 @"NAFuture"32@0:8Q16@"HMBProcessingOptions"24
 @"<HMBLocalZoneID>"16@0:8
 B40@0:8@16@24@?32
+v32@0:8@16@24
 B32@0:8@16^@24
 @"HMBCloudDatabase"
 @"<HMBCloudZoneDelegate>"
@@ -3959,11 +3992,13 @@ Q48@0:8Q16Q24@32^@40
 @"NSHashTable"
 @64@0:8@16@24Q32@40@48@56
 B24@0:8^@16
+@40@0:8@16Q24@32
 @"HMBLocalDatabase"
 @"<HMBLocalZoneID>"
 @"<HMBMirrorProtocol>"
 @"<HMBLocalZoneDelegate>"
 @24@0:8q16
+@40@0:8@16Q24^@32
 @32@0:8Q16^@24
 @"NSData"32@0:8Q16^@24
 @40@0:8@"NSData"16Q24^@32
@@ -4062,11 +4097,12 @@ v32@0:8@"HMBLocalZone"16@"NSString"24
 @32@0:8#16@?24
 @40@0:8#16@24@?32
 @48@0:8@16@24Q32Q40
-@40@0:8@16Q24@32
 @24@0:8B16B20
 @28@0:8B16@20
 @36@0:8B16@20@28
 Q48@0:8Q16@24@32^@40
+Q56@0:8Q16@24Q32@40^@48
+B80@0:8Q16@24Q32@40Q48Q56@64^@72
 v36@0:8@16@24B32
 d16@0:8
 B24@0:8q16
@@ -4104,7 +4140,6 @@ Q80@0:8Q16Q24Q32@40@48Q56@64^@72
 Q56@0:8Q16Q24Q32@40^@48
 B80@0:8Q16Q24Q32@40@48Q56@64^@72
 B48@0:8Q16Q24@32^@40
-@56@0:8Q16Q24@32Q40^@48
 @56@0:8Q16Q24Q32Q40^@48
 B40@0:8Q16Q24^@32
 @40@0:8Q16@24^@32

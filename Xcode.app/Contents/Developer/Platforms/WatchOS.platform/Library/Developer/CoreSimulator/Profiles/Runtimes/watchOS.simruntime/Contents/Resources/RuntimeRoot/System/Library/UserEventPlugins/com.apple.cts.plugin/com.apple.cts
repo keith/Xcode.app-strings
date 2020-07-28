@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2001
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2031
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -53,6 +53,8 @@ bundle_id
 setBundle_id:
 related_applications
 setRelated_applications:
+runOnAppForeground
+setRunOnAppForeground:
 bgwake_count
 setBgwake_count:
 power_assertion
@@ -125,6 +127,7 @@ _unmanaged
 _eligible
 _das_eligible
 _das_started
+_runOnAppForeground
 _repeating
 _requires_screen_sleep
 _requires_significant_user_inactivity
@@ -354,6 +357,8 @@ bundle_id
 T@"NSString",&,N,V_bundle_id
 related_applications
 T@"NSArray",&,N,V_related_applications
+runOnAppForeground
+TB,N,V_runOnAppForeground
 bgwake_count
 TI,N,V_bgwake_count
 power_assertion

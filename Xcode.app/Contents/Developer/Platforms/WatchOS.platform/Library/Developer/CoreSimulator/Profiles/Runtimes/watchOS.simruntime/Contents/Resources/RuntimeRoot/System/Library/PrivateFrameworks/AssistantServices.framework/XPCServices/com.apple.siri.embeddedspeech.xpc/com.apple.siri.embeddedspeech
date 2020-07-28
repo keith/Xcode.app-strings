@@ -148,7 +148,6 @@ v12@?0i8
 -[ESAssetManager installationStatusForLanguagesIgnoringCache:withError:]
 -[ESAssetManager _invalidateInstallationStatusCache]
 -[ESAssetManager _queryInstallationStatusForLanguagesWithError:]
-MAQueryResult
 %@: %@: AssetId=%@:
 -[ESAssetManager installedQuasarModelPathForLanguage:error:]
 No models installed yet
@@ -207,6 +206,10 @@ Tq,N,V_totalCost
 com.apple.siri.ESConnection
 -[ESConnection initWithXPCConnection:]_block_invoke
 -[ESConnection dealloc]
+com.apple.siri.ESConnection.fidesEval
+com.apple.siri.embeddedspeech.preheat-keepalive
+-[ESConnection _preheatKeepAlive]
+-[ESConnection _preheatKeepAlive]_block_invoke
 -[ESConnection fetchAssetsForLanguage:completion:]
 -[ESConnection fetchUserDataForLanguage:completion:]_block_invoke
 v16@?0@"ESUserData"8
@@ -218,7 +221,7 @@ itn_s.enh
 Failed to create recognizer from %@
 AlreadyLoaded
 Preheating
--[ESConnection preheatSpeechRecognitionWithLanguage:]
+-[ESConnection preheatSpeechRecognitionWithLanguage:modelOverrideURL:]
 Success
 Failure
 -[ESConnection startSpeechRecognitionWithLanguage:interactionIdentifier:task:context:profile:narrowband:detectUtterances:censorSpeech:maximumRecognitionDuration:farField:overrides:modelOverrideURL:secureOfflineOnly:originalAudioFileURL:applicationName:shouldStoreAudioOnDevice:didStartHandler:]
@@ -251,6 +254,7 @@ v32@?0@"NSString"8Q16^B24
 +[ESConnection _scheduleCooldownTimer]
 +[ESConnection _cancelCooldownTimer]
 +[ESConnection _cooldownTimerFired]
++[ESConnection _sendPendingAnalyticsEvents]
 +[ESConnection _adaptRecipe:userData:profile:]_block_invoke
 v32@?0@"NSString"8@"NSDictionary"16^B24
 recipeType
@@ -285,6 +289,7 @@ pg.voc
 token_s.enh
 mrec.psh
 -[ESConnection _deleteTemporaryDirectoryIfExists:]
+-[ESConnection compileAllAssetsWithCompletion:]
 -[ESConnection deleteAllDESRecordsForDictationPersonalizationWithCompletion:]
 -[ESConnection speechRecognizer:didRecognizePartialResult:]_block_invoke
 Unsupported EAR build?
@@ -557,6 +562,7 @@ _es_quasarModelPath
 refreshState
 purgeSync
 compare:options:
+compare:
 boolValue
 _es_compareByVersion:
 _es_isCompatibleWithThisDevice
@@ -653,9 +659,14 @@ setDetectUtterances:
 setRecognizeEagerCandidates:
 setConcatenateUtterances:
 logLocalRecognitionLoadedForLanguage:duration:
+_preheatKeepAlive
+_clearPendingAnalyticsEvents
+_addPendingAnalyticsEvent:
 isEqualToString:
 _scheduleCooldownTimer
+_sendPendingAnalyticsEvents
 startRequestActivityWithCompletion:
+interruptTraining
 modelInfo
 setRecognitionReplacements:
 setRecognitionConfidenceSubtraction:
@@ -701,6 +712,7 @@ _runAdaptationRecipeForLocationOfInterestWithFrequency:tagName:templateName:char
 _runAdaptationRecipeForNamesWithFrequency:tagNames:templateName:charSetToTrim:charSetToSplit:minimumWordLength:nameFrequencies:profile:
 _runAdaptionRecipeForCalendarEventsWithFrequency:tagName:templateName:charSetToTrim:charSetToSplit:minimumWordLength:userData:profile:
 _cooldownTimerFired
+logEvents:
 _parseRequiredParameter:expectedClass:domain:recipe:error:
 characterSetWithCharactersInString:
 _runAdaptationRecipeForDomain:frequency:tagNames:templateName:charSetToTrim:charSetToSplit:minimumWordLength:userData:profile:
@@ -729,6 +741,7 @@ numberWithFloat:
 readProfileAndUserDataWithLanguage:allowOverride:completion:
 initWithConfiguration:language:overrides:sdapiOverrides:generalVoc:emptyVoc:pgVoc:lexiconEnh:tokenEnh:paramsetHolder:
 removeItemAtURL:error:
+compileRecognizerModelsWithConfiguration:
 tokens
 _delegate
 speechServiceDidRecognizeTokens:
@@ -761,7 +774,8 @@ speechRecognizer:didProcessAudioDuration:
 speechRecognizer:didRecognizeRawEagerRecognitionCandidate:
 speechRecognizer:didProduceEndpointFeaturesWithWordCount:trailingSilenceDuration:eosLikelihood:pauseCounts:silencePosterior:processedAudioDurationInMilliseconds:
 speechRecognizer:didRecognizePartialResultNbest:
-preheatSpeechRecognitionWithLanguage:
+compileAllAssetsWithCompletion:
+preheatSpeechRecognitionWithLanguage:modelOverrideURL:
 startSpeechRecognitionWithLanguage:interactionIdentifier:task:context:profile:narrowband:detectUtterances:censorSpeech:maximumRecognitionDuration:farField:overrides:modelOverrideURL:secureOfflineOnly:originalAudioFileURL:applicationName:shouldStoreAudioOnDevice:didStartHandler:
 finishAudio
 createSpeechProfileWithLanguage:modelOverridePath:JSONData:completion:
@@ -778,6 +792,8 @@ invalidatePersonalizedLM
 removePersonalizedLMForFidesOnly:completion:
 runEvaluationWithDESRecordDatas:language:recipe:fidesPersonalizedLMPath:fidesPersonalizedLMTrainingAsset:scrubResult:completion:
 deleteAllDESRecordsForDictationPersonalizationWithCompletion:
+_fidesEvalQueue
+_invalidated
 _recognizer
 _audioBuffer
 _connection
@@ -788,12 +804,12 @@ _bufferedAudioPackets
 _bufferedAudioEnded
 _validDomains
 _requestCompletion
-_invalidated
 _storeAudioData
 _audioDurationMs
 _localMetrics
 _recognitionBeginTime
 _recognitionEndTime
+_weakFidesRecognizer
 filteredArrayUsingPredicate:
 fileURLWithPath:isDirectory:
 UUID
@@ -929,6 +945,8 @@ initWithAcousticFeatureValue:frameDuration:
 %s MobileAsset is sad: %ld
 %s %@ cancelling instance %@
 %s %@ deallocating
+%s Acquired os_transaction for dictation preheat
+%s Released os_transaction for dictation preheat
 %s Failing to fetch assets for nil language
 %s Could not get offline language for fetch fallback: %{public}@
 %s Fell back asset fetch from %{public}@ to %{public}@
@@ -939,11 +957,15 @@ initWithAcousticFeatureValue:frameDuration:
 %s Failed to create recognizer from %{public}@
 %s EmbeddedSpeechMetric: Created recognizer in %lf sec from %@
 %s Skipping preheat for %@; recognizer already loaded
+%s Preheated for %@ with CustomModelURL %@
 %s Preheated for %@
+%s Could not preheat for %@ with CustomModelURL %@: %@
 %s Could not preheat for %@: %@
 %s Starting
 %s Recognizer is busy
 %s Cached recognizer for language %@ already loaded
+%s Interrupting training for current running recognizer
+%s Interrupting training for previously used recognizer
 %s _storeAudioData should be nil. Critical Error. Please check.
 %s Got speech correction info with text=%@ interactionId=%@
 %s Using override profile at %@
@@ -969,6 +991,7 @@ initWithAcousticFeatureValue:frameDuration:
 %s Ignoring locationOfInterestName "%@" because it is too short (minimum length is %lu)
 %s Using eventLocationNameAdaptationFrequency adaption for names %@ into slot %@ for template %@
 %s Ignoring calendar event word "%@" because it is too short (minimum length is %lu)
+%s Sending %lu events
 %s Recipe has invalid json for "%{public}@"
 %s Recipe has invalid tagName for "%{public}@": "%{public}@"
 %s Error executing recipe for domain %{public}@
@@ -986,6 +1009,9 @@ initWithAcousticFeatureValue:frameDuration:
 %s Set model root to %@
 %s Use currently installed asset.
 %s Failed to delete temporary directory: %@
+%s Starting to compile language: %@
+%s Error when compiling: %@
+%s Error when getting status: %@
 %s Failed to delete DES Records because dodML is not supported for this device
 %s %lu results
 %s EmbeddedSpeechMetric: first audio packet to first partial result = %lf secs
@@ -1091,17 +1117,18 @@ v32@0:8@"_EARSpeechRecognizer"16@"_EARSpeechRecognitionResultPackage"24
 v32@0:8@"_EARSpeechRecognizer"16d24
 v32@0:8@"_EARSpeechRecognizer"16@"_EARSpeechRecognition"24
 v72@0:8@"_EARSpeechRecognizer"16q24q32d40@"NSArray"48d56q64
-Vv24@0:8@16
 Vv24@0:8@?16
+Vv32@0:8@16@24
 Vv128@0:8@16@24@32@40@48B56B60B64d68B76@80@88B96@100@108B116@?120
+Vv24@0:8@16
 Vv48@0:8@16@24@32@?40
 Vv56@0:8@16@24@32@40@?48
 Vv28@0:8B16@?20
 Vv32@0:8@16@?24
 Vv36@0:8@16B24@?28
-Vv32@0:8@16@24
 Vv68@0:8@16@24@32@40@48B56@?60
-Vv24@0:8@"NSString"16
+Vv24@0:8@?<v@?@"NSError">16
+Vv32@0:8@"NSString"16@"NSURL"24
 Vv24@0:8@?<v@?>16
 Vv128@0:8@"NSString"16@"NSString"24@"NSString"32@"NSArray"40@"NSData"48B56B60B64d68B76@"NSDictionary"80@"NSURL"88B96@"NSURL"100@"NSString"108B116@?<v@?@"NSString"@"NSError">120
 Vv24@0:8@"NSData"16
@@ -1117,7 +1144,6 @@ Vv32@0:8@"NSSet"16@?<v@?@"NSNumber"@"NSError">24
 Vv32@0:8@"AFSpeechCorrectionInfo"16@"NSString"24
 Vv28@0:8B16@?<v@?>20
 Vv68@0:8@"NSDictionary"16@"NSString"24@"NSDictionary"32@"NSString"40@"NSString"48B56@?<v@?@"NSDictionary"@"NSError">60
-Vv24@0:8@?<v@?@"NSError">16
 v48@0:8@16@24@32@?40
 @56@0:8@16@24@32^@40^@48
 @"_EARSpeechRecognizer"
@@ -1149,6 +1175,7 @@ v48@0:8@16@24@32@?40
 <array>
 <string>com.apple.MobileAsset.EmbeddedSpeech</string>
 <string>com.apple.MobileAsset.EmbeddedSpeechWatch</string>
+<string>com.apple.MobileAsset.EmbeddedSpeechMac</string>
 </array>
 <key>com.apple.private.calendar.allow-suggestions</key>
 <true/>
@@ -1157,6 +1184,8 @@ v48@0:8@16@24@32@?40
 <key>com.apple.private.corerecents</key>
 <true/>
 <key>com.apple.private.corespotlight.internal</key>
+<true/>
+<key>com.apple.private.security.storage.SpeechPersonalizedLM</key>
 <true/>
 <key>com.apple.private.tcc.allow</key>
 <array>
@@ -1168,6 +1197,22 @@ v48@0:8@16@24@32@?40
 <key>com.apple.security.exception.mach-lookup.global-name</key>
 <array>
 <string>com.apple.suggestd.contacts</string>
+</array>
+<key>com.apple.security.iokit-user-client-class</key>
+<array>
+<string>AGXCommandQueue</string>
+<string>AGXDevice</string>
+<string>AGXDeviceUserClient</string>
+<string>AGXSharedUserClient</string>
+<string>H11ANEInDirectPathClient</string>
+<string>IOAccelContext</string>
+<string>IOAccelContext2</string>
+<string>IOAccelDevice</string>
+<string>IOAccelDevice2</string>
+<string>IOAccelSharedUserClient</string>
+<string>IOAccelSharedUserClient2</string>
+<string>IOAccelSubmitter2</string>
+<string>IOSurfaceRootUserClient</string>
 </array>
 <key>com.apple.security.personal-information.addressbook</key>
 <true/>

@@ -400,6 +400,8 @@ SVXClientServiceServerConnection
 -[SVXClientServiceServerConnection performManualEndpointing]
 -[SVXClientServiceServerConnection transitToAutomaticEndpointing]
 -[SVXClientServiceServerConnection fetchAudioPowerWithType:completion:]
+-[SVXClientServiceServerConnection prewarmRequest:]
+-[SVXClientServiceServerConnection synthesizeRequest:completion:]
 -[SVXClientServiceServerConnection enqueueSpeechSynthesisRequest:completion:]
 -[SVXClientServiceServerConnection cancelPendingSpeechSynthesisRequest:]
 -[SVXClientServiceServerConnection stopSpeechSynthesisRequest:]
@@ -558,6 +560,10 @@ Client Service Connection
 -[SVXClientServiceConnection prewarmWithContext:completion:]_block_invoke_2
 -[SVXClientServiceConnection fetchAudioPowerWithType:completion:]
 -[SVXClientServiceConnection fetchAudioPowerWithType:completion:]_block_invoke_2
+-[SVXClientServiceConnection prewarmRequest:]
+-[SVXClientServiceConnection prewarmRequest:]_block_invoke_2
+-[SVXClientServiceConnection synthesizeRequest:completion:]
+-[SVXClientServiceConnection synthesizeRequest:completion:]_block_invoke_2
 -[SVXClientServiceConnection enqueueSpeechSynthesisRequest:completion:]
 -[SVXClientServiceConnection enqueueSpeechSynthesisRequest:completion:]_block_invoke_2
 -[SVXClientServiceConnection cancelPendingSpeechSynthesisRequest:]
@@ -726,10 +732,9 @@ T@"<SVXClientAudioPowerServiceDelegate>",W,N,V_delegate
 -[SVXSpeechSynthesizer speechSynthesizer:didFinishSynthesisRequest:withInstrumentMetrics:error:]
 -[SVXSpeechSynthesizer _configuredSpeechRequestForContext:]
 -[SVXSpeechSynthesizer _prewarm]
+-[SVXSpeechSynthesizer _prewarmWithContext:]
 -[SVXSpeechSynthesizer _configureWithConfiguration:]
--[SVXSpeechSynthesizer _configureSpeechSynthesizerWithOutputVoiceInfo:]
 -[SVXSpeechSynthesizer _configureSpeechSynthesizerWithAudioSessionID:]
--[SVXSpeechSynthesizer _speechSynthesizer]
 -[SVXSpeechSynthesizer _beginUpdateAudioPowerWithCompletion:]
 v16@?0@"AFXPCWrapper"8
 -[SVXSpeechSynthesizer _endUpdateAudioPower]
@@ -740,6 +745,9 @@ utterance
 -[SVXSpeechSynthesizer _handleDidStartPresynthesizedAudioRequest:timestamp:]
 -[SVXSpeechSynthesizer _handleDidStopPresynthesizedAudioRequest:success:error:]
 -[SVXSpeechSynthesizer _handleDidFinishPresynthesizedAudioRequest:instrumentMetrics:error:]
+-[SVXSpeechSynthesizer _handleDidReceiveSpeechWordTimingInfoArray:forSpeechRequest:]
+-[SVXSpeechSynthesizer _handleDidFinishSynthesizingForSpeechRequest:instrumentMetrics:error:]
+B24@?0@"SVXSpeechSynthesisContext"8^B16
 character_count
 voice_asset_key
 is_warm_start
@@ -755,9 +763,6 @@ is_speech_request
 is_cache_hit_from_memory
 synthesis_to_speech_time_gap
 audio_start_timestamp_diffs
--[SVXSpeechSynthesizer _handleDidReceiveSpeechWordTimingInfoArray:forSpeechRequest:]
--[SVXSpeechSynthesizer _handleDidFinishSynthesizingForSpeechRequest:instrumentMetrics:error:]
-B24@?0@"SVXSpeechSynthesisContext"8^B16
 -[SVXSpeechSynthesizer _enqueueContext:]
 -[SVXSpeechSynthesizer _enqueueContext:]_block_invoke
 v32@?0@"SVXSpeechSynthesisContext"8Q16^B24
@@ -976,6 +981,13 @@ T@"NSArray",R,C,N,V_wordTimings
 B32@?0@"SAAceView"8Q16^B24
 ignoresLocallyParseableExpressions
 TB,N,V_ignoresLocallyParseableExpressions
+SVXInstrumentationNextTurnBasedContextfromContext
+SVXInstrumentationNewTurnBasedContext
+SVXInstrumentationEmitInvocation
+SVXInstrumentationEmitUIStateTransition
+SVXInstrumentationEmitDismissalUIStateTransition
+SVXInstrumentationEmitUUFRSaid
+(unknown: %i)
 feedback
 dependentNodes
 feedback = %@
@@ -1025,19 +1037,23 @@ Unable to find the delayed action cached locally to cancel.
 deviceSetupFlowScene
 storeDemo
 orderedAlarmAndTimerIDs
+speechSynthesisRequest
 deviceSetupFlowScene = %@
 storeDemo = %@
 orderedAlarmAndTimerIDs = %@
+speechSynthesisRequest = %@
 audioSessionID = %@
 SVXSystemEvent::type
 SVXSystemEvent::timestamp
 SVXSystemEvent::deviceSetupFlowScene
 SVXSystemEvent::storeDemo
 SVXSystemEvent::orderedAlarmAndTimerIDs
+SVXSystemEvent::speechSynthesisRequest
 SVXSystemEvent::audioSessionID
 T@"SVXDeviceSetupFlowScene",R,C,N,V_deviceSetupFlowScene
 T@"SVXStoreDemo",R,C,N,V_storeDemo
 T@"NSArray",R,C,N,V_orderedAlarmAndTimerIDs
+T@"SVXSpeechSynthesisRequest",R,C,N,V_speechSynthesisRequest
 system
 continuity
 data
@@ -1353,6 +1369,7 @@ timerFired
 timerSnoozed
 timerDismissed
 alarmsAndTimersAnnouncement
+speechSynthesis
 30Hertz
 60Hertz
 120Hertz
@@ -1360,8 +1377,10 @@ input
 output
 approved
 declined
--[SVXClientSpeechSynthesisService enqueueRequest:completion:]_block_invoke
--[SVXClientSpeechSynthesisService cancelPendingRequest:]_block_invoke
+-[SVXClientSpeechSynthesisService prewarmRequest:]_block_invoke
+-[SVXClientSpeechSynthesisService synthesizeRequest:completion:]_block_invoke
+-[SVXClientSpeechSynthesisService enqueueRequest:completion:]_block_invoke_4
+-[SVXClientSpeechSynthesisService cancelPendingRequest:]_block_invoke_2
 -[SVXClientSpeechSynthesisService stopRequest:]_block_invoke_2
 -[_SVXPlayAudioExpressionParser parsePlayAudio:reply:]
 -[_SVXPlayAudioExpressionParser parsePlayAudio:reply:]_block_invoke
@@ -1387,7 +1406,8 @@ SIRI_VOX_FIRING_ALARM_OR_TIMER_ANNOUNCEMENT_CONCATENATION
 \pause=150\} 
 v32@?0@"AFClockTimer"8Q16^B24
 SIRI_VOX_FIRING_TIMER_ANNOUNCEMENT_MULTI
-SIRI_VOX_FIRING_TIMER_ANNOUNCEMENT_SINGLE
+SIRI_VOX_FIRING_TITLED_TIMER_ANNOUNCEMENT_SINGLE
+SIRI_VOX_FIRING_UNTITLED_TIMER_ANNOUNCEMENT_SINGLE
  @{tts#
 \pause=500\} 
 v32@?0@"AFClockAlarm"8Q16^B24
@@ -1551,9 +1571,7 @@ T@"NSLocale",R,C,N,V_locale
 %s locale changed from %@ to %@.
 %s outputVoiceInfo changed from %@ to %@.
 %s audioSessionID changed from %lu to %lu.
-%s %@ -setGender: %lld
 %s %@ -useSpecificAudioSession: %lu
-%s %@ -setMaintainInactivePersistentConnection: YES
 %s speechRequest = %@
 %s Started TTS for current speaking context. (_currentSpeakingContext = %@)
 %s speechRequest = %@, instrumentMetrics = %@
@@ -1646,6 +1664,15 @@ T@"NSLocale",R,C,N,V_locale
     Original ace view: %@
     Updated views array: %@
 %s Found no parseable expressions in command %@
+%s #SVXInstrumentation - Start new turn because current turn is nil
+%s #SVXInstrumentation - Start turn from current turn (%@)
+%s #SVXInstrumentation - Start new turn
+%s #SVXInstrumentation - Emit invocation event (source %@)
+%s Emitting unknown UIStateTransition; this implies there are unaccounted session state transitions, add them here
+%s #SVXInstrumentation - Emit state transition event (current: %@, next: %@)
+%s #SVXInstrumentation - Emit state transition (dismissed) event (current: %@, dismissalReason: %@)
+%s #SVXInstrumentation - Emit state transition (idle) event
+%s #SVXInstrumentation - Emit UUFR said event (dialogIdentifier: %@, dialogPhase: %@)
 %s This SPI has been deprecated, please use -enqueueButtonEvent: instead.
 %s buttonEvent = %@
 %s userInfo = %@
@@ -1676,6 +1703,7 @@ T@"NSLocale",R,C,N,V_locale
 %s Rejected system event for activation because the type is %@, but the deviceSetupFlowScene is nil.
 %s Rejected system event for activation because the type is %@, but the storeDemo is nil.
 %s Rejected system event for activation because the type is %@, but orderedAlarmAndTimerIDs is empty.
+%s Rejected system event for activation because the type is %@, but speechSynthesisRequest is nil.
 %s Rejected system event for activation because the type is %@.
 %s Don't know how to generate a parseable expression for context object: %@
 %s Parsing expression with parsing service: %@
@@ -1748,6 +1776,7 @@ T@"NSLocale",R,C,N,V_locale
 %s deviceSetupFlowSceneID = %@, introductionSoundID = %@, conclusionSoundID = %@, deviceSetupFlowSiriCapabilitiesHint = %@
 %s storeDemo = %@
 %s Unable to find alarm or timer with ID %@ for announcement.
+%s speechSynthesisRequest = %@
 %s requestInfo = %@
 %s Siri is in device setup mode and is active.
 %s Barged-in over Siri request.
@@ -2599,6 +2628,8 @@ activateWithContext:completion:
 performManualEndpointing
 transitToAutomaticEndpointing
 fetchAudioPowerWithType:completion:
+prewarmRequest:
+synthesizeRequest:completion:
 enqueueSpeechSynthesisRequest:completion:
 cancelPendingSpeechSynthesisRequest:
 stopSpeechSynthesisRequest:
@@ -2663,6 +2694,7 @@ dictionaryWithObjects:forKeys:count:
 listenAfterSpeaking
 sharedPreferences
 listenAfterSpeakingDisabled
+instrumentationContext
 canUseServerTTS
 enqueueRequest:languageCode:gender:audioSessionID:preparation:finalization:taskTracker:analyticsContext:
 items
@@ -2957,6 +2989,7 @@ _updater
 defaultCenter
 removeObserver:
 initWithOperationType:request:languageCode:gender:audioSessionID:preparation:finalization:taskTracker:analyticsContext:
+_prewarmWithContext:
 _enqueueContext:
 _cancelPendingSpeakingContextWithRequest:
 _stopCurrentSpeakingContextWithRequest:withInterruptionBehavior:
@@ -2993,11 +3026,9 @@ setShouldCache:
 _configuredSpeechRequestForContext:
 prewarmIfNeededWithRequest:
 locale
-_configureSpeechSynthesizerWithOutputVoiceInfo:
 _configureSpeechSynthesizerWithAudioSessionID:
 _processPendingContexts
 useSpecificAudioSession:
-setMaintainInactivePersistentConnection:
 beginAudioPowerUpdateWithReply:
 endAudioPowerUpdate
 speechRequest
@@ -3012,31 +3043,29 @@ logEventWithType:machAbsoluteTime:context:
 speechBeginTimestamp
 setAceID:
 setAudioOutputRoute:
-instrumentationContext
 emitInstrumentation:machAbsoluteTime:
 speechEndTimestamp
 _continueContext:error:
 _finalizeContext:withResultType:utterance:error:
 presynthesizedAudioRequest
-voiceAssetKey
-isWarmStart
-isCacheHitFromDisk
-isServerTTS
-ttsSynthesisLatency
-ttsTotalLatency
-audioQueueLatency
-synthesisToSpeechTime
-waitForSynthesisToFinishTime
-audioDuration
-isCacheHitFromMemory
-synthesisToSpeechTimeGap
-numberWithLongLong:
-audioStartTimestampDiffs
+creationContextFromInstrumentMetrics:
 setSpeechWordTimingInfoArray:
 objectsPassingTest:
 minusSet:
 synthesisBeginTimestamp
 synthesisEndTimestamp
+voiceAssetKey
+isWarmStart
+isCacheHitFromDisk
+isServerTTS
+ttsSynthesisLatency
+timeToSpeakLatency
+audioQueueLatency
+eagerRequestTimeGap
+audioDuration
+isCacheHitFromMemory
+audioStartTimestampDiffs
+numberWithLongLong:
 _numberOfContexts
 operationType
 _cancelPendingSpeakingContextsWithPriorityBelow:
@@ -3246,6 +3275,19 @@ setViews:
 ignoresLocallyParseableExpressions
 setIgnoresLocallyParseableExpressions:
 _ignoresLocallyParseableExpressions
+turnIdentifier
+newTurnBasedContextWithPreviousTurnID:
+activationEvent
+setInvocationSource:
+emitInstrumentation:
+setPresentationType:
+setPresenting:
+setPreviousState:
+setCurrentState:
+setDismissalReason:
+setDismissed:
+setSiriResponseMode:
+setSiriResponseContext:
 feedback
 dependentNodes
 initWithIdentifier:duration:feedback:dependentNodes:
@@ -3283,14 +3325,17 @@ _preheatToken
 manualEndpointingThreshold
 storeDemo
 orderedAlarmAndTimerIDs
+speechSynthesisRequest
 delayedActionAceId
-initWithType:timestamp:deviceSetupFlowScene:storeDemo:orderedAlarmAndTimerIDs:audioSessionID:
+initWithType:timestamp:deviceSetupFlowScene:storeDemo:orderedAlarmAndTimerIDs:speechSynthesisRequest:audioSessionID:
 _deviceSetupFlowScene
 _storeDemo
 _orderedAlarmAndTimerIDs
+_speechSynthesisRequest
 setDeviceSetupFlowScene:
 setStoreDemo:
 setOrderedAlarmAndTimerIDs:
+setSpeechSynthesisRequest:
 _data
 _decoderASBD
 _playerASBD
@@ -3393,7 +3438,6 @@ _session
 experimentForSiriVOXSounds
 experimentForSiriVOXTapToSiriBehavior
 _preheatWithStyle:
-newTurnBasedContextWithPreviousTurnID:
 _activateWithContext:options:clockAlarmSnapshot:clockTimerSnapshot:deviceSetupContext:deviceProblemsState:nowPlayingAppPlaybackState:speechSynthesisRecord:speechSynthesisState:speechRecordingAlertPolicy:taskTracker:completion:
 invokeWithSignal:
 _stopSpeech
@@ -3476,7 +3520,6 @@ getRemoteClockTimerSnapshotWithCompletion:
 setBargeInOptions:
 setFetchSmartSiriVolume:
 setClientAnalyticsContext:
-activationEvent
 activationEventTime
 activationEventMachAbsoluteTime
 bargeInOptions
@@ -3490,7 +3533,6 @@ _startRequestWithInfo:clearsContext:clockAlarmSnapshot:clockTimerSnapshot:device
 _clearContext
 _startSessionIdleTimerWithTimeInterval:
 isRecording
-turnIdentifier
 setTurnIdentifier:
 startRecordingAndGetContinueBlockForPendingSpeechRequestWithOptions:
 clearContext
@@ -3522,8 +3564,6 @@ _checkIsActiveWithCompletion:
 _invalidateConnection
 _discardPendingRequestBarriers
 _continuePendingSpeechRequest:
-setInvocationSource:
-setInvocationAction:
 _setInputAudioPowerWrapper:
 errorWithCode:description:underlyingError:
 _setOutputAudioPowerWrapper:
@@ -3566,6 +3606,8 @@ assistantConnection:willProcessStartPlayback:
 assistantConnection:startPlaybackDidFail:
 assistantConnection:audioSessionWillBecomeActive:
 assistantConnection:audioSessionDidBecomeActive:
+assistantConnection:willProcessAppLaunchWithBundleIdentifier:
+assistantConnection:appLaunchFailedWithBundleIdentifier:
 assistantConnectionSpeechRecordingWillBegin:
 assistantConnection:speechRecordingWillBeginWithInputAudioPowerXPCWrapper:
 assistantConnection:speechRecordingDidBeginOnAVRecordRoute:
@@ -3598,6 +3640,7 @@ _currentSpeechRequestDidStartBlock
 _currentSpeechRequestPendingBlocks
 _currentRequestWillPresentUUFR
 _currentRequestDidPresentUUFR
+_previousRequestInstrumentationContext
 _currentRequestInstrumentationContext
 _taskTrackingCenter
 _sessionIdleAssertions
@@ -3605,6 +3648,7 @@ _inputAudioPowerWrapper
 _outputAudioPowerWrapper
 _audioSessionAssertions
 _hasFetchedSmartSiriVolume
+_currentInstrumentationUIState
 _pendingRequestBarriers
 _experimentForSiriVOXSounds
 _experimentForSiriVOXTapToSiriBehavior
@@ -3637,6 +3681,7 @@ setScenes:
 svx_speakableDurationStringWithLanguageCode:gender:
 contingency
 _lastStartedRequest
+initWithType:timestamp:deviceSetupFlowScene:storeDemo:orderedAlarmAndTimerIDs:audioSessionID:
 initWithType:timestamp:alarm:
 initWithType:timestamp:deviceSetupFlowScene:
 initWithType:timestamp:storeDemo:
@@ -3855,8 +3900,8 @@ Vv32@0:8@"SVXActivationContext"16@?<v@?>24
 Vv32@0:8@"SVXActivationContext"16@?<v@?@"NSError">24
 Vv32@0:8@"SVXDeactivationContext"16@?<v@?>24
 Vv32@0:8q16@?<v@?@"AFXPCWrapper"@"NSError">24
-Vv32@0:8@"SVXSpeechSynthesisRequest"16@?<v@?@"SVXSpeechSynthesisResult">24
 Vv24@0:8@"SVXSpeechSynthesisRequest"16
+Vv32@0:8@"SVXSpeechSynthesisRequest"16@?<v@?@"SVXSpeechSynthesisResult">24
 Vv24@0:8@"SVXDeviceSetupContext"16
 Vv32@0:8@"SVXDeviceSetupContext"16@?<v@?@"SVXDeviceSetupFlow"@"NSError">24
 Vv32@0:8@16@24
@@ -4056,9 +4101,10 @@ v32@0:8@"NSDictionary"16@?<v@?>24
 @"<SVXClientActivationServiceDelegate>"16@0:8
 v24@0:8@"<SVXClientActivationServiceDelegate>"16
 @"<SVXClientActivationServiceDelegate>"
-@60@0:8q16Q24@32@40@48I56
+@68@0:8q16Q24@32@40@48@56I64
 v24@0:8@"SVXStoreDemo"16
-{_mutationFlags="isDirty"b1"hasType"b1"hasTimestamp"b1"hasDeviceSetupFlowScene"b1"hasStoreDemo"b1"hasOrderedAlarmAndTimerIDs"b1"hasAudioSessionID"b1}
+v24@0:8@"SVXSpeechSynthesisRequest"16
+{_mutationFlags="isDirty"b1"hasType"b1"hasTimestamp"b1"hasDeviceSetupFlowScene"b1"hasStoreDemo"b1"hasOrderedAlarmAndTimerIDs"b1"hasSpeechSynthesisRequest"b1"hasAudioSessionID"b1}
 @"NSData"
 v24@0:8@"NSData"16
 v24@0:8@"SVXAudioStreamBasicDescription"16
@@ -4146,8 +4192,8 @@ v40@0:8q16@24@?32
 {_mutationFlags="isDirty"b1"hasIdentifier"b1"hasLanguageCode"b1"hasGender"b1"hasScenes"b1}
 @40@0:8q16Q24@32
 @48@0:8q16Q24@32@40
+@60@0:8q16Q24@32@40@48I56
 v32@0:8@"SVXSpeechSynthesisRequest"16@?<v@?@"SVXSpeechSynthesisResult">24
-v24@0:8@"SVXSpeechSynthesisRequest"16
 @40@0:8{_NSRange=QQ}16d32
 {_NSRange=QQ}16@0:8
 {_NSRange="location"Q"length"Q}

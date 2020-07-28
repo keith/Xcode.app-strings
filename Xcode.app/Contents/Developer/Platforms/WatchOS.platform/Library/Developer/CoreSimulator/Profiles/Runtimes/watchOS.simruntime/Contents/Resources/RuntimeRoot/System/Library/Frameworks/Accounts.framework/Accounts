@@ -3,6 +3,10 @@ RegisterTypesToMonitor
 BEGIN [%lld]: RegisterTypesToMonitor 
 END [%lld] %fs: RegisterTypesToMonitor %@%@
 Attempted to register account monitor for types client is not authorized to access: %@
+accounts/register-types-to-monitor-sync
+RegisterTypesToMonitorSync
+BEGIN [%lld]: RegisterTypesToMonitorSync 
+END [%lld] %fs: RegisterTypesToMonitorSync %@%@
 "ACMonitoredAccountStore: Attempting to reconnect to accountsd..."
 "ACMonitoredAccountStore: Failed to reconnect to accountsd: %@"
 "ACMonitoredAccountStore: Reconnected to accountsd"
@@ -621,6 +625,7 @@ IMAPAccount
 Class
 Protocol
 ACAccountStoreReply
+@"ACRemoteAccountStoreSession"8@?0
 v24@?0@"ACAccount"8@"NSError"16
 v24@?0@"ACAccountType"8@"NSError"16
 accountTypeIDs must be non-nil
@@ -659,9 +664,8 @@ T@"ACAccountStore",&,N,S_setDefaultStore:
 replyQueue
 T@"NSObject<OS_dispatch_queue>",R,N,V_replyQueue
 remoteAccountStoreSession
-T@"ACRemoteAccountStoreSession",R,N,V_remoteAccountStoreSession
+T@"ACRemoteAccountStoreSession",R,N
 longLivedRemoteAccountStoreSession
-T@"ACRemoteAccountStoreSession",R,N,V_longLivedRemoteAccountStoreSession
 connectionDelegate
 T@"<ACRemoteAccountStoreSessionDelegate>",R
 effectiveBundleID
@@ -999,9 +1003,15 @@ oauthToken
 type
 destructive
 affectedContainers
+undoAlertTitle
+undoAlertMessage
 Ti,N,V_type
 TB,N,V_destructive
 T@"NSMutableArray",&,N,V_affectedContainers
+hasUndoAlertTitle
+T@"NSString",&,N,V_undoAlertTitle
+hasUndoAlertMessage
+T@"NSString",&,N,V_undoAlertMessage
 com.apple.accountsd.accountmanager
 @"NSXPCConnection"8@?0
 ACRemoteAccountStoreSession.m
@@ -1149,6 +1159,8 @@ propertiesDictionary
 dataclassPropertiesDictionary
 Failed to allocate memory pages (bytes=%lu)
 Failed to deallocate memory pages (ptr=%p, bytes=%lu)
+alertReasonTitle
+alertReasonMessage
 ACDataclassAction.m
 ACDataclassActionCancel
 ACDataclassActionCreateSyncDataStore
@@ -1317,6 +1329,7 @@ NSXPCProxyCreating
 ACAccountStoreClientSideListener
 ACSimpleRateLimiter
 ACRateLimiter
+ACTimedExpirer
 ACDManagedAuthorization
 ACDManagedAccessOptionsKey
 ACProtobufVariableValueList
@@ -1357,6 +1370,7 @@ code
 _accountsListPopulated:
 _registerForCredentialChangedNotifications
 _registerAccountMonitorWithCompletion:
+_registerAccountMonitorSynchronouslyWithCompletion:
 allValues
 objectForKeyedSubscript:
 replyQueue
@@ -1409,6 +1423,7 @@ debugDescription
 connectionClosed
 initWithAccountTypes:delegate:
 registerWithCompletion:
+registerSynchronouslyWithError:
 connectionDelegate
 .cxx_destruct
 _accountTypesToMonitor
@@ -1510,13 +1525,14 @@ copy
 _pluginWithName:inSubpath:inAppleInternal:
 pluginBundlesAtSubpath:
 pluginWithName:inSubpath:
-connectToRemoteAccountStoreUsingEndpoint:
+expirerWithTimeout:
 sharedRebroadcaster
 _clearAccountCaches
 postNotificationName:object:userInfo:
 initWithListenerEndpoint:delegate:
 effectiveBundleID
 setEffectiveBundleID:
+scheduleExpiration:
 errorWithDomain:code:userInfo:
 setNotificationsEnabled:
 longLivedRemoteAccountStoreSession
@@ -1685,6 +1701,7 @@ resetDatabaseToVersion:withCompletion:
 shutdownAccountsD:
 _defaultStore
 _setDefaultStore:
+_setConnectionTimeout:
 canSaveAccountsOfAccountTypeIdentifier:
 initWithRemoteEndpoint:
 initWithEffectiveBundleID:
@@ -1760,9 +1777,14 @@ reportTelemetryForLandmarkEvent:
 _daemonAccountStoreDidChangeObserver
 _accountCache
 _accountsWithAccountTypeCache
-_replyQueue
+_endpoint
 _remoteAccountStoreSession
+_remoteAccountStoreSessionLock
+_remoteAccountStoreSessionExpirer
 _longLivedRemoteAccountStoreSession
+_longLivedRemoteAccountStoreSessionLock
+_longLivedRemoteAccountStoreSessionExpirer
+_replyQueue
 _effectiveBundleID
 _installCredentialsChangedObserver
 _unsafe_markPropertyDirty:
@@ -2094,14 +2116,22 @@ addAffectedContainers:
 affectedContainersCount
 clearAffectedContainers
 affectedContainersAtIndex:
+setUndoAlertTitle:
+setUndoAlertMessage:
 affectedContainersType
+hasUndoAlertTitle
+hasUndoAlertMessage
 setType:
 destructive
 setDestructive:
 affectedContainers
 setAffectedContainers:
+undoAlertTitle
+undoAlertMessage
 _affectedContainers
 _type
+_undoAlertMessage
+_undoAlertTitle
 _destructive
 initWithDelegate:
 XPCInterface
@@ -2168,6 +2198,8 @@ _vacuumQueue
 _keyToSimpleRateLimiter
 _vacuumTimeInterval
 _nextVacuumDate
+_invalidationInterval
+_invalidationTimer
 addValue:
 valuesCount
 clearValues
@@ -2392,6 +2424,7 @@ v16@0:8
 @32@0:8@16@24
 @48@0:8@16@24@32@40
 v24@0:8@?16
+v24@0:8^@16
 @24@0:8@16
 @"NSSet"
 @"NSMutableDictionary"
@@ -2432,8 +2465,11 @@ v36@0:8B16@20@28
 v48@0:8@16@24@32^@40
 B32@0:8@16@24
 v52@0:8@16@24@32B40@?44
-@"NSObject<OS_dispatch_queue>"
+@"NSXPCListenerEndpoint"
 @"ACRemoteAccountStoreSession"
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"ACTimedExpirer"
+@"NSObject<OS_dispatch_queue>"
 @24@0:8@"PBCodable"16
 @24@0:8@"NSData"16
 @"PBCodable"16@0:8
@@ -2473,13 +2509,12 @@ v24@0:8@"NSString"16
 v28@0:8@"ACAccount"16i24
 @24@0:8@?<v@?@"NSError">16
 v28@0:8@16B24
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"ACAccountStoreClientSideListener"
-@"NSXPCListenerEndpoint"
 @"<ACRemoteAccountStoreSessionDelegate>"
 @32@0:8Q16d24
 Q24@0:8@16
 @"NSLock"
+@"NSObject<OS_dispatch_source>"
 @"ACProtobufAccountType"
 @"ACProtobufAccountCredential"
 @"ACProtobufAccount"

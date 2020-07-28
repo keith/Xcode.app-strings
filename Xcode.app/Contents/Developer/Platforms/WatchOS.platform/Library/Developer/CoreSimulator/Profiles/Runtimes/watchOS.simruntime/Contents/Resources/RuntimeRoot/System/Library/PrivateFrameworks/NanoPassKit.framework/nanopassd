@@ -49,6 +49,7 @@ v28@?0@"CKAccountInfo"8B16@"NSError"20
 v32@?0@"PKFamilyMember"8Q16^B24
 v32@?0@"NSNumber"8@"NSData"16^B24
 v16@?0@"NSDictionary"8
+v24@?0@"PKPeerPaymentPreferences"8@"NSError"16
 NanoPassbook
 Express pass upgrade
 v40@?0@"PKPaymentPass"8@"NSSet"16q24@"NSError"32
@@ -87,7 +88,9 @@ v16@?0@"PKPaymentWebServiceContext"8
 com.apple.nanopassd.webservicesync
 PDPeerPaymentServiceAccountChangedDistributedNotification
 NPKWebServiceContextQueueOne
+NPKPeerPaymentWebServiceContextQueueOne
 v16@?0@"PKPeerPaymentWebServiceContext"8
+v16@?0@"PKPeerPaymentPreferences"8
 launchEventCoordinator
 T@"NPKStandaloneLaunchEventCoordinator",&,N,V_launchEventCoordinator
 internalQueue
@@ -329,6 +332,7 @@ v24@?0@"NPKStandaloneAutomaticProvisioningStateItem"8^B16
 stateItems
 T@"NSMutableSet",&,N,V_stateItems
 v32@?0@?<v@?B@"NSError">8Q16^B24
+Peer payment pass provisioning
 provisioningCompletionBlocks
 T@"NSMutableArray",&,N,V_provisioningCompletionBlocks
 provisioningPeerPaymentCredential
@@ -502,9 +506,11 @@ updateSubcredentialMetadataRequest:service:account:fromID:context:
 registerCredentialsRequest:service:account:fromID:context:
 revokeCredentialsRequest:service:account:fromID:context:
 removeSharingInvitationRequest:service:account:fromID:context:
+declineRelatedInvitationsIfNecessaryRequest:service:account:fromID:context:
 handleAutomaticProvisioningRequest:service:account:fromID:context:
 familyMembersRequest:service:account:fromID:context:
 photosForFamilyMembersWithDSIDsRequest:service:account:fromID:context:
+setPeerPaymentPreferencesRequest:service:account:fromID:context:
 addDelegate:queue:
 setProvisioningService:
 setMaintenanceService:
@@ -526,6 +532,8 @@ numberWithDouble:
 setPasscodeChanged:
 setErrorData:
 provisioningService
+setInvitationData:
+_sendProtobuf:service:responseIdentifier:
 domain
 isEqualToString:
 code
@@ -544,7 +552,6 @@ context
 outgoingResponseIdentifier
 _statusUpdaterForService:withResponseClass:type:responseIdentifier:
 queue
-_sendProtobuf:service:responseIdentifier:
 invalidate
 queueConnectionToTrustedServiceManagerForPushTopic:withCompletion:
 authToken
@@ -559,11 +566,13 @@ registrationDataWithAuthToken:completionHandler:
 setRegistrationDataBytes:
 hexEncoding
 setPushToken:
+hasIncludeDeviceMetadata
+includeDeviceMetadata
 deviceName
 phoneNumber
 location
 setProvisioningDataBytes:
-provisioningDataWithCompletionHandler:
+provisioningDataIncludingDeviceMetadata:withCompletionHandler:
 setConfigurationDataBytes:
 configurationData
 dataToSign
@@ -708,6 +717,9 @@ addFamilyPhotosIDs:
 addFamilyPhotos:
 enumerateKeysAndObjectsUsingBlock:
 photosForFamilyMembersWithDSIDs:completion:
+peerPaymentPreferencesData
+setPeerPaymentPreferencesData:
+provisioningServiceAgent:receivedSetPeerPaymentPreferencesRequest:withCompletion:
 setPending:
 setObject:forKey:
 initWithPendingStatusProtobuf:service:priority:maxUpdates:responseIdentifier:sendOptions:queue:
@@ -733,7 +745,6 @@ metadataData
 setPassForInvitation:
 provisioningServiceAgent:receivedAcceptSubcredentialInvitationRequestWithInvitationIdentifier:metadata:completion:
 timeoutInSeconds
-setInvitationData:
 provisioningServiceAgent:receivedMatchingInvitationOnDeviceRequestWithInvitation:timeout:completion:
 setAnonymizationSalt:
 provisioningServiceAgent:receivedAccountAttestationAnonymizationSaltRequestWithCompletion:
@@ -748,6 +759,8 @@ addErrorsData:
 provisioningServiceAgent:receivedRegisterCredentialsWithIdentifiers:completion:
 provisioningServiceAgent:receivedRevokeCredentialsWithIdentifiers:completion:
 provisioningServiceAgent:receivedRemoveSharingInvitationRequestForInvitation:completion:
+setDidDeclineInvitations:
+provisioningServiceAgent:receivedDeclineRelatedInvitationsIfNecessaryRequestForInvitation:completion:
 passTypeIdentifier
 serialNumber
 credentialType
@@ -814,6 +827,7 @@ handleKeybagStatusChange
 handlePaymentSetupRequestForAppName:
 sendPeerPaymentTermsAndConditionsAcceptanceNeededRequestToCompanion
 sendPasscodeUpgradeFlowShouldExitRequestWithPasscodeChanged:error:
+sendDeclineRelatedInvitationsIfNecessaryRequestForInvitation:
 sendDeviceUnlockedForPendingProvisioningRequestToCompanion
 requestCompanionOpenURL:
 _trackOutstandingRequestWithMessageIdentifier:completionHandler:errorHandler:
@@ -839,9 +853,14 @@ addObserver:forDistributedNotificationLaunchEventWithNotificationName:
 name
 _sendWebServiceContextToCompanion
 _sendPeerPaymentWebServiceContextAndAccountToCompanion
+_synchronizePeerPaymentPreferencesWithCompanion
 setWebServiceContextBytes:
 accountWithCompletion:
 sharedPeerPaymentWebServiceContextWithCompletion:
+initWithDomain:
+setWithObject:
+synchronizeNanoDomain:keys:
+preferencesWithCompletion:
 handleWebServiceContextFromCompanion:
 handleDistributedLaunchEventNotification:
 handleDarwinLaunchEventNotificationWithName:
@@ -945,9 +964,10 @@ setMigrationDataSource:
 sharedDatabase
 removePassWithUniqueID:
 passes
-syncStateItems
+passType
 predicateWithBlock:
 filteredSetUsingPredicate:
+syncStateItems
 _passesThatAppearToBeMigratedFromPasses:
 minusSet:
 initWithPasses:
@@ -959,7 +979,6 @@ getPassesAndCatalog:synchronously:withHandler:
 transactionWithName:
 manifestHash
 addPasses:withCompletionHandler:
-setWithObject:
 addPassesWithData:withCompletionHandler:
 removePassWithUniqueID:diagnosticReason:
 defaultManager
@@ -1381,7 +1400,6 @@ npk_hasImmediateAutomaticSelectionCriterion
 _queue_updateUserDefaultsWithConflictingPassUniqueID:
 stringForKey:
 synchronize
-synchronizeNanoDomain:keys:
 _expressPassInformationWithPass:
 setExpressWithPass:expressPassInformation:requestAuthorization:completion:
 _paymentPassForExpressPassInformation:
@@ -1447,7 +1465,6 @@ termsAcceptanceRequired
 _hasPeerPaymentPassProvisionedForAccount:
 _startOrContinueProvisioningPeerPaymentCredentialWithCompletion:
 associatedPassUniqueID
-passType
 provisioningCompletionBlocks
 setProvisioningCompletionBlocks:
 provisioningPeerPaymentCredential
@@ -1567,7 +1584,9 @@ updateSubcredentialMetadataOnPass:withCredential:completion:
 registerCredentialsWithIdentifiers:completion:
 revokeCredentialsWithIdentifiers:completion:
 removeSharingInvitation:completion:
+declineRelatedInvitationsIfNecessaryForInvitation:completion:
 automaticProvisioningCoordinator
+setPreferences:completion:
 tapToRadarURL
 setProvisioningServiceAgent:
 setPasscodePolicyCoordinator:
@@ -1593,6 +1612,7 @@ _peerPaymentServiceCoordinator
 Notice: Sending transaction defaults needed to companion
 Error: Failed to send peer payment terms and conditions acceptance needed request to companion with error %@
 Notice: Sending passcode upgrade flow should exit request to companion
+Notice: Sending decline related invitations if necessary request to companion
 Notice: Provisioning service agent IDS service active accounts changed: %@
 Notice: Provisioning service agent IDS service devices changed: %@
 Error: Provisioning service agent IDS service incoming unhandled protobuf: %@ %@ %@ %@ %@
@@ -1611,7 +1631,7 @@ Notice: data %@ error %@
 Notice: Got registration data %@ %@ %@ %@ %@ %d
 Notice: Sending back push token %@
 Notice: Sending registration data response %@
-Notice: Received provisioning data request %@
+Notice: Received provisioning data request %@ include metadata %d
 Notice: Device provisioning data:
 device name is %s
 phone number is %s
@@ -1744,6 +1764,9 @@ Notice: Sending family members response %@
 Notice: Got photos for family members with DSIDs request: incoming protobuf %@
 Notice: Family photos with DSIDs request finished: invitations %@
 Notice: Sending family photos with DSIDs response %@
+Notice: Got set peer payment preferences request: incoming protobuf %@
+Notice: Set peer payment preferences: prefs %@ error %@
+Notice: Sending set peer payment preferences response %@
 Notice: Got request to remote upgrade pass with UniqueID:%@
 Warning: Invalid input arguments will not proceed with the upgrade
 Error: IDS failed to send protobuf %@
@@ -1780,6 +1803,9 @@ Notice: Sending revoke credentials response %@
 Notice: Got remove sharing invitation request: incoming protobuf %@
 Notice: Remove sharing invitation request finished: success %@
 Notice: Sending remove sharing invitation response %@
+Notice: Got decline related invitations if necessary request: incoming protobuf %@
+Notice: Decline related invitations if necessary request finished: didDeclineInvitations %@
+Notice: Sending decline related invitations if necessary response %@
 Notice: Got automatic provisioning request for companion pass with unique ID %@
 Notice: Timed out waiting for response; invoking error handler for message %@
 Notice: NPDAccountDeletionCoordinator: started note Will Delete Primary Account
@@ -2088,6 +2114,7 @@ Error: Failed to send preferred AID (%@, %@): %@
 Warning: Notification object wasn't a string!
 Notice: Received present Apple
 Pay setup alert request with app name %@
+Notice: Received decline related invitations if necessary request with invitation %@
 Notice: Handling Darwin launch event notification: %@
 Notice: (account-pass-provisioning) Handling notification: %@
 Notice: Device is unlocked - beginning enforcement immediately.
@@ -2137,6 +2164,7 @@ Notice: Provisioning bridge handling register credentials request for identifier
 Notice: Provisioning bridge handling revoke credentials request for identifiers %@ completion: %@
 Notice: Provisioning bridge handling remove sharing invitation request for invitation %@ completion: %@
 Notice: Provisioning bridge handling automatic provisioning request for credential %@
+Notice: Provisioning bridge handling set peer payment preferences %@
 Notice: Provisioning bridge Request companion file radar with request: %@
 NPKProvisioningServiceAgent
 IDSServiceDelegate
@@ -2400,6 +2428,7 @@ v40@0:8@"NPKProvisioningServiceAgent"16@"NSSet"24@?<v@?@"NSSet"@"NSSet">32
 v40@0:8@"NPKProvisioningServiceAgent"16@"NSSet"24@?<v@?B>32
 v40@0:8@"NPKProvisioningServiceAgent"16@"PKAppletSubcredentialSharingInvitation"24@?<v@?B>32
 v32@0:8@"NPKProvisioningServiceAgent"16@"PKPaymentLocalPassCredential"24
+v40@0:8@"NPKProvisioningServiceAgent"16@"PKPeerPaymentPreferences"24@?<v@?@"PKPeerPaymentPreferences"@"NSError">32
 @"PKPaymentWebService"16@0:8
 @"PKPeerPaymentWebService"16@0:8
 @"PKPeerPaymentAccount"16@0:8

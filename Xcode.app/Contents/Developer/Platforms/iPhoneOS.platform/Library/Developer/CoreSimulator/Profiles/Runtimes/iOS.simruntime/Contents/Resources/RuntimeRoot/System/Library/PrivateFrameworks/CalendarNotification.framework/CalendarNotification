@@ -248,6 +248,7 @@ v16@?0@"NSError"8
 T@"<UNUserNotificationCenterDelegate>",W,N
 userNotificationCenter
 T@"UNUserNotificationCenter",R,N,V_userNotificationCenter
+com.apple.calendar.notification.NotificationSourceRefresher
 stringRepresentation
 sources
 T@"NSArray<CALNNotificationSource>",R,C,N,V_sources
@@ -501,6 +502,7 @@ TB,R,N,V_allDay
 timeZone
 T@"NSTimeZone",R,C,N,V_timeZone
 @"EKEventStore"8@?0
+com.apple.calendar.notification.InboxNotificationMonitorCallback
 eventNotificationReferences
 eventNotificationCount
 notificationMonitor
@@ -700,6 +702,7 @@ Notification Settings
 -[CALNNotificationServerModule protectedDataDidBecomeAvailable]
 Notifications.Calendar.Unprotected
 Notifications.Calendar.Protected
+Notifications.Calendar.TriggeredEvent.NotificationData.Unprotected
 Notifications.Calendar.TriggeredEvent.NotificationData
 Notifications.Calendar.TriggeredEvent.TimeToLeaveRefresh
 calendarNotificationServer
@@ -710,8 +713,9 @@ calendarAppBadgeUpdater
 T@"CALNCalendarAppBadgeUpdater",R,N,V_calendarAppBadgeUpdater
 calendarStorageWrapper
 T@"CALNNotificationStorageWrapper",R,N,V_calendarStorageWrapper
-iconUpdater
-T@"CALNNotificationIconUpdater",R,N,V_iconUpdater
+T@"CALNNotificationIconCache",R,N,V_iconCache
+iconProvider
+T@"<CALNNotificationIconProvider><CALNCalendarIconIdentifierProvider>",R,N,V_iconProvider
 T@"NSArray",R,N,V_modules
 com.apple.calendar.notifications.postFakeNotification
 com.apple.calendar.notifications.FakeNotification.%@
@@ -1033,7 +1037,10 @@ Fetched shared calendar invitation notification with sourceClientIdentifier %{pu
 Received notification response for shared calendar invitation %{public}@ with actionIdentifier = %{public}@
 Error adding notification request, error = %@, request identifier = %{public}@
 Error replacing content for notification request, error = %@, identifier = %{public}@
+Refreshing notifications in response to notifications loaded callback.
+Not refreshing notifications in response to notifications loaded callback because there is no need to do so.
 Received notification changed callback.
+Blocking refresh of notifications because event notifications haven't finished loading yet.
 Refreshing all notifications.
 Refreshing notifications affected by changes to objects %@.
 Finished refreshing notifications.
@@ -1306,6 +1313,9 @@ No event ID to add notification data for source client identifier = %{public}@
 Added notification data, source client identifier = %{public}@, event ID = %{public}@, notification data = %@
 Resetting stored notification data time to leave display state for source client identifier = %{public}@
 Cleared travel advisory from notification meta data for source client identifier = %{public}@
+Storage migration: new storage is the same as existing storage; no work to be done
+Storage migration: copying data for key %@
+Storage migration: key %@ had existing data; adding merged data: %@
 No content available to get notification response data. source client identifier = %{public}@
 No user info available to get notification response data. source client identifier = %{public}@
 No notification response data payload in user info. source client identifier = %{public}@
@@ -1472,6 +1482,11 @@ Failed to get event (%{public}@) when attempting to clear invitation notificatio
 Not clearing invitation status for sourceClientIdentifier %{public}@ because it is set to none
 Failed to clear invitation status for event (%{public}@): %@
 Creating notification server module
+Missed refreshing EKEventStore in response to handling database change notification; continuing without refreshing.
+Got a database changed notification and we have an EKEventStore. Letting the event store handle the notification first.
+Not refreshing EKEventStore before handling database change notification because we don't have an EKEventStore right now.
+Reloaded triggered event notification data after first unlock
+Already reloaded triggered event notification data after first unlock; not doing it again
 Reloading calendar notifications after first unlock
 Cannot reload notification with sourceClientIdentifier = %@. Failed to find notification source with sourceIdentifier = %{public}@.
 Reloaded notification record with source identifier = %{public}@, source client identifier = %{public}@, title = %@
@@ -2287,14 +2302,20 @@ replaceContentForRequestWithIdentifier:replacementContent:error:
 _userNotificationCenter
 handleNotificationsChangedNotification:
 addNotificationsChangedObserver:selector:
+handleNotificationsLoadedNotification
+addNotificationsLoadedObserver:selector:
+_refreshNotifications:
 valueForKey:
 setWithArray:
+eventNotificationReferences
 sources
 _withdrawExpiredNotificationsForSource:
 timeIntervalSinceNow
 initWithSources:notificationMonitor:notificationManager:
 refreshNotifications
 inboxNotificationMonitor
+_needsRefreshOnNotificationsLoaded
+_refreshQueue
 _sources
 _inboxNotificationMonitor
 initWithNotificationRecord:actionIdentifier:originIdentifier:targetConnectionEndpoint:
@@ -2490,7 +2511,6 @@ fetchEventCanceledNotificationSourceClientIdentifiers:
 initWithCapacity:
 fetchEventCanceledNotificationWithSourceClientIdentifier:
 inboxNotificationProvider
-eventNotificationReferences
 hiddenFromNotificationCenter
 sourceClientIdentifierForNotification:
 notificationReferenceProvider
@@ -2510,7 +2530,7 @@ deleteCanceledEventWithSourceClientIdentifier:
 initWithEventStoreProvider:inboxNotificationProvider:notificationReferenceProvider:remoteMutator:dataSourceEventRepresentationProvider:
 _inboxNotificationProvider
 _notificationReferenceProvider
-initWithPath:
+initWithPath:isProtectedStorage:
 defaultManager
 fileExistsAtPath:
 _loadNotificationsWithError:
@@ -2521,7 +2541,8 @@ inMemoryStorage
 path
 notificationRecordsFromPersistentNotificationStorageWithPath:error:
 writeToFile:options:error:
-persistentNotificationStorageWithPath:error:
+persistentNotificationStorageWithPath:isProtectedStorage:error:
+_protected
 _path
 _inMemoryStorage
 externalURL
@@ -2734,6 +2755,7 @@ _changeType
 _calendarNotification
 _timeZone
 initWithOptions:eventStoreGetter:
+setCallbackNotificationQueue:
 defaultCenter
 notificationMonitor
 notificationReferences
@@ -2744,6 +2766,7 @@ initWithEventStoreProvider:
 removeNotificationsChangedObserver:
 addNotificationCountChangedObserver:selector:
 removeNotificationCountChangedObserver:selector:
+removeNotificationsLoadedObserver:selector:
 _notificationMonitor
 coreLocationProvider
 bundleIdentifier
@@ -2810,9 +2833,7 @@ _transitionForAlarmFiredForSourceClientIdentifier:sourceNotificationInfo:oldNoti
 _transitionForTravelAdviceReceivedForSourceClientIdentifier:sourceNotificationInfo:oldNotificationData:
 _transitionForTimeToLeaveRefreshTimerFiredForSourceClientIdentifier:sourceNotificationInfo:oldNotificationData:
 _shouldModifyForAlarmFiredForSourceClientIdentifier:sourceNotificationInfo:oldNotificationData:
-_transitionForAlarmFiredForNewAlarmID:optionalOldAlarmID:
 lastTimeNotificationAdded
-_transitionForAlarmFiredForNewAlarmID:oldAlarmID:
 _shouldRemoveNotificationForTravelAdviceReceivedForSourceClientIdentifier:sourceNotificationInfo:oldNotificationData:
 _shouldAddNotificationForTravelAdviceReceivedForSourceClientIdentifier:sourceNotificationInfo:oldNotificationData:
 _timeToLeaveStateAlreadyDisplayedBasedOnSourceNotificationInfo:oldNotificationData:
@@ -3032,7 +3053,6 @@ _eventRepresentationDictionaryWithSourceNotificationInfo:hypothesisMessage:
 setLegacyIdentifier:onNotificationContent:
 _notificationResponseDataForSourceNotificationInfo:
 _setNotificationResponseData:onNotificationContent:
-_refreshNotifications:
 _didReceiveResponse:
 boolValue
 _handleDirectionsActionWithResponse:
@@ -3103,10 +3123,12 @@ setLastTimeNotificationAdded:
 _notificationDataForSourceNotificationInfo:existingNotificationData:transition:now:
 _addNotificationData:forSourceClientIdentifier:
 _updatedNotificationDataResettingTimeToLeaveDisplayState:
+_mergeDataFromUnprotectedStore:withDataInProtectedStore:
 _mapItemURLForNotification:
 _conferenceURLForNotification:
 initWithDataSource:notificationManager:iconIdentifierProvider:sourceEventRepresentationProvider:triggerHelper:transitionProvider:bodyDescriptionProvider:travelAdvisoryTimelinessAuthority:dateProvider:notificationDataStorage:urlHandler:mapItemURLProvider:timeToLeaveRefreshStorage:
 _shouldRemoveStoredNotificationDataGivenShouldWithdrawNotification:hasExistingTravelInformation:mayCeaseRouteMonitoring:
+migrateToStorage:
 eventURLToObjectIDMap
 _triggerHelper
 _transitionProvider
@@ -3367,43 +3389,50 @@ _alertType
 _alertTopic
 _protectedCalendarNotificationStorage
 _unprotectedCalendarNotificationStorage
+initWithEKOptions:
 initWithCreationBlock:
 syntheticTravelAdvisoriesEnabled
 initWithTravelEngine:
-_createCalendarNotificationServerWithUserNotificationCenterFactory:storage:eventStoreProvider:inboxNotificationProvider:alarmEngineMonitor:travelEngine:timeToLeaveRefreshMonitor:timeToLeaveRefreshStorage:iconCache:
+_createCalendarNotificationServerWithUserNotificationCenterFactory:storage:eventStoreProvider:alarmEngineMonitor:travelEngine:timeToLeaveRefreshMonitor:timeToLeaveRefreshStorage:
+_reloadTriggeredEventNotificationData
 _registerSettingsCaptureHandlers
-_createNotificationServerWithUserNotificationCenter:storage:eventStoreProvider:inboxNotificationProvider:alarmEngineMonitor:travelEngine:timeToLeaveRefreshMonitor:timeToLeaveRefreshStorage:
+iconProvider
+calendarNotificationServer
+_createNotificationServerWithUserNotificationCenter:storage:eventStoreProvider:alarmEngineMonitor:travelEngine:timeToLeaveRefreshMonitor:timeToLeaveRefreshStorage:
 _createNotificationSourcesWithNotificationManager:eventStoreProvider:inboxNotificationProvider:alarmEngineMonitor:travelEngine:timeToLeaveRefreshMonitor:timeToLeaveRefreshStorage:
 initWithEventStoreProvider:inboxNotificationProvider:notificationReferenceProvider:dataSourceEventRepresentationProvider:
 initWithTravelAdvisoryDescriptionGenerator:dateProvider:
 initWithDateProvider:
-_triggeredEventNotificationDataStorage
+_unprotectedTriggeredEventNotificationDataStorage
 initWithEventStoreProvider:inboxNotificationProvider:notificationReferenceProvider:dataAccessExpressConnection:
 initWithDataSource:notificationManager:iconIdentifierProvider:sourceEventRepresentationProvider:dateProvider:
 initWithNotificationManager:iconIdentifierProvider:sourceIdentifierSuffix:
 _updateSourceClientIdentifiersIfNeeded
+refreshEventStoreInResponseToDatabaseChangeNotification:
 notificationSourceRefresher
-calendarNotificationServer
+handleExternalDatabaseChangeNotification:
+_protectedTriggeredEventNotificationDataStorage
 calendarStorageWrapper
 _reloadNotificationsFromUnprotectedStorage:intoProtectedStorage:withStorageWrapper:forNotificationServer:
 _reloadNotificationRecords:forNotificationServer:
 _removeNotificationsFromUnprotectedStorage:
 _reloadNotificationsAfterFirstUnlock
-iconUpdater
 _notificationStoragePathWithName:
-_createNotificationStorageAtPath:
+_createNotificationStorageAtPath:protected:
 _setProtectedClassForStorageAtPath:
 _triggeredEventNotificationDataStoragePathWithName:
-_createTriggeredEventNotificationDataStorageAtPath:
-persistentStorageWithPath:error:
+_createTriggeredEventNotificationDataStorageAtPath:protected:
+persistentStorageWithPath:isProtectedStorage:error:
 _timeToLeaveRefreshStoragePathWithName:
 _createTimeToLeaveRefreshStorageAtPath:
+persistentStorageWithPath:error:
 calendarAppBadgeUpdater
+_lastCreatedEventStore
 _calendarNotificationServer
 _notificationSourceRefresher
 _calendarAppBadgeUpdater
 _calendarStorageWrapper
-_iconUpdater
+_iconProvider
 _modules
 _activeSourcesQueue
 _activeSources
@@ -3525,6 +3554,7 @@ clearCalendarResourceChangedNotificationWithSourceClientIdentifier:
 initWithType:objectID:eventStore:
 initWithType:objectID:date:eventStore:
 notificationReferenceForObjectID:withType:date:inEventStore:
+initWithPath:
 _loadDataWithError:
 _saveDataWithError:
 _addRefreshDate:withIdentifier:
@@ -3820,6 +3850,7 @@ B40@0:8@"NSString"16@"UNNotificationContent"24^@32
 @"<UNUserNotificationCenterDelegate>"16@0:8
 v24@0:8@"<UNUserNotificationCenterDelegate>"16
 @"UNUserNotificationCenter"
+@"NSObject<OS_dispatch_queue>"
 @"NSArray<CALNNotificationSource>"
 @"CALNInboxNotificationMonitor"
 @"CALNNotificationRecord"
@@ -3829,7 +3860,6 @@ v40@0:8@"<CALNUserNotificationCenter>"16@"CALNNotification"24@?<v@?Q>32
 v40@0:8@"<CALNUserNotificationCenter>"16@"CALNNotificationResponse"24@?<v@?>32
 v20@0:8B16
 @"<CALNUserNotificationCenter>"
-@"NSObject<OS_dispatch_queue>"
 @"NSMutableDictionary"
 @"<CALNAnalyticsHandler>"
 @"CALNUNNotificationMapper"
@@ -3865,6 +3895,7 @@ B24@0:8@"NSBundle"16
 @56@0:8@16@24@32@40@48
 @"<CALNInboxNotificationProvider>"
 @"<CALNEKCalendarNotificationReferenceProvider>"
+@36@0:8@16B24^@28
 @32@0:8@16^@24
 B24@0:8^@16
 @"CALNInMemoryNotificationStorage"
@@ -4008,13 +4039,15 @@ v40@0:8^@16^@24@32
 v44@0:8@16@24@32B40
 v44@0:8i16@20@28@36
 @32@0:8q16@24
-@80@0:8@16@24@32@40@48@56@64@72
 @72@0:8@16@24@32@40@48@56@64
+@"EKEphemeralCacheEventStoreProvider"
+@"EKEventStore"
 @"CALNNotificationServer"
 @"CALNNotificationSourceRefresher"
 @"CALNCalendarAppBadgeUpdater"
 @"CALNNotificationStorageWrapper"
-@"CALNNotificationIconUpdater"
+@"CALNNotificationIconCache"
+@"<CALNNotificationIconProvider><CALNCalendarIconIdentifierProvider>"
 i16@0:8
 v20@0:8i16
 @"CLLocation"
@@ -4038,7 +4071,6 @@ v24@0:8@"<CALNTravelEngineDelegate>"16
 @"CALNInMemoryTimeToLeaveRefreshStorage"
 @"EKTravelEngine"
 @"CALNEventInvitationResponseNotificationInfo"24@0:8@"NSString"16
-@"CALNNotificationIconCache"
 @140@0:8@16@24@32@40@48B56@60@68@76@84@92@100@108@116B124B128B132B136
 @52@0:8@16@24B32@36@44
 @"EKCalendarNotification"

@@ -1,8 +1,14 @@
-@(#)PROGRAM:MobileAsset  PROJECT:MobileAsset-653
+@(#)PROGRAM:MobileAsset  PROJECT:MobileAsset-658
 v8@?0
 com.apple.MobileAsset.client.state
 com.apple.mobileassetd.v2
 commsManager is nil, all xpc communication will fail
+Asset types is not an array
+Asset type in array is not a string
+Preserved IDs type is not an dictionary
+Preserved IDs key is not a string
+Preserved IDs value is not an array for: %@
+Preserved ID is not a string: %@ %@
 AssetType
 MobileAsset sendAction %lld (%@) given a non-NSString assetType
 messageAction
@@ -10,6 +16,8 @@ Result
 com.apple.MobileAsset.client.callback
 purgeAssetTypeListLength
 purgeAssetTypeList
+purgeAssetTypePreservingListLength
+purgeAssetTypePreservingList
 could not encode query params: %@
 QueryParams
 returnAssetTypes
@@ -84,12 +92,17 @@ MAQuerySuccessful
 MAQueryXpcError
 MAQueryCatalogNotDownloaded
 MAQueryFailed
+MAQueryDaemonExit
 MAQueryNotEntitled
+MAQueryCannotCreateMessage
 MAQueryNilAssetType
 MAQueryParamsEncodeFailure
 MAQueryBeforeFirstUnlock
 MAQueryCouldNotEncodeResults
+MAQueryXpcLengthError
 MAQueryUnknownResult
+MAQueryTooManyResults
+MAQueryHasAllowedDifferences
 MAQueryResult%llu
 MACatalogOnly
 MAInstalledOnly
@@ -100,16 +113,18 @@ MAStrictlyCatalogOnly
 MAStrictlyObsoleteOnly
 MAQueryReturnTypes%llu
 MAUnknown
+MANotPresent
 MAInstalled
 MAInstalledNotInCatalog
 MADownloading
 MARequiredByOs
 MAInstalledWithOs
-MAAssetStates%llu
+MAAssetState%llu
 MA_INVALID_MESSAGE
 MA_QUERY_ASSET_TYPE
 MA_DOWNLOAD_METADATA
 MA_DOWNLOAD_ASSET
+MA_NSURL_STATE_DUMP
 MA_PURGE_ASSET
 MA_CANCEL_DOWNLOAD
 MA_GET_SANDBOX_EXTENSION
@@ -135,6 +150,15 @@ MA_PURGE_CATALOGS
 MA_LOAD_ASSET_BY_ID
 MA_CANCEL_CATALOG_DOWNLOAD
 MAXpcCommand%llu
+MAXpcErrorNone
+MAXpcErrorParamMissing
+MAXpcErrorLengthZero
+MAXpcErrorLengthMissing
+MAXpcErrorLengthMismatch
+MAXpcErrorDataMismatch
+MAXpcErrorEmptyData
+MAXpcErrorConnectionTerminated
+MAXpcError%llu
 MAOperationSuccessful
 MAOperationXpcError
 MAOperationFailed
@@ -178,6 +202,8 @@ MACannotGetPathToStagingDir
 MADownloadsNotAllowed
 MADownloadUnknownResult
 MADownloadAssetNoLongerInCatalog
+MADownloadFailedNoFallbackAllowed
+MADownloadLiveServerDisabledNoFallback
 MADownloadResult%llu
 MACancelSucceeded
 MSCancelXpcError
@@ -188,13 +214,19 @@ MACancelNotEntitled
 MACancelNotApplicableForRequireByOs
 MACancelNotApplicableForInstalledWithOs
 MACancelDownloadResult%llu
+MAPurgeSucceeded
 MAPurgeXpcError
+MAPurgeConnectionInterrupted
 MAPurgeAssetDidntExist
 MAPurgeAssetCouldntPurge
+MAPurgeFailed
 MAPurgeNotEntitled
 MAPurgeNotApplicableForRequireByOs
 MAPurgeCouldNotCancelAllDownloads
+MAPurgeCannotCreateMessage
+MAPurgeEncodingFailure
 MAPurgeFailedBeforeFirstUnlock
+MAPurgePartiallyComplete
 MAPurgeResult%llu
 Purge attempt failed due to daemon jetsam/crash.
 Purge failed as the asset was not present locally.
@@ -291,6 +323,8 @@ Download failed due to international roaming being off.
 Downlaod failed due to there being an active call.
 Downlaod failed due to Data not being allowed.
 Download failed due to a secure connection not being established. A common cause is the device time not being set correctly.
+Download failed due to client requesting Live Asset only, but the live asset server gave an error. No XML fallback was allowed.
+Download failed due to client requesting Live Asset only, but the device was configured to disable Live Asset server. No XML fallback was allowed.
 Download failed due to Error %lld (%@).
 usableDownload
 checkClockAndCerts
@@ -378,6 +412,7 @@ _LengthOfDataRange
 %02x
 NIL on constructor call
 _StartOfDataRange
+Cannot download %@ %@ unless the download is user-initiated (non-discretionary) as the user has turned off background system file updates (check first if nonUserInitiatedDownloadsAllowed).
 The cache server is: %d
 Error on the download asset reply for %@, response: %ld (%@)
 Got the download asset reply for %@, response: %ld (%@)
@@ -434,12 +469,13 @@ queryValue
 queryKey
 Got the query meta data reply for: %@, response: %ld
 rawData is null skipping
-data is null skipping
-allData is null skipping
-allData is not a dictionary
+data is null, skipping
+allData is not a dictionary, skipping
 metaToFrameWork
 lastTimeChecked
 postedDate
+catalogInfoToFrameWork
+isLiveServer
 %@ due to XPC_TYPE_ERROR
 Could not create message for queryInstalledAssetIds
 queryInstalledAssetIds failure due to nil asset type
@@ -805,7 +841,9 @@ prefersInfraWiFi
 timeoutIntervalForResource
 canUseLocalCacheServer
 discretionary
-allowsCellular: %d, resourceTimeout: %ld canUseCacheServer: %d discretionary: %d sessionId: %@ additionalServerParams:%@ allowsExpensiveAccess:%d requiresPowerPluggedIn: %d prefersInfraWiFi: %d
+LiveServerOnly
+LiveServerOnlyIsOverridden
+MADownloadOptions allowsCellular: %d resourceTimeout: %ld canUseCacheServer: %d discretionary: %d sessionId: %@ additionalServerParams:%@ allowsExpensiveAccess:%d requiresPowerPluggedIn: %d prefersInfraWiFi: %d liveServerOnly: %d
 The download options are %@
 TB,N,V_allowsCellularAccess
 Tq,N,V_timeoutIntervalForResource
@@ -819,6 +857,10 @@ sessionId
 T@"NSString",&,N,V_sessionId
 additionalServerParams
 T@"NSMutableDictionary",&,N,V_additionalServerParams
+liveServerCatalogOnly
+TB,N,V_liveServerCatalogOnly
+liveServerCatalogOnlyIsOverridden
+TB,N,V_liveServerCatalogOnlyIsOverridden
 RequestedProductVersion
 DelayPeriod
 Supervised
@@ -828,9 +870,8 @@ PrerequisiteProductVersion
 PrerequisiteReleaseType
 PrerequisiteReleaseTypeIsOverridden
 DownloadAuthorizationHeader
-The msu options are reqProdVersion: %@, delayPeriod: %ld managedDevice: %d allowSameVersion: %d downloadAuthorizationHeader: %@
-present
-not present
+%@  + MAMsuDownloadOptions reqProdVersion: %@ delayPeriod: %ld managedDevice: %d allowSameVersion: %d prereqBuild: %@ prereqVersion: %@ prereqReleaseType: %@
+(default)
 requestedProductVersion
 T@"NSString",&,N,V_requestedProductVersion
 delayPeriod
@@ -855,6 +896,7 @@ The config is discretionary: %d
 Notice
 Error
 Debug
+Fault
 totalExpected
 Tq,N,V_totalExpected
 Tq,N,V_totalWritten
@@ -976,6 +1018,8 @@ MAProgressNotification
 MAXpcConnection
 stringWithUTF8String:
 initWithServiceName:callbackQueue:
+countByEnumeratingWithState:objects:count:
+objectForKey:
 UTF8String
 sendSync:
 sendAsync:clientHandler:taskDescriptor:
@@ -990,7 +1034,6 @@ stringWithFormat:
 initRequiringSecureCoding:
 encodeObject:forKey:
 encodedData
-valueForKey:
 valueWithBytes:objCType:
 setValue:forKey:
 init
@@ -1011,8 +1054,6 @@ initForReadingFromData:error:
 decodeObjectOfClasses:forKey:
 finishDecoding
 integerValue
-countByEnumeratingWithState:objects:count:
-objectForKey:
 setObject:forKey:
 longLongValue
 longValue
@@ -1033,6 +1074,7 @@ appendString:
 containsObject:
 errorWithDomain:code:userInfo:
 initWithFormat:arguments:
+stringByReplacingOccurrencesOfString:withString:
 setObject:forKeyedSubscript:
 hasPrefix:
 dictionaryWithCapacity:
@@ -1104,6 +1146,8 @@ startDownload:completionWithError:
 createExtractor
 invokeClientDownloadCompletionAlreadyOnQueue:completionBlockWithError:
 assetProperty:
+discretionary
+nonUserInitiatedDownloadsAllowed
 timeoutIntervalForResource
 calculateTimeout
 setTimeoutIntervalForResource:
@@ -1156,6 +1200,7 @@ queryMetaData:
 queryInstalledAssetIds
 queryMetaDataSync
 isCatalogFetchedWithinThePastFewDays:
+isCatalogFetchedFromLiveServer
 isDone
 resultCode
 postedDate
@@ -1163,6 +1208,7 @@ setDoNotBlockBeforeFirstUnlock:
 results
 assetIds
 lastFetchDate
+_isPallasResult
 _isDone
 _doNotBlockBeforeFirstUnlock
 _resultCode
@@ -1188,7 +1234,6 @@ pauseDownloadAndReturnError:
 resumeDownloadAndReturnError:
 cancelDownloadAndReturnError:
 purgeAndReturnError:
-nonUserInitiatedDownloadsAllowed
 systemAppServerUrl
 localURL
 garbageCollectionBehavior
@@ -1290,24 +1335,29 @@ setSessionId:
 setAdditionalServerParams:
 numberWithLong:
 allowsCellularAccess
-discretionary
 sessionId
 additionalServerParams
 allowsExpensiveAccess
 requiresPowerPluggedIn
 prefersInfraWiFi
+setLiveServerCatalogOnly:
 logOptions
 setAllowsCellularAccess:
 setDiscretionary:
 setAllowsExpensiveAccess:
 setRequiresPowerPluggedIn:
 setPrefersInfraWiFi:
+liveServerCatalogOnly
+liveServerCatalogOnlyIsOverridden
+setLiveServerCatalogOnlyIsOverridden:
 _allowsCellularAccess
 _canUseLocalCacheServer
 _discretionary
 _allowsExpensiveAccess
 _requiresPowerPluggedIn
 _prefersInfraWiFi
+_liveServerCatalogOnly
+_liveServerCatalogOnlyIsOverridden
 _timeoutIntervalForResource
 _additionalServerParams
 _sessionId
@@ -1321,11 +1371,11 @@ requestedProductVersion
 delayPeriod
 supervised
 allowSameVersion
+prerequisiteBuildVersion
+prerequisiteProductVersion
 setDelayPeriod:
 setSupervised:
 setAllowSameVersion:
-prerequisiteBuildVersion
-prerequisiteProductVersion
 prerequisiteReleaseType
 prerequisiteReleaseTypeIsOverridden
 setPrerequisiteReleaseTypeIsOverridden:
