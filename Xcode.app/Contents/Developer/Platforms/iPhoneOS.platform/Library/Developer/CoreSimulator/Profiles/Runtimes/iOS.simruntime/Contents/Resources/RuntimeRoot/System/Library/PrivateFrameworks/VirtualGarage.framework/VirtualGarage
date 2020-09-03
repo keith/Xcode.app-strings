@@ -16,9 +16,9 @@ VoltronStreamUpdatesDuringNav
 VoltronEnableWhiteListing
 VoltronDisabledApplications
 VoltronSynchronousVehicleStateUpdate
-VoltronEnabledAnalyticsSampling
 VoltronEnableIAP2Onboarding
 VoltronUseCarDisplaySimIdentifier
+VoltronEnableAutomaticVehicleDeselection
 __invalid__
 +[VGVehicleDeduper actionForAddingNewVehicle:withExistingGarageVehicles:andUnpairedVehicles:]
 newVehicle == nil
@@ -40,8 +40,8 @@ _year
 _manufacturer
 _model
 _colorHex
+_headUnitIdentifier
 _headUnitBluetoothIdentifier
-_headUnitMacAddress
 _licensePlate
 _lprVehicleType
 _lprPowerType
@@ -61,7 +61,7 @@ _pairedAppIdentifier
  model: %@,
  colorHex: %@,
  headUnitBluetoothIdentifier: %@,
- headUnitMacAddress: %@,
+ headUnitIdentifier: %@,
  license plate: %@,
  lprVehicleType: %@,
  lprPowerType: %@,
@@ -80,7 +80,7 @@ T@"NSDate",R,C,N,V_lastStateUpdateDate
 displayName
 T@"NSString",C,N,V_displayName
 year
-T@"NSNumber",R,C,N,V_year
+T@"NSString",R,C,N,V_year
 manufacturer
 T@"NSString",R,C,N,V_manufacturer
 model
@@ -89,8 +89,8 @@ colorHex
 T@"NSString",C,N,V_colorHex
 headUnitBluetoothIdentifier
 T@"NSString",R,C,N,V_headUnitBluetoothIdentifier
-headUnitMacAddress
-T@"NSString",R,C,N,V_headUnitMacAddress
+headUnitIdentifier
+T@"NSString",R,C,N,V_headUnitIdentifier
 licensePlate
 T@"NSString",C,N,V_licensePlate
 lprVehicleType
@@ -188,12 +188,10 @@ can't start continuous updates with a nil vehicle.
 -[VGDataCoordinator startContinuousUpdatesForVehicle:]_block_invoke
 -[VGDataCoordinator endAllContinuousUpdates]_block_invoke
 -[VGDataCoordinator _refreshStateForTrackedVehicles]_block_invoke
--[VGDataCoordinator _loadAllOEMVehiclesForApps:completion:]
-completion == nil
-_loadAllOEMVehiclesForApps:completion: completion shouldn't be nil.
 -[VGDataCoordinator _loadAllOEMVehiclesForApps:completion:]_block_invoke
 -[VGDataCoordinator vehicleStateUpdated:]_block_invoke
 -[VGDataCoordinator accessoryUpdatedWithVehicle:]_block_invoke
+v32@?0@"VGVehicle"8Q16^B24
 -[VGDataCoordinator OEMAppsUpdated:]_block_invoke
 -[VGDataCoordinator getLatestStateOfVehicle:withReply:]
 Could not get latest state of vehicle.
@@ -211,7 +209,7 @@ name
 T@"NSString",R,N
 T@"NSString",R,N,V_manufacturer
 T@"NSString",R,N,V_model
-T@"NSNumber",R,N,V_year
+T@"NSString",R,N,V_year
 T@"NSString",R,N,V_colorHex
 T@"NSMeasurement",R,N
 T@"NSMeasurement",R,N,V_maxEVRange
@@ -230,6 +228,7 @@ T@"NSDictionary",R,N,V_powerByConnector
 -[VGExternalAccessory _updateFromVehicleInfo:]
 CarDisplaySim
 isConnected
+isConnectedToElectricVehicle
 bluetoothIdentifier
 currentState
 T@"VGExternalAccessoryState",R,N
@@ -270,17 +269,19 @@ ExternalAccessory
 DataCoordinator
 OEMApplication
 Persisting
+UIHelper
 VirtualGarage
 -[VGVirtualGarage initWithGaragePersister:]
 persister == nil
 Garage should be initialized with a persister.
+-[VGVirtualGarage initWithGaragePersister:]_block_invoke
 _vehicles
 _selectedVehicleIdentifier
 <%@:%p,
  _selectedVehicleIdentifier: %@,
  _vehicles: %@
 B24@?0@"VGVehicle"8@"NSDictionary"16
-v32@?0@"VGVehicle"8Q16^B24
+v16@?0@"VGVirtualGarage"8
 -[VGVirtualGarage virtualGarageGetLatestStateOfVehicleWithIdentifier:syncAcrossDevices:withReply:]
 identifier == nil
 vehicleIdentifier cannot be nil
@@ -312,8 +313,8 @@ applications
 T@"NSMutableDictionary",&,N,V_applications
 T@"<VGOEMApplicationFinderUpdates>",W,N,V_delegate
 VGOEMApplicationQueue
-v16@?0Q8
 -[VGOEMApplication listCarsWithCompletion:]
+completion == nil
 Completion cannot be nil!
 -[VGOEMApplication listCarsWithCompletion:]_block_invoke
 v24@?0@"INListCarsIntentResponse"8@"INCExtensionError"16
@@ -404,6 +405,8 @@ Failed to load powerByConnector dictionary from MapsSyncVehicle: %@.
 Failed to parse a powerByConnector dictionary from MapsSyncVehicle: %@.
 Failed to load vehicleStateStorage from MapsSyncVehicle: %@.
 Tried to update a vehicle %@, with an incompatible state: id: %@, origin: %@
+Tried to pair a vehicle: (%@) to iapID: %@, bluetoothID: %@, but it was already paired.
+Pairing vehicle to iapIdentifier: %@, bluetoothIdentifier: %@
 Querried a vehicle for battery state that is not an EV. Vehicle: %@
 Vehicle does not have a displayable battery percentage, fallback to `batteryPercentageBasedOfCapacity`.
 Vehicle provided invalid battery state: %@
@@ -445,7 +448,10 @@ Will stop charge stream for vehicle: %@.
 SoC Streaming couldn't find vehicle for state: %@ in observed vehicles: %@
 SoC Streaming will update vehicle: %@ with state: %@
 accessoryUpdatedWithVehicle: disconnected from iAP2 vehicle. Will remove it from unpaired if possible
-accessoryUpdatedWithVehicle: accessory connected to a vehicle that is not in VG and is not an EV. Deselecting the currently selected vehicle.
+accessoryUpdatedWithVehicle: accessory connected to a vehicle that is not in VG and is not an EV. Will remove any unpaired vehicles if necessary.
+accessoryUpdatedWithVehicle: accessory connected to a vehicle that is not in VG and is not an EV. Will also deselect the currently selected vehicle.
+accessoryUpdatedWithVehicle: received an update from a disambiguated non-EV. Automatic selection is disabled -> Ignoring the update.
+accessoryUpdatedWithVehicle: received an update from a disambiguated non-EV. Will select it in the garage
 accessoryUpdatedWithVehicle: iAP2 onboarding is disabled. The dataCoordinator won't save the iAP2 vehicle.
 accessoryUpdatedWithVehicle: accessory did update vehicle. Will update garage and select the vehicle
 Will remove an existing unpaired iap2 vehicle: %@
@@ -459,6 +465,8 @@ getLatestStateOfVehicle: called for a vehicle (%@) that doesn't have a stateProv
 getLatestStateOfVehicle: using %@ to fetch SoC.
 getLatestStateOfVehicle: Tried to fetch SoC for %@, but failed with error: %@.
 getLatestStateOfVehicle: Fetched latest vehicle state: %@
+Color does not have 4 components
+Color is not in RGB colorspace
 _accessoryDidConnect: received an unsupported accessory: %@
 _accessoryDidConnect: new accessory: %p, %@
 _accessoryDidDisconnect: accessory %p
@@ -494,6 +502,9 @@ Garage will not start continuous updates, because there is no selected vehicle
 Garage will start continuous updates for vehicle: %@
 Garage will end continuous updates.
 EV Routing not enabled. Will strip EV vehicles from VG.
+There are no queued completion handlers, nothing to do.
+Will execute %lu queued completionHandlers with garage: %@.
+Finished executing %lu queued completionHandlers
 Tried to update local vehicles with nil vehicles.
 Force updating local vehicles: %@, with following vehicles: %@
 Forced vehicle update removed the selected vehicle. Will deselect
@@ -502,10 +513,12 @@ garagePersister: %@ wants to update vehicles with vehicles: %@
 GEOConfigs changed, isEVRoutingEnabled: %@
 DataCoordinator wants to save vehicle: %@
 DataCoordinator wants to select vehicle: %@
+Garage hasn't finished loading vehicles from persistor. Once finished, reply block will be executed
 GetVehicleState
 Unable to fetch a state for vehicle. Error: %@
 Failed to get the latest state of vehicle: %@. with error: %@
 Received the latest state of vehicle: %@ through virtualGarageGetLatestStateOfVehicle. Will save the state.
+Updated vehicle: %@ is the same as the existing one. Not saving the state.
 VoltronSynchronousVehicleStateUpdate is on, will fetch SOC and wait before calling completion block.
 VoltronSynchronousVehicleStateUpdate is off, getting latest SoC from what is currently in the garage.
 data is nil. Error parsing manifest resource: %@
@@ -638,14 +651,15 @@ dateOfVehicleIngestion
 lastStateUpdateDate
 displayName
 year
+stringValue
 manufacturer
 model
 colorHex
 licensePlate
 lprVehicleType
 lprPowerType
-headUnitBluetoothIdentifier
 headUnitMacAddress
+headUnitBluetoothIdentifier
 supportedConnectors
 unsignedIntegerValue
 setWithObjects:
@@ -672,6 +686,7 @@ _canBeUpdatedFromState:
 identifier
 origin
 _updateWithVehicleState:
+headUnitIdentifier
 _identifierForVehicleStateOrigin:
 isPureElectricVehicle
 batteryPercentage
@@ -686,9 +701,10 @@ supportsSecureCoding
 copyWithZone:
 encodeWithCoder:
 initWithCoder:
-initWithDisplayName:year:manufacturer:model:colorHex:headUnitBluetoothIdentifier:headUnitMacAddress:supportedConnectors:powerByConnector:
+initWithDisplayName:year:manufacturer:model:colorHex:headUnitIdentifier:headUnitBluetoothIdentifier:supportedConnectors:powerByConnector:
 initWithLicensePlate:lprVehicleType:lprPowerType:
 initWithMapsSyncVehicle:
+pairToIapIdentifier:bluetoothIdentifier:
 combinedDisplayName
 displayedBatteryPercentage
 description
@@ -713,7 +729,7 @@ _manufacturer
 _model
 _colorHex
 _headUnitBluetoothIdentifier
-_headUnitMacAddress
+_headUnitIdentifier
 _licensePlate
 _lprVehicleType
 _lprPowerType
@@ -811,7 +827,7 @@ addObject:
 _vehicleStateProviderForVehicle:
 _updateGarageWithVehicle:selectVehicle:syncAcrossDevices:
 getStateOfChargeForVehicle:completion:
-isConnected
+isConnectedToElectricVehicle
 _applicationForVehicle:
 class
 self
@@ -849,8 +865,9 @@ setChargeStreamingDelegate:
 startSendingChargeUpdatesForVehicle:
 stopSendingChargeUpdatesForVehicle:
 _removeUnpairedIapVehicleIfNeeded
-containsObject:
+enumerateObjectsUsingBlock:
 removeObject:
+containsObject:
 dictionaryWithObjects:forKeys:count:
 errorWithDomain:code:userInfo:
 OEMAppsUpdated:
@@ -903,6 +920,7 @@ vehicleInfoInitialData
 connectionID
 vehicleStateFromExternalAccessory:
 vehicleFromExternalAccessory:
+isConnected
 serialNumber
 macAddress
 bluetoothIdentifier
@@ -920,6 +938,7 @@ encodeInteger:forKey:
 encodeBool:forKey:
 isSignificantlyDifferentFromVehicleState:
 _storage
+_executeQueuedCompletionHandlersIfNeeded
 _forceUpdateWithVehicles:
 loadVehiclesWithCompletion:
 selectedVehicleIdentifier
@@ -939,7 +958,6 @@ setSelectedVehicleIdentifier:
 predicateWithBlock:
 filteredArrayUsingPredicate:
 mutableCopy
-enumerateObjectsUsingBlock:
 _garageCopy
 delegate
 virtualGarageDidUpdate:
@@ -970,6 +988,8 @@ _selectedVehicleIdentifier
 _isDataCoordinatorRunning
 _dataCoordinator
 _persister
+_finishedLoadingVehicles
+_queuedGetGarageCompletionHandlers
 _shouldAssumeFullCharge
 defaultWorkspace
 addObserver:
@@ -1035,19 +1055,22 @@ currentCalendar
 dateFromComponents:
 chargePercentRemaining
 distanceRemainingElectric
-maxDistanceElectric
+maximumDistanceElectric
+minimumBatteryCapacity
+maximumBatteryCapacity
 chargingFormulaArguments
 charging
+_VGChargingConnectorTypeOptionFromINCarChargingConnectorType:
 code
 cars
-color
 make
-green
-blue
+color
 headUnit
-iap2Identifier
+iAP2Identifier
 supportedChargingConnectors
+_VGChargingConnectorTypeOptionsFromINCarChargingConnectorTypes:
 _powerByConnectorDictionaryFromCar:
+allKeys
 maximumPowerForChargingConnectorType:
 powerPerConnectors
 _connectionWithIntent:
@@ -1153,6 +1176,7 @@ v24@0:8@"NSCoder"16
 @88@0:8@16@24@32@40@48@56@64Q72@80
 @40@0:8@16@24@32
 @88@0:8@16@24@32@40@48@56@64@72@80
+v32@0:8@16@24
 @24@0:8q16
 @16@0:8
 d16@0:8
@@ -1161,7 +1185,6 @@ v24@0:8Q16
 v16@0:8
 @"NSString"
 @"NSDate"
-@"NSNumber"
 @"NSDictionary"
 @"VGVehicleState"
 v24@0:8d16
@@ -1200,6 +1223,7 @@ Q24@0:8@16
 @"NSTimer"
 @"NSMutableSet"
 @"NSMeasurement"
+@"NSNumber"
 @"VGExternalAccessoryState"16@0:8
 @"EAAccessory"
 @"VGExternalAccessoryState"
@@ -1208,7 +1232,6 @@ Q24@0:8@16
 @116@0:8@16@24q32@40@48@56@64@72@80@88@96B104Q108
 q16@0:8
 v36@0:8@16@24B32
-v32@0:8@16@24
 v36@0:8@"VGDataCoordinator"16@"VGVehicle"24B32
 v32@0:8@"VGDataCoordinator"16@"VGVehicle"24
 v32@0:8@"VGDataCoordinator"16@"NSArray"24

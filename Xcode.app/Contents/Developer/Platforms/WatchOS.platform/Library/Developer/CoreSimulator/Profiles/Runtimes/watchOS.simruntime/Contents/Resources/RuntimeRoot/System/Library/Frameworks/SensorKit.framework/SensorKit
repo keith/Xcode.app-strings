@@ -14,6 +14,7 @@ T@"NSString",R,C
 debugDescription
 com.apple.SensorKit.prerequisitesUpdated
 com.apple.SensorKit.significantTimeChange
+com.apple.SensorKit.resetDatastore
 %@: "%@", %@, %@ %@
 supportsSecureCoding
 TB,R
@@ -37,6 +38,7 @@ SRDevice.m
 Unable to find class %s
 void *UIKitLibrary(void)
 /System/Library/Frameworks/UIKit.framework/UIKit
+/System/Library/Frameworks/UIKit.framework/Contents/MacOS/UIKit
 SRLogDaemonNotification
 v12@?0i8
 from
@@ -315,6 +317,7 @@ Class getSRRemoteAuthorizationPromptViewControllerClass(void)_block_invoke
 SRAuthorizationPrompt.m
 void *SensorKitUILibrary(void)
 /System/Library/PrivateFrameworks/SensorKitUI.framework/SensorKitUI
+/System/Library/PrivateFrameworks/SensorKitUI.framework/Contents/MacOS/SensorKitUI
 SRAuthorizationPromptPresentationController
 Class getSRAuthorizationPromptPresentationControllerClass(void)_block_invoke
 AuthorizationPrompt
@@ -461,8 +464,7 @@ AuthorizationSPI
 com.apple.SensorKitAppHelper
 AuthorizationClient
 com.apple.SensorKit.authorization
-v16@?0@"NSSet"8
-v16@?0@"NSNumber"8
+v32@?0@"NSSet"8@"NSSet"16q24
 v16@?0@"NSArray"8
 v16@?0@"NSString"8
 dataCollectionEnabled
@@ -493,6 +495,7 @@ SRErrorInvalidEntitlement
 SRErrorNoAuthorization
 SRErrorDataInaccessible
 SRErrorFetchRequestInvalid
+SRErrorPromptDeclined
 SRErrorNoAuthorizationRecovery
 SRErrorDataInaccessibleRecovery
 srAbsoluteTime
@@ -513,8 +516,6 @@ completionHandler != nil
 v24@?0@"NSArray"8@"NSError"16
 com.apple.SensorKitDataExport
 v32@?0@"NSURL"8@"NSString"16@"NSError"24
-authorizationState
-TQ,N,V_authorizationState
 authorizationClient
 T@"SRAuthorizationClient",&,V_authorizationClient
 T@"NSXPCConnection",&,N,V_connection
@@ -528,7 +529,7 @@ TB,N,V_bypassHoldingPeriod
 earliestEligibleTime
 Td,R,N
 serviceStartTime
-TB,R,GisAuthorized
+authorizationStatus
 T@"<SRSensorReaderDelegate>",W,V_delegate
 SRFetchRequest
 SRFetchResult.m
@@ -588,6 +589,7 @@ Daemon has restarted after being invalidated. Re-establishing connection
 Trying to get monitoring flag after daemon restart
 Daemon has synced time. Requesting a new segment and time info
 Writer is not authorized so not asking for a new segment
+Daemon has reset our datastore. Requesting a new segment
 Connection to daemon interrupted
 Connection to daemon invalidated
 Failed to connect with daemon
@@ -639,13 +641,17 @@ Unable to connect to daemon because %{public}@
 Invalid binary data length %lu
 Expecting only 3 bits for on wrist detection but got %{public}d
 Couldn't connect to com.apple.SensorKitAppHelper because %{public}@
+Retrieving initial authorization state
+Retrieved initial authorization state. authorized: %{private}@, denied: %{private}@, prerequisites: %ld
 Registering for prerequisites notification
-Received notification of prerequisite change. Old: %{public, bool}d, New onboarding: %{public, bool}d, New global: %{public, bool}d
+Received notification of prerequisite change
 Failed to register for prerequisites notification status %{public}d, registration token %{public}d
 Unregistering for prerequisites notification
 Failed to cancel notification status %{public}d
 Failed to get sync proxy to daemon, error %{public}@
 Connection was interrupted, retrying...
+Daemon authorization update for bundle: %{public}@, prerequisites: %{public}ld, authorized: %{public}@, denied: %{public}@
+Ignoring duplicate daemon authorization update
 Sample class is not properly set. If this is a binary only stream, this can be ignored. Otherwise, please make sure the SampleClass entry is populated in the sensor description plist.
 Exporting sample class is not properly set. Please make sure writer delegate implements exportingClassNameForSensorIdentifier properly.
 Failed to get earliest eligible time because %{public}@
@@ -660,9 +666,10 @@ Error trying to unarchive metadata %{public}@
 Ending fetching early due to an error or delegate's intent
 Connection was interrupted so retrying the fetch request
 Failed to get remote proxy because %{public}@
-Error requesting authorization
 Ignoring authorization changed update for bundle %{public}@. I'm interested in %{public}@
+Unexpected authorization state. onboarding: %{public, bool}d, collection enabled: %{public, bool}d
 Authorization state for sensor %{public}@, bundle %{public}@ now %lu
+Setting authorization state for legacy reader to %{public, bool}d
 Cancelling data export
 Couldn't connect to data export service because %{public}@
 Failed to instantiate a sample with the given data
@@ -866,9 +873,11 @@ _extensionAuxiliaryHostProtocol
 copy
 daemonNotificationDaemonDidStart:
 daemonNotificationDaemonDidChangeTimeSignificantly:
+daemonNotificationDaemonDidResetDatastore:
 .cxx_destruct
 _registrationToken
 _significantTimeChangeToken
+_resetDatastoreToken
 _delegate
 _sensorIdentifier
 UTF8String
@@ -1334,23 +1343,23 @@ synchronousRemoteObjectProxyWithErrorHandler:
 weakToStrongObjectsMapTable
 registerForAuthorizationChangeNotificationsWithEffectiveBundleId:
 retrieveCurrentAuthorizedServicesWithReply:
-dataCollectionEnabled:
 setDataCollectionEnabled:
-firstRunOnboardingCompleted:
 setFirstRunOnboardingCompleted:
 partnerAppIdentifiersWithReply:
 studyBundleIdentifierForPartnerApp:reply:
 legacyResearchStudyBundleIDs:
 legacyResearchStudyEntitlement:
 onboardingAirGapEnabled:
-authorizedServicesDidChange:forBundleIdentifier:
+authorizedServicesDidChange:deniedServices:prerequisites:bundleIdentifier:
 mainBundle
 reregisterAfterInterruption:effectiveBundleId:
-authorizedServicesDidChange:forBundleIdentifier:notifyIfUnchanged:
+authorizedServicesDidChange:deniedServices:dataCollectionEnabled:onboardingCompleted:forBundleIdentifier:
 removeObjectForKey:
-_prerequisiteMet
+isEqualToSet:
 _listeners
 _actualAuthorizedServices
+_deniedServices
+_prerequisites
 errorWithCode:description:recoverySuggestion:
 errorWithCode:description:recoverySuggestion:underlyingError:
 connectionNotFoundError
@@ -1377,6 +1386,7 @@ fetchAllDevices:idOnly:reply:
 fetchReaderMetadata:reply:
 initWithSensor:bundle:
 initWithSensor:xpcConnection:daemonNotification:authorizationClient:bundleId:
+setAuthorizationStatus:
 setSampleClass:
 setExportingSampleClass:
 setBundleId:
@@ -1416,18 +1426,15 @@ fetchDevicesDidFailWithError:
 didFetchDevices:
 fetchDevices:
 containsObject:
-requestAuthorizationForBundle:sensors:
 requestAuthorizationForBundle:sensors:legacyPromptErrorBehavior:withCompletionHandler:
-authorizationState
-setAuthorizationState:
+authorizationStatus
 sensorReader:didChangeAuthorizationStatus:
 setWithCapacity:
 createExportDataForServices:withCompletionHandler:
 exportDataForSensors:reply:
 cancelWithReply:
 setWithObject:
-requestAuthorizationForSensors:
-requestAuthorizationForSensors:completionHandler:
+requestAuthorizationForSensors:completion:
 requestAuthorizationForBundle:sensors:withCompletionHandler:
 authorizationRequestStatusForBundle:sensors:completionHandler:
 createExportDataWithCompletionHandler:
@@ -1445,7 +1452,7 @@ exportingSampleClass
 _deviceDetails
 _serviceStartTime
 _earliestEligibleTime
-_authorizationState
+_authState
 _authorizationClient
 _bundleId
 setSampleData:
@@ -1599,15 +1606,16 @@ v20@0:8C16
 v40@0:8@16@24@?32
 v32@0:8@"NSString"16@?<v@?@"NSError">24
 v40@0:8@"NSString"16@"NSSet"24@?<v@?B@"NSError">32
-v24@0:8@?<v@?@"NSSet">16
-v24@0:8@?<v@?@"NSNumber">16
+v24@0:8@?<v@?@"NSSet"@"NSSet"q>16
 v24@0:8@?<v@?@"NSArray">16
 v32@0:8@"NSString"16@?<v@?@"NSString">24
 v24@0:8@?<v@?@"NSString">16
 v24@0:8@?<v@?B>16
-v32@0:8@"NSSet"16@"NSString"24
+v48@0:8@16@24q32@40
+v48@0:8@"NSSet"16@"NSSet"24q32@"NSString"40
 @"NSMapTable"
 @"NSSet"
+@"NSNumber"
 @24@0:8q16
 @40@0:8q16@24@32
 @48@0:8q16@24@32@40
@@ -1624,14 +1632,13 @@ v24@0:8@?<v@?>16
 v44@0:8@16@24B32@?36
 @?24@0:8@?16
 @?32@0:8@16@?24
-v36@0:8@16@24B32
-v36@0:8@"NSSet"16@"NSString"24B32
+v48@0:8@16@24B32B36@40
+v48@0:8@"NSSet"16@"NSSet"24B32B36@"NSString"40
 @56@0:8@16@24@32@40@48
 v24@0:8#16
 v56@0:8@16d24d32@40@?48
 v56@0:8d16d24@32@40@?48
 v64@0:8d16d24@32@40q48@?56
-v24@0:8Q16
 @"<SRSensorReaderDelegate>"
 @"SRAuthorizationClient"
 @48@0:8@16d24@32#40

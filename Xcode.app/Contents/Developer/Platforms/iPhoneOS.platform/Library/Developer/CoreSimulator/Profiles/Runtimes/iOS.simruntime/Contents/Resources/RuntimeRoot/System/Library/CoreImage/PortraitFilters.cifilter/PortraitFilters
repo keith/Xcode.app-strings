@@ -11,6 +11,7 @@ f@es-8R
 ?333333
 @333333
 ?333333
+?333333
 333>
 0@ff&?
 ?ffffff
@@ -247,6 +248,7 @@ setZDarkThr:
 AdjustForPointX:Y:Z:
 zDarkThr
 containsPointPlanarConditionalX2:Y:Z:epsilonDark:epsilonLight:epsilonMid:shouldPrint:
+setPerservesAlpha:
 _srgbToIPT
 boolValue
 _rectToHueChroma
@@ -306,11 +308,29 @@ inputLocalLight
 inputSmartShadows
 length
 initWithImageProvider:width:height:format:colorSpace:options:
+countByEnumeratingWithState:objects:count:
+setObject:forKey:
+setValue:forKey:
+imageWithCVPixelBuffer:options:
+filterWithName:
+inputKeys
+containsObject:
+imageWithCVPixelBuffer:
+initWithPixelBuffer:
+setColorSpace:
+getFaceFeatures:
+prepareRender:fromRect:toDestination:atPoint:error:
+run:withContext:withFaceScales:
+initWithBitmapData:width:height:bytesPerRow:format:
+initWithRed:green:blue:alpha:
+width
+height
 previewCubeName
 bundleForClass:
 pathForResource:ofType:
 standbyCubeName
 backgroundPreviewCubeName
+prewarm:
 previewCubePath
 standbyCubePath
 backgroundPreviewCubePath
@@ -333,15 +353,17 @@ inputFaceLandmarkArray
 setInputFaceLandmarkArray:
 inputRenderProxy
 setInputRenderProxy:
+inputSpillCorrectedRatioImage
+setInputSpillCorrectedRatioImage:
+inputGenerateSpillMatte
+setInputGenerateSpillMatte:
 setInputSmooth:
 setInputEnrich:
 setInputTeeth:
 setInputLocalContrast:
 colorWithRed:green:blue:alpha:
 initWithFaceLandmarkDictionary:forImageRect:
-filterWithName:
 vectorWithCGPoint:
-setValue:forKey:
 leftEyeOutline
 rightEyeOutline
 _eyeBlurV2
@@ -352,6 +374,7 @@ maskForLandmarks:withFilterNamed:
 _textureDiff
 _textureAdd
 _whitenTeeth
+imageByInsertingIntermediate:
 _imageByRenderingToIntermediate
 _eyeBrightenV2
 _eyeBrightenSoftlight
@@ -364,10 +387,11 @@ processTeethIn:withFaceMask:
 processTeethIn:withTeethMask:
 processEyesIn:withEyeBlur:landmarks:
 _enrichV2
-countByEnumeratingWithState:objects:count:
 imageForLandmarks:
 enrichImage:
 getDraftMode:
+getRefinedMatteMode:
+getRenderSpillCache:
 setDefaults
 skinMaskForLandmarks:
 teethMaskForLandmarks:
@@ -408,12 +432,16 @@ setInputSharpenRadius:
 setInputGrainAmount:
 depthData
 depthDataAccuracy
+_getRefinedMatte
+_applyRefinedMatte
 thresholdMatte
 thresholdAndApplyMatte
 _applyVignetteStage
 _CIPrepareBlackDepth
 _CIPrepareBlackDisparity
 _CIApplyBlackDepth
+_CIApplyStageNoFeather
+_CIApplyStageNoFeatherWithSpillRatio
 _CIRefineBlackDepth
 _faceProtect
 invertRed
@@ -424,6 +452,10 @@ inputGrainAmount
 thresholdWhiteMatte
 thresholdAndApplyWhiteBG
 _CIPrepareWhiteDepth
+_applyWhiteNoFeather
+_getRefinedWhiteMatte
+_applyRefinedWhiteMatte
+numberWithUnsignedLong:
 init
 setFaceData:
 setLeftToRightVec:
@@ -785,7 +817,6 @@ inputFocalLengthNormalized
 _offsetImage:inputDisparity:thresholdImage:
 _maxNumVerticesForImage:sigmaLuma:sigmaSpace:
 integerValue
-numberWithUnsignedLong:
 adaptiveNormalizationAbsolute
 inputAdaptiveThresholdZRangeConst
 inputAdaptiveThresholdZRangeLinearDepth
@@ -814,7 +845,7 @@ v8@?0
 10.13
 inputNeedsGammaCorrection
 inputScale
-kernel vec4 _transitionDepths(__sample edges,__sample depthLo) { float v = float((edges.r) > 0.5)*depthLo.r; return vec4(v,v,v,1.0); }
+kernel vec4 _pf_transitionDepths(__sample edges,__sample depthLo) { float v = float((edges.r) > 0.5)*depthLo.r; return vec4(v,v,v,1.0); }
 PFSobelHV
 CIMorphologyMaximum
 T@"CIVector",C,N,VinputFocusRect
@@ -831,8 +862,8 @@ inputFilterCut
 inputFeatherBandRange
 inputAdaptiveThresholdRange
 inputSigmaFallout
-kernel vec4 _renormalize01(__sample a,__sample b) { float zmin = b.r; float zmax = b.g; float v = (a.r - zmin)/(zmax-zmin); return vec4(v,v,v,1.0); }
-kernel vec4 _featherBand(__sample image,__sample threshold,__sample mm,vec3 params) { 
+kernel vec4 _pf_renormalize01(__sample a,__sample b) { float zmin = b.r; float zmax = b.g; float v = (a.r - zmin)/(zmax-zmin); return vec4(v,v,v,1.0); }
+kernel vec4 _pf_featherBand(__sample image,__sample threshold,__sample mm,vec3 params) { 
   float zMin = mm.r;
   float zMax = mm.g;
   float zRange = zMax - zMin;
@@ -844,16 +875,16 @@ kernel vec4 _featherBand(__sample image,__sample threshold,__sample mm,vec3 para
   float band = abs(image.r - bandCenter) - bandRange / 2.0;
   band = 1.0 - smoothstep(0.0, featherBandRange, band);
    return vec4(band,band,band,1.0);
-kernel vec4 _protectInterior(__sample C,__sample band) { 
+kernel vec4 _pf_protectInterior(__sample C,__sample band) { 
    float v = max(min(C.r - band.r * 0.5,0.999),1e-4);
    return vec4(v,v,v,1.0);
-kernel vec4 _invertImage(__sample a) { float v = 1.0 - a.r; return vec4(v,v,v,1.0); }
-kernel vec4 _normalizeToPhysicalDepth(__sample threshold,__sample mm,float thresholdOffset) { float v = threshold.r + thresholdOffset *(1.0 -threshold.r)/(mm.g-mm.r);  return vec4(v,v,v,1.0); }
-kernel vec4 _foreground(__sample mask,__sample threshold) { float v = (mask.r < threshold.r) ? mask.r : 0.0; return vec4(v,v,v,1.0); }
-kernel vec4 _filterCut(__sample mask,__sample threshold,float filterCut) {
+kernel vec4 _pf_invertImage(__sample a) { float v = 1.0 - a.r; return vec4(v,v,v,1.0); }
+kernel vec4 _pf_normalizeToPhysicalDepth(__sample threshold,__sample mm,float thresholdOffset) { float v = threshold.r + thresholdOffset *(1.0 -threshold.r)/(mm.g-mm.r);  return vec4(v,v,v,1.0); }
+kernel vec4 _pf_foreground(__sample mask,__sample threshold) { float v = (mask.r < threshold.r) ? mask.r : 0.0; return vec4(v,v,v,1.0); }
+kernel vec4 _pf_filterCut(__sample mask,__sample threshold,float filterCut) {
   float v = min(1.0, mask.r * filterCut / threshold.r);
   return vec4(v,v,v,1.0); }
-kernel vec4 _bb3Mono(sampler a) { 
+kernel vec4 _pf_bb3Mono(sampler a) { 
    float r = 0.0;
    vec2 dc = destCoord();
    r += sample(a,samplerTransform(a, dc + vec2(-1.0, -1.0))).r;
@@ -867,15 +898,15 @@ kernel vec4 _bb3Mono(sampler a) {
    r += sample(a,samplerTransform(a, dc + vec2( 1.0,  1.0))).r;
    r *= 0.111111111;
    return vec4(r,r,r,1.0);
-kernel vec4 _denormalize(__sample image, __sample minMaxImage)
+kernel vec4 _pf_denormalize(__sample image, __sample minMaxImage)
     float v = image.r;
     float maxV = minMaxImage.g;
     float minV = minMaxImage.r;
     v = v * (maxV - minV) + minV;
     return vec4(v,v,v,1.0);
-kernel vec4 _confidenceConvertToHalfFloat (__sample c) __attribute__((outputFormat(kCIFormatRGBAh))) {
+kernel vec4 _pf_confidenceConvertToHalfFloat (__sample c) __attribute__((outputFormat(kCIFormatRGBAh))) {
   return c;
-kernel vec4 _renormalizeThreshold(__sample threshold,__sample disparityMinMax) { 
+kernel vec4 _pf_renormalizeThreshold(__sample threshold,__sample disparityMinMax) { 
   float minV = disparityMinMax.x; 
   float maxV = disparityMinMax.y; 
   float range = maxV - minV; 
@@ -908,11 +939,11 @@ T@"NSNumber",C,N,VinputFilterCut
 T@"NSNumber",C,N,VinputFeatherBandRange
 T@"NSNumber",C,N,VinputAdaptiveThresholdRange
 T@"NSNumber",C,N,VinputSigmaFallout
-kernel vec4 _confidenceExtractRed (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
+kernel vec4 _pf_confidenceExtractRed (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
   return vec4(c.r, 0.0, 0.0, 1.0);
 CISRGBToneCurveToLinear
 CIGaussianBlur
-kernel vec4 _boxBlur3_7_H(sampler image)
+kernel vec4 _pf_boxBlur3_7_H(sampler image)
     vec2 dc = destCoord();
     float c =  sample(image, samplerTransform(image, dc + vec2(-7.0, 0.0))).r * 0.0005;
          c += sample(image, samplerTransform(image, dc + vec2(-6.0, 0.0))).r * 0.0032;
@@ -931,7 +962,7 @@ kernel vec4 _boxBlur3_7_H(sampler image)
          c += sample(image, samplerTransform(image, dc + vec2( 7.0, 0.0))).r * 0.0005;
         
     return vec4(c,c,c,1.0);
-kernel vec4 _boxBlur3_7_V(sampler image)
+kernel vec4 _pf_boxBlur3_7_V(sampler image)
     vec2 dc = destCoord();
     float c =  sample(image, samplerTransform(image, dc + vec2(0.0, -7.0))).r * 0.0005;
          c += sample(image, samplerTransform(image, dc + vec2(0.0,-6.0))).r * 0.0032;
@@ -950,7 +981,7 @@ kernel vec4 _boxBlur3_7_V(sampler image)
          c += sample(image, samplerTransform(image, dc + vec2(0.0, 7.0))).r * 0.0005;
         
     return vec4(c,c,c,1.0);
-kernel vec4 _sobelHV(sampler image)        {
+kernel vec4 _pf_sobelHV(sampler image)        {
             vec2 dc = destCoord();
     float c0 = sample(image, samplerTransform(image, dc + vec2(-1.0,1.0))).r;
     float c1 = sample(image, samplerTransform(image, dc + vec2( 0.0,1.0))).r;
@@ -964,21 +995,21 @@ kernel vec4 _sobelHV(sampler image)        {
     float v = abs((c0 + 2.0 * c3 + c6) - (c2 + 2.0 * c5 + c8));
     float total = (h + v);
     return vec4(total, total, total, 1.0);
-kernel vec4 _h9(sampler a)  { 
+kernel vec4 _pf_h9(sampler a)  { 
    float m = 0.0;
    vec2 dc = destCoord();
    for(int i = -4; i <= 4; i++) {
       m = max(m, sample(a,samplerTransform(a, dc + vec2(float(i), 0.0))).r);
    }
    return vec4(m,m,m,1.0);
-kernel vec4 _v7(sampler a)  { 
+kernel vec4 _pf_v7(sampler a)  { 
    float m = 0.0;
    vec2 dc = destCoord();
    for(int i = -3; i <= 3; i++) {
       m = max(m, sample(a,samplerTransform(a, dc + vec2(float(i), 0.0))).r);
    }
    return vec4(m,m,m,1.0);
-kernel vec4 _dilateRem(sampler a,sampler o) { 
+kernel vec4 _pf_dilateRem(sampler a,sampler o) { 
    float m = sample(a, samplerCoord(a)).r;
    vec2 dc = destCoord();
    for(int i = -3; i<= 3; i++) {
@@ -992,7 +1023,7 @@ kernel vec4 _dilateRem(sampler a,sampler o) {
    m = max(m, sample(o,samplerTransform(o, dc + vec2( 5.0, 0.0))).r);
    m = max(m, sample(o,samplerTransform(o, dc + vec2(-5.0, 0.0))).r);
    return vec4(m,m,m,1.0);
-kernel vec4 _sobelHVGeoMean(sampler image)        {
+kernel vec4 _pf_sobelHVGeoMean(sampler image)        {
             vec2 dc = destCoord();
     float c0 = sample(image, samplerTransform(image, dc + vec2(-1.0,1.0))).r;
     float c1 = sample(image, samplerTransform(image, dc + vec2( 0.0,1.0))).r;
@@ -1006,8 +1037,8 @@ kernel vec4 _sobelHVGeoMean(sampler image)        {
     float v = (c0 + 2.0 * c3 + c6) - (c2 + 2.0 * c5 + c8);
     float total = sqrt(max(0.0000001,h*h + v*v));
     return vec4(total, total, total, 1.0);
-kernel vec4 _invertImages(__sample c) { float v = c.r; v = 1.0 - min(1.0,v); v = max(min(v,1.0),0.0001); return vec4(v,v,v,1.0); }
-kernel vec4 _dilateDisparityEdgeDetectLuminance(sampler image, vec2 ninj,sampler lumImage){
+kernel vec4 _pf_invertImages(__sample c) { float v = c.r; v = 1.0 - min(1.0,v); v = max(min(v,1.0),0.0001); return vec4(v,v,v,1.0); }
+kernel vec4 _pf_dilateDisparityEdgeDetectLuminance(sampler image, vec2 ninj,sampler lumImage){
     float m = 0.0, n = 0.0;
     vec2 dc = destCoord();
     
@@ -1040,7 +1071,7 @@ inputWidth
 inputRotate
 inputOrientation
 inputCenterBottom
-kernel vec4 _kickLightKernel_pos(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec2 xy3, vec4 abc3, vec2 xy4, vec4 abc4, float str) 
+kernel vec4 _pf_kickLightKernel_pos(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec2 xy3, vec4 abc3, vec2 xy4, vec4 abc4, float str) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1065,7 +1096,7 @@ kernel vec4 _kickLightKernel_pos(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec
     result.rgb = mix(im.rgb, result.rgb, .85); 
     result.rgb = mix(orig, result.rgb+neg+pos, (s+g+ss+gg)); 
     return result; 
-kernel vec4 _kickLightKernel_neg(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec2 xy3, vec4 abc3, vec2 xy4, vec4 abc4, float str) 
+kernel vec4 _pf_kickLightKernel_neg(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec2 xy3, vec4 abc3, vec2 xy4, vec4 abc4, float str) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1107,7 +1138,7 @@ T@"NSNumber",&,N,VinputOrientation
 T@"NSNumber",&,N,VinputCenterBottom
 inputBrighten
 inputContrast
-kernel vec4 _dualLightKernel(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec3 mcb) 
+kernel vec4 _pf_dualLightKernel(__sample im, vec2 xy1, vec4 abc1, vec2 xy2, vec4 abc2, vec3 mcb) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1149,7 +1180,7 @@ T@"NSNumber",&,N,VinputRotate1
 inputRotate2
 T@"NSNumber",&,N,VinputRotate2
 T@"NSNumber",&,N,VinputContrast
-kernel vec4 _strobeKernel(__sample im, vec2 xy1, vec4 abc1, float str) 
+kernel vec4 _pf_strobeKernel(__sample im, vec2 xy1, vec4 abc1, float str) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1161,9 +1192,9 @@ kernel vec4 _strobeKernel(__sample im, vec2 xy1, vec4 abc1, float str)
     im.rgb = lum > 0.0 ? im.rgb*yy/lum : vec3(0.0); 
     im.rgb = mix(orig.rgb, im.rgb, str); 
     return im; 
-kernel vec4 _contourExtractRed (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
+kernel vec4 _pf_contourExtractRed (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
   return vec4(c.r, 0.0, 0.0, 1.0);
-kernel vec4 _contourLightKernel (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
+kernel vec4 _pf_contourLightKernel (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
     fore = vec4(fore.r, fore.r, fore.r, 1.0);
     fore = max(fore, 0.0); 
     vec3 neg = min(back.rgb, 0.0); 
@@ -1195,7 +1226,7 @@ inputHeight
 T@"NSNumber",&,N,VinputHeight
 T@"NSNumber",&,N,VinputScale
 inputDarken
-kernel vec4 _portraitSpotKernel (__sample c, vec4 xy1, vec4 abc1, vec2 darken )
+kernel vec4 _pf_portraitSpotKernel (__sample c, vec4 xy1, vec4 abc1, vec2 darken )
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1214,7 +1245,7 @@ kernel vec4 _portraitSpotKernel (__sample c, vec4 xy1, vec4 abc1, vec2 darken )
   return result; 
 T@"NSNumber",&,N,VinputDarken
 inputFaceOrientation
-kernel vec4 _neckContour(__sample im, vec4 xy1, vec4 abc1, vec4 abc2, float str) 
+kernel vec4 _pf_neckContour(__sample im, vec4 xy1, vec4 abc1, vec4 abc2, float str) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = -smoothstep(0.0, .1, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))) ; 
@@ -1228,9 +1259,9 @@ kernel vec4 _neckContour(__sample im, vec4 xy1, vec4 abc1, vec4 abc2, float str)
 inputChin
 T@"CIVector",&,N,VinputChin
 T@"NSNumber",&,N,VinputFaceOrientation
-kernel vec4 _contourExtractRedStudio (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
+kernel vec4 _pf_contourExtractRedStudio (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
   return vec4(c.r, 0.0, 0.0, 1.0);
-kernel vec4 _studioLightKernel (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
+kernel vec4 _pf_studioLightKernel (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
  fore = vec4(fore.r, fore.r, fore.r, 1.0);
  fore = max(fore, 0.0); 
  fore = pow(fore, vec4(.65)); 
@@ -1255,10 +1286,10 @@ kernel vec4 _studioLightKernel (__sample back, __sample fore, vec4 xy1, vec4 abc
  vec4 im = back; 
  im.rgb = mix(im.rgb, B.rgb, smoothstep(0.0,0.75,(s - re -le +chin))) + pos + neg; 
  return im; 
-kernel vec4 _cheapEdgePreserveStudio (__sample i, __sample b) 
+kernel vec4 _pf_cheapEdgePreserveStudio (__sample i, __sample b) 
  float d = 1.0*distance(i.rgb, b.rgb); b = mix(b, i, d); 
  return b; 
-kernel vec4 _strobeKernelV2(__sample im, vec2 xy1, vec4 abc1, float str) 
+kernel vec4 _pf_strobeKernelV2(__sample im, vec2 xy1, vec4 abc1, float str) 
     float dx = xy1.x-destCoord().x ; 
     float dy = xy1.y-destCoord().y ; 
     float s = exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1271,9 +1302,9 @@ kernel vec4 _strobeKernelV2(__sample im, vec2 xy1, vec4 abc1, float str)
     im.rgb = mix(orig.rgb, im.rgb, str*lum); 
     return im; 
 inputBlur
-kernel vec4 _contourExtractRedV2 (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
+kernel vec4 _pf_contourExtractRedV2 (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
  return vec4(c.r, 0.0, 0.0, 1.0);
-kernel vec4 _contourLightKernelV2 (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
+kernel vec4 _pf_contourLightKernelV2 (__sample back, __sample fore, vec4 xy1, vec4 abc1, vec4 eyes, float str, float radius )
  fore.r = pow(fore.r, .85); 
  fore = vec4(fore.r, fore.r, fore.r, 1.0);
  fore = max(fore, 0.0); 
@@ -1299,11 +1330,11 @@ kernel vec4 _contourLightKernelV2 (__sample back, __sample fore, vec4 xy1, vec4 
  im.rgb = mix(im.rgb, B.rgb, pow(fore.r, 0.35)*smoothstep(0.0,0.75,(s - re -le +chin))); 
  im.rgb = mix(back.rgb, im.rgb, pow(fore.r, .15)) + pos + neg; 
  return im; 
-kernel vec4 _cheapEdgePreserveContourV2 (__sample i, __sample b) 
+kernel vec4 _pf_cheapEdgePreserveContourV2 (__sample i, __sample b) 
  float d = 1.25*distance(i.rgb, b.rgb); b = mix(b, i, d); 
  return b; 
 T@"NSNumber",&,N,VinputBlur
-kernel vec4 _faceContourMask(__sample im, vec4 xy1, vec4 abc1, vec4 abc2) 
+kernel vec4 _pf_faceContourMask(__sample im, vec4 xy1, vec4 abc1, vec4 abc2) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = 1.75*exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy)); 
@@ -1311,7 +1342,7 @@ kernel vec4 _faceContourMask(__sample im, vec4 xy1, vec4 abc1, vec4 abc2)
  g = clamp(g-s, 0.0, 1.0); 
  g = smoothstep(0.0, 0.18, g); 
  return vec4(g,g,g,1.0); 
-kernel vec4 _darkenContour(__sample im, float str) 
+kernel vec4 _pf_darkenContour(__sample im, float str) 
  im = clamp(im, 0.0, 1.0); 
  vec4 im2 = 1.0 - sqrt(1.0-im*im); 
  float y = dot(im.rgb, vec3(.333333)); 
@@ -1327,7 +1358,7 @@ inputBackgroundImage
 inputMaskImage
 com.apple.PortraitFilters
 loadMetalLib_block_invoke
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/PortraitFilters.m
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/PortraitFilters.m
 bundle
 portrait_filters
 metallib
@@ -1341,7 +1372,7 @@ T@"CIImage",&,N,V_inputImage
 inputFaceLandmarks
 T@"NSDictionary",&,N,V_inputFaceLandmarks
 +[CIPortraitFaceMaskProcessorKernel processWithInputs:arguments:output:error:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIPortraitFaceMask.mm
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIPortraitFaceMask.mm
 CGRectIsIntegral(faceROI)
 +[CIPortraitFaceMaskProcessorKernel roiForInput:arguments:outputRect:]
 false
@@ -1358,7 +1389,7 @@ skinColorToleranceLight
 skinColorToleranceMid
 eps2
 inputReturnHueChroma
-kernel vec4 _srgbToIPT(__sample im) 
+kernel vec4 _pf_srgbToIPT(__sample im) 
  vec3 lms = im.r * vec3(0.3139902162, 0.15537240628, 0.01775238698) + 
  im.g * vec3(0.63951293834, 0.75789446163, 0.1094420944) + 
  im.b * vec3(0.04649754622, 0.08670141862, 0.87256922462); 
@@ -1367,13 +1398,13 @@ kernel vec4 _srgbToIPT(__sample im)
  lms.g * vec3(0.4, -4.851, 0.3572) + 
  lms.b * vec3(0.2, 0.396,-1.1628); 
  return vec4(ipt, im.a); 
-kernel vec4 _rectToHueChroma(__sample im) 
+kernel vec4 _pf_rectToHueChroma(__sample im) 
  vec4 ihc = im; 
  ihc.g = atan(im.b, im.g); 
  ihc.b = sqrt(im.g*im.g+im.b*im.b); 
  return ihc; 
 inputIsHueChroma
-kernel vec4 _iptToSRGB(__sample ipt) 
+kernel vec4 _pf_iptToSRGB(__sample ipt) 
  vec3 lms = ipt.r * vec3(1.0000, 1.0000, 1.0000) + 
  ipt.g * vec3(0.0976,-0.1139, 0.0326) + 
  ipt.b * vec3(0.2052, 0.1332,-0.6769); 
@@ -1382,7 +1413,7 @@ kernel vec4 _iptToSRGB(__sample ipt)
  lms.g * vec3(-4.641960098354471, 2.293170938060623, -0.193180728257140) + 
  lms.b * vec3(0.169637076827974, -0.167895202223709, 1.163647892783812); 
  return vec4(im, ipt.a); 
-kernel vec4 _hueChromaToRect(__sample ihc) 
+kernel vec4 _pf_hueChromaToRect(__sample ihc) 
  vec4 ipt = ihc; 
  ipt.g = ihc.b * cos(ihc.g); 
  ipt.b = ihc.b * sin(ihc.g); 
@@ -1390,7 +1421,7 @@ kernel vec4 _hueChromaToRect(__sample ihc)
 chromaMin
 hueRange
 +[CIHueChromaHistProcessor formatForInputAtIndex:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CISmartGradient.m
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CISmartGradient.m
 imageExtents
 +[CIHueChromaHistProcessor roiForInput:arguments:outputRect:]
 arguments[@"imageExtents"]
@@ -1406,10 +1437,10 @@ inputReturnSmartColor
 inputHueRange
 inputChromaMin
 inputMaxDimension
-kernel vec4 _scaleHue(__sample im, float s) 
+kernel vec4 _pf_scaleHue(__sample im, float s) 
  im.g = (im.g+s)/(2.0*s); 
  return im; 
-kernel vec4 _scaleHuePi(__sample im, float s) 
+kernel vec4 _pf_scaleHuePi(__sample im, float s) 
  im.g = im.g*2.0*s - s; 
  return im; 
 CIIPTtoSRGB
@@ -1430,7 +1461,7 @@ float _inTriangle(vec2 p1, vec2 p2, vec2 p3){
  b2 = _inTriangle(pt, v2, v3) < 0.0; 
  b3 = _inTriangle(pt, v3, v1) < 0.0; 
  return ((b1 == b2) && (b2 == b3)); 
- kernel vec4 _drawTriangle(__sample im, vec4 p12, vec2 p34, float str, float alpha) 
+ kernel vec4 _pf_drawTriangle(__sample im, vec4 p12, vec2 p34, float str, float alpha) 
  vec2 pt = destCoord(); 
  bool ins = _isInTriangle(p12, p34, pt); 
  vec4 scaled = clamp(str*im, 0.0, 1.0); 
@@ -1441,7 +1472,7 @@ float _inTriangle(vec2 p1, vec2 p2, vec2 p3){
  scaled.a = alpha * (.3*y+.7); 
  im = ins ? scaled : vec4(0.0); 
  return im; 
-kernel vec4 _protectEyes(__sample im, vec4 eyes, float radius) 
+kernel vec4 _pf_protectEyes(__sample im, vec4 eyes, float radius) 
  vec2 pt = destCoord(); 
  float dx = eyes.x-pt.x; 
  float dy = eyes.y-pt.y; 
@@ -1455,7 +1486,7 @@ CIHardLightBlendMode
 T@"LightingFacePoints",&,N,VinputFaceLandmarks
 guidedFilterEpsilon
 +[CIDynamicGuidedFilter formatForInputAtIndex:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIDynamicLocalLight.mm
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIDynamicLocalLight.mm
 +[CIDynamicGuidedFilter roiForInput:arguments:outputRect:]
 inputLightMapWidth
 NSNumber
@@ -1463,7 +1494,7 @@ inputLightMapHeight
 inputGuidedFilterEpsilon
 inputLocalLight
 inputSmartShadows
-kernel vec4 _shadowKernelDynamic(__sample im, __sample adj, float str) 
+kernel vec4 _pf_shadowKernelDynamic(__sample im, __sample adj, float str) 
  adj.r = 3.4*adj.r-1.2; 
  vec3 neg = min(im.rgb, 0.0); 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
@@ -1492,7 +1523,7 @@ kernel vec4 _shadowKernelDynamic(__sample im, __sample adj, float str)
  im.rgb *= im.rgb; 
  im.rgb = clamp(im.rgb, 0.0,1.0)+pos+neg; 
  return im; 
-kernel vec4 _polyKernelDynamic(__sample im, __sample adj, float str) 
+kernel vec4 _pf_polyKernelDynamic(__sample im, __sample adj, float str) 
  adj.r = 3.4*adj.r-1.2; 
  vec3 neg = min(im.rgb, 0.0); 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
@@ -1532,6 +1563,28 @@ y == 0
 width == lmWidth
 height == lmHeight
 v56@?0^v8Q16Q24Q32Q40Q48
+allPoints
+faceContour
+innerLips
+leftEye
+leftEyebrow
+leftPupil
+medianLine
+nose
+noseCrest
+outerLips
+rightEye
+rightEyebrow
+rightPupil
+faceJunkinessIndex
+faceOrientationIndex
+faceBoundingBox
+inputDepthMap
+CIPortraitEffectStudioV2
+CIPortraitEffectStageMonoV2
+CIPortraitEffectStageWhite
+CIPortraitEffectContourV2
+CIPortraitEffectStageV2
 10.11
 scube
 inputFaceMask
@@ -1550,9 +1603,15 @@ inputFaceLandmarkArray
 T@"NSArray",&,N,VinputFaceLandmarkArray
 inputRenderProxy
 T@"NSNumber",&,N,VinputRenderProxy
+inputSpillCorrectedRatioImage
+T@"CIImage",&,N,VinputSpillCorrectedRatioImage
+inputGenerateSpillMatte
+T@"NSNumber",&,N,VinputGenerateSpillMatte
 render_lighting_proxy
 com.apple.coremedia
-kernel vec4 _whitenteethV2(__sample pix, __sample mask, float amt) 
+refineStageMatte
+renderSpillCache
+kernel vec4 _pf_whitenteethV2(__sample pix, __sample mask, float amt) 
  float m = mask.g; 
  vec4 modifiedPix = pow(clamp(pix,0.0, 1.0), vec4(.35)); 
  modifiedPix.b += .1; 
@@ -1563,7 +1622,7 @@ kernel vec4 _whitenteethV2(__sample pix, __sample mask, float amt)
  displayPix.rgb = mix(pix.rgb, displayPix.rgb, r*max(m, 0.0)); 
  displayPix.a = pix.a; 
  return mix(pix, displayPix, amt); 
-kernel vec4 _enrichV2 (__sample s, float amt,vec4 params ) { 
+kernel vec4 _pf_enrichV2 (__sample s, float amt,vec4 params ) { 
  vec4 orig = s; 
  s = clamp(s, 0.0, 1.0); 
  float x0 = params.r; 
@@ -1598,12 +1657,12 @@ kernel vec4 _enrichV2 (__sample s, float amt,vec4 params ) {
  w.r = pow(w.r, .75); 
  w = mix(orig, w, vec4(amt) ); w.a = 1.0; 
  return w; 
-kernel vec4 _eyeBrightenV2 (__sample im, __sample m, float str) 
+kernel vec4 _pf_eyeBrightenV2 (__sample im, __sample m, float str) 
  float y = dot(im.rgb, vec3(0.333333)); 
  vec3 bright = mix(im.rgb, 3.0*im.rgb, m.r); 
  im.rgb = mix(im.rgb, bright, y*str); 
  return im; 
-kernel vec4 _eyeBrightenSoftlightV2 (__sample uCb, __sample m, float str) 
+kernel vec4 _pf_eyeBrightenSoftlightV2 (__sample uCb, __sample m, float str) 
  float g = .75*(1.0-dot(uCb.rgb, vec3(.333333))); 
  vec4 uCf = vec4(g, g, g, 1.0); 
  vec4 D = compare(uCb-0.25, ((16.0*uCb-12.0)*uCb+4.0)*uCb, sqrt(uCb)); 
@@ -1612,19 +1671,19 @@ kernel vec4 _eyeBrightenSoftlightV2 (__sample uCb, __sample m, float str)
  uCf.rgb = mix(uCb.rgb, bright.rgb, m.r); 
  uCf.rgb = mix(uCb.rgb, uCf.rgb, str); 
  return uCf; 
-kernel vec4 _textureDiffV2 (__sample c, __sample b, float scale) 
+kernel vec4 _pf_textureDiffV2 (__sample c, __sample b, float scale) 
  vec3 fullDiff = c.rgb - b.rgb; 
  c.rgb = compare(fullDiff, scale*fullDiff, fullDiff); 
  return c; 
-kernel vec4 _textureAddV2 (__sample c, __sample b, float scale) 
+kernel vec4 _pf_textureAddV2 (__sample c, __sample b, float scale) 
  scale = c.r > b.r ? .5*scale : scale; 
  c.rgb = c.rgb + scale*b.rgb; 
  return c; 
-kernel vec4 _cheapEdgePreserveV2 (__sample i, __sample b) 
+kernel vec4 _pf_cheapEdgePreserveV2 (__sample i, __sample b) 
  float d = .75*distance(i.rgb, b.rgb); 
  b = mix(b, i, d); 
  return b; 
-kernel vec4 _protectEyesNose (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2, vec2 centerNose, vec4 abc3) 
+kernel vec4 _pf_protectEyesNose (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2, vec2 centerNose, vec4 abc3) 
  vec2 d = destCoord(); 
  float dx = eyes.x-d.x; 
  float dy = eyes.y-d.y; 
@@ -1640,7 +1699,7 @@ kernel vec4 _protectEyesNose (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2
  faceMask.rgb -= s; 
  faceMask = clamp(faceMask, 0.0, 1.0); 
  return faceMask; 
-kernel vec4 _eyeBlurV2 (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2, vec4 abc3, vec4 abc4) 
+kernel vec4 _pf_eyeBlurV2 (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2, vec4 abc3, vec4 abc4) 
  vec2 d = destCoord(); 
  float dx = eyes.x-d.x; 
  float dy = eyes.y-d.y; 
@@ -1662,7 +1721,7 @@ kernel vec4 _eyeBlurV2 (__sample faceMask, vec4 eyes, vec4 abc1, vec4 abc2, vec4
  faceMask.a += s; 
  faceMask = clamp(faceMask, 0.0, 1.0); 
  return faceMask; 
-kernel vec4 _featherEdgeLight(__sample im, vec4 b, float t) 
+kernel vec4 _pf_featherEdgeLight(__sample im, vec4 b, float t) 
  vec2 dc = destCoord(); 
  float dxl = smoothstep(0.0, t, abs(dc.x-b.x)); 
  float dxr = smoothstep(0.0, t, abs(dc.x-b.z)); 
@@ -1672,8 +1731,6 @@ kernel vec4 _featherEdgeLight(__sample im, vec4 b, float t)
  im = clamp(im, 0.0, 1.0); 
  return im; 
 CIGaussianGradient
-faceJunkinessIndex
-faceBoundingBox
 roll
 inputRadius
 inputColor0
@@ -1689,7 +1746,7 @@ CIMix
 CIPortraitSkinMask
 CIPortraitToothMask
 -[CIPortraitEffectLightV2 processEyesIn:withEyeBlur:landmarks:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIPortraitEffectV2.mm
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIPortraitEffectV2.mm
 eyeBlur
 CIBlendWithRedMask
 CISharpenLuminance
@@ -1704,16 +1761,16 @@ T@"NSNumber",&,N,VinputEyes
 inputLocalContrast
 T@"NSNumber",&,N,VinputLocalContrast
 CIStudioPreview
-kernel vec4 _prepareDepthV2 (__sample c, float m) 
+kernel vec4 _pf_prepareDepthV2 (__sample c, float m) 
  c.r = smoothstep(m, 0.7, 2.0*c.r); 
  return c.rrra; 
-kernel vec4 _faceVignetteStudioV2(__sample vig, vec2 xy1, vec4 abc1) 
+kernel vec4 _pf_faceVignetteStudioV2(__sample vig, vec2 xy1, vec4 abc1) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, .4, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))); 
  vig.rgb = min(vig.rgb + vec3(s), 1.0); 
  return vig; 
-kernel vec4 _applyFaceProtectStudio(__sample im, __sample fg, __sample fp, __sample vig) 
+kernel vec4 _pf_applyFaceProtectStudio(__sample im, __sample fg, __sample fp, __sample vig) 
  im.rgb = mix(im.rgb, fg.rgb, (1.0-fp.r)*vig.r); 
  return im; 
 CISmartToneFilter
@@ -1733,42 +1790,41 @@ T@"NSNumber",&,N,VinputFaceLight
 inputDepthThreshold
 T@"NSNumber",&,N,VinputDepthThreshold
 CIContourPreview
-kernel vec4 _prepareDepthContourV2 (__sample c, float m) 
- c.r = smoothstep(0.0, m, 2.0*c.r); 
+kernel vec4 _pf_prepareDepthContourV2 (__sample c, float m) 
+ c.r = smoothstep(m, 0.7, 2.0*c.r); 
  return vec4(vec3(c.r), 1.0); 
-kernel vec4 _blendSingleChannelMaskV2 (__sample c, __sample b, __sample m) 
+kernel vec4 _pf_blendSingleChannelMaskV2 (__sample c, __sample b, __sample m) 
  c.rgb = mix(c.rgb, b.rgb, m.r); 
  return c; 
-kernel vec4 _faceVignetteContourV2(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
+kernel vec4 _pf_faceVignetteContourV2(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, .4, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))); 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _applyVignetteContourV2(__sample im, __sample fg, __sample vig, float amt) 
+kernel vec4 _pf_applyVignetteContourV2(__sample im, __sample fg, __sample vig, float amt) 
  vec3 neg = min(im.rgb, 0.0); 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
  im.rgb = mix(im.rgb, pow(im.rgb, vec3(2.0)), (1.0-.6*vig.rgb)*.1); 
  im.rgb = mix(im.rgb, im.rgb*(vig.rgb), amt) + pos + neg; 
  return im; 
-kernel vec4 _applyFaceProtect(__sample im, __sample fg, __sample fp, __sample vig) 
+kernel vec4 _pf_applyFaceProtect(__sample im, __sample fg, __sample fp, __sample vig) 
  im.rgb = mix(im.rgb, fg.rgb, (1.0-fp.r)*vig.r); 
  return im; 
-kernel vec4 _transparentBorder(__sample im, vec3 params) 
+kernel vec4 _pf_transparentBorder(__sample im, vec3 params) 
  vec2 dc = destCoord(); 
  float d = exp(-params.b*((dc.x - params.r)*(dc.x-params.r)+(dc.y - params.g)*(dc.y - params.g))); 
- d = smoothstep(0.0, .2, d); 
+ d = smoothstep(0.02, .2, d); 
  im += vec4(d); 
  im = clamp(im, 0.0, 1.0); 
  return im; 
-kernel vec4 _applyTransparentBorder(__sample im, __sample alphaMatte) 
+kernel vec4 _pf_applyTransparentBorder(__sample im, __sample alphaMatte) 
  im.a = alphaMatte.a; 
  im = premultiply(im); 
  return im; 
 unionRect
 faceLandmarksArray
-faceOrientationIndex
 CIPortraitLightingEdge
 CIPortraitContour
 inputOrigImage
@@ -1777,16 +1833,41 @@ CIPortraitLocalContrast
 inputContour
 T@"NSNumber",&,N,VinputContour
 CIStageStandby
-kernel vec4 _prepareBlackDisparityV2 (__sample dm, const float thresh) 
+kernel vec4 _pf_prepareBlackDisparityV2 (__sample dm, const float thresh) 
  float g = 1.0-smoothstep(0.0, thresh, 4.0*dm.r); 
  return vec4(g,g,g, 1.0); 
-kernel vec4 _prepareBlackDepthV2 (__sample dm, const float thresh) 
+kernel vec4 _pf_prepareBlackDepthV2 (__sample dm, const float thresh) 
  float g = 1.0-smoothstep(0.0, thresh, 2.0*dm.r*dm.r); 
  return vec4(g,g,g, 1.0); 
-kernel vec4 _applyBlackDepthV2 (__sample im, __sample dm, float g) 
+kernel vec4 _pf_applyBlackDepthV2 (__sample im, __sample dm, float g) 
  im.rgb *= pow(dm.r, g); 
  return im; 
-kernel vec4 _refineBlackDepthV2 (__sample im, __sample dm, __sample bm, __sample protect, vec3 g, __sample aft) 
+kernel vec4 _pf_applyStageNoFeather (__sample im, __sample dm) 
+ im.rgb = mix(im.rgb*im.rgb*im.rgb, im.rgb, dm.r); 
+ im.rgb = mix(vec3(0.0), im.rgb, dm.r); 
+ return im; 
+kernel vec4 _pf_applyStageNoFeatherSpill (__sample im, __sample spill) 
+ vec3 div2 = sqrt(vec3(1.0)-(spill.rgb*spill.rgb)); 
+ spill.r = div2.r>0.01? (spill.r / div2.r):0.0; 
+ spill.g = div2.g>0.01? (spill.g / div2.g):0.0; 
+ spill.b = div2.b>0.01? (spill.b / div2.b):0.0; 
+ spill.rgb = spill.rgb*vec3(4.0); 
+ spill.rgb = smoothstep(0.0, 1.0, spill.rgb); 
+ im.rgb = mix(vec3(0.0), max(vec3(0.005),im.rgb), spill.rgb); 
+ return im; 
+kernel vec4 _pf_getRefinedMatte (__sample spill) 
+ vec3 div2 = sqrt(vec3(1.0)-(spill.rgb*spill.rgb)); 
+ spill.r = div2.r>0.01? (spill.r / div2.r):0.0; 
+ spill.g = div2.g>0.01? (spill.g / div2.g):0.0; 
+ spill.b = div2.b>0.01? (spill.b / div2.b):0.0; 
+ spill.rgb = spill.rgb*vec3(4.0); 
+ spill.rgb = mix(min(spill.rgb, 1.0), smoothstep(0.0, 1.0, spill.rgb), .5); 
+ return vec4(spill.rgb, 1.0); 
+kernel vec4 _pf_applyRefinedMatte (__sample im, __sample spill, __sample edge, __sample alpha) 
+ im.rgb = im.rgb * spill.rgb; 
+ im.rgb = mix(im.rgb, im.rgb*im.rgb*im.rgb, edge.rgb); 
+ return im; }
+kernel vec4 _pf_refineBlackDepthV2 (__sample im, __sample dm, __sample bm, __sample protect, vec3 g, __sample aft) 
  float b = smoothstep(0.0, 1.0, pow(dm.r*bm.r,g.r)+protect.r); 
  im.rgb = max(im.rgb, 0.0); 
  vec3 gamma = (g.b) > 0.0 ? vec3(1.0+g.g-g.g*b*b*dm.r) : vec3(1.0+g.g-g.g*b*b); 
@@ -1799,37 +1880,37 @@ kernel vec4 _refineBlackDepthV2 (__sample im, __sample dm, __sample bm, __sample
  float y = dot(im.rgb, vec3(.3333333)); 
  im.rgb = mix(sat*(im.rgb-y)+y, im.rgb, b*dm.r); 
  return im; 
-kernel vec4 _faceVignetteStageV2(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
+kernel vec4 _pf_faceVignetteStageV2(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, .4, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))) ; 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _faceProtectV2(__sample im, __sample vig, vec2 xy1, vec4 abc1, float feather) 
+kernel vec4 _pf_faceProtectV2(__sample im, __sample vig, vec2 xy1, vec4 abc1, float feather) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, feather, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))) ; 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _applyVignetteStageV2(__sample im, __sample vig, float amt) 
+kernel vec4 _pf_applyVignetteStageV2(__sample im, __sample vig, float amt) 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
  im.rgb = mix(im.rgb, im.rgb*(vig.rgb), amt); 
  im.rgb = mix(im.rgb, im.rgb*im.rgb, (1.0-vig.rgb)*.3); 
  return im; 
-kernel vec4 _invertRedV2(__sample rNormalized) __attribute__((outputFormat(kCIFormatRh))) 
+kernel vec4 _pf_invertRedV2(__sample rNormalized) __attribute__((outputFormat(kCIFormatRh))) 
  return vec4(1.0 - rNormalized.r, 0.0, 0.0, 1.0); 
-kernel vec4 _blendDepthV2(__sample depth, __sample tightDepth, __sample im, __sample blur, __sample weight) 
+kernel vec4 _pf_blendDepthV2(__sample depth, __sample tightDepth, __sample im, __sample blur, __sample weight) 
   float d = distance(im.rgb, blur.rgb); 
   float g = mix(tightDepth.r, depth.r, weight.r); 
   g += (d*weight.r*(1.0-dot(im.rgb, vec3(.333333)))); 
   g = clamp(g, 0.0, 1.0); 
   return vec4(g, g, g, 1.0); 
-kernel vec4 _thresholdMatteV2(__sample matte, __sample blurMatte, float low, float high) 
+kernel vec4 _pf_thresholdMatteV2(__sample matte, __sample blurMatte, float low, float high) 
  float m = smoothstep(low, high, matte.r)*blurMatte.r; 
  matte.rgb *= m; 
  return matte; 
-kernel vec4 _thresholdAndApplyMatteV2(__sample im, __sample matte, __sample m2, vec4 params, float edgeGamma) 
+kernel vec4 _pf_thresholdAndApplyMatteV2(__sample im, __sample matte, __sample m2, vec4 params, float edgeGamma) 
  float low = params.x; float high = params.y; float gamma = params.z; float gain = params.w; float m = smoothstep(low, high, pow(matte.r, gamma+edgeGamma*m2.r)); 
  im.rgb *= m; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
@@ -1840,11 +1921,11 @@ kernel vec4 _thresholdAndApplyMatteV2(__sample im, __sample matte, __sample m2, 
  float y = dot(im.rgb, vec3(.3333333)); 
  im.rgb = mix(sat*(im.rgb-y)+y, im.rgb, m); 
  return im; 
-kernel vec4 _red(__sample s) { return s.xxxw; }
+CIDifferenceBlendMode
+kernel vec4 _pf_red(__sample s) { return s.xxxw; }
 CIMotionBlur
 inputAngle
 CICheapMorphology
-CIDifferenceBlendMode
 inputUseAbsoluteDisparity
 T@"NSNumber",&,N,VinputUseAbsoluteDisparity
 inputSharpenRadius
@@ -1854,7 +1935,7 @@ T@"NSNumber",&,N,VinputGrainAmount
 CIPhotoEffectStageMono
 CISmartBlackAndWhite
 inputTone
-kernel vec4 _thresholdAndApplyWhiteBG(__sample im, __sample matte, __sample m2, float low, float high, float gamma, float gain) 
+kernel vec4 _pf_thresholdAndApplyWhiteBG(__sample im, __sample matte, __sample m2, float low, float high, float gamma, float gain) 
  float m = smoothstep(low, high, pow(matte.r, gamma+.5*m2.r)); 
  im.rgb = mix(vec3(1.0), im.rgb, m); 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
@@ -1865,13 +1946,30 @@ kernel vec4 _thresholdAndApplyWhiteBG(__sample im, __sample matte, __sample m2, 
  float y = dot(im.rgb, vec3(.3333333)); 
  im.rgb = mix(sat*(im.rgb-y)+y, im.rgb, m); 
  return im; 
-kernel vec4 _thresholdWhiteMatte(__sample matte, __sample blurMatte, float low, float high) 
+kernel vec4 _pf_thresholdWhiteMatte(__sample matte, __sample blurMatte, float low, float high) 
  float m = smoothstep(low, high, matte.r)*blurMatte.r; 
  matte.rgb *= m; 
  return matte; 
-kernel vec4 _prepareWhiteDepth (__sample dm, const float thresh) 
+kernel vec4 _pf_prepareWhiteDepth (__sample dm, const float thresh) 
  float g = 1.0-smoothstep(0.0, thresh, 2.0*dm.r*dm.r); 
  return vec4(g,g,g, 1.0); 
+kernel vec4 _applyWhiteNoFeather (__sample im, __sample dm) 
+ im.rgb = mix(im.rgb*im.rgb*im.rgb, im.rgb, dm.r); 
+ im.rgb = mix(vec3(1.0), im.rgb, dm.r); 
+ return im; 
+kernel vec4 _getRefinedWhiteMatte (__sample spill) 
+ vec3 div2 = sqrt(vec3(1.0)-(spill.rgb*spill.rgb)); 
+ spill.r = div2.r>0.01? (spill.r / div2.r):0.0; 
+ spill.g = div2.g>0.01? (spill.g / div2.g):0.0; 
+ spill.b = div2.b>0.01? (spill.b / div2.b):0.0; 
+ spill.rgb = spill.rgb*vec3(4.0); 
+ spill.rgb = mix(min(spill.rgb, 1.0), smoothstep(0.4, 1.0, spill.rgb), 1.0); 
+ return vec4( spill.rgb, 1.0 ); 
+kernel vec4 _applyRefinedWhiteMatte (__sample im, __sample spill, __sample edge, __sample alpha) 
+ im.rgb *= spill.rgb; 
+ im.rgb = mix(im.rgb, im.rgb*im.rgb*im.rgb, min(2.0*edge.r, 1.0)); 
+ im.rgb = mix(vec3(1.0), im.rgb, alpha.r); 
+ return im; }
 true
 allocSpanStack:s
 allocSpanStack:s->firstChunk
@@ -1881,7 +1979,6 @@ spanSearch: empty span
 freeSpanStack: span stack is null
 seedFill: can not push span onto stack
 seedFill: can not allocate span stack
-allPoints
 imageRect
 T{CGRect={CGPoint=dd}{CGSize=dd}},V_imageRect
 faceData
@@ -1939,9 +2036,7 @@ hasRightEyePosition
 TB,V_hasRightEyePosition
 hasMouthPosition
 TB,V_hasMouthPosition
-leftEye
 T{CGPoint=dd},V_leftEye
-rightEye
 T{CGPoint=dd},V_rightEye
 betweenTheEyes
 T{CGPoint=dd},V_betweenTheEyes
@@ -1956,15 +2051,11 @@ Tf,V_eyeTiltAngle
 skinSampleRgon
 T@"Rgon",&,N,V_skinSampleRgon
 Tf,V_faceOrientationIndex
-leftPupil
-rightPupil
-innerLips
 faceRect
 T{CGRect={CGPoint=dd}{CGSize=dd}},VfaceRect
 -[CIPortraitToothMask outputImage]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIPortraitToothMask.m
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIPortraitToothMask.m
 ( imageExtentN.origin.x == 0 ) && ( imageExtentN.origin.y == 0 )
-outerLips
 +[CIPortraitToothMaskProcessor processWithInputs:arguments:output:error:]
 CGRectIsIntegral(teethROI)
 CGRectMakeWithVisionDictionaryRepresentation( faceLandmarkDictionary[@"faceBoundingBox"], &faceRectInBuffer )
@@ -1975,7 +2066,7 @@ inputImageTransformN1
 inputImageTransform1N
 useMetal
 -[CPUFaceMask clearOutputMask:WithBytesPerRow:OutputRegion:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CPUFaceMask.m
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CPUFaceMask.m
 outputMaskBaseAddr
 -[CPUFaceMask trainSkinMaskUsingInputImage:InputBytesPerRow:InputRegion:QuadRegion:]
 inputBGRAImageBaseAddr
@@ -2002,7 +2093,7 @@ termBitmask: bitmap was null
 setBitInBitmask: coordinate out of range
 bitmaskBoundingBitmapRectWithSeedPoint: seed point outside bitmask
 CPUFaceMask_Clear
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CPUFaceMask_algorithms.c
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CPUFaceMask_algorithms.c
 outputMaskBaseAddr != NULL
 ( bounds.x >= region.x ) && ( bounds.y >= region.y ) && ( bounds.z <= region.z ) && ( bounds.w <= region.w )
 simd_all( length > 0 ) && simd_all( offset >= 0 )
@@ -2120,7 +2211,7 @@ Polyline bounds
  bounds Rect (polyline printRect )
 bridgeGaps currently empty for polyline pairs
 topbottom region summary
-kernel vec4 _highKey(__sample im, float str) 
+kernel vec4 _pf_highKey(__sample im, float str) 
  vec3 neg = min(im.rgb, 0.0); 
  vec3 pos = max(im.rgb, 1.0) - 1.0; 
  im = clamp(im, 0.0, 1.0); 
@@ -2134,10 +2225,10 @@ kernel vec4 _highKey(__sample im, float str)
  im3 = mix(im, im3, sqrt(y)) ; 
  im.rgb = mix(im.rgb, im3.rgb, str) + pos + neg; 
  return im; } 
-kernel vec4 _portraitConvertToGrayscale (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
+kernel vec4 _pf_portraitConvertToGrayscale (__sample c) __attribute__((outputFormat(kCIFormatRh))) {
   float g = dot(c.rgb, vec3(0.333333));
   return vec4(g, 0.0, 0.0, 1.0);
-kernel vec4 _portraitLocalContrast(__sample im, __sample shc, float amt)
+kernel vec4 _pf_portraitLocalContrast(__sample im, __sample shc, float amt)
  float midAmt = amt;
  vec3 neg = min(im.rgb, 0.0);
  vec3 pos = max(im.rgb, 1.0)-1.0;
@@ -2159,7 +2250,7 @@ kernel vec4 _portraitLocalContrast(__sample im, __sample shc, float amt)
  im.rgb *= im.rgb;
  im.rgb = im.rgb + neg + pos;
  return im;
-kernel vec4 _whitenteeth(__sample pix, __sample mask, float amt) 
+kernel vec4 _pf_whitenteeth(__sample pix, __sample mask, float amt) 
  float m = mask.g; 
  vec4 modifiedPix = pow(clamp(pix,0.0, 1.0), vec4(.35)); 
  modifiedPix.b += .1; 
@@ -2170,7 +2261,7 @@ kernel vec4 _whitenteeth(__sample pix, __sample mask, float amt)
  displayPix.rgb = mix(pix.rgb, displayPix.rgb, max(m, 0.0)); 
  displayPix.a = pix.a; 
  return mix(pix, displayPix, amt); 
-kernel vec4 _enrich (__sample s, float amt,vec4 params ) { 
+kernel vec4 _pf_enrich (__sample s, float amt,vec4 params ) { 
  vec4 orig = s; 
  s = clamp(s, 0.0, 1.0); 
  float x0 = params.r; 
@@ -2205,7 +2296,7 @@ kernel vec4 _enrich (__sample s, float amt,vec4 params ) {
  w.r = pow(w.r, .75); 
  w = mix(orig, w, vec4(amt) ); w.a = 1.0; 
  return w; 
-kernel vec4 _eyeBrightenSoftlight (__sample uCb, __sample m, float str) 
+kernel vec4 _pf_eyeBrightenSoftlight (__sample uCb, __sample m, float str) 
  float g = .75*(1.0-dot(uCb.rgb, vec3(.333333))); 
  vec4 uCf = vec4(g, g, g, 1.0); 
  vec4 D = compare(uCb-0.25, ((16.0*uCb-12.0)*uCb+4.0)*uCb, sqrt(uCb)); 
@@ -2214,47 +2305,46 @@ kernel vec4 _eyeBrightenSoftlight (__sample uCb, __sample m, float str)
  uCf.rgb = mix(uCb.rgb, bright.rgb, m.r); 
  uCf.rgb = mix(uCb.rgb, uCf.rgb, str); 
  return uCf; 
-kernel vec4 _mixKernel1 (__sample c, __sample b, float m) 
+kernel vec4 _pf_mixKernel1 (__sample c, __sample b, float m) 
  c.rgb = mix(c.rgb, b.rgb, m); 
  return c; 
-kernel vec4 _textureDiff (__sample c, __sample b) 
+kernel vec4 _pf_textureDiff (__sample c, __sample b) 
  c.rgb = c.rgb - b.rgb; 
  return c; 
-kernel vec4 _textureAdd (__sample c, __sample b, float scale) 
+kernel vec4 _pf_textureAdd (__sample c, __sample b, float scale) 
  c.rgb = c.rgb + scale*b.rgb; 
  return c; 
 CIRingBlur
 inputPointCount
 -[CIPortraitEffectLight processEyesIn:withEyeBlur:landmarks:]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIPortraitEffect.mm
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIPortraitEffect.mm
 CI_USE_OLD_FACE_MASK
-kernel vec4 _prepareDepth (__sample c, float m) 
+kernel vec4 _pf_prepareDepth (__sample c, float m) 
  c.r = smoothstep(m, 0.7, 2.0*c.r); 
  return c.rrra; 
-kernel vec4 _mixKernel2 (__sample c, __sample b, float m) 
+kernel vec4 _pf_mixKernel2 (__sample c, __sample b, float m) 
  c.rgb = mix(c.rgb, b.rgb, m); 
  return c; 
 inputBrightness
 CIPortraitEffectLight
 CIPortraitLightingStrobe
-inputDepthMap
 T@"CIImage",&,N,VinputDepthMap
-kernel vec4 _prepareDepth2 (__sample c, float m) 
+kernel vec4 _pf_prepareDepth2 (__sample c, float m) 
  c.r = smoothstep(0.0, m, 2.0*c.r); 
  return vec4(vec3(c.r), 1.0); 
-kernel vec4 _mixKernel3 (__sample c, __sample b, float m) 
+kernel vec4 _pf_mixKernel3 (__sample c, __sample b, float m) 
  c.rgb = mix(c.rgb, b.rgb, m); 
  c.a = b.a; return c; 
-kernel vec4 _blendSingleChannelMask (__sample c, __sample b, __sample m) 
+kernel vec4 _pf_blendSingleChannelMask (__sample c, __sample b, __sample m) 
  c.rgb = mix(c.rgb, b.rgb, m.r); 
  return c; 
-kernel vec4 _faceVignetteContour(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
+kernel vec4 _pf_faceVignetteContour(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, .4, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))); 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _applyVignetteContour(__sample im, __sample vig, float amt) 
+kernel vec4 _pf_applyVignetteContour(__sample im, __sample vig, float amt) 
  vec3 neg = min(im.rgb, 0.0); 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
@@ -2263,16 +2353,16 @@ kernel vec4 _applyVignetteContour(__sample im, __sample vig, float amt)
  return im; 
 CIPortraitLightingContour
 CIPortraitLightingNeckContour
-kernel vec4 _prepareBlackDisparity (__sample dm, const float thresh) 
+kernel vec4 _pf_prepareBlackDisparity (__sample dm, const float thresh) 
  float g = 1.0-smoothstep(0.0, thresh, 4.0*dm.r); 
  return vec4(g,g,g, 1.0); 
-kernel vec4 _prepareBlackDepth (__sample dm, const float thresh) 
+kernel vec4 _pf_prepareBlackDepth (__sample dm, const float thresh) 
  float g = 1.0-smoothstep(0.0, thresh, 2.0*dm.r*dm.r); 
  return vec4(g,g,g, 1.0); 
-kernel vec4 _applyBlackDepth (__sample im, __sample dm, float g) 
+kernel vec4 _pf_applyBlackDepth (__sample im, __sample dm, float g) 
  im.rgb *= pow(dm.r, g); 
  return im; 
-kernel vec4 _refineBlackDepth (__sample im, __sample dm, __sample bm, __sample protect, vec3 g, __sample aft) 
+kernel vec4 _pf_refineBlackDepth (__sample im, __sample dm, __sample bm, __sample protect, vec3 g, __sample aft) 
  float b = smoothstep(0.0, 1.0, pow(dm.r*bm.r,g.r)+protect.r); 
  im.rgb = max(im.rgb, 0.0); 
  vec3 gamma = (g.b) > 0.0 ? vec3(1.0+g.g-g.g*b*b*dm.r) : vec3(1.0+g.g-g.g*b*b); 
@@ -2285,19 +2375,19 @@ kernel vec4 _refineBlackDepth (__sample im, __sample dm, __sample bm, __sample p
  float y = dot(im.rgb, vec3(.3333333)); 
  im.rgb = mix(sat*(im.rgb-y)+y, im.rgb, b*dm.r); 
  return im; 
-kernel vec4 _faceVignette1(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
+kernel vec4 _pf_faceVignette1(__sample im, __sample vig, vec2 xy1, vec4 abc1) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, .4, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))) ; 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _faceProtect(__sample im, __sample vig, vec2 xy1, vec4 abc1, float feather) 
+kernel vec4 _pf_faceProtect(__sample im, __sample vig, vec2 xy1, vec4 abc1, float feather) 
  float dx = xy1.x-destCoord().x ; 
  float dy = xy1.y-destCoord().y ; 
  float s = smoothstep(0.0, feather, exp(-(abc1.r*dx*dx +2.0*abc1.g*dx*dy +abc1.b*dy*dy))) ; 
  im.rgb = min(vig.rgb + vec3(s), 1.0); 
  return im; 
-kernel vec4 _faceAndBodyFill_1(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 xy2) 
+kernel vec4 _pf_faceAndBodyFill_1(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 xy2) 
     vec2 dc = destCoord() ; 
     float dx = xy1.x-dc.x ; 
     float dy = xy1.y-dc.y ; 
@@ -2307,7 +2397,7 @@ kernel vec4 _faceAndBodyFill_1(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 
     float u = clamp(fw.g*1.5*fw.r*dy/(dx*dx+0.0001), 0.0, 1.0); 
     vig.rgb = min(vig.rgb + vec3(s) + t + (u*u*u)+.2, 1.0); 
     return vig; 
-kernel vec4 _faceAndBodyFill_6(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 xy2) 
+kernel vec4 _pf_faceAndBodyFill_6(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 xy2) 
     vec2 dc = destCoord() ; 
     float dx = xy1.x-dc.x ; 
     float dy = xy1.y-dc.y ; 
@@ -2317,20 +2407,20 @@ kernel vec4 _faceAndBodyFill_6(__sample vig, vec2 xy1, vec4 abc1, vec2 fw, vec2 
     float u = clamp(-fw.g*1.5*fw.r*dx/(dy*dy+0.0001), 0.0, 1.0); 
     vig.rgb = min(vig.rgb + vec3(s) + t + (u*u*u)+.2, 1.0); 
     return vig; 
-kernel vec4 _applyVignette(__sample im, __sample vig, float amt) 
+kernel vec4 _pf_applyVignette(__sample im, __sample vig, float amt) 
  vec3 pos = max(im.rgb, 1.0)-1.0; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
  im.rgb = mix(im.rgb, im.rgb*(vig.rgb), amt); 
  im.rgb = mix(im.rgb, im.rgb*im.rgb, (1.0-vig.rgb)*.3); 
  return im; 
-kernel vec4 _adaptiveNormalization2(__sample disparityImage, float dFocus, float e, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
+kernel vec4 _pf_adaptiveNormalization2(__sample disparityImage, float dFocus, float e, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
  float d = disparityImage.r; 
  float zCorrected = 1.0 / max(1e-1, (d - e)); 
  float zFCorrected = thresholdScale / max(1e-1, (dFocus - e)) + thresholdOffset; 
  float zEffRange = zRange + zRangeScale * zFCorrected; 
  float v = smoothstep(zFCorrected - zEffRange, zFCorrected + zEffRange, zCorrected); 
  return vec4(v, v, v, 1.0); 
-kernel vec4 _adaptiveNormalizationGPU(__sample disparityImage, __sample offsets, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
+kernel vec4 _pf_adaptiveNormalizationGPU(__sample disparityImage, __sample offsets, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
  float d = disparityImage.r; 
  float dFocus = offsets.r; 
  float e = offsets.g; 
@@ -2339,7 +2429,7 @@ kernel vec4 _adaptiveNormalizationGPU(__sample disparityImage, __sample offsets,
  float zEffRange = zRange + zRangeScale * zFCorrected; 
  float v = smoothstep(zFCorrected - zEffRange, zFCorrected + zEffRange, zCorrected); 
  return vec4(v, v, v, 1.0); 
-kernel vec4 _adaptiveNormalizationAbsolute(__sample disparityImage, __sample offsets, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
+kernel vec4 _pf_adaptiveNormalizationAbsolute(__sample disparityImage, __sample offsets, float zRange, float zRangeScale, float thresholdOffset, float thresholdScale) 
  float d = disparityImage.r; 
  float dFocus = offsets.r; 
  float e = offsets.g; 
@@ -2352,19 +2442,19 @@ kernel vec4 _adaptiveNormalizationAbsolute(__sample disparityImage, __sample off
  float v2 = smoothstep(zFCorrected - .04, zFCorrected + .04, zCorrected); 
  v = (1.75*v + v2)/2.75; 
  return vec4(v, v, v, 1.0); 
-kernel vec4 _invertRed(__sample rNormalized) __attribute__((outputFormat(kCIFormatRh))) 
+kernel vec4 _pf_invertRed(__sample rNormalized) __attribute__((outputFormat(kCIFormatRh))) 
  return vec4(1.0 - rNormalized.r, 0.0, 0.0, 1.0); 
-kernel vec4 _blendDepth(__sample depth, __sample tightDepth, __sample im, __sample blur, __sample weight) 
+kernel vec4 _pf_blendDepth(__sample depth, __sample tightDepth, __sample im, __sample blur, __sample weight) 
   float d = distance(im.rgb, blur.rgb); 
   float g = mix(tightDepth.r, depth.r, weight.r); 
   g += (d*weight.r*(1.0-dot(im.rgb, vec3(.333333)))); 
   g = clamp(g, 0.0, 1.0); 
   return vec4(g, g, g, 1.0); 
-kernel vec4 _thresholdMatte(__sample matte, __sample blurMatte, float low, float high) 
+kernel vec4 _pf_thresholdMatte(__sample matte, __sample blurMatte, float low, float high) 
  float m = smoothstep(low, high, matte.r)*blurMatte.r; 
  matte.rgb *= m; 
  return matte; 
-kernel vec4 _thresholdAndApplyMatte(__sample im, __sample matte, __sample m2, vec4 params, float edgeGamma) 
+kernel vec4 _pf_thresholdAndApplyMatte(__sample im, __sample matte, __sample m2, vec4 params, float edgeGamma) 
  float low = params.x; float high = params.y; float gamma = params.z; float gain = params.w; float m = smoothstep(low, high, pow(matte.r, gamma+edgeGamma*m2.r)); 
  im.rgb *= m; 
  im.rgb = clamp(im.rgb, 0.0, 1.0); 
@@ -2412,7 +2502,7 @@ float _computeZFromFaceRect(vec2 faceSize,float focalLengthNormalized, float mar
   float kAverageFaceDiagonalBitragionBreadthMeters = 0.22f;  
   float d = length(faceSize) * marginError; 
   return (kAverageFaceDiagonalBitragionBreadthMeters  * focalLengthNormalized ) / d; 
-kernel vec4 _disparityError(__sample s0,__sample s1,__sample s2,__sample s3, 
+kernel vec4 _pf_disparityError(__sample s0,__sample s1,__sample s2,__sample s3, 
                             vec4 faceSizes01,vec4 faceSizes23, 
                             vec4 valid,vec4 params,float marginError,float doDisparityError, __sample focusDisparity) 
    float kFaceDetectionRangeCloseMeters = params.x; 
@@ -2461,9 +2551,7 @@ kernel vec4 _disparityError(__sample s0,__sample s1,__sample s2,__sample s3,
    } 
    return vec4(haveIdx ? faceDisparityFarBackground : focusDisparityValue, outDisparityOffsetError, 0.0, 1.0); 
 -[CIPortraitSkinMask outputImage]
-/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-44/Source/CIPortraitSkinMask.mm
-noseCrest
-faceContour
+/Library/Caches/com.apple.xbs/Sources/PortraitFilters_Sim/PortraitFilters-50/Source/CIPortraitSkinMask.mm
 +[CIPortraitSkinMaskProcessor processWithInputs:arguments:output:error:]
 CGPointMakeWithVisionDictionaryRepresentationAndTransform( pointDictionary, faceRectInBuffer, &leftEye )
 CGPointMakeWithVisionDictionaryRepresentationAndTransform( pointDictionary, faceRectInBuffer, &rightEye )
@@ -2506,6 +2594,7 @@ CIPortraitContour
 CIDynamicGuidedFilter
 CIDynamicLocalLightMapPrepare
 CILLFilter
+PortraitEffetcPrewarm
 CIPortraitEffectV2
 CIPortraitEffectLightV2
 CIPortraitEffectStudioV2
@@ -2560,6 +2649,8 @@ v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16
 @40@0:8@16@24@32
 @"LightingFacePoints"
 @"NSData"
+@20@0:8f16
+v40@0:8@16@24@32
 @"NSArray"
 v16@0:8
 @32@0:8@16@24
@@ -2644,11 +2735,13 @@ v20@0:8I16
 Q40@0:8@16@24@32
 B20@0:8i16
 333333
+333333
 ffffff
+333333
 ffffff
 333333
 333333
-333333
+ffffff
 ffffff
 333333
 ffffff

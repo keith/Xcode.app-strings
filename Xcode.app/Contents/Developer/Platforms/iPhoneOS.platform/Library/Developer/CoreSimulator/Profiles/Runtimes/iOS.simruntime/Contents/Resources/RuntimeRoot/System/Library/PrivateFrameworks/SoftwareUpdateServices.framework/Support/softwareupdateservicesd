@@ -21,6 +21,7 @@ setAsset:
 setReleaseDate:
 setSessionID:
 setDownloadOptions:
+setInstallOptions:
 setInstallTonightConfig:
 setAtPhase:
 asset
@@ -34,15 +35,20 @@ initWithFormat:
 initWithAsset:releaseDate:sessionID:downloadOptions:installTonightConfig:downloadAtPhase:
 summary
 resetPhase
+armInstall:
+disarmInstall
+installOptions
 _asset
 _releaseDate
 _sessionID
 _downloadOptions
+_installOptions
 _installTonightConfig
 _atPhase
 setIsDaemon:
 sharedInstance
 stringWithUTF8String:
+mainWorkQueue
 handleXPCEvent:
 runUntilIdleExit
 objectForKey:
@@ -717,6 +723,7 @@ cancelAutoInstallOperation:
 consentToAutoInstallOperation:
 currentPolicyType
 useSUCore
+fastWorkQueue
 enableAutomaticDownload:
 isAutomaticDownloadEnabled
 proxy
@@ -775,21 +782,20 @@ removeClient:
 _clients
 _clientQueue
 initWithInstallOptions:
-installOptions
-_installOptions
+_notifyServerStart
+loadPlugin:
+resumeOrResetStateIfNecessary
+scheduleStartupTasksIfNecessary
 setKeepAliveClearable:
+clearKeepAliveIfNecessary:
 isKeepAliveEnabled
 enableTransactions
 initWithMachServiceName:
 _setQueue:
 resume
-_notifyServerStart
-loadPlugin:
-resumeOrResetStateIfNecessary
-scheduleStartupTasksIfNecessary
-clearKeepAliveIfNecessary:
+serverInitAndResumeWork
 _run
-openTransactions
+copyTransactions
 currentConnection
 initWithConnection:
 setInterruptionHandler:
@@ -799,6 +805,7 @@ setRemoteObjectInterface:
 setExportedInterface:
 setExportedObject:
 setUserInfo:
+connectionQueue
 listener:shouldAcceptNewConnection:
 _queue
 auditToken
@@ -839,12 +846,10 @@ _queue_unscheduleAllActivitiesWithName:
 scheduleAutoDownload
 scheduleAutoDownloadWithDate:
 _queue_cancelAutoInstallStartInstallTask
-localizedStringFromDate:dateStyle:timeStyle:
-setAutoinstallActivity:
-_queue_handleAutoInstallStart:info:
 _queue_setAutoinstallActivity:
 _queue_handleAutoScan:info:rescheduler:
 _queue_handleAutoDownload:info:
+_queue_handleAutoInstallStart:info:
 _queue_handleAutoInstallEnd:info:
 _queue_handleAutoInstallUnlock:info:
 _queue_handleInstallAlert:info:
@@ -860,6 +865,7 @@ noteAutoInstallOperationUnlockWindowDidBegin
 cancelAllStartupTasks
 scheduleBackgroundScan:
 setAutoInstallActivityStateDone
+setAutoinstallActivity:
 _queue_handleCancelPresentBannerOnUnlock
 _schedulerQueue
 _autoInstallActivity
@@ -1055,6 +1061,7 @@ DownloadPhaseBegin
 DownloadPhaseDownloading
 DownloadPhaseDownloaded
 DownloadPhasePrepared
+DownloadPhaseInstalling
 DownloadPhaseUndefined
 asset:%@ releaseDate:%@ sessionID:%@ downloadOptions:%@ installTonightConfig:%@ atPhase:%@
 asset
@@ -1065,6 +1072,8 @@ sessionID
 T@"NSString",&,N,V_sessionID
 downloadOptions
 T@"SUDownloadOptions",&,N,V_downloadOptions
+installOptions
+T@"SUInstallOptions",&,N,V_installOptions
 installTonightConfig
 T@"NSString",&,N,V_installTonightConfig
 atPhase
@@ -1072,6 +1081,8 @@ Tq,N,V_atPhase
 com.apple.notifyd.matching
 v16@?0@"NSObject<OS_xpc_object>"8
 Daemon recived notification: %@
+Daemon handling notification: %@
+v8@?0
 SUCoreEvent
 Unknown
 event
@@ -1184,7 +1195,6 @@ Albert healthcheck result was not a dictionary: %@
 albert.apple.com
 Found IP address for activation healthcheck server: %@
 No IP address found for activation healthcheck server.
-v8@?0
 com.apple.softwareupdateservices.mdmWorkQueue
 Received profile change notification in registerProfileChangeListener
 v12@?0i8
@@ -1493,20 +1503,18 @@ verifyingUpdate
 downloadNotReady
 noNetwork
 noActivation
-installOptions
 T@"SUInstallOptions",R,&,N
+Notifying observers of start
+/System/Library/PrivateFrameworks/SoftwareUpdateServicesUI.framework/Plugins/SoftwareUpdateServicesUIPlugin.servicebundle
 Starting the server: keepAlive = %@
 ENABLED
 DISABLED
 Starting the server.
+com.apple.softwareupdateservices.connectionQueue
 SUMinimumLaunchTransaction
-Notifying observers of start
-/System/Library/PrivateFrameworks/SoftwareUpdateServicesUI.framework/Plugins/SoftwareUpdateServicesUIPlugin.servicebundle
 Software update daemon continuing to run - transactions: %@
 Software update daemon continuing to run - busy.
 SUAddClientTransaction
-SUManagerServer_Daemon.m
-Must be invoked on the main thread
 SUClientMessagabilityChangedNotification
 SUClientForegroundnessChangedNotification
 v16@?0@"NSDictionary"8
@@ -1559,12 +1567,6 @@ com.apple.softwareupdateservicesd.activity.installAlert
 com.apple.softwareupdateservicesd.scheduler
 Expired or no background scan activity found. Rescheduling for %@
 Not scheduling auto download: Currently Downloading
-Failed to schedule AutoInstall start task
-Scheduled autoInstall start time for: %@
-DAS fired autoInstallStart activity
-Attempted to defer autoInstallStart activity but failed. Rescheduling for 15 minutes from now
-Successfully set %@ activity state to XPC_ACTIVITY_STATE_CONTINUE
-Unknown XPC activity state (%ld) for activity %@
 Failed to set %@ activity state to XPC_ACTIVITY_STATE_DONE
 v24@?0@"NSString"8@"NSDictionary"16
 Received activity: %@: %@
@@ -1731,14 +1733,15 @@ v16@0:8
 @"NSDictionary"
 @24@0:8q16
 @64@0:8@16@24@32@40@48q56
+B24@0:8@16
 q16@0:8
 v24@0:8q16
 @"MAAsset"
 @"NSDate"
 @"NSString"
 @"SUDownloadOptions"
+@"SUInstallOptions"
 @32@0:8@16@24
-B24@0:8@16
 v20@0:8B16
 @"NSMutableDictionary"
 @"NSURL"
@@ -1859,7 +1862,6 @@ v40@0:8@16Q24@32
 v32@0:8@"SUAutoInstallManager"16@"_SUAutoInstallOperationModel"24
 v40@0:8@"SUAutoInstallManager"16@"_SUAutoInstallOperationModel"24@"NSError"32
 v40@0:8@"SUAutoInstallManager"16Q24@"_SUAutoInstallOperationModel"32
-@"SUInstallOptions"
 v32@0:8@16Q24
 v24@0:8@"NSUUID"16
 v32@0:8@"NSUUID"16@"NSError"24

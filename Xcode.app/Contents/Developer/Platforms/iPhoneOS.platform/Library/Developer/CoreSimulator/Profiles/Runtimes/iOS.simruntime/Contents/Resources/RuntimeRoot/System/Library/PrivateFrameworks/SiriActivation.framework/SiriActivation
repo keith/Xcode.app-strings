@@ -99,6 +99,7 @@
 %s #myriad BTLE Device continues to interact, device won election
 %s #activation lockState: %@
 %s #activation callStateChangedToIsActive: %@ isOutgoing: %@
+%s #activation error: %@
 %s #activation BSServiceConnection Invalidated %@
 %s #activation BSServiceConnection Interrupted %@
 %s #activation BSServiceConnection Activated %@
@@ -116,13 +117,14 @@
 %s #activation #noisy not cancelling preheat for presentation: %@ because it appears to be %@
 %s #activation _lastReportedShouldRejectNewActivations: %@ | newShouldRejectNewActivations: %@
 %s #activation presentation with identifier %@ isn't registered
-%s #activation presentation with identifier %@ can't transition to stopping from state: %@
+%s #activation presentation with identifier %@ can't transition to state: %@ from state: %@
 %s #activation identifier: %@
 %s #pingpong sending ping and waiting for pong
 %s #noisy model: %@ | server: %@ | connection: %@ | remoteTarget: %@
 %s #pingpong not returning ping because presentation with identifier %@ is in request state %@
-%s #pingpong received pong with presentation identifier: %@
+%s #pingpong timed out waiting for pong
 %s #pingpong
+%s #pingpong received pong with presentation identifier: %@
 %s #activation SASPresentationDecision deciding between: %@
 %s ERROR: Multiple connected presentations, but none of them have precedence. Taking the first object, %@
 %s #activation BSServiceConnection Interrupted, re-activating %@
@@ -217,6 +219,12 @@ SASRequestStateHeated
 SASRequestStateStarting
 SASRequestStateActive
 SASRequestStateStopping
+SASPresentationManagerErrorInvalidStateTransition
+SASPresentationManagerErrorStateTransitionFromUnregisteredPresentation
+SASPresentationManagerSendBlockToUnregisteredPresentation
+SASPresentationManagerSetupPingTimerForUnregisteredPresentation
+SASPresentationManagerTeardownPingTimerForUnregisteredPresentation
+SASPresentationManagerErrorPongTimeout
 -[SASRequestOptionsBuilder _createRequestOptionsForRequest:withDataSource:]
 __supportsCarFullScreen
 __bundleId
@@ -255,6 +263,8 @@ ScrollingWithoutListening
 PresentationFailedToPresent
 ActivationTimedOut
 PresentationManagerError
+AppLaunch
+SiriSetupCancelled
 contextOverride
 T@"SiriContextOverride",&,N,V_contextOverride
 SiriButtonIdentifierLongPressUndefined
@@ -463,6 +473,7 @@ com.apple.siri.internal.activation
 -[SiriActivationService shouldContinue:]
 -[SiriActivationService didChangeLockState:]
 -[SiriActivationService callStateChangedToIsActive:isOutgoing:]
+-[SiriActivationService presentationManager:didEncounterError:]
 Speech file not found
 afPreferences
 T@"AFPreferences",&,N,V_afPreferences
@@ -530,6 +541,7 @@ T@"UNNotification",R,N,V_notification
 -[SASPresentationManager _setupPingTimerForPresentationIdentifier:]
 -[SASPresentationManager _setupPingTimerForPresentationIdentifier:]_block_invoke
 -[SASPresentationManager _waitForPongFromPresentationWithPresentationIdentifier:]
+-[SASPresentationManager _waitForPongFromPresentationWithPresentationIdentifier:]_block_invoke
 -[SASPresentationManager _teardownPingTimerForPresentationIdentifier:]
 -[SASPresentationManager pongWithPresentationIdentifier:]
 -[SASPresentationManager _forceAllPresentationsOff]
@@ -704,6 +716,7 @@ SASRequestOptionsStartRecordingSoundIDCodingKey
 SASRequestOptionsOriginalOptionsCodingKey
 SASRequestOptionsPresentationModeCodingKey
 SASRequestOptionsPreviousTurnIdentifierCodingKey
+SASRequestOptionsIsRightHandDriveKey
 -[SASRequestOptions setRequestSource:]
 <%@ %p; requestSource=%@
 ;activationDeviceIdentifier=%@
@@ -720,7 +733,7 @@ SASRequestOptionsPreviousTurnIdentifierCodingKey
 ;uiPresentationIdentifier=%@
 ;contextAppInfosForSVC.count=%tu
 ;testingContext=%@
-;is(speech=%i;stark=%i;CPconnected=%i;dnd=%i);carDNDStatus=%@
+;is(speech=%i;stark=%i;CPconnected=%i;dnd=%i;rightHandDrive=%i);carDNDStatus=%@
 ;homeButtonUpFromBeep=%@
 ;continuityInfo=%@
 ;requestInfo=%@
@@ -732,6 +745,7 @@ SASRequestOptionsPreviousTurnIdentifierCodingKey
 ;originalRequestOptions.requestSource=%@
 ;presentationMode=%zd
 isConnectedToCarPlay
+rightHandDrive
 isForCarDND
 contextAppInfosForSiriViewController
 -[SASRequestOptions _updateWithSystemState:forcefully:]
@@ -771,8 +785,10 @@ TB,N,V_isForCarDND
 TB,N,V_isConnectedToCarPlay
 carDNDStatus
 TQ,N,V_carDNDStatus
+TB,N,GisRightHandDrive,V_rightHandDrive
 isForAppleTV
 TB,R,N
+isForEyesFree
 forSpeechRequest
 TB,R,N,GisForSpeechRequest
 initialBringUp
@@ -1748,8 +1764,11 @@ activationPresentationForPresentationIdentifiers:
 _sendBlock:toPresentationWithPresentationIdentifier:
 _shouldKeepPingingForRequestState:
 _waitForPongFromPresentationWithPresentationIdentifier:
+timerWithTimeInterval:repeats:block:
 pingTimer
 setPingTimer:
+currentRunLoop
+addTimer:forMode:
 _forceAllPresentationsOff
 _canTransitionFromState:toState:
 activeSpringBoardPresentation_updateActiveInterfaceOrientation:willAnimateWithDuration:
@@ -1970,6 +1989,8 @@ originalRequestOptions
 setOriginalRequestOptions:
 presentationMode
 setPresentationMode:
+isRightHandDrive
+setRightHandDrive:
 decodePropertyListForKey:
 decodeDoubleForKey:
 encodeDouble:forKey:
@@ -1982,6 +2003,7 @@ _isTypeToSiriPermittedAndEnabledForRequestOptions
 _presentationIdentifierFromUIPresentationIdentifier:
 foregroundAppInfosForPresentationIdentifier:
 isEqualToArray:
+isForEyesFree
 initWithRequestSource:
 isForAppleTV
 updateIfNeededWithSystemState:
@@ -1990,6 +2012,7 @@ setPreviousTurnIdentifier:
 _pronunciationRequest
 _isForCarDND
 _isConnectedToCarPlay
+_rightHandDrive
 _initialBringUp
 _useAutomaticEndpointing
 _useStreamingDictation
@@ -2045,6 +2068,9 @@ applicationStateHelper
 foregroundAppInfosForCarPlay
 foregroundAppInfos
 state
+_internalAlwaysEyesFreeEnabled
+_deviceIsUnlocked
+_mapsAppIsVisibleOnLockscreen
 displayLayoutMonitor
 currentLayout
 elements
@@ -2052,11 +2078,12 @@ layoutRole
 setEnabled:
 enabled
 isCurrentLocaleNativelySupported
+_initForTesting
 deviceScreenIsOn
 isInActiveCall
 isWirelessSplitterOn
 isGuestConnected
-carDNDActiveAndShouldHaveFullScreenPresentation
+carDNDActiveOrEyesFreeAndShouldHaveFullScreenPresentation
 carPlayConnectionState
 setCarPlayConnectionState:
 setDisplayLayoutMonitor:

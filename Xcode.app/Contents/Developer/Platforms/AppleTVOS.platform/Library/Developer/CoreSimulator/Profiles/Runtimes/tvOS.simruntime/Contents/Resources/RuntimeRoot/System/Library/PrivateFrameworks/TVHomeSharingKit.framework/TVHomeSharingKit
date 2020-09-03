@@ -243,10 +243,10 @@ homeSharingGroupIdentifier
 com.apple.TVHomeSharingKit.TVHKMediaServerManager
 v20@?0B8@"NSError"12
 mediaServers
+v24@?0@"TVHKMediaServer"8^B16
+v24@?0@"TVHKMediaServerIdentifier"8^B16
 %llX
 %@,_%@
-discovering
-TB,N,GisDiscovering,V_discovering
 T@"NSString",C,N,V_homeSharingGroupIdentifier
 discoveryMode
 TQ,N,V_discoveryMode
@@ -255,11 +255,17 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_serialProcessingQueue
 serviceBrowser
 T@"NSNetServiceBrowser",&,N,V_serviceBrowser
 monitoredServices
-T@"NSMutableSet",&,N,V_monitoredServices
+T@"NSMutableSet",R,N,V_monitoredServices
 mutableMediaServers
-T@"NSMutableSet",&,N,V_mutableMediaServers
+T@"NSMutableSet",R,N,V_mutableMediaServers
 mediaServerIdentifiersBeingVerified
-T@"NSMutableSet",&,N,V_mediaServerIdentifiersBeingVerified
+T@"NSMutableSet",R,N,V_mediaServerIdentifiersBeingVerified
+mediaServerIdentifiersWaitingToBeRediscovered
+T@"NSMutableSet",R,N,V_mediaServerIdentifiersWaitingToBeRediscovered
+mediaServerRediscoveryTimer
+T@"NSObject<OS_dispatch_source>",&,N,V_mediaServerRediscoveryTimer
+startedDiscovery
+TB,N,V_startedDiscovery
 T@"NSSet",R,C,N
 delegate
 T@"<TVHKMediaServerManagerDelegate>",W,V_delegate
@@ -363,8 +369,6 @@ shouldFetchOnResume
 TB,N,V_shouldFetchOnResume
 mediaLibraryRevision
 T@"TVHKMediaLibraryRevision",&,N,V_mediaLibraryRevision
-changedDMAPServerProtocols
-T@"NSSet",C,N,V_changedDMAPServerProtocols
 currentFetchOperation
 T@"TVHKMediaLibraryFetchControllerManagerOperation",&,N,V_currentFetchOperation
 contentsChangeObserver
@@ -421,6 +425,7 @@ String
 v32@?0q8@16@"NSError"24
 T@"NSArray",R,C,N,V_fetchControllers
 T@"TVHKMediaLibraryRevision",R,C,N,V_mediaLibraryRevision
+changedDMAPServerProtocols
 T@"NSSet",R,C,N,V_changedDMAPServerProtocols
 dependentMediaEntitiesFetchControllersDictionary
 T@"NSDictionary",R,C,N,V_dependentMediaEntitiesFetchControllersDictionary
@@ -1338,6 +1343,7 @@ T@"NSArray",C,N,V_iTunesUEpisodes
 T@"NSArray",C,N,V_audiobooks
 T@"NSArray",C,N,V_audiobookChapters
 T@"NSArray",C,N,V_homeVideos
+totalMediaEntitiesCount
 checkin-rental-asset
 Rental Checkin
 '%@:%qu'
@@ -1574,6 +1580,7 @@ v28@?0@"TVImage"8@"NSError"16B24
 LibraryIdentifier
 MachineIdentifier
 dictionaryRepresentation
+0x%llx (%llu)
 libraryIdentifier
 machineIdentifier
 TQ,R,N,V_libraryIdentifier
@@ -2042,6 +2049,7 @@ TQ,N,V_itemID
 remainingAttributeCodes
 T@"NSMutableArray",&,N,V_remainingAttributeCodes
 T@"NSDictionary",C,N,V_changedAttributeValues
+T@"NSSet",C,N,V_changedDMAPServerProtocols
 %K != %@
 The compound predicate type must be NSAndPredicateType or NSOrPredicateType
 @"NSPredicate"16@?0@"NSPredicate"8
@@ -2128,10 +2136,9 @@ Will start searching for servers
 Stopped searching for servers
 Stopped searching for servers with error [%@]
 Bonjour discovery is already started for discovery mode %{public}@ (HSGID: %{public}@).
-Starting home share bonjour discovery with HSGID %{public}@
-Starting DAAP bonjour browsing.
-Service browser started using service type %{public}@
 Stopping bonjour browsing for discovery mode %{public}@ (HSGID: %{public}@).
+Started service browser for service type %{public}@
+Stopped service browser for service type %{public}@
 Service browser found [%{public}@] moreComing [%{bool}d].
 Service browser detected removed service [%{public}@] moreComing [%{bool}d].
 Bonjour Remove for media server: [%{public}@]
@@ -2141,8 +2148,20 @@ Net Service TXT record update received for [%{public}@] with TXT [%@]
 Net Service found new instance of service [%{public}@]
 iTunes service [%{public}@] has wrong home sharing group identifier [%{public}@], expecting [%{public}@]
 Cannot create a TVHKMediaServerIdentifier object from the TXT record: %@
+Determined media server identifier for service instance [%{public}@]: %{public}@
 Updating media server: %{public}@
 Registering new media server: %{public}@
+Handling application entering foreground
+Rediscovering media servers is not required. startedDiscovery=%{bool}d, serviceBrowser=%@
+Restarting service browser and started timer waiting to rediscover: %@
+Handling application entered background
+Preperation for rediscovering media servers is not required. startedDiscovery=%{bool}d
+We are currently discovering media servers. Will stop due to entering background state
+Starting media server rediscovery timer.
+Stopping media server rediscovery timer.
+Media server rediscovery timer fired.
+Will remove media server as it has not been rediscovered. mediaServer=%@
+Unable to find media server. It has been removed without the identifier being removed from the rediscovery list. identifier=%{public}@
 Bonjour Remove [%{public}@]: Delegate confirms the server is still available. Ignoring remove
 Bonjour Remove [%{public}@]: Removing server since the delegate confirms it is not available
 Bonjour Remove [%{public}@]: Delegate has completed the verification (isAvailable=%{bool}d) but we cannot find the media server identifier in the active verification set. Most likely the server has been re-discovered
@@ -2360,7 +2379,7 @@ Attempting to fulfill TV media entities request from media entity cache
 No media entity cache is available. Request will be handled by the media server
 Fulfilled TV media entities request via media entity cache
 Fulfilling TV media entities request via media server
-HS GroupID requested with Account [%@] Password [%@] DeviceGUID [%@].
+HS GroupID requested with Account [%@] DeviceGUID [%@].
 HS GroupID request finished for Account [%@] with HTTP status [%ld], error [%@], response status [%ld], HSGID [%@].
 Cannot parse response for this no request as no expected response code exists for request type: %@
 Unexpected MIME type: %@
@@ -3225,11 +3244,21 @@ member:
 _onSerialProcessingQueue_netServiceBrowser:didFindService:moreComing:
 _onSerialProcessingQueue_netServiceBrowser:didRemoveService:moreComing:
 _onSerialProcessingQueue_netService:didUpdateTXTRecordData:
-isDiscovering
+_onSerialProcessingQueue_applicationWillEnterForeground
+_onSerialProcessingQueue_applicationDidEnterBackground
+startedDiscovery
 discoveryMode
 homeSharingGroupIdentifier
-setDiscovering:
+setStartedDiscovery:
+_onSerialProcessingQueue_startServiceBrowsing
+sharedApplication
+_handleApplicationWillEnterForegroundNotification:
+_handleApplicationDidEnterBackgroundNotification:
+_onSerialProcessingQueue_stopServiceBrowsingAndMonitoring
+removeObserver:name:object:
+_onSerialProcessingQueue_removeAllMediaServers
 _bonjourServiceTypeWithServiceBaseType:serviceSubType:
+_onSerialProcessingQueue_serviceType
 setServiceBrowser:
 mainRunLoop
 scheduleInRunLoop:forMode:
@@ -3241,14 +3270,15 @@ monitoredServices
 stopMonitoring
 makeObjectsPerformSelector:
 removeAllObjects
-_onSerialProcessingQueue_removeAllMediaServers
+mediaServerIdentifiersBeingVerified
+mediaServerIdentifiersWaitingToBeRediscovered
+_onSerialProcessingQueue_stopMediaServerRediscoveryTimer
 startMonitoring
 containsObject:
 removeObject:
 _onSerialProcessingQueue_mediaServerForBonjourServiceName:
 delegate
 mediaServerManager:verifyMediaServerIsAvailable:completionHandler:
-mediaServerIdentifiersBeingVerified
 _handleVerifyMediaServer:isAvailableCompletionWithSuccess:error:
 _onSerialProcessingQueue_removeMediaServer:
 dictionaryFromTXTRecordData:
@@ -3266,6 +3296,12 @@ serviceName
 setWithObject:
 willChangeValueForKey:withSetMutation:usingObjects:
 didChangeValueForKey:withSetMutation:usingObjects:
+mediaServers
+enumerateObjectsUsingBlock:
+_onSerialProcessingQueue_startMediaServerRediscoveryTimer
+setMediaServerRediscoveryTimer:
+_onSerialProcessingQueue_handleMediaServerRediscoveryTimer
+mediaServerRediscoveryTimer
 _stringFromTXTRecord:forKey:
 _uint64ValueWithHexString:
 initWithMachineIdentifier:libraryIdentifier:
@@ -3294,7 +3330,6 @@ netServiceDidStop:
 netService:didUpdateTXTRecordData:
 netService:didAcceptConnectionWithInputStream:outputStream:
 initWithMode:homeSharingGroupIdentifier:
-mediaServers
 startDiscoveringMediaServers
 stopDiscoveringMediaServers
 countOfMediaServers
@@ -3303,10 +3338,7 @@ memberOfMediaServers:
 setDiscoveryMode:
 setHomeSharingGroupIdentifier:
 setSerialProcessingQueue:
-setMonitoredServices:
-setMutableMediaServers:
-setMediaServerIdentifiersBeingVerified:
-_discovering
+_startedDiscovery
 _discoveryMode
 _homeSharingGroupIdentifier
 _delegate
@@ -3315,6 +3347,8 @@ _serviceBrowser
 _monitoredServices
 _mutableMediaServers
 _mediaServerIdentifiersBeingVerified
+_mediaServerIdentifiersWaitingToBeRediscovered
+_mediaServerRediscoveryTimer
 initWithMediaCategoryType:mediaEntityCollectionType:mediaServerIdentifier:requestedProperties:entity:
 tvhk_filteredValueForKey:expectedElementClass:
 valueForKey:
@@ -3325,7 +3359,6 @@ arrayWithArray:
 objectAtIndex:
 replaceObjectAtIndex:withObject:
 initWithCapacity:
-enumerateObjectsUsingBlock:
 initWithArray:copyItems:
 tvhk_arrayByApplyingChangeSet:destinationObjects:amendObjectBlock:
 tvhk_arrayByApplyingChangeSet:destinationObjectsBlock:amendObjectBlock:
@@ -3432,7 +3465,7 @@ resumeFetching
 mediaLibrary
 setMediaLibraryRevision:
 changedDMAPServerProtocols
-setChangedDMAPServerProtocols:
+_enqueueControllerFetchOperationWithChangedDMAPServerProtocols:
 logName
 observeValueForKeyPath:ofObject:change:context:
 addObserver:forKeyPath:options:context:
@@ -3472,7 +3505,6 @@ _mutableFetchControllers
 _serialProcessingDispatchQueue
 _mediaLibrary
 _mediaLibraryRevision
-_changedDMAPServerProtocols
 _currentFetchOperation
 _contentsChangeObserver
 _serialFetchOperationQueue
@@ -3532,6 +3564,7 @@ changeKind
 null
 amendedMediaEntity
 _fetchControllers
+_changedDMAPServerProtocols
 _dependentMediaEntitiesFetchControllersDictionary
 _changedSourceMediaEntityDictionary
 errorWithDomain:code:userInfo:
@@ -4905,6 +4938,7 @@ audiobooksChangeSet
 audiobookChaptersChangeSet
 homeVideosChangeSet
 _updateWithResponse:changes:replaceContentsOnNilChanges:
+totalMediaEntitiesCount
 DAAPDatabasePersistentID
 mediaCategoryTypesChangeSet
 _mediaCategoryTypesChangeSet
@@ -4989,7 +5023,6 @@ _removeAllMediaLibrariesAndNotify:
 _disconnectMediaLibraries:
 minusSet:
 _removeMediaLibraries:andNotify:
-removeObserver:name:object:
 setDiscoveryConfiguration:
 _addMediaLibraries:
 automaticallyNotifiesObserversOfDiscoveryConfiguration
@@ -5785,6 +5818,7 @@ setRemainingAttributeCodes:
 _changedAttributeValues
 _itemID
 _remainingAttributeCodes
+setChangedDMAPServerProtocols:
 tvhk_equalPredicateWithKeyPath:value:
 tvhk_notEqualPredicateWithKeyPath:value:
 tvhk_playlistTypePredicateWithPlaylistType:
@@ -5923,6 +5957,7 @@ v36@0:8@16B24@28
 @"<TVHKMediaServerManagerDelegate>"
 @"NSObject<OS_dispatch_queue>"
 @"NSNetServiceBrowser"
+@"NSObject<OS_dispatch_source>"
 @32@0:8@16#24
 @24@0:8@?16
 @40@0:8@16@24@?32
@@ -6103,7 +6138,6 @@ B24@0:8Q16
 @"TVHKDAAPSeasonMediaEntityCollectionIdentifier"
 @32@0:8d16d24
 @32@0:8@16d24
-@"NSObject<OS_dispatch_source>"
 @"NSOperation<TVHKImageLoadingOperation>"
 @52@0:8@16{CGSize=dd}24B40@?44
 @60@0:8@16{CGSize=dd}24B40q44@?52

@@ -310,6 +310,8 @@ endTime
 endDistance
 maneuverTime
 junctionViewImageID
+enrouteNoticeIdentifier
+trafficCameraType
 eventDescription
 hasUniqueIDstring
 T@"NSString",&,N,V_uniqueIDstring
@@ -346,6 +348,10 @@ hasManeuverTime
 Td,N,V_maneuverTime
 junctionViewImageIDs
 T@"NSMutableArray",&,N,V_junctionViewImageIDs
+hasEnrouteNoticeIdentifier
+T@"NSString",&,N,V_enrouteNoticeIdentifier
+hasTrafficCameraType
+TI,N,V_trafficCameraType
 hasEventDescription
 T@"NSString",&,N,V_eventDescription
 Unknown
@@ -717,7 +723,7 @@ TraceSchema
 sqlite
 INSERT INTO info (version, original_version, directions_url, simulation, route_genius) VALUES (?, ?, ?, 0, 0)
 Error preparing statement to record trace info
-/Library/Caches/com.apple.xbs/Sources/Navigation_Sim/Navigation-2119.50.7.8.2/Traces/MNTraceRecorder.m
+/Library/Caches/com.apple.xbs/Sources/Navigation_Sim/Navigation-2131.50.8.12.1/Traces/MNTraceRecorder.m
 Error recording trace info
 INSERT OR IGNORE INTO navigation_event_types (event_id, event_name) VALUES (?, ?)
 SELECT cl_timestamp FROM locations ORDER BY db_timestamp ASC LIMIT 1
@@ -1547,6 +1553,9 @@ GEOMapLocalizeLabels
 EVChargingMonitorSpeedThreshold
 EVChargingMonitorMinimumTime
 EVChargingMonitorMaximumTime
+WaypointArrival_DistanceToCenterToAllowDeparture
+WaypointArrival_TimeAtWaypointToAllowDeparture
+WaypointArrival_DistanceFromWaypointPolygonToAllowDeparture
 GEODebugNavigationIncludeRealtimeUpdates
 TimeballEnabled
 NavDoomCacheCurrentTripTagKey
@@ -1592,6 +1601,8 @@ LPRProvideBadVersion_DEBUG
 LPRMaskPlateFailureCode_DEBUG
 LPRAverageSpeedForETAGuess
 __invalid__
+Sending simulated location: %f, %f | %0.1f | %0.1f m/s | %@
+ [%u, %0.1f]
 ProceedingToStartOfLeg
 FollowingRoute
 ProceedingToWaypoint
@@ -1824,6 +1835,7 @@ v24@?0@"NSArray"8@"NSError"16
 Failed to get LPR rules
 hasResolvedVehicle
 hasResolvedRules
+TB,N,V_hasResolvedRules
   title:     %@
   detail:    %@
 {%@}
@@ -2336,6 +2348,7 @@ TQ,R,N,V_action
 title
 T@"NSString",R,N,V_title
 {time}
+{duration}
 _alertID
 _etaResponseID
 _alertType
@@ -2412,12 +2425,19 @@ Accident Ahead
 In about %d miles, I-280 N
 You're still on the fastest route. (debug)
 There are unexpected delays ahead in 2 miles.
+Low battery charge
+There are no charging stations nearby, you're stranded. (debug)
+There are no charging stations nearby, you're stranded.
+Restricted Route
+Unable to find routes that avoid restricted areas. (debug)
+Your route travels through a restricted access zone. Proceed with caution.
 BANNER_STYLE_UNKNOWN
 BANNER_STYLE_FASTER_ROUTE_AVAILABLE
 BANNER_STYLE_INCIDENT_AHEAD
 BANNER_STYLE_ROUTE_INVALIDATED
 BANNER_STYLE_SUGGEST_NEW_ROUTE
 BANNER_STYLE_REROUTE_ALERT
+BANNER_STYLE_WARNING
 currentDate
 provider
 T@"<MNTimeProvider>",&,N,V_provider
@@ -2574,6 +2594,8 @@ T@"GEOApplicationAuditToken",&,N,V_auditToken
 throttleToken
 T@"GEODataRequestThrottlerToken",&,N,V_throttleToken
 TQ,N,V_maxAlternateRoutesCount
+tripOrigin
+T@"GEOLatLng",&,N,V_tripOrigin
 STATUS_SUCCESS
 STATUS_FAILED
 STATUS_INCOMPLETE
@@ -2792,6 +2814,9 @@ _prepareStatementForQuery was called with a nil query.
 Error preparing statement for query "%@": %d | "%s"
 Error executing statement for query "%@": %d | "%s"
 Couldn't create traces directory: %@
+openForClient: '%@' (%p)
+closeForClient: '%@' (%p)
+No more open clients in current process
 %@ routes.count = %lud, selectedRouteIndex = %lud
 startNavigation called when navd is already navigating. navd state: %@
 MNStartNavigationDetails selectedRouteIndex is (%d), but only (%d) routes were provided
@@ -2828,6 +2853,7 @@ length=%d
 PreparePlate
 matched=%d
 FindPlateRegions
+CalculateRoughETAs
 FindRules
 skipped, not valid for date
 ExamineRule
@@ -2864,6 +2890,7 @@ dropping event: %@
 %p Creating with effective bundle: %{private}@ | identifier: %{private}@
 %p CLLocationManager failed to init!
 %p CLLocationManager created on %p | %{private}@ | distanceFilter: %g | desiredAccuracy: %g
+%p MNCoreLocationProvider setting CL parameters: activityType:%d, fusionInfoEnabled:%d
 %p MNCoreLocationProvider _updateAuthorizationStatus
 %p Auth Status for effective Bundle: %{private}@ Identifier: %{private}@
 %p CL Auth Status: %d
@@ -3012,7 +3039,6 @@ Route re-calc failed, error: %{private}@, next retry: %f seconds
 MatchedTBTLocationForLocation
 Arrival detected for leg: %d
 Pre-arrival detected for leg: %d
-Departure detected for leg: %d
 Timed out in arrival region
 Should show EV charging info
 Error decoding scores: %{private}@
@@ -3022,7 +3048,6 @@ Route changed but no previous location. Proceeding to start of new route
 Putting location at [%u, %0.2f] on new route. Was %0.1f meters away
 Proceeding to start of leg of new route
 Route changed when state is `%@`, changing to `%@`
-Sending simulated location: %f, %f | %0.1f | %0.1f m/s | %@
 Location simulation starting on route due to debug settings. Route coordinate: [%u, %0.1f] | Leg: %d. Switching from `ProceedingToRoute` to `FollowingRoute`
 Location simulation switching from `ProceedingToRoute` to `FollowingRoute`
 Location simulation switching from `FollowingRoute` to `ProceedingToWaypoint`
@@ -3139,14 +3164,18 @@ Done planning next step:
 announce maneuver execution (with %.1fm to go)
   step speed %.1f, vehicle speed %.1f
 Unable to remove keep-alive file
+Updating connection for new client list. shouldConnect: %d, isConnected: %d, clientCount: %d
+Opening connection to navigation server
 navd connection interrupted while in state '%@'
 navd connection invalidated while in state '%@'
+Connection to navigation server created
 navd connection interrupted over %d times (%d overall) in %g seconds. No longer attempting to reconnect.
 Attempting to restore route genius after interruption (%d interruptions overall)
 Asked to restore prediction session but we have no handler, stopping instead
 Attempting to restart navigation after interruption (%d interruptions overall)
 Restoring navigation session failed because no active route was found.
 Attempting to restore idle connection after interruption (%d interruptions overall)
+Closing connection to navigation server
 %@ => navd _startNavigationWithDetails
 startNavigationWithDetails activeBlock called
 Error consuming (%{private}s) sandbox extension: %d
@@ -3277,6 +3306,12 @@ Reroute error: %@
 Updated alternate routes: %@
 Updated destination: %{private}@
 Updated sign: %@
+Updating closest distance to waypoint: %g
+Checking departure when arrival leg index is not valid (%d). Allowing departure
+Allowing departure from waypoint %d because location was at waypoint for %0.1fs (required %0.1fs)
+Allowing departure from waypoint %d because location was within %0.1fm of waypoint center (required %0.1fm)
+Allowing departure from waypoint %d because location is over %0.1fm from waypoint center (required %0.1fm)
+Not allowing departure from waypoint %d. Location state: %d, time since arrival: %0.1fs, closest distance: %0.1fm, current distance: %0.1fm
 No arrival parameters on leg.
 Pre-arrival detected for leg[%d]
 Checking arrival via distance to end of leg[%d] (%0.1fm). Threshold: %um
@@ -4359,7 +4394,10 @@ _shouldUseGuidanceEventManager
 tracePlayer
 sessionUpdater
 clearAlerts
+addFakeTrafficIncidentAlert:
 updateForReroute:
+validTrafficIncidentAlertForMainRouteInfo:alternateRouteInfo:
+updateForAlertFromResponse:
 locationUnreliable
 motionContext
 isDriving
@@ -4370,8 +4408,6 @@ isRunning
 exitType
 latLng
 updateRerouteProposalStatusForRequest:
-validTrafficIncidentAlertForMainRouteInfo:alternateRouteInfo:
-updateForAlertFromResponse:
 alternateRoute
 alertType
 mainRouteInfo
@@ -4424,6 +4460,7 @@ setRouteID:
 junctionViewImageIDsCount
 clearJunctionViewImageIDs
 junctionViewImageIDAtIndex:
+setEnrouteNoticeIdentifier:
 setEventDescription:
 allocWithZone:
 copyWithZone:
@@ -4473,6 +4510,10 @@ hasEndDistance
 setManeuverTime:
 setHasManeuverTime:
 hasManeuverTime
+hasEnrouteNoticeIdentifier
+setTrafficCameraType:
+setHasTrafficCameraType:
+hasTrafficCameraType
 hasEventDescription
 readFrom:
 writeTo:
@@ -4494,6 +4535,8 @@ endDistance
 maneuverTime
 junctionViewImageIDs
 setJunctionViewImageIDs:
+enrouteNoticeIdentifier
+trafficCameraType
 eventDescription
 _endDistance
 _endTime
@@ -4501,6 +4544,7 @@ _maneuverTime
 _startDistance
 _startTime
 _vehicleSpeed
+_enrouteNoticeIdentifier
 _enrouteNoticeIndex
 _eventDescription
 _eventIndex
@@ -4509,6 +4553,7 @@ _routeID
 _selectedPrimaryStringIndex
 _selectedSecondaryStringIndex
 _stepID
+_trafficCameraType
 _trafficColor
 _uniqueIDstring
 _shortPrompt
@@ -5041,6 +5086,7 @@ _handleDirectionsResponse:error:forRequest:
 submitWithHandler:auditToken:networkActivity:
 recordCommuteDirectionsResponse:error:forRequest:
 routesCount
+waypointRoutesCount
 initWithWaypoints:routeAttributes:directionsResponse:
 lastLocation
 updateForReroute:location:
@@ -5083,7 +5129,6 @@ routeMatchedToEnd
 pointCount
 pointAt:
 setEtaRoute:
-etaUpdaterRoutesForETATrafficUpdateRequest:
 etaUpdater:willSendETATrafficUpdateRequest:
 etaUpdater:receivedETATrafficUpdateResponse:etaRoute:
 etaUpdater:receivedError:
@@ -5092,6 +5137,7 @@ etaUpdaterReceivedInvalidRoute:newRoute:incidentsOnRoute:incidentsOffRoute:
 etaUpdaterRequestCompleted:
 initWithSuggestion:traceManager:
 updateETA
+etaUpdaterRoutesForETATrafficUpdateRequest:
 setDestinationID:
 _lastOrigin
 _lastLocation
@@ -5927,6 +5973,7 @@ definedPlateTypes
 addIndex:
 plateTypeIndexesMatchingVehicle:error:
 addObjectsFromArray:
+intersectionsOnPolyline:
 licensePlateStructure
 convertRules
 containsDate:
@@ -6068,10 +6115,10 @@ currentCountrySupportsNavigation
 initWithRoute:useLegacyArrival:
 matchToRouteWithLocation:
 initWithRawLocation:
-arrivalUpdaterDidArrive:atEndOfLegAtIndex:
-arrivalUpdaterDidEnterPreArrivalState:forLegIndex:
-arrivalUpdaterDidDepart:fromLegIndex:
+arrivalUpdater:didArriveAtEndOfLegAtIndex:
+arrivalUpdater:didEnterPreArrivalStateForLegIndex:
 arrivalUpdaterDidTimeoutInArrivalRegion:
+arrivalUpdaterDidArrive:atEndOfLegAtIndex:
 _routeMatcher
 _arrivalUpdater
 initWithBase64EncodedString:options:
@@ -6773,10 +6820,12 @@ _sendRouteHintForLocation:
 _hasArrivedAtFinalDestination
 _updateStateForLocation:
 _updateSwitchTransportTypeForLocation:
+allowDepartureForLocation:
+_updateForDepartureAtLegIndex:
 isEVRoute
 batteryChargeAfterCharging
 kilowattHours
-_updateForDepartureAtLegIndex:
+updateForDepartureFromWaypoint
 evChargingStateMonitor:didReachTargetBatteryCharge:
 initForTestingWithRoute:
 _lastArrivalLegIndex
@@ -7065,6 +7114,7 @@ _durationOfLastAnnouncement
 _adjustedVehicleSpeed:
 _speedFactor:
 _calculateExecutionDistance:withLogging:
+drivingSide
 guidanceManager:announce:shortPromptType:ignorePromptStyle:stage:hasSecondaryManeuver:completionBlock:
 contentsWithStep:transportType:destination:options:isSecondary:
 _estimateTimeToSpeakExecutionAnnouncement
@@ -7072,7 +7122,6 @@ drivingWalkingSpokenInstruction
 shortChainedInstructionIndex
 shieldInfo:
 indexOfObjectPassingTest:
-drivingSide
 guidanceManager:displayPrimaryStep:instructions:shieldType:shieldText:drivingSide:maneuverStepIndex:isSynthetic:
 guidanceManager:displaySecondaryStep:instructions:shieldType:shieldText:drivingSide:
 _notifyAnnounceContinueAsRepeat:
@@ -7138,8 +7187,6 @@ _transitUpdate
 isEqualToArray:
 isEqualToDictionary:
 isEqualToSet:
-hasOverrideDrivingSide
-overrideDrivingSide
 firstNameInfo
 phoneticName
 contentsWithStep:transportType:
@@ -7366,10 +7413,10 @@ _resolveSelectedVehicle:completion:
 setHasResolvedRules:
 buildRouteAttributes:result:
 _loadLPRRulesForWaypoints:forceUpdate:queue:completion:
-hasResolvedRules
 virtualGarageDidUpdate:
 buildRouteAttributesForETAUpdateRequest:queue:result:
 shouldRetryForError:
+hasResolvedRules
 _latLngs
 _forceUpdate
 _hasOpenedVirtualGarageConnection
@@ -7833,6 +7880,7 @@ _handleJunctionViewInfo:
 guidanceManager:hideJunctionViewForId:
 guidanceManager:showJunctionView:
 _trafficColorForRoute:traffic:distanceRemaining:
+trafficCamera
 guidanceManager:newGuidanceEventFeedback:
 guidanceManager:updatedGuidanceEventFeedback:
 trafficColorsCount
@@ -8091,6 +8139,8 @@ hintFirstAnnouncementIndex
 setManeuverType:
 setJunctionType:
 _currentContinuePhase
+hasDistanceMeters
+distanceMeters
 maneuverIsTakeNthExitAtRoundabout
 initWithAction:withTitle:
 action
@@ -8108,6 +8158,7 @@ hasBannerSmallText
 bannerSmallText
 hasSpokenPrompt
 spokenPrompt
+hasIncidentIndex
 incidentIndex
 routeIncidents
 incident
@@ -8182,6 +8233,8 @@ _addDebugArguments:
 setBannerLargeText:
 setBannerSmallText:
 setSpokenPrompt:
+waypointRouteAtIndex:
+setRerouteBannerText:
 initWithCanonicalName:instanceId:
 initWithClientIdentifier:
 _resetToDefaultProvider
@@ -8222,7 +8275,6 @@ _distanceToStartOfManeuver
 _eventData
 _shouldUseNewArrivalLogic
 _legacyCheckArrivalForLocation:
-_checkDeparture:forLocation:
 _checkArrival:forLocation:
 _checkPreArrival:forLocation:
 arrivalParameters
@@ -8242,6 +8294,8 @@ drivingDirection
 _useLegacyArrival
 _arrivalState
 _arrivalLegIndex
+_arrivalDate
+_closestDistanceToWaypoint
 _timeoutRegions
 geoAddress
 hasStructuredAddress
@@ -8381,6 +8435,8 @@ setExcludeGuidance:
 setCommonOptions:
 setRequestingAppId:
 setMaxAlternateRouteCount:
+setTripOrigin:
+tripOrigin
 clearDestinationWaypointTypeds
 addDestinationWaypointTyped:
 updateForResponse:route:
@@ -8397,6 +8453,7 @@ resumeUpdateRequestsForSubscriber:
 throttleToken
 setThrottleToken:
 _throttleToken
+_tripOrigin
 _transitUpdater
 _subscribers
 _etaTimer
@@ -8411,7 +8468,7 @@ _retryError
 _proxyUpdater
 enteredRoutePreviewWithTransportType:
 navigationSessionStopped:
-navigationSessionStarted:
+navigationSessionStarted:navigationType:
 setSelectedRideOptionIndex:
 updateClusteredSectionSelectedRideForNavigationSession:
 navigationTraceManagerDidFailToRecordTrace:
@@ -8433,8 +8490,9 @@ _locationUpdateInterval
 _suggestionUpdateFrequency
 _stateManager
 setFormatter:
-setNavigationSessionState:transportType:
+setNavigationSessionState:transportType:navigationType:
 startWithDestinationName:
+_geoNavigationTypeForNavigationType:
 setClusteredSectionSelectedRideFromRoute:
 setNavigationVoiceVolume:
 setStepNameInfo:
@@ -8710,7 +8768,7 @@ v20@0:8I16
 @20@0:8i16
 @24@0:8Q16
 I16@0:8
-{?="endDistance"b1"endTime"b1"maneuverTime"b1"startDistance"b1"startTime"b1"vehicleSpeed"b1"enrouteNoticeIndex"b1"eventIndex"b1"selectedPrimaryStringIndex"b1"selectedSecondaryStringIndex"b1"stepID"b1"trafficColor"b1"type"b1"shortPrompt"b1}
+{?="endDistance"b1"endTime"b1"maneuverTime"b1"startDistance"b1"startTime"b1"vehicleSpeed"b1"enrouteNoticeIndex"b1"eventIndex"b1"selectedPrimaryStringIndex"b1"selectedSecondaryStringIndex"b1"stepID"b1"trafficCameraType"b1"trafficColor"b1"type"b1"shortPrompt"b1}
 @28@0:8@16B24
 @36@0:8@16@24B32
 @44@0:8@16@24B32B36B40
@@ -8817,7 +8875,6 @@ d32@0:8@"MNPlannedDestination"16@"NSDate"24
 v24@0:8B16B20
 @"NSSet"
 @"MNAudioOutputSetting"
-@"NSArray"24@0:8@"GEOETAUpdater"16
 v32@0:8@"GEOETAUpdater"16@"GEOETATrafficUpdateRequest"24
 v40@0:8@"GEOETAUpdater"16@"GEOETATrafficUpdateResponse"24@"GEOComposedETARoute"32
 v32@0:8@"GEOETAUpdater"16@"NSError"24
@@ -9329,6 +9386,7 @@ v32@0:8@"GEOTransitRouteUpdater"16@"NSArray"24
 v40@0:8@"GEOTransitRouteUpdater"16@"NSSet"24@"NSError"32
 @"<MNSessionUpdateManagerDelegate>"
 @"GEODataRequestThrottlerToken"
+@"GEOLatLng"
 @"GEOTransitRouteUpdater"
 v32@0:8@"MNNavigationTraceManager"16@"MNTracePlaybackDetails"24
 v24@0:8@"MNNavigationTraceManager"16

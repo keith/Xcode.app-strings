@@ -1,5 +1,5 @@
-@(#)PROGRAM:com.apple.sbd  PROJECT:CloudServices-460
-|@333333
+@(#)PROGRAM:com.apple.sbd  PROJECT:CloudServices-460.0.3
+A333333
 0y10
 2021
 Apple Inc.1&0$
@@ -43,6 +43,7 @@ v8@?0
 -[SecureBackup recoverWithError:]
 -[SecureBackup recoverWithCDPContext:escrowRecord:error:]
 -[SecureBackup recoverSilentWithCDPContext:allRecords:error:]
+-[SecureBackup restoreKeychainAsyncWithPassword:keybagDigest:haveBottledPeer:viewsNotToBeRestored:error:]
 -[SecureBackup disableWithError:]
 -[SecureBackup startSMSChallengeWithError:]
 -[SecureBackup changeSMSTargetWithError:]
@@ -377,6 +378,7 @@ ALTER_SMS_TARGET
 Missing parameters
 GET_SMS_TARGETS
 GET_COUNTRY_SMS_CODES
+signpost
 escrowProxyUrl
 storageVersion
 termsInfo
@@ -398,8 +400,6 @@ SecureBackupService
 SecureBackupPublicKeybag
 SecureBackupEscrowCert
 BackupKeybag
-BackupKeybagDigest
-BackupBagPassword
 BottledPeerEntropy
 BackupVersion
 DoubleEnrollmentPassword
@@ -448,7 +448,6 @@ plist
 application-identifier
 CloudServices.handleNotification
 iCloudIdentity
-/tmp/example.txt
 no keybag found in iCloudIdentity backup
 iCloudIdentity not found in backup
 no keybag found in for recovery key
@@ -522,6 +521,8 @@ attempted to recover with empty passphrase
 silent attempt failed: no valid record found
 v32@?0@"NSString"8@"OTEscrowRecordMetadata"16Q24
 -[SecureBackupDaemon _recoverWithCDPContext:escrowRecord:reply:]
+-[SecureBackupDaemon _restoreKeychainAsyncWithPassword:keybagDigest:haveBottledPeer:viewsNotToBeRestored:reply:]
+Restore Keychain
 -[SecureBackupDaemon _recoverWithRequest:reply:]
 silent attempt with missing cached recovery key
 invalid/malformed recovery key
@@ -529,6 +530,8 @@ v32@?0@"NSString"8@"NSDictionary"16Q24
 recoverWithRequest
 recoverWithCDPContextInDaemon
 recoverSilentWithCDPContextInDaemon
+restoreKeychainAsyncWithBackupBagInDaemon
+-[SecureBackupDaemon restoreKeychainAsyncWithPasswordInDaemon:keybagDigest:haveBottledPeer:viewsNotToBeRestored:reply:]
 recoverRecordContentsWithRequest
 -[SecureBackupDaemon recoverRecordContentsWithRequest:reply:]
 createICDPRecordWithRequest
@@ -711,6 +714,9 @@ UseReqV1
 ReqV1FallbackToV0
 RequireClubTypeID
 Unknown/bad ClubTypeID
+Recovery seemingly failed with no error
+Record data does not match
+Record data is missing
 Error deleting record
 Error updating metadata
 SMS challenge error
@@ -847,9 +853,12 @@ SecureBackupBackOffDate
 CloudServicesErrorDomain
 SecureBackupSuppressServerFiltering
 SecureBackupSilentDoubleRecovery
+EscrowServiceEscrowData
+BackupBagPassword
 clubh_key_escrow_data_t pkt too small: len=%u
 clubh_key_escrow_data_check_hdr failed=%d
 clubh_key_escrow_data_t sect %d is malformed
+BackupKeybagDigest
 device_platform
 pki_size %zd < B_len %zd
 pki_size %zd > B_len %zd
@@ -858,7 +867,6 @@ ccses->salt_len %zd != salt_len %zd
 ccsrp_client_process_challenge failed: %d
 ccses_pack_srp_recovery_rec failed
 BackupUUID
-EscrowServiceEscrowData
 date
 com.apple.protectedcloudstorage.record
 com.apple.icdp.record
@@ -979,6 +987,7 @@ enableWithRequest:reply:
 recoverWithRequest:reply:
 recoverWithCDPContextInDaemon:escrowRecord:reply:
 recoverSilentWithCDPContextInDaemon:allRecords:reply:
+restoreKeychainAsyncWithPasswordInDaemon:keybagDigest:haveBottledPeer:viewsNotToBeRestored:reply:
 stashRecoveryDataWithRequest:reply:
 disableWithRequest:reply:
 updateMetadataWithRequest:reply:
@@ -1162,6 +1171,7 @@ enableWithInfo:
 enableWithInfo:completionBlock:
 recoverWithCDPContext:escrowRecord:error:
 recoverSilentWithCDPContext:allRecords:error:
+restoreKeychainAsyncWithPassword:keybagDigest:haveBottledPeer:viewsNotToBeRestored:error:
 recoverWithInfo:results:
 recoverWithInfo:completionBlock:
 disableWithInfo:
@@ -1592,7 +1602,6 @@ recordNotification:handled:
 needInitialBackup
 boolValue
 intValue
-writeToFile:atomically:
 containsObject:
 allObjects
 backupSliceKeybagHasRecoveryKey:
@@ -1651,7 +1660,6 @@ currentViews
 restoreView:password:keybagDigest:restoredViews:
 encodedStatsForViews:
 logSoftFailureForEventNamed:withAttributes:
-_restoreKeychainAsyncWithBackupBag:password:keybagDigest:haveBottledPeer:restoredViews:viewsNotToBeRestored:
 cachedRecordID
 backups
 recordIDAndClientMetadataForSilentAttemptFromRecords:passphraseLength:platform:reply:
@@ -1683,6 +1691,7 @@ cachedRecordIDPassphrase
 recoverEscrowWithRequest:reply:
 sortForMatchingPassphraseLengthAndPlatform:backups:passphraseLength:platform:reply:
 _recoverWithRequest:reply:
+_restoreKeychainAsyncWithBackupBag:password:keybagDigest:haveBottledPeer:restoredViews:viewsNotToBeRestored:
 initWithDomain:code:userInfo:
 setCachedRecordIDPassphrase:
 setCachedRecordID:
@@ -1691,6 +1700,7 @@ recoverOctagonUsingData:recoveryKey:reply:
 recordIDAndMetadataForSilentAttempt:passphraseLength:platform:reply:
 _recoverWithCDPContext:escrowRecord:reply:
 _recoverSilentWithCDPContext:allRecords:reply:
+_restoreKeychainAsyncWithPassword:keybagDigest:haveBottledPeer:viewsNotToBeRestored:reply:
 _gestaltValueForKey:
 deleteRecordWithRequest:completionBlock:
 registerRecoveryPublicKey:error:
@@ -1852,7 +1862,6 @@ _recoverWithVersion:req:duplicate:sesWrapper:srpInitResponse:reply:
 _srpInitHelper:duplicate:completionBlock:
 recoverQueue
 group
-logSuccessForEventNamed:
 _recoverRecordWithRequest:duplicate:completionBlock:
 _deleteRecordWithRequest:duplicate:completionBlock:
 certVersion:
@@ -1864,6 +1873,7 @@ setRecoverQueue:
 _group
 _recoverQueue
 defaultAnalyticsDatabasePath:
+logSuccessForEventNamed:
 setValuesForKeysWithDictionary:
 databasePath
 recordContents
@@ -2029,6 +2039,7 @@ v16@0:8
 @"SecureBackup"
 v32@0:8@16@?24
 v40@0:8@16@24@?32
+v52@0:8@16@24B32@36@?44
 v24@0:8@?16
 v36@0:8@16B24@?28
 v44@0:8@16B24@28@?36
@@ -2036,6 +2047,7 @@ v32@0:8@"SecureBackup"16@?<v@?@"NSDictionary"@"NSError">24
 v32@0:8@"SecureBackup"16@?<v@?@"NSError">24
 v40@0:8@"OTICDPRecordContext"16@"OTEscrowRecord"24@?<v@?@"NSDictionary"@"NSError">32
 v40@0:8@"OTICDPRecordContext"16@"NSArray"24@?<v@?@"NSDictionary"@"NSError">32
+v52@0:8@"NSData"16@"NSData"24B32@"NSSet"36@?<v@?@"NSError">44
 v24@0:8@"SecureBackup"16
 v24@0:8@?<v@?@"NSDictionary"@"NSError">16
 v32@0:8@"NSDictionary"16@?<v@?@"NSError">24
@@ -2053,6 +2065,7 @@ v24@0:8@"NSCoder"16
 @32@0:8@16^@24
 B24@0:8^@16
 @40@0:8@16@24^@32
+v52@0:8@16@24B32@36^@44
 v32@0:8@16@24
 v28@0:8B16@?20
 @28@0:8B16^@20
@@ -2162,7 +2175,12 @@ getAccountInfoWithRequest remote proxy error: %ld
 calling getAccountInfoWithRequest in daemon
 getAccountInfoWithRequest in daemon came back with %@
 enableWithRequest remote proxy error: %ld
+ enableTelemetry=YES 
+CloudServicesSignpostNameEnableWithRequest
+BEGIN [%lld]: CloudServicesSignpostNameEnableWithRequest  enableTelemetry=YES 
 calling enableWithRequest in daemon
+ CloudServicesSignpostNameEnableWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameEnableWithRequest}d 
+END [%lld] %fs: CloudServicesSignpostNameEnableWithRequest  CloudServicesSignpostNameEnableWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameEnableWithRequest}d 
 enableWithRequest in daemon came back with %@
 recoverWithRequest remote proxy error: %ld
 calling recoverWithRequest in daemon
@@ -2230,6 +2248,10 @@ recoverSilentWithCDPContext: invoked silent escrow recovery with records: %@
 recoverSilentWithCDPContextAndRecords: remote proxy error: %ld
 calling recoverSilentWithCDPContextInDaemon in daemon
 recoverSilentWithCDPContextInDaemon came back with %@
+restoreKeychainAsyncWithPassword: invoked
+restoreKeychainAsyncWithPassword: remote proxy error: %ld
+calling restoreKeychainAsyncWithPassword in daemon
+restoreKeychainAsyncWithPasswordInDaemon came back with %@
 prepareHSA2EscrowRecordContents remote proxy error: %ld
 calling prepareHSA2EscrowRecordContents in daemon
 prepareHSA2EscrowRecordContents came back with %@
@@ -2518,6 +2540,7 @@ Having a bottled peer, so skipping SOS restore on this device
 Can't restore legacy backup with no keybag
 Octagon Optimization enabled
 Failed to restore iCloud Identity
+Failed to restore PCS-MasterKey view
 Octagon Optimization not enabled
 skipping KeychainV0-tomb in view-based backups
 restoredViews: %@
@@ -2539,8 +2562,16 @@ Time of escrow: %@
 Escrow version: %@
 Keybag digest: %@
 backup data version does not match version in escrow
+CloudServicesSignpostNameRecoverEscrowWithRequest
+BEGIN [%lld]: CloudServicesSignpostNameRecoverEscrowWithRequest  enableTelemetry=YES 
 Attempting recovery of record %@ with metadata: %@
+CloudServicesSignpostNameRecoverRecordWithRequest
+BEGIN [%lld]: CloudServicesSignpostNameRecoverRecordWithRequest  enableTelemetry=YES 
+ CloudServicesSignpostNameRecoverRecordWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameRecoverRecordWithRequest}d 
+END [%lld] %fs: CloudServicesSignpostNameRecoverRecordWithRequest  CloudServicesSignpostNameRecoverRecordWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameRecoverRecordWithRequest}d 
 escrowService recoverRecordWithRequest: returned: %@
+ CloudServicesSignpostNameRecoverEscrowWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameRecoverEscrowWithRequest}d 
+END [%lld] %fs: CloudServicesSignpostNameRecoverEscrowWithRequest  CloudServicesSignpostNameRecoverEscrowWithRequest=%{public,signpost.telemetry:number1,name=CloudServicesSignpostNameRecoverEscrowWithRequest}d 
 silent attempt succeeded for record ID %@
 recovery attempt succeeded for record ID %@
 === Escrow record ===
@@ -2581,6 +2612,7 @@ silent attempt failed: no valid record found
 found record ID to use! :%@
 no iCDP backups found!, calling _recoverWithRequest just in case
 Performing ICDP recovery
+Performing keychain item restoration
 Performing IDMS Recovery
 escrowService iDMS recoverRecordWithRequest: returned: %@
 === Escrow record ===
@@ -2741,8 +2773,9 @@ attempting double enrollment recovery
 dispatching to recover queue (double recovery)
 waiting for recover group (double recovery)
 double enrollment recovery succeeded
-double enrollment recovery failed: %@
 double enrollment recovery: record is %sidentical
+double enrollment recovery: record data is missing
+double enrollment recovery failed: %@
 silent recovery
 silent recovery succeeded
 silent recovery failed: %@
@@ -2895,23 +2928,23 @@ clubh_recover_req_pkt_t sect %d is malformed
 <string>AppleTVSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>460</string>
+<string>460.0.3</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>12A6156a</string>
+<string>12A8179f</string>
 <key>DTPlatformName</key>
 <string>appletvsimulator</string>
 <key>DTPlatformVersion</key>
 <string>14.0</string>
 <key>DTSDKBuild</key>
-<string>18J5344c</string>
+<string>18J363x</string>
 <key>DTSDKName</key>
 <string>appletvsimulator14.0.internal</string>
 <key>DTXcode</key>
 <string>1200</string>
 <key>DTXcodeBuild</key>
-<string>12A6156a</string>
+<string>12A8179f</string>
 <key>MinimumOSVersion</key>
 <string>14.0</string>
 <key>NSHumanReadableCopyright</key>
