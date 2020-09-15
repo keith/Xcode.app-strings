@@ -492,7 +492,7 @@ _fetchApplicationsForTeamID:
 fetchDeveloperTeamWithTeamID:completion:
 queryWithString:
 performInsertQuery:error:
-_fetchListVersion
+fetchAuthorizationListVersion
 performInsertQuery:
 _storeConsentedApplication:teamID:listVersion:
 enumerateKeysAndObjectsUsingBlock:
@@ -697,6 +697,8 @@ pendingClientBundle
 setPendingClientBundle:
 hasCheckedIn
 setHasCheckedIn:
+surrogateCompletion
+setSurrogateCompletion:
 _hasCheckedIn
 _surrogateContext
 _surrogateClient
@@ -704,12 +706,13 @@ _surrogateRegistrationID
 _pendingBGContext
 _pendingClientUIWork
 _pendingClientBundle
+_surrogateCompletion
 _fetchSurrogateForClient:
 _isClientWaitingForSurrogateAuth:
 _handleError:logMessage:withUIWorkBlock:
 surrogateIDGenerator
 _waitForSurrogateCheckInWithContext:withUIWorkBlock:client:andCheckInID:
-_stopWaitingForCheckInWithContext:
+_stopWaitingForCheckInWithContext:andError:
 launchOutOfProcessAuthentication:surrogateID:withErrorHandler:
 _launchAppleIDSettingsForContext:withCheckinID:
 promptForAppleIDSettingsRedirectWithContext:client:needFullUI:completion:
@@ -723,14 +726,14 @@ unlock
 allKeysForObject:
 launchSettingsForContext:withCheckinID:
 initWithDelegate:
-hasRegisteredSurrogateContext:
+hasRegisteredSurrogateForContext:
 isSurrogateAuthInProgressForClient:
 isWaitingForSettingsSurrogateAuth
 waitForRemoteViewServiceWithContext:client:uiWorkBlock:
 waitForSettingsWithContext:client:requireFullUICapability:allowRedirectToSettings:uiWorkBlock:
 performUIWorkWithSurrogateContext:uiWorkBlock:
-registerUISurrogateContext:client:
-unregisterUISurrogateContext:
+registerUISurrogateContext:client:completion:
+unregisterUISurrogateForContext:
 setSurrogateIDGenerator:
 surrogateQueue
 setSurrogateQueue:
@@ -753,20 +756,23 @@ _upgradeToSchemaVersion3
 _upgradeToSchemaVersion4
 performQuery:
 null
+intValue
 migrateSchemaIfNecessary
 _createV1Database
 _createV2Database
 _createV3Database
 _tableInfoForTable:
+_numberOfRowsForTable:
 didCompleteWithAuthorization:error:
+expiryDate
+compare:
 initWithObject:expiryDate:
 cacheObject
-expiryDate
+isExpired
 _cacheObject
 _expiryDate
 dateWithTimeIntervalSinceNow:
-flushCache
-compare:
+_flushCache
 setObject:forKey:expiresIn:
 _internalCache
 _lock
@@ -888,7 +894,10 @@ setReturnData:
 initWithService:
 addDelegate:queue:
 _performRemoteCommand:argument:completion:
+_activePairedTinkerDevice
 sendMessage:toDestinations:priority:options:identifier:error:
+linkedDevicesWithRelationship:
+isActive
 _mhq_handleIncomingReplyMessage:
 _replyToCommandMessageWithInternalID:didSucceed:returnData:error:completion:
 _handleIncomingCommandMessage:completion:
@@ -907,6 +916,7 @@ service:activeAccountsChanged:
 service:devicesChanged:
 service:nearbyDevicesChanged:
 service:connectedDevicesChanged:
+service:linkedDevicesChanged:
 service:account:identifier:didSendWithSuccess:error:
 service:account:identifier:didSendWithSuccess:error:context:
 service:account:identifier:sentBytes:totalBytes:
@@ -1430,8 +1440,7 @@ ageOfMajorityForAccount:
 setAgeOfMajority:forAccount:
 authorizedApplicationsListVersion
 revokeAuthorizationForAllApplications:
-setApplicationListVersion:forAccount:
-applicationListVersionForAccount:
+currentAuthorizationListVersion
 _refreshApplicationInformationForAltDSID:
 updateAuthorizationListWithMetadataInfo:
 _updateAccount:withUserInformationResponse:modifyAliases:
@@ -1665,7 +1674,6 @@ _checkInQueue
 initWithStoreManager:
 _processCredentialStateChanges:
 _credentialStateDidChange:forApplicationWithClientID:
-intValue
 _notifyCredentialStateChange:forApplicationWithClientID:
 _broadcastCredentialStateChange:forApplicationWithClientID:
 activate
@@ -1947,6 +1955,7 @@ _tq_invokeTrafficRequest:
 _hasActiveAppAuths
 _hasActiveDaemonAuths
 _hasValuesInMap:
+_newZStringWithString:
 _updateContext:withPassword:forAppleID:
 removeObjectAtIndex:
 _setPassword:
@@ -2498,6 +2507,8 @@ pendingClientBundle
 T@"NSString",&,N,V_pendingClientBundle
 hasCheckedIn
 TB,N,V_hasCheckedIn
+surrogateCompletion
+T@?,C,N,V_surrogateCompletion
 AKUISurrogateQueue
 Out-of-process surrogate auth is already in progress for client %@.
 XPC Error launching out-of-process authentication for client %@ with surrogate ID %@.
@@ -2526,8 +2537,11 @@ UPDATE version SET authorizedAppListVersion = 'TEMPORARY';
 INSERT OR REPLACE INTO version (authorizedAppListVersion, db_version) values ('TEMPORARY', '%i');
 ALTER TABLE authorized_applications ADD COLUMN transfer_state TEXT
 ALTER TABLE authorized_applications ADD COLUMN primary_client_id TEXT
-ALTER TABLE authorized_applications ADD COLUMN origin TEXT
+ALTER TABLE authorized_applications ADD COLUMN origin TEXT;
+DROP TABLE IF EXISTS version;
+CREATE TABLE IF NOT EXISTS version (authorizedAppListVersion TEXT PRIMARY KEY, db_version INTEGER);
 PRAGMA table_info('%@')
+SELECT COUNT(*) FROM %@
 com.apple.AuthKit.TiburonAttempt
 /System/Library/Frameworks/KeychainCircle.framework/KeychainCircle
 /System/Library/PrivateFrameworks/KeychainCircle.framework/KeychainCircle
@@ -2647,6 +2661,7 @@ v28@?0B8@"NSData"12@"NSError"20
 -[AKPeerIDSAnisetteService eraseAnisetteWithCompletion:]
 -[AKPeerIDSAnisetteService provisionAnisetteWithCompletion:]
 -[AKPeerIDSAnisetteService legacyAnisetteDataForDSID:withCompletion:]
+v32@?0@"IDSDevice"8Q16^B24
 com.apple.authkit.peer-as.txn
 v24@?0@"AKAnisetteData"8@"NSError"16
 -[AKPeerIDSAnisetteService _mhq_handleIncomingReplyMessage:]
@@ -3286,12 +3301,18 @@ UI surrogate %@ registered.
 Whoa! UI surrogate is checking in with an unexpected identifier %@.
 UI surrogate with ID %@ has already checked in.
 UI surrogate client %@ with surrogate ID %@ is checking in.
-Whoa! UI surrogate is checking out with an unexpected identifier %@.
+Context with identifier %@ has no registered UI surrogate.
 UI surrogate for client %@ with surrogate ID %@ is checking out.
 Waiting for UI surrogate for client %@ with surrogate ID %@ to check in...
 Stop waiting for UI surrogate for client %@ with surrogate ID %@!
 Error: Attempted to clear surrogate that is no longer in progress with ID %@.
 Settings redirect not supported by context
+Database Migration requested from version: %i
+Current Authorization database version: %i
+Building database with schema version: 1
+Upgrading database to schema version: 2
+Upgrading database to schema version: 3
+Upgrading database to schema version: 4
 Client requested that we attempt provisioning...
 Provisioning succeeded!
 Unable to get Anisette data even after provisioning was attempted. Error: %@
@@ -3382,6 +3403,7 @@ Command message ready for sending to to paired device: %@
 Setting paired device.
 IDSService sendMessage method failed. Error: %@
 Message is on its way to paired device with transport ID: %@
+Found active tinker device
 Preparing reply to %@...
 Will send reply message to paired device: %@
 IDSService sendMessage method failed to send reply. Error: %@
@@ -3781,6 +3803,8 @@ Handling push with command AKPushMessageCommandAccountInfoChanged...
 IDMS sent reset key to revoke authorization Database
 Encountered error while revoking authorization database: %@
 Authorization database revoked successfully
+We got an appListVersion with the user info new version: %@ 
+old version: %@
 Unable to fetch authorized application list with error: %@
 Unable to refresh because Nil altDSID
 Unable to refresh because account name list is nil/empty.
@@ -4072,6 +4096,7 @@ Queued end authentication clearance block for %@
 Executing end authentication clearance block for %@
 Removing %@ from authenticating list
 Surrogate context is done
+Surrogate auth flow is complete!
 Found a pending request: %@
 Auth has ended with an error. Skipping queued context update.
 End authentication called without any queued clearance handler, we are done
@@ -4446,6 +4471,7 @@ v48@0:8@16@?24@32@40
 @"AKSurrogateAuthenticationIDGenerator"
 @"NSObject<OS_dispatch_queue>"
 v24@0:8Q16
+i24@0:8@16
 @"NSDate"
 v40@0:8@16@24d32
 Q24@0:8Q16
@@ -4626,7 +4652,6 @@ v40@0:8q16@24@32
 v28@0:8B16Q20
 v36@0:8@16B24@28
 ^{sqlite3=}16@0:8
-i24@0:8@16
 B32@0:8@16@?24
 q32@0:8@16^@24
 v24@0:8^{sqlite3_stmt=}16
@@ -4742,13 +4767,13 @@ softlink:o:fw:ApplePushService
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>18A5351d</string>
+<string>18A364</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>14.0</string>
 <key>DTSDKBuild</key>
-<string>18A5351d</string>
+<string>18A364</string>
 <key>DTSDKName</key>
 <string>iphonesimulator14.0.internal</string>
 <key>DTXcode</key>

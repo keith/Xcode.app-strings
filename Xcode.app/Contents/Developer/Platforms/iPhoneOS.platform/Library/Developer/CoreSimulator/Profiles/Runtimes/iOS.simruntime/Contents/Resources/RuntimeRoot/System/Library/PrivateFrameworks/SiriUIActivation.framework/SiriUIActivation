@@ -1,6 +1,9 @@
 @(#)PROGRAM:SiriUIActivation  PROJECT:AssistantUI-1
 %s Creating temporary flames for screen: %@ : activeFrame: %@
 %s Prewarming shaders
+%s %@
+%s #activation Launch time (button.down - listening): %@
+%s #activation Triggering ABC for launch time >= 2.5 seconds
 %s #compact: Telling SpringBoard that the Home Gesture is %@ with Siri
 %s SiriPresentationViewController connection invalidated
 %s SiriPresentationViewController connection interrupted. Reactivating...
@@ -27,6 +30,7 @@
 %s #activation Device not unlocked since boot; presenting passcode unlock screen
 %s #activation Device is now unlocked; proceeding with the request.
 %s #activation: Returning SiriUIViewMode:%@
+%s #tts Activating while _delaySessionEndForTTS is still set from prior request. Resetting to NO.
 %s #activation presentationDismissalRequestedWithOptions:%@
 %s #activation #locks #noisy _dismissalProcessingLock about to lock with qos: %ld
 %s #activation #locks #noisy _dismissalProcessingLock successfully locked
@@ -35,7 +39,6 @@
 %s #activation presentation dismissal requested while another dismissal in progress
 %s #activation options:%@ _isDelayingSessionEnd:%@
 %s #activation #noisy delaying session end, did not send willDismiss before dismissal
-%s %@
 %s #activation handler for siriPresentation:requestsDismissalWithOptions:WithHandler:
 %s #activation #noisy delaying session end, did not send didDismiss on dismissal
 %s #activation #locks #noisy innerStrongSelf->_dismissalProcessingLock about to lock with qos: %ld
@@ -141,8 +144,13 @@ description
 T@"NSString",R,C
 debugDescription
 -[SiriPresentationPineBoardMainScreenViewController siriViewController:willStartRequestWithOptions:]
+-[SiriPresentationPineBoardMainScreenViewController siriViewControllerDidChangeToListeningMode:]
+tvos_launch_performance
+tvos_long_launch_time
 -[SiriPresentationPineBoardMainScreenViewController setNextVoiceRecognitionAudioInputPaths:]
 -[SiriPresentationPineBoardMainScreenViewController setNextAssistantRecognitionStrings:]
+buttonDownTimestamp
+Td,N,G_buttonDownTimestamp,S_setButtonDownTimestamp:,V_buttonDownTimestamp
 siriPresentationControllerDelegate
 T@"<SiriPresentationPineBoardMainScreenViewControllerDelegate>",W,D,N
 SiriUI
@@ -201,6 +209,7 @@ If this call is necessary, use siriViewControllerConfigured to check if it is re
 -[SiriPresentationViewController _presentationRequestedHandlerWithRequestOptions:]
 -[SiriPresentationViewController _presentationRequestedHandlerWithRequestOptions:]_block_invoke
 -[SiriPresentationViewController _viewModeForRequestOptions:]
+-[SiriPresentationViewController activateWithSource:requestOptions:timestamp:]
 -[SiriPresentationViewController _presentationDismissalRequestedWithOptions:withCompletion:]
 #activation dismissal reason: %@
 -[SiriPresentationViewController _presentationDismissalRequestedWithOptions:withCompletion:]_block_invoke_2
@@ -304,8 +313,6 @@ isVoiceActivationMaskShown
 TB,N,G_isVoiceActivationMaskShown,S_setVoiceActivationMaskShown:,V_isVoiceActivationMaskShown
 buttonDownEventDidOccur
 TB,N,G_buttonDownEventDidOccur,S_setButtonDownEventDidOccur:,V_buttonDownEventDidOccur
-buttonDownTimestamp
-Td,N,G_buttonDownTimestamp,S_setButtonDownTimestamp:,V_buttonDownTimestamp
 carSiriButtonHoldToTalkTimer
 T@"NSTimer",&,N,G_carSiriButtonHoldToTalkTimer,S_setCarSiriButtonHoldToTalkTimer:,V_carSiriButtonHoldToTalkTimer
 carSiriButtonTimeInterval
@@ -418,6 +425,9 @@ setUseAutomaticEndpointing:
 setUseStreamingDictation:
 setReleaseAudioSessionOnRecordingCompletion:
 _updateRequestOptionsWithTestingInput:
+numberWithDouble:
+_thresholdForTriggeringABCInLaunch
+_logSignatureWithType:subType:context:
 _clearAllTestingInputs
 countByEnumeratingWithState:objects:count:
 fileURLWithPath:
@@ -430,8 +440,11 @@ siriViewController:didChangePresentationPeekMode:
 siriViewController:willStartRequestWithOptions:
 siriViewController:sceneDidActivateWithIdentifier:
 siriViewControllerDidDeactivateScene:
+siriViewControllerDidChangeToListeningMode:
 setNextVoiceRecognitionAudioInputPaths:
 setNextAssistantRecognitionStrings:
+_buttonDownTimestamp
+_setButtonDownTimestamp:
 init
 _commonInit
 setShouldDismissForTapOutsideContent:
@@ -588,10 +601,10 @@ initWithRequestSource:
 activateWithSource:requestOptions:timestamp:
 _uiPresentationIdentifier
 initWithRequestSource:uiPresentationIdentifier:
+_endDelayingSessionEndForTTS
 _releaseExistingTrigger
 buttonDownTimestamp
 _setButtonDownEventDidOccur:
-_setButtonDownTimestamp:
 initWithRequestOptions:updateHandle:
 timeInterval
 setTimestamp:
@@ -657,7 +670,6 @@ logEvent:
 _handleTapButtonBehavior:
 _handleTapDismissal:
 _dismissSiriSetup
-_endDelayingSessionEndForTTS
 _requestDismissalWithOptions:
 integerValue
 updateSettingsOnRemoteSceneForInterfaceOrientationChange:willAnimationWithDuration:
@@ -686,7 +698,6 @@ setCarDNDActive:
 directActionEvent
 setDirectActionEvent:
 carDNDStatus
-numberWithDouble:
 _processConnectionHouseKeeping
 performSelector:withObject:afterDelay:
 cancelRequest
@@ -804,7 +815,6 @@ _watchdogQueue_startAnimationDismissalWatchdogTimerWithTimeoutHandler:shouldTurn
 animationDismissalTimer
 cancelIfNotAlreadyCanceled
 setAnimationDismissalTimer:
-_logSignatureWithType:subType:context:
 initWithTimeoutInterval:onQueue:timeoutHandler:
 start
 _watchdogQueue_stopAnimationDismissalWatchdogTimerIfNeededThen:onQueue:
@@ -897,7 +907,6 @@ _setLastAppUpdateTimestamp:
 _isSpringBoardIdleTimerDisabled
 _isVoiceActivationMaskShown
 _buttonDownEventDidOccur
-_buttonDownTimestamp
 _shouldCancelWake
 setCurrentCarPlaySupportedOEMAppIdList:
 setStarkAppBundleIdentifierContext:
@@ -1009,6 +1018,8 @@ v24@0:8@"<SiriPresentation>"16
 @56@0:8q16{CGRect={CGPoint=dd}{CGSize=dd}}24
 v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16
 @32@0:8@16@24
+d16@0:8
+v24@0:8d16
 @24@0:8q16
 v16@0:8
 v24@0:8@?16
@@ -1068,7 +1079,6 @@ Vv40@0:8@16@24@32
 B24@0:8q16
 v24@0:8Q16
 v24@0:8q16
-v24@0:8d16
 v32@0:8q16Q24
 v52@0:8@16@24B32q36@?44
 v28@0:8@?16B24
@@ -1076,7 +1086,6 @@ v32@0:8@?16@24
 {os_unfair_lock_s=I}16@0:8
 v20@0:8{os_unfair_lock_s=I}16
 {CGRect={CGPoint=dd}{CGSize=dd}}16@0:8
-d16@0:8
 {InstrumentationDismissalState="fluidDismissalSet"B"punchedOut"B"incomingPhoneCallDetected"B"outgoingPhoneCallDetected"B"attemptedAppLaunchIdentifier"@"NSString"}
 @"NSDate"
 @"AFRequestCompletionOptions"
