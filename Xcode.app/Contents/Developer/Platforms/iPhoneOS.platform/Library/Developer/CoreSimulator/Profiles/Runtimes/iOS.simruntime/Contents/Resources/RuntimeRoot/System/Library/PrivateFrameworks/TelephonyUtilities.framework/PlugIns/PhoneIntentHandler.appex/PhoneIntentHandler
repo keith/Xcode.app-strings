@@ -23,6 +23,8 @@ Could not construct contact search predicate from handle: %@
 No contacts match handle
 [WARN] Multiple contacts match handle, using the first one arbitrarily
 personMatchingHandle
+App supports INStartCallIntent - prefer this over deprecated calling intents.
+Error when fetching application record for appId: %@, error: %@
 Got a SearchCallHistory intent: %@
 Start Date  : %@
 End Date    : %@
@@ -90,12 +92,17 @@ No incoming call exists. Looking up last missed call...
 Last missed call is: %@
 Inferring outgoing callStatus requirement from the presence of redial destination type and unspecified recordTypeForRedialing.
 Unexpected callTypes received, ignoring value.
+No preferredCallProvider specified and thirdParty redial is enabled, not filtering by provider
+No preferredCallProvider specified and thirdParty redial is not enabled. Filtering for 1P calls.
 Unrecognized PreferredCallProvider enum value, skipping provider predicate.
+ThirdParty redial is enabled, using redial predicate that includes search for non-normalized handle values.
+ThirdParty redial is not enabled, using normal recent call predicate that includes search for non-normalized handle values.
  enableTelemetry=YES 
 Handling start call intent: %@
 Calling completion block with response: %@ user activity: %@
 handleStartCall
 Determining response for dial request: %@
+shouldUseDeprecatedCallingIntents: %@
 Dial request was restricted due to screen time policy.
 Dial request was restricted due to downtime policy.
 The call is initiated on a HomePod but the companion device already has a call ringing.
@@ -177,6 +184,7 @@ recentCallToRedial
 Expected to map CHRecentCall to INCallRecord 1:1
 predicate for recentCall: %@
 callHistoryDBCallToRedial
+Found recentCall: %@
 Resolution needs a value for zero contacts
 Attempting to resolve more than one call participant. Returning multiple contacts unsupported for each recipient.
 Handle has the LocalEmergency flag. Resolving success. %@ with type: %@
@@ -325,6 +333,8 @@ Converted this CHRecentCall previously, using cached converted INCallRecord.
 [WARN] Found an entry of unknown type in handleToPerson cache
 [WARN] Could not determine remoteParticipantHandle for CHRecentCall
 [WARN] Call had more than one participant, not setting caller
+serviceProvider is not FT or telephony - must be a 3P provider.
+No serviceProvider found on CHRecentCall - setting preferredCallProvider to unknown.
 countByEnumeratingWithState:objects:count:
 identifier
 isEqualToString:
@@ -562,6 +572,10 @@ tu_matchingINPersonHandlesByContactIdentifier
 tu_personWithFormattedHandleForISOCountryCodes:
 tu_handlesMatchingPersonWithContactsDataSource:identifierToContactCache:
 tu_personMatchingHandle:contactsDataSource:isoCountryCodes:
+initWithBundleIdentifier:allowPlaceholder:error:
+compatibilityObject
+plugInKitPlugins
+appSupportsDeprecatedCallingIntents:
 initWithDataSource:
 dateCreated
 startDateComponents
@@ -691,24 +705,33 @@ predicateForCallsWithDurationGreaterThan:
 predicateWithValue:
 normalizedValue
 normalizedDestination
+predicateForRemoteParticipantsWithValues:caseInsensitiveValues:normalizedValues:
+predicateForRemoteParticipantsWithNormalizedValues:
+predicateForRemoteParticipantsWithValues:
+predicateForRemoteParticipantsWithValuesCaseInsensitive:
 predicateForCallsWithServiceProvider:
 predicateForCallsWithCallCategory:
 predicateForCallsWithDurationLongerThanImmediateHangUp
+predicateForCallToCallBackWithAnyOfTheseRemoteParticipantHandles:isoCountryCodes:
 predicateForTelephonyOrFaceTimeCalls
+initWithParticipants:destinationType:callTypes:callCapability:preferredCallProvider:includeThirdPartyCalls:
 setParticipants:
 setDestinationType:
 setCallTypes:
 setCallCapability:
 setPreferredCallProvider:
+setIncludeThirdPartyCalls:
 callRecordTypePredicates
 preferredCallProviderPredicate
 callCapabilityPredicate
 participantsPredicatesWithContactsDataSource:contactIdentifierCache:coreTelephonyDataSource:
 destinationType
+includeThirdPartyCalls
 callCapability
 participants
 initWithParticipants:destinationType:callTypes:callCapability:preferredCallProvider:
 predicateForRecentCallWithContactsDataSource:contactIdentifierCache:coreTelephonyDataSource:
+_includeThirdPartyCalls
 _participants
 _destinationType
 _callTypes
@@ -724,6 +747,8 @@ provider
 isTelephonyProvider
 logOutgoingCallToHandle:
 userActivity
+shouldUseDeprecatedCallingIntents:dialRequest:
+userActivityUsingDeprecatedCallingIntents:
 callFilterStatusForDialRequest:
 _idiom
 callRinging
@@ -737,6 +762,8 @@ supportsTelephonyCalls
 canAttemptTelephonyCallsWithoutCellularConnection
 isAirplaneModeEnabled
 supportsPrimaryCalling
+bundleIdentifier
+appResolver
 intentHasUnresolvedLocalEmergencyContact:
 setShouldDoEmergencyCountdown:
 contacts
@@ -799,7 +826,7 @@ disambiguationWithPeopleToDisambiguate:
 resolvePreferredContactFromContacts:
 buildConfirmationResultForContact:withReason:
 dedupeINPersons:
-generateAdditionalMatchingHandles:resolvedContacts:requestedINPersonHandle:
+generateAdditionalMatchingHandles:resolvedContacts:requestedHandleType:requestedHandleLabel:
 getAlternativesForContact:forRequestedHandleType:forCallProvider:
 resolutionResultForPersonWithResolvedContactName:resolvedPerson:resolvedContact:contactIdentifiersRequiringConfirmation:
 resolvePreferredHandleFromHandles:contactIdentifiersRequiringConfirmation:
@@ -850,8 +877,10 @@ resolveCallCapabilityForStartCall:withCompletion:
 callCapabilityFromRecentCall:
 resolvePreferredCallProviderForStartCall:withCompletion:
 setCoreAnalyticsLogger:
+setAppResolver:
 setHandlesConfirmed:
 setContactIdentifiersConfirmed:
+_appResolver
 _handlesConfirmed
 _contactIdentifiersConfirmed
 setWithArray:
@@ -861,7 +890,6 @@ favoritesController
 entriesForContact:
 entries
 actionType
-bundleIdentifier
 contactProperty
 initWithCallCenter:
 callCenter
@@ -955,6 +983,8 @@ ScoreBasedResolver
 ScoreBasedResolutionResult
 ContactPool
 TelephonyUtilities
+AppResolver
+AppResolving
 SearchCallHistoryIntentHandler
 INSearchCallHistoryIntentHandling
 SearchCallHistoryIntentHandlerDataSource
@@ -1040,6 +1070,7 @@ q16@0:8
 @40@0:8Q16@24@32
 @"NSDictionary"
 @40@0:8@16@24@32
+B24@0:8@"NSString"16
 Q24@0:8Q16
 v32@0:8@16@?24
 v32@0:8@"INSearchCallHistoryIntent"16@?<v@?@"INSearchCallHistoryIntentResponse">24
@@ -1078,6 +1109,7 @@ v32@0:8@"INIdentifyIncomingCallerIntent"16@?<v@?@"INIdentifyIncomingCallerIntent
 @24@0:8q16
 @20@0:8I16
 @56@0:8@16q24Q32q40q48
+@60@0:8@16q24Q32q40q48B56
 v32@0:8@"INStartCallIntent"16@?<v@?@"INStartCallIntentResponse">24
 v32@0:8@"INStartCallIntent"16@?<v@?@"INCallRecordResolutionResult">24
 v32@0:8@"INStartCallIntent"16@?<v@?@"INCallDestinationTypeResolutionResult">24
@@ -1092,6 +1124,7 @@ B28@0:8q16B24
 @48@0:8@16q24@32@40
 B40@0:8@16@24@32
 @"<StartCallIntentHandlerDataSource>"
+@"<AppResolving>"
 @"NSMutableOrderedSet"
 B24@0:8@"CNContact"16
 B32@0:8@"TUHandle"16@"NSArray"24
@@ -1099,7 +1132,6 @@ B32@0:8@"TUHandle"16@"NSArray"24
 @"TUCallCenter"
 Q24@0:8@16
 v24@0:8@"TUHandle"16
-B24@0:8@"NSString"16
 @24@0:8@"NSObject<OS_dispatch_queue>"16
 Q24@0:8@"TUDialRequest"16
 @"TUCallProviderManager"16@0:8
@@ -1279,6 +1311,8 @@ callCapability
 Tq,N,V_callCapability
 preferredCallProvider
 Tq,N,V_preferredCallProvider
+includeThirdPartyCalls
+TB,N,V_includeThirdPartyCalls
 LocalEmergency
 NonLocalEmergency
 None
@@ -1313,6 +1347,8 @@ contactIdentifiersConfirmed
 T@"NSMutableOrderedSet",&,N,V_contactIdentifiersConfirmed
 T@"<StartCallIntentHandlerDataSource>",&,N,V_dataSource
 T@"<IntentHandlerCoreAnalyticsLogging>",&,N,V_coreAnalyticsLogger
+appResolver
+T@"<AppResolving>",&,N,V_appResolver
 callCenter
 T@"TUCallCenter",R,N,V_callCenter
 favoritesController
@@ -1407,6 +1443,8 @@ T@"NSCache",&,N,V_handleToPersonCache
 <key>com.apple.private.CallHistory.read-write</key>
 <true/>
 <key>com.apple.private.accounts.allaccounts</key>
+<true/>
+<key>com.apple.private.coreservices.canmaplsdatabase</key>
 <true/>
 <key>com.apple.private.ids.registration</key>
 <array>

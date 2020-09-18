@@ -58,16 +58,32 @@ WOA_TOP_LEVEL=$(cd "${RELATIVE_WOADIR}" || exit; pwd -P)
 # Configure the RELATIVE_JVM_HOME, based on platform, and architecture
 PLATFORM_NAME="$(uname -s)"
 # Adjust the JVM to use Rosetta2 if on a machine that supports it
+# default to no rosetta
+USE_ROSETTA=0
+ROSETTA_AVAILABLE_PROP="-Dmacos.rosetta.available=false"
+# default arch specific options to nothing initially
+JVM_ARCH_FLAGS=""
+JVM_ARCH_PROPS=""
+MACOS_ARCH_PROP=""
 if [ "${PLATFORM_NAME}" = "Darwin" ]; then
-    if arch -x86_64 /usr/bin/true ; then
-        RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java-x86_64"
-    else
-        RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java-arm64"
-        JVM_ARCH_FLAGS="-XX:+UseSerialGC"
-        JVM_ARCH_OPTS="-DHTTP.transport.useVBTX=true -Dos.arch=x86_64"
+    PLATFORM_ARCH=$(/usr/bin/uname -m)
+    MACOS_ARCH_PROP="-Dmacos.arch=${PLATFORM_ARCH}"
+    if [[ ${PLATFORM_ARCH} =~ ^arm64.* ]]; then
+        if /usr/bin/arch -x86_64 /usr/bin/true 2> /dev/null ; then
+            USE_ROSETTA=1
+            ROSETTA_AVAILABLE_PROP="-Dmacos.rosetta.available=true"
+        fi
+        if [ "${TURN_ROSETTA_OFF}" = "1" ]; then
+            USE_ROSETTA=0
+        fi
+        if [ ${USE_ROSETTA} -eq 0 ]; then
+            # going to run without rosetta (arm64 native)
+            # overide the arch, because arm64 version is called aarch64
+            JVM_ARCH_FLAGS="-XX:+UseSerialGC"
+            JVM_ARCH_PROPS="-Dos.arch=${PLATFORM_ARCH} -DHTTP.transport.useVBTX=true"
+        fi
     fi
-else
-    RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java"
+RELATIVE_JVM_HOME="${WOA_TOP_LEVEL}/java"
 RELATIVE_JVM_BIN="${RELATIVE_JVM_HOME}/bin"
 RELATIVE_JVM="${RELATIVE_JVM_BIN}/java"
 RELATIVE_JVM_LIB="${RELATIVE_JVM_HOME}/lib"
@@ -107,7 +123,7 @@ esac
 # overridden on the command line.
 APPLICATION_CLASS=com.apple.transporter.launcher.Application
 DEFAULT_JVM_OPTIONS="${CONTAINER_JAVA_TOOL_OPTIONS} -DWORootDirectory=\"${WOROOT}\" -DWOLocalRootDirectory=\"${LOCALROOT}\" -DWOUserDirectory=\"${CURRDIR}\" -DWOEnvClassPath=\"${CLASSPATH}\" -DWOApplicationClass=${APPLICATION_CLASS} -DWOPlatform=${PLATFORM_DESCRIPTOR} -Dcom.webobjects.pid=$$"
-JVM_OPTIONS="${JVM_ARCH_FLAGS} -Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.3,TLSv1.2,TLSv1.1"
+JVM_OPTIONS="${JVM_ARCH_FLAGS} -Xmx2048m -Xms1024m -Djava.awt.headless=true -Dsun.net.http.retryPost=false -Dhttps.protocols=TLSv1.3,TLSv1.2,TLSv1.1 -Djava.net.preferIPv4Stack=true"
 JVM_EXECUTABLE=java
 JAVA_MODULES=""
 if [ "${PLATFORM_NAME}" = "Linux" ]; then
@@ -133,7 +149,10 @@ JAVA_EXECUTABLE=${JVM_EXECUTABLE}
 JAVA_EXECUTABLE_ARGS="${DEFAULT_JVM_OPTIONS:+$DEFAULT_JVM_OPTIONS }${JVM_OPTIONS:+$JVM_OPTIONS }"
 # We need to make sure they are running the correct version of java
 # get the version
-"${JAVA_EXECUTABLE}" -jar ./lib/itmstransporter-launcher.jar java-version > /dev/null 2>&1
+if [ ${USE_ROSETTA} -eq 1 ]; then
+    /usr/bin/arch -x86_64 "${JAVA_EXECUTABLE}" ${JVM_ARCH_FLAGS} ${MACOS_ARCH_PROP} ${ROSETTA_AVAILABLE_PROP} ${JVM_ARCH_PROPS} -jar ./lib/itmstransporter-launcher.jar java-version > /dev/null 2>&1
+else
+    "${JAVA_EXECUTABLE}" ${JVM_ARCH_FLAGS} ${MACOS_ARCH_PROP} ${ROSETTA_AVAILABLE_PROP} ${JVM_ARCH_PROPS} -jar ./lib/itmstransporter-launcher.jar java-version > /dev/null 2>&1
 JAVA_VERSION_MAJOR="${?}"
 if [ "${JAVA_VERSION_MAJOR}" -ge 11 ]; then
     # user is running on JDK 11+ (NO J2EE Packages), so add in activation, and JAXB
@@ -207,7 +226,9 @@ for arg in "$@"
     esac
 done
 # Launch the application.
-COMMAND="\"${JAVA_EXECUTABLE}\" ${JAVA_EXECUTABLE_ARGS} ${JVM_LIB_PATH} ${JAVA_SECURITY_URL} ${JVM_ARCH_OPTS} ${JAVA_MODULES} -jar ./lib/itmstransporter-launcher.jar ${COMMAND_LINE_ARGS}"
-if [ "${ECHO_CMD}" != "" ]; then
+COMMAND="\"${JAVA_EXECUTABLE}\" ${JAVA_EXECUTABLE_ARGS} ${JVM_LIB_PATH} ${JAVA_SECURITY_URL} ${MACOS_ARCH_PROP} ${ROSETTA_AVAILABLE_PROP} ${JVM_ARCH_PROPS} ${JAVA_MODULES} -jar ./lib/itmstransporter-launcher.jar ${COMMAND_LINE_ARGS}"
+if [ ${USE_ROSETTA} -eq 1 ]; then
+    COMMAND="/usr/bin/arch -x86_64 ${COMMAND}"
+if [ "${ECHO_CMD}" = "1" ]; then
     echo "${COMMAND}"
-eval exec "${COMMAND}"
+eval exec ${COMMAND}

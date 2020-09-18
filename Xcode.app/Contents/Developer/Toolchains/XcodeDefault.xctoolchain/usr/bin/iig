@@ -2,6 +2,7 @@
 astrcat
 iig/iig.cpp
 -1 != result
+driverkit
 .iig
 implements
 const
@@ -15,6 +16,7 @@ restrict
 kernel
 native
 remote
+local
 localonly
 serializable
 extends=
@@ -26,7 +28,6 @@ void
 method:  (%s) %s::%s
 overrides: (%s) %s::%s
   %s: attribute: %s
-local
 localhost
 invokereply
 reply
@@ -56,12 +57,11 @@ meth->msgid
 struct %s_Content
     IORPCMessage __hdr;
     OSObjectRef  __object;
-    
+    %s * %s;
 OSObjectRef
-%s *
-%s%s *
+    %s  %s;
+    %s%s *  %s;
 const 
-  %s;
     %s __%s[%d];
     uint64_t __replyBuffer[8];
 #pragma pack(4)
@@ -69,6 +69,7 @@ struct %s
     IORPCMessageMach           mach;
     mach_msg_port_descriptor_t %s__descriptor;
 __object
+    mach_msg_port_descriptor_t %s__descriptor[%d];
     mach_msg_ool_descriptor_t  %s__descriptor;
     %s_Content content;
 #pragma pack()
@@ -96,10 +97,17 @@ kern_return_t
     %s(
         IORPC rpc%s
         
+%s **%s
+ const
+%s%s *
  %s%s
         OSDispatchMethod supermethod = NULL
-)%s%s;
- const
+ __attribute__((availability(driverkit
+,introduced=%d.%d
+,deprecated=%d.%d
+,obsoleted=%d.%d
+,message="%s"
+)%s%s%s;
  APPLE_KEXT_OVERRIDE
 #define %s_Methods 
 public:
@@ -127,7 +135,7 @@ protected:
     %s_%s(%s_%s_Args);
 #define %s_VirtualMethods 
 /* iig(%s) generated from %s */
-DriverKit-99
+DriverKit-107.40.4
 /* %s:%d-%d */
 /* source class %s %s:%d-%d */
 #if __DOCUMENTATION__
@@ -143,6 +151,9 @@ len < 256
 @iig end
 /* %s */
 /* @iig end */
+/* iig(%s %s %s) generated from %s */
+Sep  8 2020
+05:16:18
 #undef
 IIG_IMPLEMENTATION
 #define
@@ -164,9 +175,10 @@ IIG_IMPLEMENTATION
 OSMetaClass
 extern OSMetaClass * g%sMetaClass;
 #endif /* !KERNEL */
-usage: %s --def <def input file> --header <header output file> --impl <implementation output file> [--log <log file>] [--framework-name <name>] -- <clang args>
+usage: %s --def <def input file> --header <header output file> --impl <implementation output file> [--edits <sed edits output file>] [--log <log file>] [--framework-name <name>] -- <clang args>
 header
 impl
+edits
 help
 version
 framework-name
@@ -297,13 +309,15 @@ kern_return_t
         case %s_%s_ID:
             ret = %s::%s_Invoke(rpc, &%s::%s_Impl);
             break;
+        if (self->IsRemote())
         {
+            ret = self->OSMetaClassBase::Dispatch(rpc);
+        }
+        else
             ret = %s::%s_Invoke(rpc, self, SimpleMemberFunctionCast(%s::%s_Handler, *self, &%s::%s_Impl), OSTypeID(OSAction_%s_%s));
             ret = %s::%s_Invoke(rpc, self, SimpleMemberFunctionCast(%s::%s_Handler, *self, &%s::%s_Impl));
-        }
         default:
             ret = OSMetaClassBase::Dispatch(rpc);
-            ret = self->OSMetaClassBase::Dispatch(rpc);
             ret = %s::_Dispatch(self, rpc);
     }
     return (ret);
@@ -356,12 +370,15 @@ this
     msg->%s__descriptor.type = MACH_MSG_PORT_DESCRIPTOR;
     msg->%s__descriptor.type = MACH_MSG_PORT_DESCRIPTOR;
     msg->content.%s = (OSObjectRef) %s;
+    for (unsigned int idx = 0; idx < %d; idx++) msg->%s__descriptor[idx].type = MACH_MSG_PORT_DESCRIPTOR;
     msg->%s__descriptor.disposition = %s;
     msg->%s__descriptor.name = %s;
     msg->%s__descriptor.type = MACH_MSG_OOL_DESCRIPTOR;
     msg->%s__descriptor.copy = MACH_MSG_VIRTUAL_COPY;
     msg->%s__descriptor.address = (void *) __builtin_offsetof(%s_%s_Msg_Content, %s);
     msg->content.%s = %s;
+    msg->content.%s = %s%s;
+    msg->content.%s = NULL;
 error: %s::%s oneway with results
 char
     strlcpy(&msg->content.__%s[0], %s, sizeof(msg->content.__%s));
@@ -384,7 +401,6 @@ char
         if (rpl->mach.msgh_body.msgh_descriptor_count >= 1)
             if (rpl->mach.msgh.msgh_size < 
 (sizeof(IORPCMessageMach) + sizeof(mach_msg_port_descriptor_t) + sizeof(IORPCMessage))) { ret = kIOReturnIPCError; break; };
-        else
             if (rpl->mach.msgh.msgh_size                  != sizeof(*rpl)) { ret = kIOReturnIPCError; break; };
             if (rpl->content.__hdr.msgid                  != %s_%s_ID) { ret = kIOReturnIPCError; break; };
             if (rpl->mach.msgh_body.msgh_descriptor_count != %d) { ret = kIOReturnIPCError; break; };
@@ -393,6 +409,8 @@ char
             if (%s_%s_Rpl_ObjRefs   != rpl->content.__hdr.objectRefs) { ret = kIOReturnIPCError; break; };
     while (false);
         if (rpl->content.%sCount < *%sCount) *%sCount = rpl->content.%sCount;
+        for (unsigned int idx = 0; idx < *%sCount; idx++)
+            rpl->content.__%s[idx] = OSDynamicCast(%s, %s[idx]);
         bcopy(&rpl->content.__%s[0], %s, *%sCount * sizeof(rpl->content.__%s[0]));
         *%s = OSDynamicCast(%s, (OSObject *) rpl->content.%s);
         if (rpl->content.%s && !*%s) ret = kIOReturnBadArgument;
@@ -419,7 +437,7 @@ char
     return %s::%s_Invoke(_rpc, func, NULL);
         const OSMetaClass * targetActionClass)
     %s_%s_Invocation rpc = { _rpc };
-    %s * %s;
+    %s ** %s;
     %s %s = (sizeof(rpc.message->content.__%s) / sizeof(rpc.message->content.__%s[0]));
     %s %s = (sizeof(rpc.reply->content.__%s) / sizeof(rpc.reply->content.__%s[0]));
     if (%s_%s_Msg_ObjRefs != rpc.message->content.__hdr.objectRefs) return (kIOReturnIPCError);
@@ -427,8 +445,11 @@ char
         %s = (OSAction *) OSMetaClassBase::safeMetaCast((OSObject *) rpc.message->content.%s, targetActionClass);
     } else {
         %s = OSDynamicCast(OSAction, (OSObject *) rpc.message->content.%s);
-    %s = OSDynamicCast(%s, (OSObject *) rpc.message->content.%s);
     if (!%s && rpc.message->content.%s) return (kIOReturnBadArgument);
+    %s = (%s **) &rpc.message->content.__%s[0];
+    for (unsigned int idx = 0; idx < %sCount; idx++)
+        if (%s[idx] && !OSDynamicCast(%s, %s[idx])) return (kIOReturnBadArgument);
+    %s = OSDynamicCast(%s, (OSObject *) rpc.message->content.%s);
     if (%s > rpc.message->content.%s) %s = rpc.message->content.%s;
     if (strnlen(&rpc.message->content.__%s[0], sizeof(rpc.message->content.__%s)) >= sizeof(rpc.message->content.__%s)) return kIOReturnBadArgument;
     %s(*func)(
@@ -439,6 +460,7 @@ target%s
         &rpc.reply->content.__%s[0]
         %s
         rpc.message->%s__descriptor.name
+        &rpc.message->content.%s
         rpc.message->content.%s
         &%s
         (%s **)&rpc.reply->content.%s
@@ -464,3 +486,6 @@ kIORPCVersion190615Reply
     rpc.reply->%s__descriptor.disposition = %s;
     return (%s);
 kIOReturnSuccess
+EmitEditsForClass
+s/IMPL(%s, %s)/
+%s::%s_Impl(%s
