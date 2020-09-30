@@ -59,6 +59,7 @@ com.apple.Maps.SharedTrip.Server
 -[MSPSharedTripServer cleanConnections]
 -[MSPSharedTripServer _createXPCListener]
 com.apple.Maps.xpc.SharedTrip
+v32@?0@"NSString"8@"NSMutableSet"16^B24
 -[MSPSharedTripServer etaController:didUpdateDestinationForSharedTrip:]
 -[MSPSharedTripServer etaController:didUpdateReachedDestinationForSharedTrip:]
 -[MSPSharedTripServer etaController:didUpdateETAForSharedTrip:]
@@ -245,6 +246,7 @@ T@"NSString",&,N,V_supersededSearchIdentifier
 unknownFields
 T@"PBUnknownFields",R,N
 -[MSPReceiverETAController dealloc]
+com.apple.mapspushd.ETAReceivingTransaction
 v24@?0@"NSString"8@"NSString"16
 allTrips
 T@"NSArray",R,N
@@ -1566,6 +1568,7 @@ com.apple.Maps.SharedTrip.Service.Isolation
 v24@?0{?=I^v}8
 v40@?0@"MSPSharedTripSharingIdentity"8@"NSArray"16@"NSArray"24Q32
 -[MSPSharedTripService sharedTripContactController:didUpdateActiveContactsValues:]
+v24@?0@"MSPSharedTripSubscriptionToken"8@"NSString"16
 -[MSPSharedTripService addReceivingObserver:]
 -[MSPSharedTripService removeReceivingObserver:]
 -[MSPSharedTripService addSendingObserver:]
@@ -1613,6 +1616,8 @@ strongSelf went away in %s line %d
 [Server] Accepting new connection: %@, can share: %d, can receive: %d
 [Server] Connection invalidated: %@
 [Server] Connection interrupted: %@
+[Server] Initialising subscriptions for trip %@
+[Server] Purging subscriptions for %@
 [Server] Will not %s, connection lacks entitlement: %@
 [Server] Checking in on %@ (identity: %{private}@, %{private}@%s, %lu%s trips
 [Server] fetchSendingIdentity: %{private}@)
@@ -1628,7 +1633,12 @@ strongSelf went away in %s line %d
 [Service] stop sharing trip with group: %@
 [Server] Stop sharing
 [Server] Fetch active handles: %@
+[Server] Added %@ to subscriptions for trip %@ (%lu subscriptions)
+[Server] %@ already subscribed to trip %@
 [Server] Subscribe to trip: %@
+[Server] Removed connection %@ from subscriptions for trip: %@
+[Server] Connection %@ was not subscribed to trip: %@
+[Server] %lu subscribed connections for trip %@
 [Server] Unsubscribe from trip: %@
 [Server] Fetching trip updates: %@
 [Service] block sharing trip: %@
@@ -1676,7 +1686,7 @@ MSPReceiverETAController blockSharedTrip _blockedList: %@
 [SR] _showOrUpdateNotification id %@ state %@ notificationType: %lu
 [SR] _showOrUpdateNotification not showing notification as type is none
 [SR] _showOrUpdateNotification skipping notification, rules: %@ currentState: %@
-[SR] _resolveContact id %@ state %@
+[SR] _resolveContact %{private}@ (id %@ state %@)
 [SR] _allowMessageWithState NO nil group identifier
 [SR] _allowMessageWithState NO blocklist %@ contains identifier %@
 fromID %@
@@ -1874,6 +1884,7 @@ Failed to serialize edited collections to plist: %{private}@
 Committed collections via mapspushd: %{private}@
 Failed to serialize collections to plist: %@
 Unknown storage identifier: %@ - %@
+error resolving contact: %@
 contactWithAddress contact %@
 shareWithContactValue called for handle %@ with MSPSharedTripCapabilityType_Invalid. Exiting Early.
 shareWithContactValue called for handle %@ with MSPSharedTripCapabilityType_Unknown. Already waiting for response.
@@ -2080,6 +2091,12 @@ MSPSenderETAController stop listening to navigation
 [Service] Will fire external post-checkin block when checkin is completed
 [Service] Will fire external post-checkin block, checkin is not in progress
 [Service] %{private}s
+[Service] Initialising subscription tokens for trip %@
+[Service] Token invalidated, will purge
+[Service] Add subscription token for trip %@ (%lu subscriptions)
+[Service] Purging %@ for trip %@
+[Service] Failed to unsubscribe from trip %@: %@
+[Service] Unsubscribed from trip %@
 [Service] %{private}s (%@)
 [Service] Notified identity should have synced, retrying validation
 [Service] Validated configuration with error: %@
@@ -2107,10 +2124,11 @@ _fetchActiveHandlesWithCompletion:
 [Service] Fetch active handles
 [Service] Fetch shared trips
 _fetchSharedTripsOnQueue
-[Service] Subscribe to trip: %@
+[Service] Request to subscribe to trip: %@
 _subscribeToSharedTripUpdatesWithIdentifier
-[Service] Unsubscribe from trip: %@
-_unsubscribeFromSharedTripUpdatesWithIdentifier
+[Service] Skipping remote subscribe, already %lu subscription tokens for trip: %@
+[Service] Subscribe to trip: %@
+[Service] Failed to subscribe to trip %@: %@
 [Service] block trip: %@
 _blockSharedTrip
 [Service] Notified trip became unavailable but passed nil
@@ -2393,6 +2411,7 @@ MSPSharedTripServiceReceivingObserver
 MSPSharedTripServiceSendingObserver
 MSPSharedTripService
 MSPSharedTripContactControllerDelegate
+MSPSharedTripSubscriptionToken
 MSPContainerPersister
 MSPFileContainerPersister
 MSPContainerArrayStateSnapshot
@@ -2582,6 +2601,9 @@ setInterruptionHandler:
 addObject:
 objectForKey:
 copy
+objectForKeyedSubscript:
+setObject:forKeyedSubscript:
+enumerateKeysAndObjectsUsingBlock:
 setAvailabilityDelegate:
 initWithRelay:
 _setNotificationCenter:
@@ -2605,6 +2627,7 @@ stopSharingWithMessages:
 startSharingWithGroup:error:
 stopSharingWithGroup:
 stopSharing
+_subscribedConnectionsForTripID:createIfNeeded:
 subscribeToUpdatesToSharedTrip:error:
 unsubscribeFromUpdatesToSharedTrip:error:
 numberWithBool:
@@ -2619,11 +2642,13 @@ etaController:sharedTripDidBecomeUnavailable:
 senderController:didInvalidateSharedTripWithError:
 invalidateActiveHandlesForSenderController:
 relay:accountStatusChanged:
+_purgeSubscriptionsForConnection:
 _sendingController
 _receivingController
 _idsRelay
 _listener
 _connections
+_connectionSubscriptionsByTripID
 _peersByConnection
 _isolationQueue
 dictionaryWithObjects:forKeys:count:
@@ -2722,7 +2747,6 @@ recordsToSave
 recordIDsToDelete
 _maps_isCloudKitErrorWithCode:partialErrorsPolicy:
 userInfo
-objectForKeyedSubscript:
 _maps_isFoundationWriteError
 reset
 MSPSyncErrorWithCode:description:
@@ -2875,7 +2899,6 @@ placesQueryWithDelegate:
 itemContainer
 setItemContainer:
 itemQuery
-setObject:forKeyedSubscript:
 itemIdentifiers
 array
 setItems:
@@ -2989,6 +3012,7 @@ relay:sharingClosed:
 groupSession:participantDidJoin:
 groupSession:participantDidLeave:
 groupSessionEnded:
+_transaction
 _sharedSessions
 _sharedNavStates
 _temporaryNavStates
@@ -4221,7 +4245,6 @@ _nbClients
 _liveModeParticipantIdentifiers
 _sharingIDSService
 _identifiers
-_transaction
 _initiatorIdentifier
 _initiatorDisplayName
 bookmarkStorage
@@ -5104,6 +5127,10 @@ _startSharingWithContact:completion:
 _validateCurrentConfigurationWithCompletion:
 _stopSharingWithContact:completion:
 _stopAllSharingWithCompletion:
+purgeToken:forTripID:
+initWithSharedTripIdentifier:invalidationHandler:
+_subscriptionTokensForTripID:createIfNeeded:
+_purgeToken:forTripID:
 _isMapsInstalled
 _performBlockWhenCheckinCompleted:
 processHandle
@@ -5121,8 +5148,8 @@ _stopSharingTrip
 _fetchActiveHandlesWithCompletion:
 _fetchSharedTripsWithCompletion:
 _subscribeToSharedTripUpdatesWithIdentifier:completion:
+_addSubscriptionTokenForTripID:
 _remoteObjectProxyWithErrorHandler:
-_unsubscribeFromSharedTripUpdatesWithIdentifier:completion:
 _blockSharedTrip:
 _insertOrUpdateTrip:
 _openConnectionIfNeeded
@@ -5149,6 +5176,7 @@ _receivingObservers
 _sendingObservers
 _receivedTrips
 _sharingContactController
+_subscriptionTokensByTripID
 _sharingIdentityLock
 _permissions
 _sharingIdentity
@@ -5157,6 +5185,7 @@ _userDisabledDefaultListener
 _serverDisabledDefaultListener
 _mapsPaths
 _confirmedMapsIsInstalled
+_sharedTripIdentifier
 _duplicatesPolicy
 ioQueue
 commitByCreatingStateSnapshotAndDataWithCreationHandler:error:
@@ -5237,11 +5266,13 @@ v32@0:8@"MSPSenderETAController"16@"NSError"24
 v24@0:8@"MSPSenderETAController"16
 v28@0:8@16B24
 v28@0:8@"MSPSharedTripRelay"16B24
+@28@0:8@16B24
 @"MSPSenderETAController"
 @"MSPReceiverETAController"
 @"MSPSharedTripRelay"
 @"NSXPCListener"
 @"NSMutableSet"
+@"NSMutableDictionary"
 @"NSMapTable"
 q24@0:8@16
 v24@0:8@"NSDictionary"16
@@ -5255,7 +5286,6 @@ v48@0:8@16@24@32@?40
 @"MSPCloudKitAccountAccess"
 @"MSPCloudContainerCache"
 @"MSPJournal"
-@"NSMutableDictionary"
 @"NSError"
 @"NSHashTable"
 @32@0:8B16B20q24
@@ -5286,6 +5316,7 @@ B32@0:8@16^@24
 B40@0:8@16@24@32
 v40@0:8@16@24@32
 v36@0:8@16@24B32
+@"NSObject<OS_os_transaction>"
 @"MapsNotificationCenter"
 @"MSPSharedTripBlacklist"
 @"NSTimer"
@@ -5442,7 +5473,6 @@ B40@0:8@16@24^@32
 B24@0:8^@16
 B48@0:8@16@24@32^@40
 @"IDSService"
-@"NSObject<OS_os_transaction>"
 @"<MSPSharedTripGroupSessionDelegate>"
 v40@0:8@"_MSPQueryState"16@"<NSObject><NSCopying>"24@"MSPContainer"32
 @40@0:8@16@?24@?32
@@ -5588,7 +5618,6 @@ v32@0:8@"MNNavigationService"16@"NSSet"24
 @"CKContainer"
 @"<CKRecordValue>"24@0:8@"NSString"16
 v32@0:8@"<CKRecordValue>"16@"NSString"24
-@28@0:8@16B24
 @"NSOrderedSet"
 @"MSPCloudContainerChangeSet"40@0:8@"MSPCloudContainerChangeSet"16@"MSPReplica"24@"NSDate"32
 @"<MSPReplicaMergeOptions>"24@0:8@"NSDate"16

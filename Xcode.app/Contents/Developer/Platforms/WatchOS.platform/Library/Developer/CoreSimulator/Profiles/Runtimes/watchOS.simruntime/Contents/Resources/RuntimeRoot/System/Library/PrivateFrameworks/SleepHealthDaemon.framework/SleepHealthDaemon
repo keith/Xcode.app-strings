@@ -20,6 +20,8 @@ AtIndex
 v24@?0@"HKSHSleepDaySummary"8^B16
 InRange
 @"<HKSPSleepOnboardingStore>"8@?0
+accessibilityAssertionManager
+T@"HDSHAccessibilityAssertionManager",R,N,V_accessibilityAssertionManager
 coachingAvailabilityManager
 T@"HDSHFeatureAvailabilityManager",R,N,V_coachingAvailabilityManager
 trackingAvailabilityManager
@@ -31,21 +33,21 @@ T@"HDProfile",R,W,N,V_profile
 SleepTracking
 SleepTrackingSessionStartDate
 queue
+shouldBeObservingContentProtectionState
+TB,N
+accessibilityAssertion
+T@"HDAssertion",R,N
 HDSHPluginServer.m
 Invalid parameter not satisfying: %@
 newSchedulesByWeekday[weekdayNumber] == nil
-Sleep Tracking
 B16@?0^@8
 [%@] Sleep samples saved
 @16@?0@"HKSample"8
-sleepTrackingSessionInProgress
-TB,N,GisSleepTrackingSessionInProgress
 HDSHSleepHealthDaemonTestPlugin.m
 Invalid featureIdentifier: %@
 currentDate
 T@"NSDate",&,N
 springBoardGreetingDisabled
-TB,N
 B24@?0@"HDDatabaseTransaction"8^@16
 T@"NSDate",&,N,V_currentDate
 HDSHSleepDaySummaryBuilder.m
@@ -86,6 +88,15 @@ Tq,R,N,V_morningIndex
 [%{public}@:%{public}@] Updating builder: %@
 [%{public}@:%{public}@] Add sample to %@: %@
 [%{public}@] Plugin loaded
+[%{public}@] failed to read observing protection state key: %{public}@
+[%{public}@] failed to set observing protection state key: %{public}@
+[%{public}@] should be observing content protection state
+[%{public}@] beginObservingContentProtectionState
+[%{public}@] stopObservingContentProtectionState
+[%{public}@] invalidateAccessibilityAssertion
+[%{public}@] database is locking, taking assertion
+[%{public}@] invalidating existing assertion
+[%{public}@] failed to take assertion with error: %{public}@
 [%{public}@] Updating current sleep schedules: %@
 [%{public}@] Updating sleep duration goal: %@
 [%{public}@] Finished replace with success: %@
@@ -95,12 +106,6 @@ Tq,R,N,V_morningIndex
 [%{public}@] Changed schedules: %@
 [%{public}@] Error retrieving latest sleep duration goal: %{public}@
 [%{public}@] Skipping saving unchanged sleep duration goal
-[%{public}@] failed to read sleep session in progress key: %{public}@
-[%{public}@] failed to set sleep session in progress key: %{public}@
-[%{public}@] existing sleep tracking session in progress
-[%{public}@] database is locking while sleep tracking session in progress, taking an assertion
-[%{public}@] invalidating existing assertion
-[%{public}@] failed to take assertion with error: %{public}@
 [%{public}@] sleep tracking session started
 [%{public}@] sleep tracking session stopped
 [%{public}@] saving sleep tracking samples %@
@@ -133,10 +138,11 @@ HDSHSleepDaySummaryEnumerator
 HDSHProfileExtension
 HDProfileExtension
 HDFeatureAvailabilityExtensionProvider
+HDSHAccessibilityAssertionManager
+HDContentProtectionObserver
 HDSHPluginServer
 HDDiagnosticObject
 HDSleepHealthDaemonPluginServerInterface
-HDContentProtectionObserver
 HDSHSleepHealthDaemonTestPlugin
 HDSHSleepDaySummaryQueryServer
 HDSHSleepOnboardingTestStore
@@ -324,15 +330,37 @@ initWithProfile:sleepStoreProvider:
 listenerEndpointForClient:error:
 featureAvailabilityExtensionForFeatureIdentifier:client:
 profile
+accessibilityAssertionManager
 coachingAvailabilityManager
 trackingAvailabilityManager
 windDownShortcutsAvailabilityManager
 _coachingAvailabilityManager
 _trackingAvailabilityManager
 _windDownShortcutsAvailabilityManager
+_accessibilityAssertionManager
+_restoreContentProtectionObservingState
+initWithCategory:domainName:profile:
+dateForKey:error:
+timeIntervalSinceNow
+setDate:forKey:error:
+shouldBeObservingContentProtectionState
+daemon
+contentProtectionManager
+addContentProtectionObserver:withQueue:
+setShouldBeObservingContentProtectionState:
+removeContentProtectionObserver:
+invalidate
+_queue_takeAccessibilityAssertion
+database
+takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
+contentProtectionStateChanged:previousState:
+beginObservingContentProtectionState
+stopObservingContentProtectionState
+invalidateAccessibilityAssertion
+accessibilityAssertion
+_accessibilityAssertion
 initWithUUID:configuration:client:delegate:
 profileExtensionWithIdentifier:
-_restoreSleepTrackingState
 sharedDiagnosticManager
 taskIdentifier
 _populateSamplesToInsert:samplesToDelete:forSleepSchedules:error:
@@ -353,20 +381,6 @@ hk_minus:
 hksh_hasEquivalentOverrideDayToSleepSchedule:
 timeIntervalSinceDate:
 quantity
-initWithCategory:domainName:profile:
-dateForKey:error:
-timeIntervalSinceNow
-setDate:forKey:error:
-isSleepTrackingSessionInProgress
-daemon
-contentProtectionManager
-addContentProtectionObserver:withQueue:
-_queue_takeAccessibilityAssertion
-invalidate
-database
-takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
-setSleepTrackingSessionInProgress:
-removeContentProtectionObserver:
 _saveSleepTrackingSamplesAfterFirstUnlock:completion:
 performWhenDataProtectedByFirstUnlockIsAvailable:
 contextForWritingProtectedData
@@ -390,13 +404,11 @@ remote_updateCurrentSleepSchedules:sleepDurationGoal:completion:
 remote_startSleepTrackingSession
 remote_stopSleepTrackingSession
 remote_saveSleepTrackingSamples:completion:
-contentProtectionStateChanged:previousState:
 exportedInterface
 remoteInterface
 connectionInvalidated
 _profileExtension
 _client
-_accessibilityAssertion
 profileType
 currentDate
 setCurrentDate:
@@ -581,18 +593,19 @@ v48@0:8@16@24{?=qq}32
 @"<HDFeatureAvailabilityExtension>"32@0:8@"NSString"16@"HDHealthStoreClient"24
 @32@0:8@16@?24
 @"HDSHFeatureAvailabilityManager"
+@"HDSHAccessibilityAssertionManager"
+v32@0:8q16q24
+v20@0:8B16
+@"HDAssertion"
 v40@0:8@16@24@?32
 v40@0:8@"NSArray"16@"HKQuantitySample"24@?<v@?B@"NSError">32
 v32@0:8@"NSArray"16@?<v@?B@"NSError">24
-v32@0:8q16q24
 @48@0:8@16@24@32@40
 B48@0:8@16@24@32^@40
-v20@0:8B16
 B40@0:8@16@24^@32
 B32@0:8@16^@24
 @"HDSHProfileExtension"
 @"HDHealthStoreClient"
-@"HDAssertion"
 q24@0:8@16
 @"HDSHSleepOnboardingTestStore"
 B24@0:8^@16
