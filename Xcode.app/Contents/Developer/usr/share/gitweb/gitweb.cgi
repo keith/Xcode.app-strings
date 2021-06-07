@@ -24,7 +24,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.24.3 (Apple Git-128)";
+our $version = "2.30.1 (Apple Git-130)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;
@@ -579,7 +579,7 @@ our $GITWEB_CONFIG_COMMON = $ENV{'GITWEB_CONFIG_COMMON'} || "/etc/gitweb-common.
 $GITWEB_CONFIG = ""        if ($GITWEB_CONFIG eq $GITWEB_CONFIG_COMMON);
 $GITWEB_CONFIG_SYSTEM = "" if ($GITWEB_CONFIG_SYSTEM eq $GITWEB_CONFIG_COMMON);
 # Common system-wide settings for convenience.
-# Those settings can be ovverriden by GITWEB_CONFIG or GITWEB_CONFIG_SYSTEM.
+# Those settings can be overridden by GITWEB_CONFIG or GITWEB_CONFIG_SYSTEM.
 read_config_file($GITWEB_CONFIG_COMMON);
 # Use first config file that exists.  This means use the per-instance
 # GITWEB_CONFIG if exists, otherwise use GITWEB_SYSTEM_CONFIG.
@@ -990,9 +990,21 @@ our $is_last_request = sub { 1 };
 our ($pre_dispatch_hook, $post_dispatch_hook, $pre_listen_hook);
 our $CGI = 'CGI';
 our $cgi;
+our $FCGI_Stream_PRINT_raw = \&FCGI::Stream::PRINT;
 sub configure_as_fcgi {
 require CGI::Fast;
 our $CGI = 'CGI::Fast';
+# FCGI is not Unicode aware hence the UTF-8 encoding must be done manually.
+# However no encoding must be done within git_blob_plain() and git_snapshot()
+# which must still output in raw binary mode.
+no warnings 'redefine';
+my $enc = Encode::find_encoding('UTF-8');
+*FCGI::Stream::PRINT = sub {
+my @OUTPUT = @_;
+for (my $i = 1; $i < @_; $i++) {
+$OUTPUT[$i] = $enc->encode($_[$i], Encode::FB_CROAK|Encode::LEAVE_SRC);
+@_ = @OUTPUT;
+goto $FCGI_Stream_PRINT_raw;
 my $request_number = 0;
 # let each child service 100 requests
 our $is_last_request = sub { ++$request_number > 100 };
@@ -1250,15 +1262,15 @@ sub quot_cec {
 my $cntrl = shift;
 my %opts = @_;
 my %es = ( # character escape codes, aka escape sequences
-"\t" => '\t',   # tab            (HT)
-"\n" => '\n',   # line feed      (LF)
-"\r" => '\r',   # carrige return (CR)
-"\f" => '\f',   # form feed      (FF)
-"\b" => '\b',   # backspace      (BS)
-"\a" => '\a',   # alarm (bell)   (BEL)
-"\e" => '\e',   # escape         (ESC)
-"\013" => '\v', # vertical tab   (VT)
-"\000" => '\0', # nul character  (NUL)
+"\t" => '\t',   # tab             (HT)
+"\n" => '\n',   # line feed       (LF)
+"\r" => '\r',   # carriage return (CR)
+"\f" => '\f',   # form feed       (FF)
+"\b" => '\b',   # backspace       (BS)
+"\a" => '\a',   # alarm (bell)    (BEL)
+"\e" => '\e',   # escape          (ESC)
+"\013" => '\v', # vertical tab    (VT)
+"\000" => '\0', # nul character   (NUL)
 my $chr = ( (exists $es{$cntrl})
     ? $es{$cntrl}
     : sprintf('\%2x', ord($cntrl)) );
@@ -3055,7 +3067,7 @@ my %link_attr = (
 '-type' => "application/$type+xml"
 $href_params{'extra_options'} = undef;
 $href_params{'action'} = $type;
-$link_attr{'-href'} = href(%href_params);
+$link_attr{'-href'} = esc_attr(href(%href_params));
 print "<link ".
       "rel=\"$link_attr{'-rel'}\" ".
       "title=\"$link_attr{'-title'}\" ".
@@ -3063,7 +3075,7 @@ print "<link ".
       "type=\"$link_attr{'-type'}\" ".
       "/>\n";
 $href_params{'extra_options'} = '--no-merges';
-$link_attr{'-href'} = href(%href_params);
+$link_attr{'-href'} = esc_attr(href(%href_params));
 $link_attr{'-title'} .= ' (no merges)';
 print "<link ".
       "rel=\"$link_attr{'-rel'}\" ".
@@ -3074,10 +3086,12 @@ print "<link ".
 } else {
 printf('<link rel="alternate" title="%s projects list" '.
        'href="%s" type="text/plain; charset=utf-8" />'."\n",
-       esc_attr($site_name), href(project=>undef, action=>"project_index"));
+       esc_attr($site_name),
+       esc_attr(href(project=>undef, action=>"project_index")));
 printf('<link rel="alternate" title="%s projects feeds" '.
        'href="%s" type="text/x-opml" />'."\n",
-       esc_attr($site_name), href(project=>undef, action=>"opml"));
+       esc_attr($site_name),
+       esc_attr(href(project=>undef, action=>"opml")));
 sub print_header_links {
 my $status = shift;
 # print out each stylesheet that exist, providing backwards capability
@@ -3239,8 +3253,8 @@ print qq!<script type="text/javascript" src="!.esc_url($javascript).qq!"></scrip
 if (defined $action &&
     $action eq 'blame_incremental') {
 print qq!<script type="text/javascript">\n!.
-      qq!startBlame("!. href(action=>"blame_data", -replay=>1) .qq!",\n!.
-      qq!           "!. href() .qq!");\n!.
+      qq!startBlame("!. esc_attr(href(action=>"blame_data", -replay=>1)) .qq!",\n!.
+      qq!           "!. esc_attr(href()) .qq!");\n!.
       qq!</script>\n!;
 } else {
 my ($jstimezone, $tz_cookie, $datetime_class) =
@@ -3501,7 +3515,7 @@ shift @$log;
 # print log
 my $skip_blank_line = 0;
 foreach my $line (@$log) {
-if ($line =~ m/^\s*([A-Z][-A-Za-z]*-[Bb]y|C[Cc]): /) {
+if ($line =~ m/^\s*([A-Z][-A-Za-z]*-([Bb]y|[Tt]o)|C[Cc]|(Clos|Fix)es): /) {
 if (! $opts{'-remove_signoff'}) {
 print "<span class=\"signoff\">" . esc_html($line) . "</span><br/>\n";
 $skip_blank_line = 1;
@@ -4025,7 +4039,7 @@ $can_highlight = 1;
 #   -  b
 #    + c
 #   +  d
-# Otherwise the highlightling would be confusing.
+# Otherwise the highlighting would be confusing.
 if ($is_combined) {
 for (my $i = 0; $i < @$add; $i++) {
 my $prefix_rem = substr($rem->[$i], 0, $num_parents);
@@ -5388,6 +5402,7 @@ print $cgi->header(
 ($sandbox ? 'attachment' : 'inline')
 . '; filename="' . $save_as . '"');
 local $/ = undef;
+local *FCGI::Stream::PRINT = $FCGI_Stream_PRINT_raw;
 binmode STDOUT, ':raw';
 print <$fd>;
 binmode STDOUT, ':utf8'; # as set at the beginning of gitweb.cgi
@@ -5453,8 +5468,8 @@ print qq!<img class="blob" type="!.esc_attr($mimetype).qq!"!;
 if ($file_name) {
 print qq! alt="!.esc_attr($file_name).qq!" title="!.esc_attr($file_name).qq!"!;
 print qq! src="! .
-      href(action=>"blob_plain", hash=>$hash,
-           hash_base=>$hash_base, file_name=>$file_name) .
+      esc_attr(href(action=>"blob_plain", hash=>$hash,
+           hash_base=>$hash_base, file_name=>$file_name)) .
       qq!" />\n!;
 } else {
 my $nr;
@@ -5652,6 +5667,7 @@ print $cgi->header(
 -status => '200 OK');
 open my $fd, "-|", $cmd
 or die_error(500, "Execute git-archive failed");
+local *FCGI::Stream::PRINT = $FCGI_Stream_PRINT_raw;
 binmode STDOUT, ':raw';
 print <$fd>;
 binmode STDOUT, ':utf8'; # as set at the beginning of gitweb.cgi
@@ -6296,6 +6312,7 @@ $alt_url = href(-full=>1, action=>"history", hash=>$hash, file_name=>$file_name)
 $alt_url = href(-full=>1, action=>"log", hash=>$hash);
 } else {
 $alt_url = href(-full=>1, action=>"summary");
+$alt_url = esc_attr($alt_url);
 print qq!<?xml version="1.0" encoding="utf-8"?>\n!;
 if ($format eq 'rss') {
 print <<XML;
@@ -6329,7 +6346,7 @@ print "<title>$title</title>\n" .
       $alt_url . '" />' . "\n" .
       '<link rel="self" type="' . $content_type . '" href="' .
       $cgi->self_url() . '" />' . "\n" .
-      "<id>" . href(-full=>1) . "</id>\n" .
+      "<id>" . esc_url(href(-full=>1)) . "</id>\n" .
       # use project owner for feed author
       "<author><name>$owner</name></author>\n";
 if (defined $favicon) {
@@ -6367,7 +6384,7 @@ print "<item>\n" .
       "<author>" . esc_html($co{'author'}) . "</author>\n" .
       "<pubDate>$cd{'rfc2822'}</pubDate>\n" .
       "<guid isPermaLink=\"true\">$co_url</guid>\n" .
-      "<link>$co_url</link>\n" .
+      "<link>" . esc_html($co_url) . "</link>\n" .
       "<description>" . esc_html($co{'title'}) . "</description>\n" .
       "<content:encoded>" .
       "<![CDATA[\n";
@@ -6387,8 +6404,8 @@ if ($co{'committer_email'}) {
 print "  <email>" . esc_html($co{'committer_email'}) . "</email>\n";
 print "</contributor>\n" .
       "<published>$cd{'iso-8601'}</published>\n" .
-      "<link rel=\"alternate\" type=\"text/html\" href=\"$co_url\" />\n" .
-      "<id>$co_url</id>\n" .
+      "<link rel=\"alternate\" type=\"text/html\" href=\"" . esc_attr($co_url) . "\" />\n" .
+      "<id>" . esc_html($co_url) . "</id>\n" .
       "<content type=\"xhtml\" xml:base=\"" . esc_url($my_url) . "\">\n" .
       "<div xmlns=\"http://www.w3.org/1999/xhtml\">\n";
 my $comment = $co{'comment'};
@@ -6469,8 +6486,8 @@ my %co = parse_commit($head);
 if (!%co) {
 next;
 my $path = esc_html(chop_str($proj{'path'}, 25, 5));
-my $rss  = href('project' => $proj{'path'}, 'action' => 'rss', -full => 1);
-my $html = href('project' => $proj{'path'}, 'action' => 'summary', -full => 1);
+my $rss  = esc_attr(href('project' => $proj{'path'}, 'action' => 'rss', -full => 1));
+my $html = esc_attr(href('project' => $proj{'path'}, 'action' => 'summary', -full => 1));
 print "<outline type=\"rss\" text=\"$path\" title=\"$path\" xmlUrl=\"$rss\" htmlUrl=\"$html\"/>\n";
 print <<XML;
 </outline>

@@ -516,6 +516,7 @@ OPTIONS.xcodeVersionWithStableSwiftABI = Gem::Version.new("10.2")
 OPTIONS.iOSVersionWithWatchThinning = Gem::Version.new("13")
 OPTIONS.watchOSVersionRemovedPlaceholders = Gem::Version.new("6")
 OPTIONS.supportEncryptionFormat2 = true
+OPTIONS.includeSourceToDestination = false
 # Only for variants / deployment targets pre 6.0
 $watchOSInfoPlistWhitelistEndVersion = Gem::Version.new("6")
 $watchOSInfoPlistWhitelist = Set.new([
@@ -600,6 +601,10 @@ OptionParser.new do |opts|
   opts.on("--[no-]support-encryption-format-2") \
   do |v|
     OPTIONS.supportEncryptionFormat2 = v
+  end
+  opts.on("--[no-]include-source-to-destination") \
+  do |v|
+    OPTIONS.includeSourceToDestination = v
   end
   opts.on("--set-support-encryption-format-2-platform-version=PLATFORM_VERSION", String,
           "Override the encryption format 2 introduction version for a given platform by passing 'platformIdentifier::version'") \
@@ -1592,13 +1597,15 @@ def lipo_archs(path)
 def file_type(path)
   return CmdSpec.new(locate_tool("file"), ["-b", "--", path.to_s]).run(0, false, true).strip
 OTOOL_PATH = locate_tool('otool-classic')
-def otoolLVM(path)
+def otool_archs_load_commands(path)
   # The options being passed to otool:
   #   -h: Display the Mach header.  llvm-otool emits this when `-l` is passed, but 'otool-classic' does not, so we must pass this option.
   #   -l: Display the load commands.
   #   -v: Display verbosely (symbolically) when possible.
   #   -m: The  object  file  names  are  not  assumed  to be in the archive(member) syntax,  which  allows  file  names  containing parenthesis.
-  CmdSpec.new(OTOOL_PATH, ["-h", "-l", "-v", "-m", path.to_s]).run(0, false, true)
+  #   -f: print the fat header
+  #   -arch all: print all archs (otherwise otool either prints just the host arch or all archs depending on the host context and what architectures the binary contains)
+  CmdSpec.new(OTOOL_PATH, ["-h", "-l", "-v", "-m", "-f", "-arch", "all", path.to_s]).run(0, false, true)
 $placeholderutil = locate_tool("placeholderutil")
 def makeWatchPlaceholderForiOS(comboApp, outputDir)
   assetutil = locate_tool("assetutil", [comboApp.watchAppChild.platform.toolsPath])
@@ -1636,14 +1643,14 @@ def otoolParseLoadCommands(output)
 #  returns a string.
 def GetMachOImagesFromOToolInfoForFile(path)
   path.assert_kind_of(Pathname)
-  obj = otoolLVM(path)
+  obj = otool_archs_load_commands(path)
   return nil if obj =~ /\A.*: is not an object file/
   objspl = obj.split('Mach header')
   assert(objspl.count > 1, "Couldn't split otool output on 'Mach header' for #{path}")
   # If it's a universal binary, this is the fat header. If it isn't, it's just the input path.
   obj_fat_header = objspl[0]
   obj_slices = objspl.drop(1)
-  archs = obj_fat_header.scan(/^architecture ([^ ]+)$/).collect { |gs| groups[0] }
+  archs = obj_fat_header.scan(/^architecture ([^ ]+)$/).collect { |groups| groups[0] }
   if archs.empty?
     # If it's a universal binary, otool will tell us the archs. If it isn't universal, we need lipo.
     archs,_ = lipo_archs(path)
@@ -1690,6 +1697,22 @@ def GetMachOImagesFromOToolInfoForFile(path)
     machoImages << MachOImage.new("MH_" + machOType, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, hasCodeSignature, loadedDylibs, rpaths)
   end
   return machoImages
+MH_MAGIC     = 0xfeedface
+MH_CIGAM     = 0xcefaedfe
+MH_MAGIC_64  = 0xfeedfacf
+MH_CIGAM_64  = 0xcffaedfe
+FAT_MAGIC    = 0xcafebabe
+FAT_CIGAM    = 0xbebafeca
+FAT_MAGIC_64 = 0xcafebabf
+FAT_CIGAM_64 = 0xbfbafeca
+MACHO_SINATURES = [MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64, FAT_MAGIC, FAT_CIGAM, FAT_MAGIC_64, FAT_CIGAM_64]
+# Returns true if the file is Mach-O executable, or false otherwise.
+def is_macho?(path)
+  # Do a quick check if the beginning of file contains appropriate signature.
+  # If it does not, there's no point to run 'file' tool which is more expensive.
+  return false if File.size(path) < 4
+  magic = IO.binread(path, 4).unpack("I>")[0]
+  return MACHO_SINATURES.include?(magic) && (file_type(path) =~ /Mach-O/) rescue nil
 # Examines the file system entity at the path and returns the most specific kind of node that best represents it.
 def MakeFileSystemNode(path, parentDirectory = nil, enclosingBundle = nil, parentPathForDisplay = nil)
   # Make a quick exit if the path doesn't even exist.
@@ -1719,8 +1742,7 @@ reserved
       end
     else
       # Possibly a Mach-O (we'll need to check the contents to know for sure)
-      is_macho = (file_type(path) =~ /Mach-O/) rescue nil
-      machoImages = if is_macho then GetMachOImagesFromOToolInfoForFile(path) else nil end
+      machoImages = if is_macho?(path) then GetMachOImagesFromOToolInfoForFile(path) else nil end
       if machoImages && !machoImages.empty? && (!enclosingBundle || machoImages.first.platformIdentifier == enclosingBundle.statedPlatformIdentifier)
         # Instantiate a Mach-O File Node and, if there is an enclosing bundle, add it to the list.
         node = FSMachOFileNode.new(path, enclosingBundle, machoImages)
@@ -2410,7 +2432,8 @@ def ProcessIPA(ipaDir, options)
         traitsName = Digest::SHA1.hexdigest(traits.to_s)
         # Call our main workhorse method to do the heavy lifting.
         dstPath = options.outputPath + traitsName
-        thinningContext = ThinningContext.new(traits, traits, thinningVariants, dstPath, bitcodeContext, {})
+        iomap = OPTIONS.includeSourceToDestination ? {} : nil
+        thinningContext = ThinningContext.new(traits, traits, thinningVariants, dstPath, bitcodeContext, iomap)
         outputInfo = CreateOutputIPA(ipa, cleanSrcIPA, dstPath, thinningContext, options.createAssetPacks, options.urlPrefix, options.createAppPlaceholders)
         # Make a note about the thinned IPA we created.
         JsonOutput[:thinnedIPAs] ||= []

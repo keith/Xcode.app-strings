@@ -57,6 +57,13 @@
 # You can change the separator between the branch name and the above
 # state symbols by setting GIT_PS1_STATESEPARATOR. The default separator
 # is SP.
+# When there is an in-progress operation such as a merge, rebase,
+# revert, cherry-pick, or bisect, the prompt will include information
+# related to the operation, often in the form "|<OPERATION-NAME>".
+# When the repository has a sparse-checkout, a notification of the form
+# "|SPARSE" will be included in the prompt.  This can be shortened to a
+# single '?' character by setting GIT_PS1_COMPRESSSPARSESTATE, or omitted
+# by setting GIT_PS1_OMITSPARSESTATE.
 # By default, __git_ps1 will compare HEAD to your SVN upstream if it can
 # find one, or @{upstream} otherwise.  Once you have set
 # GIT_PS1_SHOWUPSTREAM, you can override it on a per-repository basis by
@@ -72,7 +79,8 @@
 # If you would like a colored hint about the current dirty state, set
 # GIT_PS1_SHOWCOLORHINTS to a nonempty value. The colors are based on
 # the colored output of "git status -sb" and are available only when
-# using __git_ps1 for PROMPT_COMMAND or precmd.
+# using __git_ps1 for PROMPT_COMMAND or precmd in Bash,
+# but always available in Zsh.
 # If you would like __git_ps1 to do nothing in the case when the current
 # directory is set up to be ignored by git, then set
 # GIT_PS1_HIDE_IF_PWD_IGNORED to a nonempty value. Override this on the
@@ -103,6 +111,7 @@ upstream=svn+git # default upstream is SVN if available, else git
 esac
 done <<< "$output"
 # parse configuration values
+local option
 for option in ${GIT_PS1_SHOWUPSTREAM}; do
 case "$option" in
 git|svn) upstream="$option" ;;
@@ -345,6 +354,11 @@ if [ "true" = "$inside_worktree" ] &&
    git check-ignore -q .
 then
 return $exit
+local sparse=""
+if [ -z "${GIT_PS1_COMPRESSSPARSESTATE}" ] &&
+   [ -z "${GIT_PS1_OMITSPARSESTATE}" ] &&
+   [ "$(git config --bool core.sparseCheckout)" = "true" ]; then
+sparse="|SPARSE"
 local r=""
 local b=""
 local step=""
@@ -353,10 +367,7 @@ if [ -d "$g/rebase-merge" ]; then
 __git_eread "$g/rebase-merge/head-name" b
 __git_eread "$g/rebase-merge/msgnum" step
 __git_eread "$g/rebase-merge/end" total
-if [ -f "$g/rebase-merge/interactive" ]; then
-r="|REBASE-i"
-else
-r="|REBASE-m"
+r="|REBASE"
 else
 if [ -d "$g/rebase-apply" ]; then
 __git_eread "$g/rebase-apply/next" step
@@ -406,6 +417,7 @@ local w=""
 local i=""
 local s=""
 local u=""
+local h=""
 local c=""
 local p=""
 if [ "true" = "$inside_gitdir" ]; then
@@ -430,18 +442,22 @@ if [ -n "${GIT_PS1_SHOWUNTRACKEDFILES-}" ] &&
    git ls-files --others --exclude-standard --directory --no-empty-directory --error-unmatch -- ':/*' >/dev/null 2>/dev/null
 then
 u="%${ZSH_VERSION+%}"
+if [ -n "${GIT_PS1_COMPRESSSPARSESTATE}" ] &&
+   [ "$(git config --bool core.sparseCheckout)" = "true" ]; then
+h="?"
 if [ -n "${GIT_PS1_SHOWUPSTREAM-}" ]; then
 __git_ps1_show_upstream
 local z="${GIT_PS1_STATESEPARATOR-" "}"
-# NO color option unless in PROMPT_COMMAND mode
-if [ $pcmode = yes ] && [ -n "${GIT_PS1_SHOWCOLORHINTS-}" ]; then
+# NO color option unless in PROMPT_COMMAND mode or it's Zsh
+if [ -n "${GIT_PS1_SHOWCOLORHINTS-}" ]; then
+if [ $pcmode = yes ] || [ -n "${ZSH_VERSION-}" ]; then
 __git_ps1_colorize_gitstring
 b=${b##refs/heads/}
 if [ $pcmode = yes ] && [ $ps1_expanded = yes ]; then
 __git_ps1_branch_name=$b
 b="\${__git_ps1_branch_name}"
-local f="$w$i$s$u"
-local gitstring="$c$b${f:+$z$f}$r$p"
+local f="$h$w$i$s$u"
+local gitstring="$c$b${f:+$z$f}${sparse}$r$p"
 if [ $pcmode = yes ]; then
 if [ "${__git_printf_supports_v-}" != yes ]; then
 gitstring=$(printf -- "$printf_format" "$gitstring")
