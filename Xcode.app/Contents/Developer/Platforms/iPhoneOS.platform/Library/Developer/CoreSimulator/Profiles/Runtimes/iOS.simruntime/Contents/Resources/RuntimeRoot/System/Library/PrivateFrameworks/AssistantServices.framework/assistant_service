@@ -21,12 +21,16 @@ v8@?0
 -[ASLocalization _languageCode]
 Localizable
 strings
+/Library/Assistant/Plugins/SiriKitExecutor.assistantBundle
 com.apple.assistant.service.listener
 -[ASServiceDaemon listener:shouldAcceptNewConnection:]
 -[ASServiceDaemon listener:shouldAcceptNewConnection:]_block_invoke
 v16@?0@"NSObject<OS_xpc_object>"8
 -[ASServiceDaemon _setUpEventHandlersForNotifyd]_block_invoke
 com.apple.notifyd.matching
+-[ASServiceDaemon _loadExecutionService]
+System
+SKEExecutionListenerManager
 com.apple.assistant.service.watchdog
 -[ASServicesMonitor incrementKeepAliveCount]_block_invoke
 -[ASServicesMonitor decrementKeepAliveCount]_block_invoke
@@ -77,6 +81,8 @@ v12@?0B8
 -[_ASServiceHelper isDeviceLockedWithPasscode]_block_invoke
 -[_ASServiceHelper isDeviceInCarDND]
 -[_ASServiceHelper isDeviceInCarDND]_block_invoke
+-[_ASServiceHelper isDeviceWatchAuthenticatedWithCompletion:]
+-[_ASServiceHelper isDeviceWatchAuthenticatedWithCompletion:]_block_invoke
 -[_ASServiceHelper isDeviceInStarkMode]
 -[_ASServiceHelper isDeviceInStarkMode]_block_invoke
 -[_ASServiceHelper handleCommand:completion:]
@@ -228,16 +234,22 @@ _languageCodeChanged
 localizedStringForKey:table:bundle:
 _queue
 _stringTables
-initWithMachServiceName:
+currentContext
+createXPCListenerWithMachServiceName:
 _setQueue:
 setDelegate:
 _setUpEventHandlersForNotifyd
+_loadExecutionService
 processIdentifier
 setRemoteObjectInterface:
 setExportedInterface:
 initWithConnection:servicesMonitor:
 setExportedObject:
 setInvalidationHandler:
+arrayWithObjects:count:
+pathWithComponents:
+initWithPath:
+loadAndReturnError:
 isEqual:
 class
 self
@@ -264,6 +276,7 @@ listener:shouldAcceptNewConnection:
 _listener
 _connectionCount
 _servicesMonitor
+_executionService
 _restartProcessIfNeeded
 serviceMonitorWillCrashAssistantServiceDueToPluginAtPath:reply:
 lastPathComponent
@@ -331,6 +344,7 @@ openURL:reply:
 dismissAssistant
 getLockStateWithReply:
 getCarDNDModeWithReply:
+getWatchAuthenticatedWithReply:
 getStarkModeWithReply:
 handleCommand:executionInfo:completion:
 prepareForAudioHandoffFailedWithCompletion:
@@ -351,6 +365,7 @@ handleCommand:completion:
 isTimeoutSuspended
 peerInfoForCurrentCommand
 fetchContextsForKeys:includesNearbyDevices:completion:
+isDeviceWatchAuthenticatedWithCompletion:
 _commandClassName
 _commandInfoDictionary
 _commandExecutionInfo
@@ -382,6 +397,11 @@ hasPrefix:
 %s %@ from assistantd disconnected
 %s No more connections from assistantd
 %s Received XPC event from notifyd: %s
+%s About to run temoporary loading logic for SiriKitRuntime
+%s About to load the SiriKitRuntime framework
+%s Failed to load the bundle for SiriKitExecutor - %@
+%s Completed the load of SiriKitExecutor bundle
+%s Finished running temoporary loading logic for SiriKitExecutor.
 %s _keepAliveCount = %ld
 %s %@
 %s Sync timed out, restarting as soon as there are no outstanding commands. Stuck plugin %@ with sync class %@
@@ -650,6 +670,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.hid.manager.user-access-device</key>
 <true/>
+<key>com.apple.homekit.location</key>
+<true/>
 <key>com.apple.icloud.fmfd.access</key>
 <true/>
 <key>com.apple.icloud.searchpartyd.beaconmanager</key>
@@ -690,6 +712,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.private.DistributedEvaluation.RecordAccess-com.apple.siri.SiriVideoDESPlugin</key>
 <true/>
+<key>com.apple.private.DistributedEvaluation.RecordAccess-com.apple.siri.SiriVideoSignalsDESPlugin</key>
+<true/>
 <key>com.apple.private.MobileContainerManager.lookup</key>
 <dict>
 <key>appData</key>
@@ -717,6 +741,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <key>com.apple.private.calendar.allow-suggestions</key>
 <true/>
 <key>com.apple.private.calendar.watchos-mutable-database</key>
+<true/>
+<key>com.apple.private.canGetAppLinkInfo</key>
 <true/>
 <key>com.apple.private.carkit.dnd</key>
 <true/>
@@ -778,6 +804,10 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.private.homekit.allow-secure-access</key>
 <true/>
+<key>com.apple.private.homekit.assistant-identifiers</key>
+<true/>
+<key>com.apple.private.homekit.home-location</key>
+<true/>
 <key>com.apple.private.imcore.imdpersistence.database-access</key>
 <true/>
 <key>com.apple.private.imcore.spi.database-access</key>
@@ -787,6 +817,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <key>com.apple.private.memorystatus</key>
 <true/>
 <key>com.apple.private.mobiletimerd</key>
+<true/>
+<key>com.apple.private.network.socket-delegate</key>
 <true/>
 <key>com.apple.private.remindd</key>
 <dict>
@@ -802,6 +834,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <key>com.apple.private.security.storage.Notes</key>
 <true/>
 <key>com.apple.private.security.storage.SiriInference</key>
+<true/>
+<key>com.apple.private.security.storage.SiriReferenceResolution</key>
 <true/>
 <key>com.apple.private.security.storage.SiriVocabulary</key>
 <true/>
@@ -843,10 +877,9 @@ v32@0:8@"NSString"16@?<v@?>24
 </array>
 <key>com.apple.private.tcc.manager</key>
 <true/>
-<key>com.apple.private.usernotifications.bundle-identifiers</key>
+<key>com.apple.private.usernotifications.settings</key>
 <array>
-<string>com.apple.Home</string>
-<string>com.apple.NanoHome</string>
+<string>read</string>
 </array>
 <key>com.apple.proactive.PersonalizationPortrait.Event</key>
 <true/>
@@ -862,8 +895,6 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.proactive.eventtracker</key>
 <true/>
-<key>com.apple.rootless.storage.clientScripter</key>
-<true/>
 <key>com.apple.runningboard.assertions.siri</key>
 <true/>
 <key>com.apple.runningboard.process-state</key>
@@ -878,6 +909,7 @@ v32@0:8@"NSString"16@?<v@?>24
 <string>/private/var/mobile/Library/Trial/NamespaceDescriptors/</string>
 <string>/private/var/mobile/Library/Trial/Treatments/421/</string>
 <string>/private/var/mobile/Library/Trial/Treatments/422/</string>
+<string>/private/var/mobile/Library/Trial/Treatments/750/</string>
 </array>
 <key>com.apple.security.exception.files.home-relative-path.read-only</key>
 <array>
@@ -887,6 +919,7 @@ v32@0:8@"NSString"16@?<v@?>24
 </array>
 <key>com.apple.security.exception.files.home-relative-path.read-write</key>
 <array>
+<string>/Library/Assistant/SiriReferenceResolution/</string>
 <string>/Library/Notes/</string>
 <string>/Library/Caches/com.apple.notes.autoincrement.lock</string>
 <string>/Library/Caches/com.apple.notes.objectcreation.lock</string>
@@ -937,7 +970,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <string>com.apple.siri-distributed-evaluation</string>
 <string>com.apple.siri.morphunassetsupdaterd</string>
 <string>com.apple.assistant.notification_service</string>
-<string>com.apple.ShazamKit.ShazamXPCService</string>
+<string>com.apple.shazamd</string>
+<string>com.apple.siri.device_resolution</string>
 </array>
 <key>com.apple.security.exception.shared-preference.read-only</key>
 <array>
@@ -967,11 +1001,17 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.sharing.DeviceDiscovery</key>
 <true/>
+<key>com.apple.shortcuts.import-shortcuts</key>
+<true/>
+<key>com.apple.siri.VoiceShortcuts.xpc</key>
+<true/>
 <key>com.apple.siri.analytics.assistant</key>
 <true/>
-<key>com.apple.siri.clientScripter</key>
-<true/>
 <key>com.apple.siri.client_lite</key>
+<true/>
+<key>com.apple.siri.device_resolution</key>
+<true/>
+<key>com.apple.siri.external_request</key>
 <true/>
 <key>com.apple.siriinferenced</key>
 <true/>
@@ -990,8 +1030,12 @@ v32@0:8@"NSString"16@?<v@?>24
 </array>
 <key>com.apple.trial.client</key>
 <array>
+<string>755</string>
+<string>750</string>
 <string>421</string>
 <string>422</string>
+<string>871</string>
+<string>910</string>
 </array>
 <key>com.apple.visualvoicemail.client</key>
 <true/>
@@ -999,6 +1043,8 @@ v32@0:8@"NSString"16@?<v@?>24
 <true/>
 <key>com.apple.wifi.manager-access</key>
 <true/>
+<key>fairplay-client</key>
+<string>516366292</string>
 <key>keychain-access-groups</key>
 <array>
 <string>appleaccount</string>

@@ -432,6 +432,8 @@ class ThinningVariantCLISpec
   # Parses a command-line arg
   def self.fromArg(str)
     return new(nil, nil) if str == "all"
+    return new(str, nil) unless str.include?("::")
+    
     parts = str.split('::')
     if parts.size == 1
       return fromArg(parts[0])
@@ -593,6 +595,13 @@ OptionParser.new do |opts|
           "If thinning is also enabled, the Bitcode won't be in any thinned IPAs") \
   do |v|
     OPTIONS.compileBitcode = v
+    OPTIONS.compileBitcodeIfNeeded = nil
+  end
+  opts.on("--compile-bitcode-if-needed",
+          "Prefer native code if possible; only compile bitcode if we don't have native code or need to translate arm64_32") \
+  do |v|
+    OPTIONS.compileBitcodeIfNeeded = v
+    OPTIONS.compileBitcode = nil
   end
   opts.on("--[no-]translate-watchos") \
   do |v|
@@ -619,6 +628,12 @@ OptionParser.new do |opts|
     assert(v.segments.count <= 3)
     assert(v.segments.all? {|s| s.kind_of?(Integer) })
     OPTIONS.xcodeVersionWithStableSwiftABI = v
+  end
+  # We don't currently support the negative form to skip the universal (since it's an implementation detail needed for thinning)
+  opts.on("--create-universal",
+          "Create a universal IPA") \
+  do |v|
+    OPTIONS.createUniversal = v
   end
   opts.on("--create-thinned=DEVICE", String,
           "Create thinned IPAs for devices with the given identifier",
@@ -844,7 +859,7 @@ if ARGV.count == 0
   exit 1
 elsif ARGV.count == 1
   OPTIONS.inputPath = Pathname(ARGV[0])
-  if not (OPTIONS.printInfo or OPTIONS.validateInput or OPTIONS.compileBitcode or !OPTIONS.thinDevices.empty? or OPTIONS.createAssetPacks)
+  if not (OPTIONS.printInfo or OPTIONS.validateInput or OPTIONS.createUniversal or OPTIONS.compileBitcode or !OPTIONS.thinDevices.empty? or OPTIONS.createAssetPacks)
     $stderr.puts "error: no action specified"
     $stderr.puts USAGE_BANNER
     JsonOutput[:alerts] = [] unless JsonOutput[:alerts]
@@ -1683,7 +1698,8 @@ def GetMachOImagesFromOToolInfoForFile(path)
     EmitWarning(__LINE__, "Could not determine platform for #{arch} in #{path}") unless platformIdentifier
     # Record whether or not there is a code signature.
     hasCodeSignature = loadCommands.select{ |lc| lc[:cmd] == "LC_CODE_SIGNATURE" }.count > 0
-    # Record whether or not there is executable code.
+    
+    # Record whether or not there is bitcode.
     hasBitcode = loadCommands.select{ |lc| lc[:cmd] == "LC_SEGMENT" or lc[:cmd] == "LC_SEGMENT_64" }.find{ |lc|
       # Select segments named "__LLVM" with sections named "__bundle".
       lc[:segname] == "__LLVM" and lc[:sections] and lc[:sections].find{ |sc| sc[:sectname] == "__bundle"}
@@ -2354,6 +2370,19 @@ def ProcessIPA(ipaDir, options)
   # Create a model object to represent the IPA.  This will scan the file system hierarchy and return an object tree.
   log { "Scanning IPA..." }
   root_ipa = IPA.new(ipaDir)
+  if options.compileBitcodeIfNeeded && root_ipa.mainBundle
+    machOs = root_ipa.mainBundle.enumerateTree.select{|n| n.kind_of?(FSMachOFileNode) }
+    shouldCompile = machOs.any? { |m|
+      # Any slice missing native code? Any watchOS binary missing arm64_32?
+      m.machoImages.any? { |mi| mi.hasBitcode && !mi.hasExecCode } \
+      || (m.platform.identifier == "watchos" \
+       &&  m.machoImages.any? { |mi| mi.arch == "armv7k"   } \
+       && !m.machoImages.any? { |mi| mi.arch == "arm64_32" })
+    }
+    if shouldCompile
+      options.compileBitcode = true
+    end
+  end
   root_is_watch_only_container = root_ipa.mainBundle && plistBoolValue(root_ipa.mainBundle.infoDict["ITSWatchOnlyContainer"] || false)
   watch_ipa = ExtractWatchIPA(root_ipa, options)
   if watch_ipa
@@ -2369,7 +2398,9 @@ def ProcessIPA(ipaDir, options)
   root_ipas = [root_ipa, watch_ipa].compact
   log { "Root IPAs:\n#{root_ipas.collect { |ipa| ipa.path.to_s }}" }
   bitcodeContext = BitcodeContext.new
+  JsonOutput[:thinnableAssetCatalogs] = []
   for ipa in root_ipas
+    JsonOutput[:thinnableAssetCatalogs] += ipa.thinnableAssetCatalogs.collect { |ac| ac.path.to_s }.sort
     thinDevices = options.thinDevices
     # Create a new IPA from source, because srcIPA will be mutated (todo stop mutating srcIPA)
     cleanSrcIPA = if OPTIONS.validateOutput then ipa.class.new(ipa.path, ipa.mainBundle.path) else nil end
@@ -2400,7 +2431,7 @@ def ProcessIPA(ipaDir, options)
     # but we have been asked to do thinning, we strip bitcode.  We also strip bitcode (instead of compiling it) if we've
     # been asked to compile bitcode but the main exectuable doesn't contain bitcode (this choice is made separately for
     # every platform).
-    if root_ipa == ipa && (options.compileBitcode || !thinDevices.empty?)
+    if root_ipa == ipa && (options.compileBitcode || !thinDevices.empty? || options.createUniversal)
       # Compile and/or strip any bitcode in the bundle.  This doesn't modify the input; any compiled or stripped binaries
       # are written to the temporary directory, and individual nodes in the node hierarchy are made to point to it.
       log { "#{options.compileBitcode ? "Compiling" : "Stripping"} bitcode..." }
@@ -2450,7 +2481,6 @@ def ProcessIPA(ipaDir, options)
           }.uniq,
           sourceToDestinationMap: thinningContext.inputOutputMap,
           traits: traits.to_dict,
-          thinnableAssetCatalogs: ipa.thinnableAssetCatalogs.collect { |ac| ac.path.to_s }.sort,
         }.reject { |k, v| v.nil? }
         if outputInfo.assetPackOutputDir
           # Make a note about the thinned asset packs we created.
@@ -2475,7 +2505,7 @@ def ProcessIPA(ipaDir, options)
       end
     end
     # Unless we're just being asked for information or validating, we should also create the universal IPA.
-    if thinDevices.count > 0 || OPTIONS.compileBitcode
+    if thinDevices.count > 0 || OPTIONS.compileBitcode || OPTIONS.createUniversal
       # Create a device-generic, universal copy of the IPA (though we might have compiled bitcode, and might or might not
       # be extracting asset packs and creating placeholder appwrappers, etc... all we know is that we're not thinning).
       # Call our main workhorse method to do the heavy lifting.

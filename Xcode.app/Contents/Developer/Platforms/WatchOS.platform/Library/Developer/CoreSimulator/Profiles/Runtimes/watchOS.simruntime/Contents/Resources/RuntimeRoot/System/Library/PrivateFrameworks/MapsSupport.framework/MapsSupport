@@ -48,6 +48,7 @@ MapsSharedETADefaultSender
 -[MSPSharedTripServer relay:accountStatusChanged:]
 Invalid account for sharing
 The provided sharing handle does not match the current sharing identity
+v8@?0
 com.apple.Maps.pinnedPlacesStorage
 com.apple.Maps.collectionsStorage
 com.apple.Maps.historyEntriesStorage
@@ -257,11 +258,10 @@ shield_color_string
 BookmarksData
 SearchResultHistoryItemData
 ReportAProblem
-Library
-MSPMapsPathsAppContainerURLWasInvalidatedNotification
-com.apple.Maps
 com.apple.LaunchServices.applicationRegistered
 com.apple.LaunchServices.applicationUnregistered
+Library
+MSPMapsPathsAppContainerURLWasInvalidatedNotification
 group.com.apple.Maps
 Maps
 @"NSString"8@?0
@@ -289,6 +289,7 @@ History.synced
 Couldn't set no backup attribute for %@.
 Error removing synced marker file: %@
 bundleIDs
+com.apple.Maps
 NRPairedDeviceRegistry
 Unable to find class %s
 /System/Library/PrivateFrameworks/NanoRegistry.framework/NanoRegistry
@@ -384,10 +385,7 @@ MSPSenderMinimalStrategyETAUpdateIntervalThrottleKey
 MSPSenderMinimalStrategyETAUpdateNearArrivalIntervalThrottleKey
 MSPSharedETASenderIdentifierKey
 MSPSharedTripServerEnabledKey
-MSPUpNextMaximumAllowableHorizontalAccuracyInMetersKey
-MSPUpNextMinimumAllowableDistanceToEntryInMetersKey
 MapsSyncCloudPushBatchSizeKey
-MapsSyncEnableMapsSyncKey
 MapsSyncEnableMigrationsKey
 MapsSyncForceRunCollectionsMigratorKey
 MapsSyncHasMigratedInitialKey
@@ -826,6 +824,8 @@ strongSelf went away in %s line %d
 [Server] Connection interrupted: %@
 [Server] Initialising subscriptions for trip %@
 [Server] Purging subscriptions for %@
+[Server] Unsubscribing from trip %@, no more connections
+[Server] Error unsubscribing from trip %@ for purged connection: %@
 [Server] Will not %s, connection lacks entitlement: %@
 [Server] Checking in on %@ (identity: %{private}@, %{private}@%s, %lu%s trips
 [Server] fetchSendingIdentity: %{private}@)
@@ -979,18 +979,23 @@ MSPSharedTripBlacklist store data %@
 MSPSharedTripBlacklist load data %@
 MSPSharedTripBlacklist load remote %@
 MSPSharedTripBlacklist more recent %@
-truncatePointDataForPrivacy current points count %lu
+truncatePointDataForPrivacy early exit: no composed route to truncate
+truncatePointDataForPrivacy closest index %lu
+truncatePointDataForPrivacy no eta info, will use whole route
 truncatePointDataForPrivacy early exit: closestPointOnRoute returned GEOPolylineCoordinateInvalid
 truncatePointDataForPrivacy_EarlyExit_GEOPolylineCoordinateInvalid
-index for current location %u, doubled %u
-truncatePointDataForPrivacy early exit: offsetIndex > number of coordinates
+truncatePointDataForPrivacy truncating routingPathLeg from closest coordinate
+truncatePointDataForPrivacy composed route coordinates count %lu (%lu)
+index for current location %u
+truncatePointDataForPrivacy early exit: index > number of coordinates
 truncatePointDataForPrivacy_EarlyExit_NumberOfCoordinates
-truncatePointDataForPrivacy route coordinates after truncation count %lu
+truncatePointDataForPrivacy route info coordinates after truncation count %lu (%lu)
 truncatePointDataForPrivacy traffic offsets before truncation count %lu
 truncatePointDataForPrivacy early exit: lastIndex > trafficColorOffsetsCount
 truncatePointDataForPrivacy_EarlyExit_TrafficColorOffsetsCount
 truncatePointDataForPrivacy
 truncatePointDataForPrivacy traffic offsets after truncation count %lu
+SharedNavRouteInfo traffic colors count (%d) is not equal to traffic color offsets count (%d). Attempting to continue anyway
 [Contact] Recompiled %lu keys for contact fetching
 [Contact] Setting additional keys for contact fetching: %{private}@
 [STORAGE] initializing new MSPSharedTripStorageController
@@ -1120,6 +1125,8 @@ shareWithContactValue called for handle %@ with MSPSharedTripCapabilityType_iMes
 [GS] trying to send message chunk without any packet data
 [GS] sendChunkMessage %@ destinations %@
 _sendChunkMessage
+[GS] sendChunkMessage requiring Routing Path Leg
+[GS] sendChunkMessage requiring NO Routing Path Leg
 [GS] sendChunkMessage error: %@
 [GS] _validParticipant %@ -> %@ in %@
 [GS] participantDidJoin discard %@
@@ -1154,8 +1161,8 @@ Rescheduling merge
 Migrations complete: %@
 Handled account change: %@
 Run conditions have changed and we should be %@
-MSPSharedTripCapabilityLevelFetcher addObserver %@
-MSPSharedTripCapabilityLevelFetcher removeObserver %@
+MSPSharedTripCapabilityLevelFetcher registerObserver %@
+MSPSharedTripCapabilityLevelFetcher unregisterObserver %@
 MSPSharedTripCapabilityLevelFetcher notifyObservers
 capabilityLevelForContact cache miss for handle %@
 capabilityLevelForContact cache hit for handle %@
@@ -1850,6 +1857,7 @@ setRemoteObjectInterface:
 setObject:forKey:
 removeObject:
 removeObjectForKey:
+_purgeSubscriptionsForConnection:
 setInvalidationHandler:
 setInterruptionHandler:
 addObject:
@@ -1857,7 +1865,10 @@ objectForKey:
 copy
 objectForKeyedSubscript:
 setObject:forKeyedSubscript:
+containsObject:
 enumerateKeysAndObjectsUsingBlock:
+_subscribedConnectionsForTripID:createIfNeeded:
+unsubscribeFromUpdatesToSharedTrip:error:
 setAvailabilityDelegate:
 initWithRelay:
 _setNotificationCenter:
@@ -1881,9 +1892,7 @@ startSharingWithGroup:error:
 stopSharingWith:
 stopSharingWithGroup:
 stopSharing
-_subscribedConnectionsForTripID:createIfNeeded:
 subscribeToUpdatesToSharedTrip:error:
-unsubscribeFromUpdatesToSharedTrip:error:
 numberWithBool:
 listener:shouldAcceptNewConnection:
 etaController:sharedTripDidBecomeAvailable:
@@ -1896,7 +1905,6 @@ etaController:sharedTripDidBecomeUnavailable:
 senderController:didInvalidateSharedTripWithError:
 invalidateActiveHandlesForSenderController:
 relay:accountStatusChanged:
-_purgeSubscriptionsForConnection:
 _sendingController
 _receivingController
 _idsRelay
@@ -2121,7 +2129,6 @@ queryContentsDidChange:contentsVersion:
 contentVersion
 editContentsUsingBarrierBlock:completionQueue:completion:
 addOrUpdateObjects:completion:
-containsObject:
 isObject:equalTo:
 setObject:atIndexedSubscript:
 removeObjectsInArray:
@@ -2380,6 +2387,8 @@ setDestinationInfo:
 setArrived:
 routeInfo
 clearCoordinates
+sendChunkedMessage:to:requirement:error:
+clearRoutingPathLegs
 setState:
 _sendDestinationReachedUpdate:to:
 _sendStoppedUpdate:to:
@@ -2481,7 +2490,9 @@ iconAttributeKey
 setIconAttributeKey:
 iconAttributeValue
 setIconAttributeValue:
+styleAttributes
 TI,R,N
+T@"GEOStyleAttributes",R,N
 shieldType
 setShieldType:
 shieldText
@@ -2508,6 +2519,8 @@ modeArtwork
 setModeArtwork:
 alternateArtwork
 setAlternateArtwork:
+headerArtwork
+setHeaderArtwork:
 hasLocationHint
 locationHint
 initWithMUID:resultProviderID:coordinate:
@@ -2852,6 +2865,7 @@ _placeDisplayType
 shortAddress
 composedRoute
 coordinatesCount
+routingPathLegsCount
 trafficColors
 trafficColorsCount
 setTrafficColorOffsets:count:
@@ -2866,11 +2880,35 @@ setReferenceFrame:
 setMuted:
 hasUpdatedTimestamp
 setUpdatedTimestamp:
+hasTransportType
+transportType
+setTransportType:
 destinationName
+hasLatitude
+hasLongitude
 closestPointOnRoute:
-coordinates
-setCoordinates:count:
+usesRoutingPathPoints
+routingPathDataFromStart:
+setRoutingPathLegs:
+pointCount
+pointAt:
+addCoordinates:
 setTrafficColors:count:
+clearTrafficColors
+clearTrafficColorOffsets
+clearChargingStations
+isEVRoute
+legs
+destination
+chargingInfo
+chargingTime
+setChargingTime:
+addChargingStations:
+routingPathLegs
+initWithColors:offsets:count:
+initWithMapItem:
+initWithRoutingPathData:trafficColors:destination:
+coordinates
 dataWithBytes:length:
 setUnpackedLatLngVertices:
 setManeuverStartZilchIndex:
@@ -2881,10 +2919,11 @@ hasUnpackedLatLngVertices
 coordinateAt:
 initWithLatitude:longitude:
 initWithLocation:isCurrentLocation:
-initWithMapItem:
 initWithWaypoints:routeAttributes:directionsResponse:
 initWithRoute:initializerData:
 senderName
+updateFromComposedRoute:
+updateFromTraffic:
 equalityTest
 initWithContactHandle:
 stringValue
@@ -3057,18 +3096,15 @@ currentMapsGroupContainerURL
 URLByAppendingPathComponent:isDirectory:
 initWithLibraryDirectoryURL:groupLibraryURL:invalidationHandler:
 mapsApplicationContainerPathsWithInvalidationHandler:
-applicationProxyForIdentifier:
-appState
+initWithBundleIdentifier:allowPlaceholder:error:
+applicationState
 isInstalled
 isValid
 isRestricted
-isRemovedSystemApp
-isBlocked
-isPlaceholder
 dataContainerURL
 groupContainerURLs
 URLForDirectory:inDomain:appropriateForURL:create:error:
-bundleProxyForCurrentProcess
+bundleRecordForCurrentProcess
 URLByAppendingPathComponent:
 _invalidate
 URLByDeletingLastPathComponent
@@ -3632,7 +3668,6 @@ ifRidesharingInformationSource
 ifGEOStorageRouteRequestStorage
 waypoints
 firstObject
-transportType
 query
 lineItem
 debugTitle
@@ -3672,7 +3707,6 @@ directionsSearch
 ridesharingTrip
 initWithStartWaypoint:endWaypoint:
 setRidesharingTrip:
-hasTransportType
 isCurrentLocation
 setRouteInformationSource:
 _routeInformationSource
@@ -3745,7 +3779,7 @@ sendMessage:fromAccount:toDestinations:priority:options:identifier:error:
 _msp_removeSelfFrom:
 subdataWithRange:
 plistData
-_sendChunkMessage:to:packet:error:
+_sendChunkMessage:to:packet:requirement:error:
 _msp_IDSIdentifierFor:
 _msp_currentAccount
 sendData:fromAccount:toDestinations:priority:options:identifier:error:
@@ -4021,6 +4055,8 @@ T@"NSData",&,N,V_iconDataCarPlay
 capabilityLevelsDidUpdate
 initWithProtocol:queue:
 initWithService:delegate:queue:
+registerObserver:
+unregisterObserver:
 setDestinations:
 fetchQueueDidUpdate
 timerWithTimeInterval:repeats:block:
@@ -4197,15 +4233,21 @@ _msp_hasValidIDSAccount
 _msp_currentAccountIdentifier
 _msp_IDSIdentifiersFor:
 hasModeArtwork
+hasHeaderArtwork
 hasSystem
 hasAlternateArtwork
+hasheaderArtwork
 _alternateArtwork
 _lineColorString
 _locationHint
 _modeArtwork
 _system
+_hasheaderArtwork
+_headerArtwork
 T@"NSString",&,N,V_lineColorString
 T@"MSPTransitStorageArtwork",&,N,V_modeArtwork
+TB,R,N,V_hasheaderArtwork
+T@"MSPTransitStorageArtwork",&,N,V_headerArtwork
 T@"MSPTransitStorageSystem",&,N,V_system
 T@"MSPTransitStorageArtwork",&,N,V_alternateArtwork
 T@"GEOLatLng",&,N,V_locationHint
@@ -4298,11 +4340,9 @@ sharedService
 isInNavigatingState
 navigationSessionIdentifier
 _currentTransportType
-setTransportType:
 setProtocolVersion:
 route
 uniqueRouteID
-destination
 mapItemStorageForGEOMapItem:forUseType:
 traffic
 displayEtaInfo
@@ -4325,18 +4365,6 @@ hasTrackedTransportType
 trackedTransportType
 desiredTransportType
 navigationTransportType
-clearTrafficColors
-clearTrafficColorOffsets
-clearChargingStations
-pointCount
-pointAt:
-addCoordinates:
-isEVRoute
-legs
-chargingInfo
-chargingTime
-setChargingTime:
-addChargingStations:
 setLatitude:
 setLongitude:
 displayETAToEndOfRoute
@@ -4387,18 +4415,20 @@ navigationServiceDidSynchronize:
 navigationService:didChangeNavigationState:
 navigationService:didUpdateMatchedLocation:
 navigationService:didUpdateStepIndex:segmentIndex:
+navigationService:didUpdateDisplayedStepIndex:segmentIndex:
+navigationService:didUpdateDistanceUntilManeuver:timeUntilManeuver:forStepIndex:
+navigationService:didReceiveRouteSignalStrength:
 navigationService:didEnterPreArrivalStateForWaypoint:endOfLegIndex:
 navigationService:didArriveAtWaypoint:endOfLegIndex:
 navigationServiceDidEnterPreArrivalState:
 navigationServiceDidArrive:
-navigationServicePredictingDidArrive:
 navigationService:didResumeNavigatingFromWaypoint:endOfLegIndex:
 navigationService:didUpdateProceedToRouteDistance:displayString:closestStepIndex:
 navigationService:didUpdateDistanceUntilSign:timeUntilSign:forStepIndex:
-navigationService:didUpdateDistanceUntilManeuver:timeUntilManeuver:forStepIndex:
 navigationServiceBeginGuidanceUpdate:
 navigationServiceEndGuidanceUpdate:
 navigationService:updateSignsWithInfo:
+navigationService:updateSignsWithARInfo:
 navigationService:usePersistentDisplay:
 navigationService:willAnnounce:inSeconds:
 navigationService:didEnableGuidancePrompts:
@@ -4429,8 +4459,6 @@ navigationService:didUpdateAlternateRoutes:traffics:
 navigationService:didReceiveTrafficIncidentAlert:responseCallback:
 navigationService:didUpdateTrafficIncidentAlert:
 navigationService:didInvalidateTrafficIncidentAlert:
-navigationService:didUpdatePossibleCommuteDestinations:
-navigationService:didUpdatePredictedCommuteDestination:
 navigationService:didStartRecordingTraceWithPath:
 navigationService:didFinishLoadingTrace:
 navigationServiceDidPauseTrace:
@@ -4440,18 +4468,17 @@ navigationService:didSeekToTracePosition:
 navigationService:didRecordTraceBookmarkWithID:
 navigationService:didActivateAudioSession:
 navigationService:didStartSpeakingPrompt:
-navigationService:didUpdateAudioOutputSettings:
-navigationService:didChangeVolume:
+navigationService:didChangeVoiceGuidanceLevel:
 navigationService:willProcessSpeechEvent:
 navigationService:didProcessSpeechEvent:
 navigationService:triggerHaptics:
 navigationService:willRequestRealtimeUpdatesForRouteIDs:
 navigationService:didReceiveRealtimeUpdates:
 navigationServiceDidDetectInterfaceMismatch:
+navigationService:didApproachStop:maneuverType:step:commands:details:
 currentState
 isCompatibleNavigationType
 isCompatibleTransportType
-navigationService:didUpdateTraffic:
 setCurrentState:
 _outOfNavListener
 _guidanceState
@@ -4980,6 +5007,7 @@ v36@0:8@16@24B32
 @"<GEOTransitIconDataSource>"16@0:8
 @"<GEOTransitTextDataSource>"16@0:8
 I16@0:8
+@"GEOStyleAttributes"16@0:8
 @"GEOMapItemIdentifier"16@0:8
 @"<GEOTransitSystem>"16@0:8
 @"<GEOTransitArtworkDataSource>"16@0:8
@@ -5122,6 +5150,8 @@ v56@0:8@16Q24@32@40@?48
 B40@0:8@16@24^@32
 B24@0:8^@16
 B48@0:8@16@24@32^@40
+B48@0:8@16@24Q32^@40
+B56@0:8@16@24@32Q40^@48
 @"IDSService"
 @"<MSPSharedTripGroupSessionDelegate>"
 v40@0:8@"_MSPQueryState"16@"<NSObject><NSCopying>"24@"MSPContainer"32
@@ -5216,25 +5246,27 @@ v32@0:8@"GEONavigationListener"16@"NSArray"24
 v40@0:8@"GEONavigationListener"16{?=dd}24
 v28@0:8@"GEONavigationListener"16i24
 v40@0:8@16Q24Q32
+v48@0:8@16d24d32Q40
 v40@0:8@16@24Q32
 v48@0:8@16d24@32Q40
-v48@0:8@16d24d32Q40
 v40@0:8@16Q24d32
 v68@0:8@16@24@32i40@44i52Q56B64
 v56@0:8@16@24@32i40@44i52
 v40@0:8@16d24d32
 v44@0:8@16i24@28@36
 v32@0:8@16q24
+v60@0:8@16Q24i32Q36@44@52
 v40@0:8@"MNNavigationService"16Q24Q32
 v32@0:8@"MNNavigationService"16Q24
 v24@0:8@"MNNavigationService"16
 v32@0:8@"MNNavigationService"16@"NSError"24
 v28@0:8@"MNNavigationService"16i24
 v32@0:8@"MNNavigationService"16@"MNLocation"24
+v48@0:8@"MNNavigationService"16d24d32Q40
 v40@0:8@"MNNavigationService"16@"GEOComposedWaypoint"24Q32
 v48@0:8@"MNNavigationService"16d24@"NSString"32Q40
-v48@0:8@"MNNavigationService"16d24d32Q40
 v32@0:8@"MNNavigationService"16@"MNGuidanceSignInfo"24
+v32@0:8@"MNNavigationService"16@"NSArray"24
 v28@0:8@"MNNavigationService"16B24
 v40@0:8@"MNNavigationService"16Q24d32
 v32@0:8@"MNNavigationService"16@"MNGuidanceLaneInfo"24
@@ -5254,13 +5286,12 @@ v32@0:8@"MNNavigationService"16q24
 v40@0:8@"MNNavigationService"16@"NSArray"24@"NSDictionary"32
 v40@0:8@"MNNavigationService"16@"MNTrafficIncidentAlert"24@?<v@?B>32
 v32@0:8@"MNNavigationService"16@"MNTrafficIncidentAlert"24
-v32@0:8@"MNNavigationService"16@"NSArray"24
-v32@0:8@"MNNavigationService"16@"MNCommuteDestination"24
 v32@0:8@"MNNavigationService"16@"NSString"24
 v32@0:8@"MNNavigationService"16@"MNNavigationTraceInfo"24
 v32@0:8@"MNNavigationService"16d24
 v32@0:8@"MNNavigationService"16@"GEOComposedGuidanceEvent"24
 v32@0:8@"MNNavigationService"16@"NSSet"24
+v60@0:8@"MNNavigationService"16Q24i32Q36@"NSArray"44@"NSArray"52
 i20@0:8i16
 @"GEONavigationListener"
 @"GEONavigationGuidanceState"

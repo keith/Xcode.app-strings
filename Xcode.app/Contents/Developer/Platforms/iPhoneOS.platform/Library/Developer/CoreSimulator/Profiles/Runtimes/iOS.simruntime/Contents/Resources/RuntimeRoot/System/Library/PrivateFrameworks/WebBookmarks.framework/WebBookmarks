@@ -14,20 +14,27 @@ DateAdded
 DateLastViewed
 ImageURL
 PreviewText
+LastSelectedTab
 Folder
 Leaf
 , Changed Attributes: %@
 <BAChangeRecord: %p, Type: %@, Bookmark Type: %@, Bookmark ID: %d, Bookmark Sync Server ID: %@%@>
+data
+v32@?0@"NSString"8Q16^B24
 605.2.2
 606.1.16
 -[WebBookmarkCloudKitSyncCollection dealloc]
+-[WebBookmarkProductionSafariCloudKitSyncTabCollection dealloc]
 <%s %p; localID: %d; serverID: %@; item: %p>
 BAFolder
 BABookmark
+<%@: %p, type: %@, store owner: %@>
 -[WBBookmarkDBAccess copyDeviceIdentifier]
 -[WBBookmarkDBAccess resetDeviceIdentifier]
 WebBookmarkDatabaseCreate
 com.apple.dataaccess
+Safari
+TabDatabase
 BADatabaseOpen
 BADatabaseSave
 BADatabaseClose
@@ -48,11 +55,12 @@ BAItemSetSyncKey
 BAItemCopySyncData
 BAItemSetSyncData
 BAChangeGetChangeType
-BAChangeGetIsBookmarkChange
-BAChangeGetIsFolderChange
 BAChangeCopyChangedItem
 BAChangeCopyServerId
 BAChangeIsMove
+CKBAChangeGetItemType
+CKBAChangeGetFolder
+CKBAChangeGetBookmarkType
 CKBADatabasePerformMaintenanceAfterVersion
 CKBADatabaseGetLocalCloudKitMigrationState
 CKBADatabaseSetLocalCloudKitMigrationState
@@ -86,10 +94,8 @@ CKBAChangeCopyModifiedAttributes
 CKBAItemCopyAttributes
 CKBAItemSetModifiedAttributes
 CKBAItemCopyValueForKey
-CKBAFolderCopyKnownKeys
-CKBABookmarkCopyKnownKeys
-CKBAReadingListItemCopyKnownKeys
 CKBADatabaseClearAllLocalBookmarksForAutomatedTesting
+v20@?0B8@"NSError"12
 Error: domain=%@, code=%ld
 B16@?0@"WebBookmark"8
 BookmarkID
@@ -97,6 +103,53 @@ ParentID
 Type
 AssociatedBookmark
 ModifiedAttributes
+pinned
+privatePinned
+recentlyClosed
+com.apple.WebBookmarks.SafariTabs.lock
+DROP TABLE IF EXISTS windows
+CREATE TABLE windows (id INTEGER PRIMARY KEY,active_tab_group_id INTEGER DEFAULT NULL,date_closed REAL DEFAULT NULL,extra_attributes BLOB DEFAULT NULL,is_last_session INTEGER DEFAULT 0,local_tab_group_id INTEGER DEFAULT NULL,private_tab_group_id INTEGER DEFAULT NULL,scene_id TEXT DEFAULT NULL,uuid TEXT NOT NULL UNIQUE,FOREIGN KEY (active_tab_group_id) REFERENCES bookmarks (id) ON UPDATE CASCADE ON DELETE SET NULL,FOREIGN KEY (local_tab_group_id) REFERENCES bookmarks (id) ON UPDATE CASCADE ON DELETE CASCADE,FOREIGN KEY (private_tab_group_id) REFERENCES bookmarks (id) ON UPDATE CASCADE ON DELETE CASCADE)
+CREATE INDEX uuid_index ON windows (uuid)
+DROP TABLE IF EXISTS windows_tab_groups
+CREATE TABLE windows_tab_groups (id INTEGER PRIMARY KEY,active_tab_id INTEGER DEFAULT NULL,tab_group_id INTEGER NOT NULL,window_id INTEGER NOT NULL,FOREIGN KEY (active_tab_id) REFERENCES bookmarks (id) ON UPDATE CASCADE ON DELETE CASCADE,FOREIGN KEY (tab_group_id) REFERENCES bookmarks (id) ON UPDATE CASCADE ON DELETE CASCADE,FOREIGN KEY (window_id) REFERENCES windows (id) ON UPDATE CASCADE ON DELETE CASCADE,UNIQUE (tab_group_id, window_id))
+CREATE INDEX window_index ON windows_tab_groups (window_id)
+DELETE FROM windows WHERE local_tab_group_id = 0 OR local_tab_group_id IS NULL OR private_tab_group_id = 0 OR private_tab_group_id IS NULL
+DELETE FROM windows WHERE local_tab_group_id IN (SELECT windows.local_tab_group_id FROM windows LEFT JOIN bookmarks ON windows.local_tab_group_id = bookmarks.id WHERE bookmarks.id IS NULL)
+DELETE FROM windows WHERE private_tab_group_id IN (SELECT windows.private_tab_group_id FROM windows LEFT JOIN bookmarks ON windows.private_tab_group_id = bookmarks.id WHERE bookmarks.id IS NULL)
+B8@?0
+@"WBTab"16@?0@"WebBookmark"8
+B16@?0@"WBTab"8
+'%@'
+SELECT windows.id FROM windows WHERE windows.uuid = ?
+Failed to fetch window id
+SELECT tab_bookmarks.external_uuid, tab_group_bookmarks.external_uuid FROM bookmarks AS tab_bookmarks INNER JOIN windows_tab_groups ON tab_bookmarks.id = windows_tab_groups.active_tab_id INNER JOIN bookmarks AS tab_group_bookmarks ON windows_tab_groups.tab_group_id = tab_group_bookmarks.id WHERE windows_tab_groups.window_id = ?
+Failed to fetch active tabs
+SELECT bookmarks.external_uuid, windows.local_tab_group_id, windows.private_tab_group_id, windows.scene_id, windows.uuid, windows.id, windows.extra_attributes FROM windows INNER JOIN bookmarks ON windows.active_tab_group_id = bookmarks.id %@
+Failed to fetch window states
+WHERE windows.date_closed = (SELECT MAX(date_closed) from windows)
+WHERE windows.is_last_session = 1
+WHERE windows.date_closed > 0
+WHERE windows.date_closed IS NULL
+WHERE uuid = %@
+INSERT INTO windows (active_tab_group_id, date_closed, extra_attributes, local_tab_group_id, private_tab_group_id, scene_id, uuid) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (uuid) DO UPDATE SET active_tab_group_id = excluded.active_tab_group_id, date_closed = excluded.date_closed, extra_attributes = excluded.extra_attributes, local_tab_group_id = excluded.local_tab_group_id, private_tab_group_id = excluded.private_tab_group_id
+Failed to add a window
+INSERT INTO windows_tab_groups (active_tab_id, tab_group_id, window_id) VALUES (?, ?, ?) ON CONFLICT (tab_group_id, window_id) DO UPDATE SET active_tab_id = excluded.active_tab_id
+Failed to add an active tab
+v32@?0@"NSString"8@"NSString"16^B24
+DELETE FROM windows %@
+Failed to delete windows
+DELETE FROM bookmarks WHERE parent != 0 OR (syncable = 0 AND external_uuid NOT IN (%@))
+Failed to delete all tabs
+@"NSNumber"16@?0@"WBTab"8
+UPDATE bookmarks SET date_closed = %f WHERE id in (%@)
+Failed to update tab close date
+@"NSString"16@?0@"WBWindowState"8
+UPDATE windows SET is_last_session = CASE WHEN uuid in (%@) THEN 1 ELSE 0 END
+Failed to update last session
+PinnedTabs
+PrivatePinnedTabs
+WindowStatesKey
+<%@: %p; pinnedTabs = %lu; privatePinnedTabs = %lu; windowStates = %lu>
 ROLLBACK
 COMMIT
 BEGIN DEFERRED
@@ -111,6 +164,9 @@ Misuse of WBReadingList interface. Use class method defaultReadingList.
 com.apple.WebBookmarks.AddToReadingListQueue
 %@ %d (%d)
  '%@' [%@] [%@]
+bookmark
+<%@: %p; tabGroup = %@; title = %@; url = %@; uuid = %@>
+<%@: %p; uuid = %@>
 DidDownloadIconsNotification
 BookmarkIdentifier
 com.apple.WebBookmarks.SQLiteError
@@ -125,6 +181,8 @@ com.apple.bookmarks.IsBuiltinBookmark
 com.apple.bookmarks.IsBuiltinDeviceBookmark
 com.apple.bookmarks.IsCarrierBookmark
 com.apple.bookmarks.SelectedFavoritesFolder
+LocalURL
+WBTabGroupsDatabaseDidUpdate
 com.apple.webbookmarksd.readingListfetching
 com.apple.WebBookmarks.webbookmarksd
 WebBookmarksDataclassDidChangeNotification
@@ -145,6 +203,7 @@ toMigrationState
 DAVHomeURL
 BookmarkImages
 Bookmarks.db
+SafariTabs.db
 corrupted
 %@.corrupted
 -journal
@@ -153,6 +212,8 @@ corrupted
 :memory:
 SELECT * FROM bookmarks LIMIT 1
 Database failed full integrity check.
+PRAGMA foreign_keys = ON
+PRAGMA auto_vacuum = FULL
 SELECT name from sqlite_master where type = 'table'
 bookmarks
 generations
@@ -174,17 +235,17 @@ UPDATE bookmarks SET archive_status = %d WHERE %@
 web_filter_status = %d
 UPDATE bookmarks SET web_filter_status = ? WHERE parent = ? AND deleted = 0 AND web_filter_status != ?
 VACUUM
+PRAGMA wal_checkpoint(TRUNCATE)
 parent = %d AND deleted = 0 AND read = 1 AND (archive_status = %d OR archive_status = %d)
+Trying to edit bookmarks without first obtaining the bookmarks database file lock.
 id = %d AND deleted = 0
 external_uuid = ? AND deleted = 0
 SELECT external_uuid FROM bookmarks WHERE deleted = 0 AND external_uuid IN (
-v32@?0@"NSString"8Q16^B24
 SELECT id FROM bookmarks WHERE parent = ? AND type = 1 AND title = ? AND deleted = 0
 parent = ? AND title = ? AND deleted = 0 ORDER BY order_index
 parent = %d AND type = 1 AND deleted = 0 AND hidden = 0 AND hidden_ancestor_count = 0 ORDER BY order_index
 SELECT COUNT(*) FROM bookmarks WHERE parent = ? AND type = 0 AND hidden = 0
 SELECT parent, count(*) FROM bookmarks WHERE (parent IN (SELECT folder_id FROM folder_ancestors WHERE ancestor_id = ?) AND hidden = 0 AND type = 0) GROUP BY parent
-Safari
 SELECT id FROM bookmarks WHERE special_id = %d AND deleted = 0
 web_filter_status != %d
 read = 0 AND 
@@ -204,6 +265,7 @@ UPDATE bookmarks SET order_index = order_index + 1 WHERE order_index < ? AND ord
 UPDATE bookmarks SET order_index = order_index - 1 WHERE order_index > ? AND order_index <= ? AND parent = ?
 UPDATE bookmarks SET order_index = ?1, dav_generation = ?2%@ WHERE id = ?3
 , modified_attributes = modified_attributes | ?4
+v32@?0@"WebBookmark"8Q16^B24
 SELECT id, parent, num_children, (SELECT COUNT(*) FROM bookmarks AS child_bookmark WHERE child_bookmark.parent = parent_bookmark.id AND hidden = 0) AS real_num_children FROM bookmarks AS parent_bookmark WHERE num_children != real_num_children
 UPDATE bookmarks SET num_children = ? WHERE id = ?
 DISTINCT url
@@ -250,6 +312,7 @@ type = 0 AND title = ?3 AND url = ?1 AND parent = ?2 AND deleted = 0 AND sync_da
 PRAGMA user_version
 PRAGMA journal_mode = wal
 BEGIN
+PRAGMA user_version = %d
 CREATE TABLE generations (generation INTEGER NOT NULL)
 INSERT INTO generations (generation) VALUES (1)
 CREATE TABLE sync_properties (key TEXT NOT NULL, value TEXT NOT NULL)
@@ -257,15 +320,13 @@ CREATE INDEX sync_properties_key_index ON sync_properties (key)
 INSERT INTO sync_properties (key, value) VALUES ('_dav_generation', 1)
 INSERT INTO bookmarks (id, special_id, parent, type, order_index, num_children, editable, deletable, title, external_uuid) VALUES (1, 1, 0, 1, 0, 0, 0, 0, 'BookmarksBar', '%@')
 UPDATE bookmarks SET num_children = 1 WHERE id = 0
-PRAGMA user_version = %d
 DROP TABLE IF EXISTS bookmark_title_words
 CREATE TABLE bookmark_title_words (id INTEGER PRIMARY KEY AUTOINCREMENT, bookmark_id INTEGER NOT NULL CONSTRAINT fk_bookmark_id REFERENCES bookmarks(id) ON DELETE CASCADE, word TEXT, word_index INTEGER)
 CREATE TRIGGER fkd_bookmark_title_words_bookmark_id BEFORE DELETE ON bookmarks      FOR EACH ROW BEGIN DELETE FROM bookmark_title_words WHERE bookmark_id = OLD.id;      END;
 CREATE INDEX title_word_index ON bookmark_title_words(word)
 CREATE INDEX title_bookmark_id_index ON bookmark_title_words(bookmark_id)
 DROP TABLE IF EXISTS bookmarks
-CREATE TABLE bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT,special_id INTEGER DEFAULT 0,parent INTEGER, type INTEGER,title TEXT,url TEXT COLLATE NOCASE,num_children INTEGER DEFAULT 0,editable INTEGER DEFAULT 1,deletable INTEGER DEFAULT 1,hidden INTEGER DEFAULT 0,hidden_ancestor_count INTEGER DEFAULT 0,order_index INTEGER NOT NULL,external_uuid TEXT,read INTEGER DEFAULT NULL,last_modified REAL DEFAULT NULL,server_id TEXT, sync_key TEXT,sync_data BLOB,added INTEGER DEFAULT 1,deleted INTEGER DEFAULT 0,extra_attributes BLOB DEFAULT NULL,local_attributes BLOB DEFAULT NULL,fetched_icon BOOL DEFAULT 0, icon BLOB DEFAULT NULL,dav_generation INTEGER DEFAULT 0,locally_added BOOL DEFAULT 0,archive_status INTEGER DEFAULT 0,syncable BOOL DEFAULT 1,web_filter_status INTEGER DEFAULT 0%@)
-, modified_attributes UNSIGNED BIG INT DEFAULT 0
+CREATE TABLE bookmarks (id INTEGER PRIMARY KEY AUTOINCREMENT,special_id INTEGER DEFAULT 0,parent INTEGER, type INTEGER,title TEXT,url TEXT COLLATE NOCASE,num_children INTEGER DEFAULT 0,editable INTEGER DEFAULT 1,deletable INTEGER DEFAULT 1,hidden INTEGER DEFAULT 0,hidden_ancestor_count INTEGER DEFAULT 0,order_index INTEGER NOT NULL,external_uuid TEXT,read INTEGER DEFAULT NULL,last_modified REAL DEFAULT NULL,server_id TEXT, sync_key TEXT,sync_data BLOB,added INTEGER DEFAULT 1,deleted INTEGER DEFAULT 0,extra_attributes BLOB DEFAULT NULL,local_attributes BLOB DEFAULT NULL,fetched_icon BOOL DEFAULT 0, icon BLOB DEFAULT NULL,dav_generation INTEGER DEFAULT 0,locally_added BOOL DEFAULT 0,archive_status INTEGER DEFAULT 0,syncable BOOL DEFAULT 1,web_filter_status INTEGER DEFAULT 0, modified_attributes UNSIGNED BIG INT DEFAULT 0, date_closed REAL DEFAULT NULL, last_selected_child INTEGER DEFAULT NULL, FOREIGN KEY (last_selected_child) REFERENCES bookmarks (id) ON DELETE SET NULL)
 CREATE INDEX special_id_index ON bookmarks (special_id)
 CREATE INDEX autocomplete_index ON bookmarks (url)
 CREATE INDEX folder_list_index ON bookmarks (parent, type, order_index)
@@ -361,6 +422,13 @@ PRAGMA user_version = 37
 PRAGMA user_version = 38
 ALTER TABLE bookmarks ADD COLUMN modified_attributes UNSIGNED BIG INT DEFAULT 0
 PRAGMA user_version = 39
+DELETE FROM bookmark_title_words WHERE bookmark_id NOT IN (SELECT id FROM bookmarks)
+DELETE FROM folder_ancestors WHERE folder_id NOT IN (SELECT id FROM bookmarks)
+ALTER TABLE bookmarks ADD COLUMN date_closed REAL DEFAULT NULL
+PRAGMA user_version = 41
+ALTER TABLE bookmarks ADD COLUMN last_selected_child INTEGER DEFAULT NULL
+ALTER TABLE bookmarks ADD FOREIGN KEY (last_selected_child) REFERENCES bookmarks (id) ON DELETE SET NULL
+PRAGMA user_version = 42
 SELECT id, local_attributes, icon FROM bookmarks WHERE deleted = 0 AND parent = ?
 UPDATE bookmarks SET local_attributes = ?, icon = ? WHERE id = ?
 SELECT %@, %s FROM bookmarks
@@ -378,6 +446,7 @@ UPDATE bookmarks SET parent = ?1, order_index = ?2,%@%@ icon = NULL, fetched_ico
  modified_attributes = modified_attributes | ?4,
  dav_generation = ?5,
 UPDATE bookmarks SET order_index = (order_index - 1) WHERE parent = ? AND order_index > ?
+SELECT id FROM bookmarks WHERE server_id = ? AND deleted = 1
 INSERT INTO bookmarks (order_index, deleted, parent, server_id%@) VALUES (0, 1, -1, ?%@)
 , sync_data
 DELETE FROM bookmarks WHERE deleted = 1
@@ -389,11 +458,12 @@ DELETE FROM bookmarks WHERE parent IN (SELECT folder_id FROM folder_ancestors WH
  OR id = ?
 UPDATE bookmarks SET order_index = order_index + 1 WHERE parent = %d AND order_index >= %d
 SELECT (hidden + hidden_ancestor_count) FROM bookmarks WHERE id = ?
-INSERT INTO bookmarks (title, url, parent, type, external_uuid, order_index, extra_attributes, fetched_icon, icon, locally_added, archive_status, web_filter_status, hidden_ancestor_count, editable, local_attributes, syncable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO bookmarks (title, url, parent, type, external_uuid, order_index, extra_attributes, fetched_icon, icon, locally_added, archive_status, web_filter_status, hidden_ancestor_count, editable, local_attributes, syncable, last_selected_child) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 SELECT count(*) FROM Bookmarks WHERE special_id = %u
-UPDATE bookmarks SET title = ?1, url = ?2, extra_attributes = ?3, local_attributes = ?11, fetched_icon = ?4, icon = ?5, locally_added = ?10, archive_status = ?8, web_filter_status = ?12%@%@ WHERE id = ?6
+UPDATE bookmarks SET title = ?1, url = ?2, extra_attributes = ?3, local_attributes = ?11, fetched_icon = ?4, icon = ?5, locally_added = ?10, archive_status = ?8, web_filter_status = ?12%@%@%@ WHERE id = ?6
 , dav_generation = ?7
 , modified_attributes = ?13
+, last_selected_child = ?14
 UPDATE bookmarks SET hidden = ? WHERE id = ?
 UPDATE bookmarks SET last_modified = ?, read = ? WHERE id = ?
 UPDATE bookmarks SET external_uuid = '%@' WHERE id = %d
@@ -414,6 +484,7 @@ SELECT server_id, %@(order_index) FROM bookmarks WHERE parent = ? AND order_inde
 SELECT id, special_id FROM bookmarks WHERE server_id = ? AND deleted = 0
 SELECT %@(order_index), server_id FROM bookmarks WHERE parent = ? AND server_id IS NOT NULL
 BookmarksSyncMetadata.plist
+SafariTabsSyncMetadata.plist
 UPDATE bookmarks SET sync_key = ? WHERE id = ?
 UPDATE bookmarks SET sync_data = ? WHERE id = ?
 SELECT sync_key FROM bookmarks WHERE server_id = ? AND deleted = 0 ORDER BY server_id ASC
@@ -501,6 +572,14 @@ special_id == 0 AND id != 0
 com.apple.WebBookmarks.ErrorDomain
 SQLiteResult
 come.apple.WebBookmarks.syncLockQueue
+dateClosed
+extraAttributes
+identifier
+localTabGroup
+privateTabGroup
+sceneID
+tabGroupsToActiveTabs
+<%@: %p; activeTabGroupUUID = %@; identifier = %d; sceneID = %@; uuid = %@>
 com.apple.WebBookmarks
 Bookmarks
 History (bookmark proxy)
@@ -539,12 +618,16 @@ id IN (SELECT bookmark_id FROM bookmark_title_words WHERE word GLOB ?)
 (%@) OR %@
 (%@ AND %@)
 B32@?0@"NSString"8Q16^B24
-bookmarks.type, bookmarks.title, bookmarks.url, bookmarks.id, bookmarks.editable, bookmarks.deletable, bookmarks.hidden, bookmarks.parent, bookmarks.order_index, bookmarks.external_uuid, bookmarks.special_id, bookmarks.server_id, bookmarks.sync_key, bookmarks.sync_data, bookmarks.extra_attributes, bookmarks.local_attributes, bookmarks.fetched_icon, bookmarks.icon, bookmarks.locally_added, bookmarks.archive_status, bookmarks.syncable, bookmarks.web_filter_status%@
-, bookmarks.modified_attributes
+hasMigrated
+@"WebBookmark"16@?0@"WBTab"8
+@"WBTabGroup"16@?0@"WebBookmark"8
+bookmarks.type,bookmarks.title,bookmarks.url,bookmarks.id,bookmarks.editable,bookmarks.deletable,bookmarks.hidden,bookmarks.parent,bookmarks.order_index,bookmarks.external_uuid,bookmarks.special_id,bookmarks.server_id,bookmarks.sync_key,bookmarks.sync_data,bookmarks.extra_attributes,bookmarks.local_attributes,bookmarks.fetched_icon,bookmarks.icon,bookmarks.locally_added,bookmarks.archive_status,bookmarks.syncable,bookmarks.web_filter_status, bookmarks.modified_attributes, bookmarks.last_selected_child
 AND hidden = 0 
 AND type = 1 
 AND type = 0 
-SELECT bookmarks.type, bookmarks.title, bookmarks.url, bookmarks.id, bookmarks.editable, bookmarks.deletable, bookmarks.hidden, bookmarks.parent, bookmarks.order_index, bookmarks.external_uuid, bookmarks.special_id, bookmarks.server_id, bookmarks.sync_key, bookmarks.sync_data, bookmarks.extra_attributes, bookmarks.local_attributes, bookmarks.fetched_icon, bookmarks.locally_added, bookmarks.archive_status, bookmarks.syncable, bookmarks.web_filter_status%@ FROM bookmarks WHERE parent = ? %@%@ORDER BY order_index ASC
+SELECT bookmarks.type, bookmarks.title, bookmarks.url, bookmarks.id, bookmarks.editable, bookmarks.deletable, bookmarks.hidden, bookmarks.parent, bookmarks.order_index, bookmarks.external_uuid, bookmarks.special_id, bookmarks.server_id, bookmarks.sync_key, bookmarks.sync_data, bookmarks.extra_attributes, bookmarks.local_attributes, bookmarks.fetched_icon, bookmarks.locally_added, bookmarks.archive_status, bookmarks.syncable, bookmarks.web_filter_status%@%@ FROM bookmarks WHERE parent = ? %@%@ORDER BY order_index ASC
+, bookmarks.modified_attributes
+, last_selected_child
 bookmarks.read, bookmarks.deleted
 IsFolder
 UUID
@@ -566,15 +649,27 @@ ArchiveStatus
 WebFilterStatus
 ExtraAttributes
 LocalAttributes
+LastSelectedChildID
 WebsiteDataRecordDomain
 WebsiteDataRecordUsage
 Library/Preferences/com.apple.mobilesafari
 Library/Safari
+TabGroupsUI
+UnifiedBar
+privacyPreservingDescription
+/var/mobile/Library/Safari/SafariTabsPPT.db
+Tabs
+Default
+Production Safari
+Safari Technology Preview
+Safari Automation
 BookmarkSync
 DataMigration
 ReadingListIcons
 WebsiteData
 WebBookmarkServer
+CloudSettings
+TabGroup
 /System/Library/PrivateFrameworks/TextInput.framework/TextInput
 TIWordTokenizer
 /file
@@ -591,9 +686,29 @@ HasFetchedMetadata
 Icon
 DateLastFetchedIcon
 SafariDebugOverrideLaunchMode
+lastSelectedTabUUID
+type
+Local
+Private
+tabGroup
+<html><body>
+<h>%@</h>
+<ul>
+<li><a href='%@'>%@</a></li>
+</ul>
+</body></html>
+@"NSUUID"16@?0@"WBTab"8
+v32@?0@"WBTab"8Q16^B24
+<%@: %p; identifier = %d; syncable = %@; title = %@; type = %ld; numberOfTabs = %lu; uuid = %@>
+<%@: %p; identifier = %d; syncable = %@; type = %ld; numberOfTabs = %lu; uuid = %@>
 com.apple.mobilesafari.WebBoomarks.migration.markReadingListItemsForWebContentFilterTime
 com.apple.mobilesafari.WebBoomarks.migration.vacuumTime
+v32@?0@"WBReusableTabEntry"8Q16^B24
+reusableTabManagerCleanupDelaySeconds
+reusableTabManagerMaxAgeSeconds
 v24@?0@"WebBookmarksXPCConnection"8@"NSObject<OS_xpc_object>"16
+com.apple.WebBookmarks.%@.%p._tabProviderAccessQueue
+uuid
 com.apple.safarifetcherd
 AddToReadingList
 ClearAllCloudTabDevices
@@ -632,10 +747,12 @@ http:
 https:
 B24@?0Q8@"NSObject<OS_xpc_object>"16
 v24@?0@"NSObject<OS_xpc_object>"8@"NSError"16
+com.apple.SafariBookmarksSyncAgent.TabGroups
 WebBookmarksXPCConnectionErrorDomain
 v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.WebBookmarks.WebBookmarksXPCConnectionQueue
 _name
+version
 com.apple.SecondaryBookmarks.lock
 %@.db
 com.apple.WebBookmarks.WBSettingsTaskHandler.%p
@@ -647,10 +764,14 @@ Read device identifier: %{private}@ from bookmarks metadata file, readonly: %d
 Failed to write bookmarks metadata file to %{public}@
 Received bookmarks metadata file change distributed notification
 Posting bookmarks metadata file change distributed notification
+Failed to copy the background image over. Error: %{public}@
 -> %s(database: %{public}@)
 @@ %s: Unlocking bookmark database
+@@ %s: Unlocking tabs database
 ## %s(deviceIdentifier: %@)
 <- %s -> Return value redacted
+-> %s()
+<- %s -> database: NULL due to tabs database being disabled
 <- %s -> database: NULL due to failure to obtain lock
 @@ %s: Did successfully lock database
 <- %s -> database: NULL due to failure to allocate WebBookmarkCollection
@@ -674,6 +795,10 @@ XX %s: Client requested that we remove item with server ID "%{public}@" but it d
 -> %s(change: %{public}@)
 <- %s -> (null)
 -> %s(%{public}@)
+-> %s(folder: %{public}@)
+-> %s(bookmark: %{public}@)
+<- %s -> CKBABookmarkTypeReadingListItem
+<- %s -> CKBABookmarkTypeRegular
 -> %s(database: %{public}@, start version: %{public}@)
 <- %s -> %s
 <- %s -> %lld
@@ -698,11 +823,7 @@ Item was merged with %{private}@
 <- %s -> YES
 -> %s(item1: %{public}@, item2: %{public}@)
 <- %s -> %d
--> %s(folder: %{public}@)
 -> %s(database: %{public}@, folder type: %lld)
--> %s(bookmark: %{public}@)
-<- %s -> CKBABookmarkTypeReadingListItem
-<- %s -> CKBABookmarkTypeRegular
 -> %s(database: %{public}@, bookmark type: %lld)
 <- %s -> syncData %p of size: %ld
 -> %s(change: %{public}@, syncData %p of size: %zd)
@@ -712,13 +833,19 @@ XX %s: Cannot update the sync data of a Delete change that does exist in the dat
 ## %s(attributes: %@)
 @@ %s: Set title to value of length: %{public}@
 @@ %s: Set title to value of length: (null)
+@@ %s: Set last selected child ID to value of length: %{public}@
+@@ %s: Set last selected child ID to null
+<- %s
 @@ %s: Set URL to value of length: %{public}@
 @@ %s: Set URL to value of length: (null)
-<- %s
 -> %s(item: %{public}@, key: %{public}@)
 ## %s(value: %@)
 <- %s -> Return value redacted; length: %{public}@
--> %s()
+%@ with result: %d error: %{public}@
+Attempted to save a nil window state
+Local tab group on window state has no bookmark
+Private tab group on window state has no bookmark
+Attempted to delete a nil window state
 WebBookmarks could not start a deferred transaction; sleeping and trying again later
 WebBookmarks still could not start a deferred transaction; sleeping longer
 WebBookmarks could not start a deferred transaction; bailing. Error was: %{public}s
@@ -769,7 +896,7 @@ Finished marking all Reading List items as allowed by Web Content Filter
 Failed to mark all Reading List items as allowed by Web Content Filter with result code: %i
 Read Safari bookmarks
 Failed to save bookmark with UUID %{public}@: %{public}@
-Failed to save bookmark %{public}@: Write transation isn't valid
+Failed to save bookmark %{public}@: Write transaction isn't valid
 No BookmarkImages directory exists, but bookmark had an icon UUID
 Failed to delete bookmark icon: %{public}@
 Deleted bookmark icon successfully
@@ -779,6 +906,8 @@ Saving Reading List icon failed: %{public}@
 Saving a bookmark failed
 Saving a previously deleted bookmark failed
 Moving bookmark %d to folder %d failed
+Failed to save and move bookmark during update with error: %@
+Failed to reorder bookmark during update with error: %@
 Number of children mismatch detected for bookmark with id: %d, parent: %d, expected number of children: %d, actual: %d
 Could not fix number of children of folder with id: %d, error: %d, %{public}s
 Got nil local attributes dictionary: %{public}@
@@ -798,6 +927,7 @@ Failed to clear sync server ids. Sqlite error: %d
 Clearing all DAV sync data, likely because the user is logging out
 Failed to mark bookmrks as added during clearing sync data. Sqlite error: %d
 Could not delete records recursively starting with localID: %d, error: %d
+Error reading bookmark attributes: %{public}@
 Could not insert record with server ID: %{public}@ into parent with ID: %d, error: %d
 Refusing to save a bookmark with no address
 Crashing since we can't save a bookmark with no address. Please file a bug.
@@ -817,7 +947,6 @@ Looking up migration state for device identifier %{private}@
 Local migration state read from database %{public}@
 Failed to save local migration state %{public}@ to database
 Failed to delete local migration state from sync properties. Sqlite error: %d
-Error reading bookmark attributes: %{public}@
 Received com.apple.bookmarks.BookmarksFileChanged
 Failed to mark special bookmarks. Sqlite error: %d
 Failed to delete existing bokmarks as part of merging with new set of bookmarks. SQlite error: %d
@@ -831,21 +960,69 @@ Bookmarks failed to begin sync transaction with result code: %i. SQL Error: %{pu
 Bookmarks failed to begin sync transaction with result code: %i
 %{public}@
 Failed to open bookmarks sync lock file at: %{public}s
-Process %{public}@ did lock bookmarks database
+Process %{public}@ did fail to acquire lock: %{public}@ (%d)
+Process %{public}@ did acquire lock: %{public}@
 Postponing unlockSync. The process %{public}@ has requested to hold the lock
-Process %{public}@ did unlock bookmarks database
+Process %{public}@ did release lock: %{public}@
 Attempting to unlock sync since last requestor has unheld the lock in process %{public}@
 Setting sync notification type: %ld
 Request sync client trigger sync
 Requesting a CloudKit bookmarks sync due to local changes
 Could not construct WFUserSettings. Default values will be used
+Unable to instantiate tab collection because the specified collection type is not of tabs
+Unable to instantiate tab collection because tab database is disabled, and configuration doesn't specify in-memory database
+Failed to instantiate tab collection because we failed to lock sync
+Failed to instantiate tab collection because the underlying collection failed to set up
 Error reading bookmark extra attributes: %{public}@
 Error reading bookmark local attributes: %{public}@
 Setting bookmark with identifier %ld as its own parent
 Setting bookmark identifier to its parent identifier %ld
+Saving browser state: %{public}@
+Sync agent failed to save browser state with error: %{public}@
+Deleting tab group: %{public}@
+Deleting tab group: %{private}@
+Sync agent failed to delete tab group with error: %{public}@
+Inserting tab group: %{public}@ after tab group: %{public}@
+Inserting tab group: %{private}@ after tab group: %{private}@
+Sync agent failed to insert tab group with error: %{public}@
+Moving tab group: %{public}@ after tab group: %{public}@
+Moving tab group: %{private}@ after tab group: %{private}@
+Sync agent failed to move tab group with error: %{public}@
+Saving tab group: %{public}@
+Saving tab group: %{private}@
+Sync agent failed to save tab group with error: %{public}@
+Deleting tabs: %{public}@
+Deleting tabs: %{private}@
+Sync agent failed to delete tabs with error: %{public}@
+Inserting tabs into %{public}@: %{public}@
+Inserting tabs into %{private}@: %{private}@
+Sync agent failed to insert tabs with error: %{public}@
+Reordering tab: %{public}@ after tab: %{public}@
+Reordering tab: %{private}@ after tab: %{private}@
+Sync agent failed to move tab with error: %{public}@
+Replacing tab: %{public}@ with tab: %{public}@
+Replacing tab: %{private}@ with tab: %{private}@
+Sync agent failed to replace tab with error: %{public}@
+Saving tab: %{public}@
+Saving tab: %{private}@
+Sync agent failed to save tab with error: %{public}@
+Updating tabs: %{public}@
+Updating tabs: %{private}@
+Sync agent failed to update tabs with error: %{public}@
+Closing window state: %{public}@
+Sync agent failed to close window state with error: %{public}@
+Deleting window state: %{public}@
+Sync agent failed to delete window state with error: %{public}@
+Deleting window states: %{public}@
+Sync agent failed to delete window states with error: %{public}@
+Saving window state: %{public}@
+Sync agent failed to save window state with error: %{public}@
 Error calculating directory size getting directory subpaths for offline reading list item at path: %{public}@
 Failed to delete %{public}@: %{public}@
 Deleted %{public}@ as a result of deleting the bookmark
+Unable to read tab groups because _tabProvider is nil
+Tab groups database did update
+Unable to notify tab group changes after database update because _tabProvider is nil
 Sending XPC message to delete all Website data
 Error encountered while delivering XPC message to delete all website data. Error: %{public}@
 Received acknowledgement that XPC message was delivered to delete all website data
@@ -873,37 +1050,52 @@ Received error while performing settings task with type: %ld, error: %{public}@
 softlink:o:path:/System/Library/PrivateFrameworks/WebContentAnalysis.framework/WebContentAnalysis
 WebBookmarkDeviceIdentifier
 BAChangeRecord
+WBSettingsSyncEngineAccess
+WBSSettingsSyncEngineAccess
+NSObject
 WebBookmarkCloudKitSyncCollection
+WebBookmarkProductionSafariCloudKitSyncTabCollection
 BABookmarkItem
 WBBookmarkDBAccess
 WBSBookmarkDBAccess
-NSObject
+WBTabGroupSyncAgentProtocol
+WBTabGroupSyncAgentProxy
 WBNSErrorExtras
 WebBookmarkInMemoryChangeFilterUnreadOnly
 WebBookmarkInMemoryChangeFilter
 WBDuplicateBookmarkGroup
 WebBookmarkChange
+WebBookmarkTabCollection
+WebBookmarkProductionSafariTabCollection
+WBBrowserState
+NSSecureCoding
+NSCoding
 WebBookmarkChangeSet
 CloudTabServices
 WBReadingListPrivate
 WBReadingList
 WebBookmark
 NSCopying
+WBTab
 WebBookmarkCollection
 WBDatabaseLockAcquisitorDelegate
 WBBookmarkProvider
 Sync
 WebBookmarkCollectionSyncFlags
 WebBookmarksExtras
+WBWindowState
 WebBookmarkList
 Internal
+WBReadonlyTabCollection
+WBStateProvider
+WBTabProvider
 WebBookmarkWebFilterSettings
 WebBookmarkTitleWordTokenizer
 WebBookmarkListQuery
+WBTabCollection
 WebBookmarkReadonlyCollection
-NSSecureCoding
-NSCoding
 WBWebsiteDataRecord
+WBSavedStateManager
 WBCollectionConfiguration
 WBBookmarksDatabaseHealthInformation
 ReadingList
@@ -911,13 +1103,20 @@ ReadingListArchives
 ReadingListInternal
 WBSettingsTask
 WBFeatureManager
+WBTabGroup
+WBReusableTabEntry
+WBReusableTabManager
+NSCacheDelegate
+WBTabGroupManagerObserver
 SafariFetcherServerProxy
 WebBookmarksXPCConnectionDelegate
+WBTabGroupManager
 WBNSDictionaryExtras
 WebBookmarksSettingsGateway
 WBDatabaseLockAcquisitor
 WebBookmarksXPCConnection
 WebBookmarksXPCListener
+WBLocalTabAttributes
 WebBookmarkSecondaryCollection
 WBSettingsTaskHandler
 init
@@ -988,14 +1187,48 @@ _changeType
 T@"WebBookmarkCollection",R,N,V_collection
 T@"WebBookmark",R,N,V_bookmark
 Ti,R,N,V_changeType
-unlockSyncAsynchronously
-initWithBookmarkCollection:bookmark:
-setBookmark:
-T@"WebBookmark",&,N,V_bookmark
-initWithCollectionType:storeOwner:
-_deviceIdentifierForCloudKitWithCollectionType:generateIfNeeded:
-_resetDeviceIdentifierForCloudKitWithCollectionType:
-createDatabase
+isEqualToString:
+isCustomizationSyncEnabled
+syncEnabled
+recordID
+recordName
+_updateStartPageBackgroundImageWithRecord:
+recordType
+_settingForValue:
+_updateStartPageSectionOrder:
+_updateStartPageSectionVisibilityWithIdentifier:record:
+_didUpdateStartPageBackgroundImageVisibilityWithRecord:
+objectForKeyedSubscript:
+defaultManager
+fileURL
+path
+isReadableFileAtPath:
+safari_startPageBackgroundImageFileURL
+removeItemAtURL:error:
+URLByDeletingLastPathComponent
+safari_ensureDirectoryExists:
+copyItemAtURL:toURL:error:
+safari_privacyPreservingDescription
+postNotificationName:object:userInfo:deliverImmediately:
+safari_encryptedValues
+startPageSectionsManager
+boolValue
+setSectionIdentifier:enabled:
+safari_browserDefaults
+boolForKey:
+setBool:forKey:
+enabledSectionIdentifiers
+setWithArray:
+indexSet
+copy
+containsObject:
+addIndex:
+enumerateObjectsUsingBlock:
+setSectionsIdentifiers:enabledIndexes:
+numberWithBool:
+sectionIdentifiers
+arrayWithObjects:count:
+integerForKey:
 isEqual:
 class
 self
@@ -1018,6 +1251,21 @@ debugDescription
 TQ,R
 T#,R
 T@"NSString",R,C
+didReceiveRemoteCloudSettingsUpdateWithRecord:
+syncSettingsUpDictionary
+backgroundImageExists
+backgroundImageAppearanceIsLight
+T@"NSArray",R,N
+_lazyStartPageSectionsManager
+dictionaryWithObjects:forKeys:count:
+unlockSyncAsynchronously
+initWithBookmarkCollection:bookmark:
+setBookmark:
+T@"WebBookmark",&,N,V_bookmark
+initWithCollectionType:storeOwner:
+_deviceIdentifierForCloudKitWithCollectionType:generateIfNeeded:
+_resetDeviceIdentifierForCloudKitWithCollectionType:
+createDatabase
 openDatabase:
 saveDatabase:
 closeDatabase:shouldSave:
@@ -1037,11 +1285,12 @@ setSyncKey:item:
 copySyncDataWithItem:
 setSyncData:item:
 changeTypeForChange:
-changeIsBookmarkChange:
-changeIsFolderChange:
 copyChangedItemWithChange:
 copyServerIdWithChange:
 changeIsDAVMoveChange:
+itemTypeForChange:
+bookmarkTypeForChange:
+folderTypeForChange:
 copyDeviceIdentifier
 resetDeviceIdentifier
 performMaintenanceOnDatabase:afterVersion:
@@ -1077,9 +1326,6 @@ copyModifiedAttributesWithChange:
 copyAttributesWithItem:
 setModifiedAttributes:item:
 copyValueForKey:item:
-copyKnownFolderKeys
-copyKnownBookmarkKeys
-copyKnownReadingListItemKeys
 clearlAllLocalBookmarksForAutomatedTestingWithDatabase:
 initWithCollectionType:
 collectionType
@@ -1092,6 +1338,7 @@ mainBundle
 bundleIdentifier
 hasPrefix:
 safariBookmarkCollectionConfiguration
+safariTabCollectionConfiguration
 setStoreOwner:
 lockSync
 initWithConfiguration:checkIntegrity:
@@ -1122,7 +1369,6 @@ isReadingListFolder
 clearAllReadingListArchives
 _deleteBookmark:leaveTombstone:
 _setMergeMode:
-copy
 isInserted
 _setServerID:forBookmark:
 setServerID:
@@ -1134,6 +1380,7 @@ setSyncKey:
 syncData
 _setSyncData:forBookmark:
 setSyncData:
+specialID
 safari_isVersionStringGreaterThanVersionString:
 safari_isVersionStringBetweenVersionString:andVersionString:
 fixCachedNumberOfChildrenIfNeeded
@@ -1146,7 +1393,6 @@ bookmarkWithID:
 _syncableBookmarksIDsInFolderWithBookmarkID:
 _bookmarkIDForServerID:excludeDeletedBookmarks:
 isMerging
-specialID
 _bookmarkWithSpecialID:
 title
 _mergeMode
@@ -1170,7 +1416,6 @@ _serverIDBeforeServerID:
 _serverIDAfterServerID:
 _firstServerIDInFolderWithServerID:
 _lastServerIDInFolderWithServerID:
-isEqualToString:
 isEqualToBookmark:
 initFolderWithParentID:
 _markSpecial:
@@ -1179,6 +1424,8 @@ initReadingListBookmarkWithTitle:address:previewText:
 dictionary
 null
 wb_numberForKey:
+configuration
+lastSelectedChildID
 URLWithString:
 dateAdded
 dateLastViewed
@@ -1187,11 +1434,10 @@ readingListIconURL
 initWithDictionary:copyItems:
 allKeysForObject:
 removeObjectsForKeys:
-objectForKeyedSubscript:
 setTitle:
+setLastSelectedChildID:
 setExtraAttributes:
 _markAttributesAsModified:
-boolValue
 absoluteString
 setAddress:
 setDateAdded:
@@ -1199,9 +1445,37 @@ setDateLastViewed:
 setPreviewText:
 wb_URLForKey:isValid:
 setReadingListIconURL:
-setWithArray:
 mergeWithBookmarksDictionary:clearHidden:clearSyncData:error:
 postBookmarksDidReloadNotification
+initWithMachServiceName:options:
+saveBrowserState:completionHandler:
+deleteTabGroup:completionHandler:
+insertTabGroup:afterTabGroup:completionHandler:
+moveTabGroup:afterTabGroup:completionHandler:
+saveTabGroup:completionHandler:
+deleteTabs:completionHandler:
+insertTabs:inTabGroup:afterTab:completionHandler:
+moveTab:toTabGroup:afterTab:completionHandler:
+reorderTab:afterTab:completionHandler:
+replaceTab:withTab:completionHandler:
+saveTab:completionHandler:
+updateTabs:inTabGroup:completionHandler:
+closeWindowState:completionHandler:
+deleteWindowState:completionHandler:
+deleteWindowStates:completionHandler:
+saveWindowState:completionHandler:
+interfaceWithProtocol:
+setRemoteObjectInterface:
+setInvalidationHandler:
+resume
+invalidate
+remoteObjectProxy
+emptyCompletionHandler
+scheduleSendBarrierBlock:
+sharedProxy
+T@"WBTabGroupSyncAgentProxy",R,N
+saveBrowserState:didSendXPCMessageCompletionHandler:
+_connection
 domain
 wb_privacyPreservingDescription
 modifiedBookmarksInBookmarkFolder:
@@ -1227,7 +1501,6 @@ _dupicateBookmarksToKeep
 _foundDuplicates
 _originalBookmark
 T@"WebBookmark",R,N,V_originalBookmark
-T@"NSArray",R,N
 TB,R,N,V_foundDuplicates
 initWithBookmark:bookmarkID:parentID:changeType:
 _setUsedForInMemoryChangeTracking:
@@ -1257,19 +1530,110 @@ Ti,N,V_bookmarkID
 Ti,N,V_parentID
 Tq,R,N,V_changeType
 TQ,R,N,V_modifiedAttributes
+_createSchema
+createWindowsTable
+createWindowsTabGroupsTable
+_executeSQLWithCString:
+_executeSQL:
+_createSpecialTabsFolderWithUUIDIfNeeded:
+_fastFetchBookmarksInBookmarkFolder:options:offset:limit:
+_deleteBookmarks:leaveTombstone:
+performDatabaseUpdatesWithTransaction:secureDelete:
+vacuum
+truncateWAL
+listWithID:
+bookmarkArray
+initWithBookmark:
+tabsForTabGroupBookmark:
+safari_firstObjectPassingTest:
+uuid
+initWithBookmark:tabs:lastSelectedTabUUID:
+tabGroupForBookmark:
+_errorForMostRecentSQLiteError
+_logErrorWithMessage:result:
+_windowIDForUUID:
+setActiveTabUUID:forTabGroupWithUUID:
+_tabGroupWithID:
+setType:
+initWithUUID:activeTabGroupUUID:localTabGroup:privateTabGroup:sceneID:windowID:
+_addActiveTabsToWindowState:
+_windowStatesWithFilter:
+firstObject
+_uuidForQueries:
+dateClosed
+timeIntervalSinceReferenceDate
+sceneID
+_saveWindowState:
+activeTabGroupUUID
+bookmarkWithUUID:
+localTabGroup
+privateTabGroup
+_saveWindowState:activeTabGroupID:localTabGroupID:privateTabGroupID:
+setIdentifier:
+tabGroupsToActiveTabs
+_saveActiveTabID:inTabGroupWithID:windowID:
+enumerateKeysAndObjectsUsingBlock:
+date
+setDateClosed:
+saveWindowState:
+_deleteWindowStateWithFilter:
+_deleteWindowState:
+windowStates
+_deleteAllWindowStates
+_specialTabFolderUUIDsForQueries
+_specialTabFolderUUIDs
+_setUUID:
+_setSyncable:
+saveBookmark:
+_specialTabsWithUUID:
+_syncLockFileName
+performMaintenance
+lastClosedWindowState
+lastSessionWindowStates
+recentlyClosedWindowStates
+windowStateWithUUID:
+closeWindowState:
+deleteWindowState:
+deleteWindowStates:
+deleteAllWindowStates
+_deleteAllTabsAndLocalGroups
+_markTabsClosed:
+_markWindowStatesAsLastSession:
+pinnedTabs
+pinnedTabList
+privatePinnedTabs
+privatePinnedTabList
+recentlyClosedTabs
+recentlyClosedTabList
+T@"NSArray",R,C,N
+T@"WebBookmarkList",R,C,N
+T@"WBWindowState",R,N
+safariDirectoryPath
+initWithPinnedTabs:privatePinnedTabs:windowStates:
+decodeObjectOfClasses:forKey:
+encodeObject:forKey:
+supportsSecureCoding
+encodeWithCoder:
+initWithCoder:
+TB,R
+setPinnedTabs:
+setPrivatePinnedTabs:
+setWindowStates:
+_pinnedTabs
+_privatePinnedTabs
+_windowStates
+T@"NSArray",C,N,V_pinnedTabs
+T@"NSArray",C,N,V_privatePinnedTabs
+T@"NSArray",C,N,V_windowStates
 callStackSymbols
 orderedSet
 _readPersistedChanges
 _addChange:
 removeObject:
 _removeAllChanges
-defaultManager
-removeItemAtURL:error:
-containsObject:
 _setID:
 _setInserted:
 arrayWithCapacity:
-dictionaryWithObjects:forKeys:count:
 dataWithPropertyList:format:options:error:
 writeToURL:options:error:
 wb_arrayForKey:isValid:
@@ -1287,7 +1651,6 @@ numberOfAddedBookmarksInBookmarkFolder:
 updateAddChangesWithInMemoryBookmarkID:toDatabaseGeneratedID:
 bookmarkIsAddedInMemory:
 persistChangesWithCompletion:
-fileURL
 _lastBookmarkIDForAddingInMemoryBookmark
 _changes
 _bookmarkIDToChanges
@@ -1296,7 +1659,6 @@ _folderIDToAddedChildrenChanges
 _folderIDToModifiedChildrenChanges
 _fileURL
 T@"NSURL",R,C,N,V_fileURL
-T@"NSArray",R,C,N
 initClientForMachService:
 _serverConnection
 messageWithName:
@@ -1311,7 +1673,6 @@ sharedFeatureManager
 isOfflineReadingListAvailable
 startReadingListFetcher
 _addReadingListItemWithURL:title:previewText:
-_connection
 _webBookmarks_isHTTPFamilyURL
 _init
 exceptionWithName:reason:userInfo:
@@ -1323,7 +1684,6 @@ _private
 _serialQueue
 initWithTitle:address:parentID:
 _uniqueExternalUUID
-_setUUID:
 setValue:forKey:
 setLocalAttributes:
 initBuiltinDeviceBookmarkWithTitle:address:
@@ -1371,6 +1731,7 @@ _webFilterStatus
 _extraAttributes
 _localAttributes
 _specialID
+_lastSelectedChildID
 _orderIndex
 _inserted
 _needsSyncUpdate
@@ -1382,6 +1743,7 @@ Ti,R,N,V_parentID
 Ti,R,N,V_id
 T@"NSString",R,N,V_UUID
 Ti,R,N,V_specialID
+Ti,N,V_lastSelectedChildID
 editable
 TB,R,N,GisEditable,V_editable
 deletable
@@ -1398,8 +1760,33 @@ TB,N,V_fetchedIconData
 T@"NSData",&,N,V_iconData
 T@"NSDictionary",&,N,V_extraAttributes
 T@"NSDictionary",&,N,V_localAttributes
+initWithUUID:title:url:
+allocWithZone:
+decodeObjectOfClass:forKey:
+type
+initWithString:
+_addressFromURL:
+setUrl:
+safari_isHTTPFamilyURL
+initWithTitle:url:
+tabGroup
+initWithUUID:
+isPrivateTab
+syncableURL
+isIdentical:
+adoptAttributesFromTab:
+duplicateTabAndChangeUUID
+privacyPreservingDescription
+setTabGroup:
+_tabGroup
+T@"WBLocalTabAttributes",&,N
+T@"NSString",R,C,N
+T@"WBTabGroup",W,N,V_tabGroup
+T@"NSString",C,N
+T@"NSURL",&,N
+T@"NSURL",R,N
 _setupInMemoryChangeSet
-isReadonly
+_isDatabaseWriteAllowed
 _trackChangesInMemoryIfDatabaseWriteIsNotAllowed
 initWithWebBookmarkCollectionClass:
 setDelegate:
@@ -1423,14 +1810,15 @@ stringByAppendingPathComponent:
 _web_removeFileOnlyAtPath:
 stringByAppendingString:
 fileExistsAtPath:
-_errorForMostRecentSQLiteError
-_createSchema
+_userVersion
+_enableForeignKeys
+_enableAutoVacuum
+_createFreshDatabase
 _errorForMostRecentSQLiteErrorWithErrorCode:
 _verifyAllTablesExist:
 _checkDatabaseIntegrity
 _migrateToCurrentSchema
 initWithUTF8String:
-safariDirectoryPath
 databasePath
 stringByResolvingSymlinksInPath
 _setupWithPath:migratingBookmarksPlist:syncAnchorPlist:checkIntegrity:
@@ -1444,10 +1832,8 @@ attributesOfItemAtPath:error:
 fileSize
 contentsOfDirectoryAtPath:error:
 readingListFolderBookmarkID
-_fastFetchBookmarksInBookmarkFolder:options:offset:limit:
 archiveStatus
 removeItemAtPath:error:
-_executeSQL:
 _safariFetcherServerProxy
 sharedWebFilterSettings
 userSettings
@@ -1455,11 +1841,9 @@ _readingListItemsWhere:filteredBy:withInMemoryFilter:
 contentFilterOverridesEnabled
 whiteListEnabled
 markWebContentFilterAllowsAllReadingListItems
-bookmarkArray
 contentFilterListsAllowURL:
 setWebFilterStatus:
 saveBookmark:startReadingListFetcher:
-_executeSQLWithCString:
 initWithFormat:
 initWithBookmarksWhere:orderBy:usingFilter:
 initWithQuery:skipOffset:collection:
@@ -1470,22 +1854,21 @@ dateByAddingComponents:toDate:options:
 compare:
 purgeableReadingListItems
 archiveSize
-date
 setArchiveStatus:
 setDateLastArchived:
-saveBookmark:
 clearArchiveSynchronously
-vacuum
+isReadonly
+createIfNeeded
+_simulateCrashWithDescription:
+applyInMemoryChangesToDatabase
 _selectBookmarksWhere:
 _finalizeStatementIfNotNull:
 _initWithSqliteRow:
 appendString:
-enumerateObjectsUsingBlock:
 isWebFilterWhiteListOnlyModeEnabled
 rootBookmark
 subarrayWithRange:
 lastObject
-listWithID:
 descendantsOfBookmarkFolder:
 addObjectsFromArray:
 bookmarkContainsLeafBookmark:
@@ -1505,8 +1888,6 @@ arrayWithObject:
 frequentlyVisitedSitesFolderBookmarkID
 _webBookmarks_hasCaseInsensitivePrefix:
 _parentIdentifiersOfBookmarksNeedingIcons
-_simulateCrashWithDescription:
-applyInMemoryChangesToDatabase
 _specialIDForBookmarkBeingSaved:
 _postBookmarksChangedSyncNotification
 _postBookmarksSpecialFoldersDidChangeNotification
@@ -1517,12 +1898,14 @@ _startReadingListFetcher
 _deleteBookmark:postChangeNotification:forApplyingInMemoryChanges:
 readingListIconUUID
 bookmarkImagesDirectoryPath
-deleteBookmark:postChangeNotification:
 _incrementGeneration
+deleteBookmark:postChangeNotification:
 clearArchive
 _deleteIconForBookmark:
+_moveBookmark:toFolderWithID:
 _moveBookmark:toIndex:
 _setOrderIndex:
+moveBookmark:toIndex:
 bookmarkAtIndex:
 _moveBookmarkAtIndex:toIndex:
 setShouldArchive:
@@ -1530,8 +1913,12 @@ saveBookmarks:postNotification:
 setReadingListIconUUID:
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 writeToFile:options:error:
-arrayWithObjects:count:
 moveBookmark:toFolderWithID:
+_saveAndMoveBookmark:toFolderID:
+_updateBookmarks:inFolderWithID:
+_fastFetchBookmarksInBookmarkFolder:includingHiddenBookmarks:
+safari_filterObjectsUsingBlock:
+enumerateObjectsWithOptions:usingBlock:
 characterAtIndex:
 stringWithString:
 stringWithCharacters:length:
@@ -1584,7 +1971,6 @@ _migrateSchemaVersion21ToVersion22
 _migrateSchemaVersion22ToVersion23
 _migrateSchemaVersion23ToVersion24
 _migrateSchemaVersion24ToVersion25
-_userVersion
 _migrateSchemaVersion0ToVersion1
 _migrateSchemaVersion1And2ToVersion3
 _migrateSchemaVersion19And20ToVersion21
@@ -1602,6 +1988,8 @@ _migrateSchemaVersion35ToVersion36
 _migrateSchemaVersion36ToVersion37
 _migrateSchemaVersion37ToVersion38
 _migrateSchemaVersion38ToVersion39
+_migrateSchemaVersion39Or40ToVersion41
+_migrateSchemaVersion41ToVersion42
 _rerunMigrationsIfNecessary
 _importBookmarksPlist:
 _importSyncAnchorPlist:
@@ -1621,6 +2009,7 @@ _insertAncestorTableEntriesForBookmarkID:withParentID:
 bytes
 _clearAllSyncKeys
 _clearAllTombstones
+_isTombstoneWithServerID:
 _insertTombsonesRecursivelyForRootFolder:
 _deleteRecursively:descendantsOnly:
 _insertTombsonesRecursivelyHelperCurrentDepth:folder:
@@ -1628,9 +2017,7 @@ locallyAdded
 webFilterStatus
 _specialIDForBookmarkTitle:
 _databaseTitleForSpecialID:
-numberWithBool:
 _childrenOfParentBookmarkAreUnsyncable:
-_setSyncable:
 _addBookmarkWithTitle:address:parentID:orderIndex:isFolder:externalUUID:associatedBookmark:updateParentChildCount:updateAncestorEntries:
 _setHidden:
 _updateHiddenAncestorCountForBookmarksUnderFolderID:addingOffset:
@@ -1666,16 +2053,13 @@ mergeWithBookmarksDictionary:clearHidden:error:
 whiteListAllowedSites
 _restoreOrMergeWhiteListFolderAndContentsWithWebFilterWhiteList:ensureChildCount:postChangeNotification:
 webFilterWhiteListFolder
-indexSet
 _ensureFolderChildrenCount:
 valueForKey:
 webFilterWhiteList
 indexOfObject:
-addIndex:
 removeObjectsAtIndexes:
 arrayByAddingObject:
 folderID
-_fastFetchBookmarksInBookmarkFolder:includingHiddenBookmarks:
 _initWithSqliteRow:hasIcon:
 insertObject:atIndex:
 initWithTopLevelDuplicateBookmarksCount:allDuplicateBookmarksCount:
@@ -1685,7 +2069,6 @@ releaseLock
 _deleteBookmarkInMemory:
 acquireLockWithTimeout:
 _enumerateContentsOfBookmarkFolder:includingSubfolders:usingBlock:
-firstObject
 deduplicateBookmarksWithRootFolder:depth:
 _deduplicateBookmarksWithRootFolder:depth:trackChanges:considerBookmarksWithSyncDataAsUnique:davHomeURL:
 dataRepresentation
@@ -1706,7 +2089,6 @@ _deviceIdentifierForCloudKitWithCollectionType:
 _syncSetString:forKey:updatedExistingKey:
 readingListArchivesDiskUsage
 safariBookmarkCollection
-_syncLockFileName
 databaseLockAcquisitor:acquiredLock:
 enumerateBookmarks:andReadingListItems:matchingString:usingBlock:
 bookmarksMatchingString:
@@ -1722,7 +2104,6 @@ updateReadingListWebFilterStatusForUnsetItemsOnly:
 localeSettingsChanged
 purgeableSpace
 purge:
-bookmarkWithUUID:
 validBookmarkUUIDsFromUUIDs:
 readingListFolder
 bookmarkAtPath:
@@ -1734,6 +2115,7 @@ shouldFetchIconForBookmark:
 bookmarksNeedingIcons
 deleteBookmarks:postChangeNotification:
 deleteBookmark:
+_reorderBookmark:toIndex:
 reorderBookmark:toIndex:
 reorderList:moveBookmarkAtIndex:toIndex:
 saveArchiveForReadingListBookmarkWithID:
@@ -1741,6 +2123,8 @@ saveArchivesForReadingListBookmarks:
 deleteArchiveForReadingListBookmarkWithID:
 saveIconWithData:urlString:forBookmark:
 saveAndMoveBookmark:toFolderID:
+_saveAndMoveBookmarks:toFolderID:
+updateBookmarks:inFolderWithID:secureDelete:
 _prefixSearch:usingColumns:maxCount:
 _bookmarksFromStatementSelectingIDs:withQuery:
 firstReadingListBookmarkWithURLMatchingString:prefixMatch:
@@ -1765,9 +2149,11 @@ _clearCachedFavoritesFolderIdentifier
 setFavoritesFolder:localOnly:
 favoritesFolderList
 bookmarkIsFavoritesFolder:
+bookmarkIsInFavoritesFolder:
 frequentlyVisitedSitesFolder
 frequentlyVisitedSitesList
 clearFrequentlyVisitedSitesFolder
+bookmarkIsFrequentlyVisitedSite:
 fastFetchBookmarksInBookmarkList:
 hasInMemoryChanges
 deleteBookmarkInMemory:
@@ -1778,16 +2164,17 @@ deduplicateBookmarks
 _usesCloudKit
 _test_preventPeriodicallyApplyingInMemoryChangesToDatabase
 test_restoreMissingSpecialBookmarks
+_configuration
 _locale
 _wordTokenizer
 _rootBookmark
 _dirty
-_configuration
 _setupFinished
 _databaseLockAcquisitor
 _lastObservedLocalMigrationState
 merging
 TB,R,N,GisMerging
+T@"WBCollectionConfiguration",R,N,V_configuration
 substringToIndex:
 timeIntervalSince1970
 _addChildrenOfID:toCollection:recursive:error:
@@ -1814,7 +2201,6 @@ unlockSyncRequested
 setSyncNotificationType:
 syncAllowed
 syncNotificationType
-sharedProxy
 userDidUpdateBookmarkDatabase
 _bookmarkCollectionSyncAllowed
 initWithSyncAllowed:
@@ -1839,14 +2225,49 @@ Tq,N,V_syncNotificationType
 TB,N,V_postSyncNotificationWhenUnlocking
 T@"NSMutableSet",R,N,V_lockSyncHoldRequestorPointers
 TB,N,V_unlockSyncRequested
+strongToStrongObjectsMapTable
 componentsWithString:
-path
 _wb_stringByDeletingTrailingSlash
 hasSuffix:
 safari_stringByRedactingBookmarkDAVServerID
 safari_bestURLForUserTypedString
 _web_bestURLForUserTypedString
-T@"NSURL",R,N
+initWithUUID:sceneID:
+safari_stringForKey:
+decodeIntForKey:
+setTabGroupsToActiveTabs:
+encodeInt:forKey:
+safari_boolForKey:
+initWithDictionaryRepresentation:localTabGroup:privateTabGroup:
+customUnifiedFieldText
+isFavoritesBarHidden
+isMinimized
+isPopupWindow
+prefersSidebarVisible
+isPrivateWindow
+isTabBarHidden
+activeTabUUIDForTabGroupWithUUID:
+removeActiveTabUUIDForTabGroupWithUUID:
+removeAllActiveTabUUIDs
+setActiveTabGroupUUID:
+setSceneID:
+_tabGroupsToActiveTabs
+_identifier
+_activeTabGroupUUID
+_dateClosed
+_localTabGroup
+_privateTabGroup
+_sceneID
+_uuid
+Ti,N,V_identifier
+T@"NSString",C,N,V_activeTabGroupUUID
+T@"NSDate",&,N,V_dateClosed
+T@"NSDictionary",C,N,V_extraAttributes
+T@"WBTabGroup",R,N,V_localTabGroup
+T@"WBTabGroup",R,N,V_privateTabGroup
+T@"NSString",C,N,V_sceneID
+T@"NSDictionary",C,N,V_tabGroupsToActiveTabs
+T@"NSString",R,C,N,V_uuid
 initWithBytes:length:
 _bookmarkAtIndex:paginate:
 isCustomQuery
@@ -1862,6 +2283,20 @@ _skipOffset
 _query
 Ti,R,N
 countInCollection:
+readonlySafariTabCollectionConfiguration
+hasCompletedMigration
+isPersistent
+browserState
+lastSessionBrowserState
+tabGroups
+tabsForTabGroup:
+tabGroupWithUUID:
+tabWithUUID:
+completedMigration
+TB,R,N,GhasCompletedMigration
+persistent
+TB,R,N,GisPersistent
+T@"WBBrowserState",R,N
 initWithUserName:
 restrictionType
 reloadSettings
@@ -1914,27 +2349,53 @@ formUnionWithCharacterSet:
 punctuationCharacterSet
 componentsSeparatedByCharactersInSet:
 indexOfObjectPassingTest:
+isInMemoryDatabase
+_updatePinnedTabs:privatePinnedTabs:
+_bookmarksForTabs:
+safari_mapAndFilterObjectsUsingBlock:
+lastSelectedTabUUID
+_reorderBookmark:afterBookmark:
+safari_containsObjectPassingTest:
+_insertBookmark:afterBookmark:inFolderWithID:
+_reorderTab:afterTab:
+_bookmarksForTabs:syncable:
+isPrivate
+setCompletedMigration:
+error
+saveBrowserState:
+deleteAllSavedState
+saveRecentlyClosedTabs:
+deleteAllRecentlyClosedTabs
+deleteTabGroup:
+insertTabGroup:afterTabGroup:
+moveTabGroup:afterTabGroup:
+saveTabGroup:
+deleteTabs:
+insertTab:inTabGroup:afterTab:
+insertTabs:inTabGroup:afterTab:
+moveTab:toTabGroup:afterTab:
+reorderTab:afterTab:
+replaceTab:withTab:
+saveTab:
+updateTabs:inTabGroup:
+T@"WBCollectionConfiguration",R,N
+TB,N,GhasCompletedMigration
+T@"NSError",R,N
 readonlySafariBookmarkCollectionConfiguration
 initReadonlySafariBookmarkCollection
 decodeBoolForKey:
-decodeObjectOfClass:forKey:
-decodeIntForKey:
+initWithArray:
 decodeInt32ForKey:
 decodeInt64ForKey:
 encodeBool:forKey:
-encodeObject:forKey:
-encodeInt:forKey:
 encodeInt32:forKey:
 encodeInt64:forKey:
 numberWithUnsignedInt:
 isEqualToData:
-initWithCoder:
-encodeWithCoder:
-supportsSecureCoding
-TB,R
 T@"NSString",&,N
 T@"NSData",&,N
 TQ,R,N
+TI,R,N
 _initWithDomain:
 _initWithDomain:usage:
 websiteDataRecordWithDomain:
@@ -1950,13 +2411,21 @@ TQ,N,V_usage
 applicationProxyForIdentifier:placeholder:
 dataContainerURL
 _web_createDirectoryAtPathWithIntermediateDirectories:attributes:
+_isDatabaseEnabled
+tabs
+updateTabsInTabGroup:
+_syncAgentProxy
+initWithCollectionType:databasePath:readonly:createIfNeeded:
 setSkipsExternalNotifications:
 inMemoryBookmarkCollectionConfiguration
-isInMemoryDatabase
+inMemoryTabCollectionConfiguration
+pptTabCollectionConfiguration
 _isReadonly
+_createIfNeeded
 _skipsExternalNotifications
 _databasePath
 TB,R,N,V_isReadonly
+TB,R,N,V_createIfNeeded
 T@"NSString",R,C,N,V_databasePath
 TB,N,V_skipsExternalNotifications
 Tq,N,V_storeOwner
@@ -2017,9 +2486,81 @@ TB,R,N,GisOfflineReadingListAvailable,V_offlineReadingListAvailable
 TB,R,N,V_favoritesFolderSelectionShouldSync
 sharedConnection
 isEphemeralMultiUser
+setHidden:
+setSyncable:
+initWithTitle:uuid:
+setLastSelectedTabUUID:
+stringWithCapacity:
+insertTabs:afterTab:
+safari_insertObjects:afterObject:
+removeTabs:
+removeObjectsInArray:
+safari_insertObject:afterObject:
+replaceObjectAtIndex:withObject:
+initWithTitle:
+canBeConsolidatedInWindowMerge
+displayTitle
+htmlString
+tabsUUIDSet
+isLocal
+setTabs:
+tabsAreIdentical:
+appendTab:
+appendTabs:
+clearTabs
+insertTab:afterTab:
+removeTab:
+updateTab:
+displayTitleProvider
+setDisplayTitleProvider:
+_tabs
+_displayTitleProvider
+_lastSelectedTabUUID
+_type
+T@?,C,N,V_displayTitleProvider
+T@"NSString",C,N,V_lastSelectedTabUUID
+TB,N,GisSyncable
+T@"NSArray",C,N
+Tq,N,V_type
+T@"NSSet",R,N
 sharedAggregateDictionary
 incrementKey:
 setValue:forScalarKey:
+initWithReusableTab:
+reusableTab
+dateCreated
+_reusableTab
+_dateCreated
+T@"<WBReusableTab>",R,N,V_reusableTab
+T@"NSDate",R,N,V_dateCreated
+setCountLimit:
+tabGroupManager
+addTabGroupObserver:
+_scheduleCleanup
+_cleanup
+scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+allGroupsTabsUUIDs
+timeIntervalSinceNow
+_addTabUUIDsFromGroup:toSet:
+evictFromTabReuse
+sharedManager
+cache:willEvictObject:
+tabGroupManagerDidFinishSetup:
+tabGroupManagerDidUpdateTabGroups:
+tabGroupManager:didRemoveTabGroup:
+tabGroupManager:didUpdateTabGroup:
+tabGroupManager:didUpdateTabsInTabGroup:
+tabGroupManager:didUpdateTab:userDriven:
+addReusableTab:
+reuseTabForUUID:
+isTabSuspended:
+_referenceToTabWithUUID:
+enumerateReusableTabs:
+_uuidToTabCache
+_reusing
+_cleanupTimer
+_pendingCleanup
+floatForKey:
 didFinishFetching
 setHandler:forMessageNamed:
 didUpdateProgressWithMessage:
@@ -2033,6 +2574,29 @@ connection:didCloseWithError:
 delegate
 _delegate
 T@"<WebBookmarksClientDelegateProtocol>",W,N,V_delegate
+weakObjectsPointerArray
+_readTabGroups
+_tabGroupsDatabaseDidUpdate:
+notifyDidFinishSetup
+notifyDidUpdateTabGroups
+notifyDidRemoveTabGroup:
+notifyDidUpdateTabGroup:
+notifyDidUpdateTab:userDriven:
+notifyDidUpdateTabsInTabGroup:
+_compareInMemoryTabGroups:withTabGroups:
+addPointer:
+compact
+removePointerAtIndex:
+initWithTabProvider:
+removeTabGroup:
+removeTabGroupObserver:
+tabProvider
+_groups
+_observers
+_savedStateManager
+_tabProviderAccessQueue
+_tabProvider
+T@"<WBTabProvider>",R,N,V_tabProvider
 T@"NSString",R,N
 wb_objectOfType:forKey:isValid:
 wb_dateForKey:isValid:
@@ -2052,9 +2616,7 @@ _attemptToLockSyncAndNotifyDelegateOnFailure:
 _startTimerWithTimeout:retryInterval:
 _stopTimer
 isValid
-invalidate
 _retryTimerFired:
-scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
 _timer
 _webBookmarkCollectionClass
 _lockAcquired
@@ -2075,6 +2637,76 @@ _handleIncomingConnection:
 initListenerForMachService:
 _listenerConnection
 _clientConnections
+decodeIntegerForKey:
+unsignedIntegerValue
+decodeDoubleForKey:
+initWithVersion:safeToLoadWebPage:lastVisitTime:sessionStateData:ancestorTabUUIDs:dateClosed:tabIndex:windowUUID:disposable:pinned:pinnedPageURL:pinnedPageTitle:muted:queuedNavigation:displayingStandaloneImage:readerViewTopScrollOffset:readingListBookmarkID:openedFromLink:showingReader:
+encodeInteger:forKey:
+encodeDouble:forKey:
+safari_arrayContainingObjectsOfClass:forKey:
+safari_numberForKey:
+safari_dateForKey:
+safari_dataForKey:
+safari_dictionaryForKey:
+doubleValue
+safari_originalDataAsString
+numberWithDouble:
+initWithLastVisitTime:sessionStateData:ancestorTabUUIDs:displayingStandaloneImage:readerViewTopScrollOffset:readingListBookmarkID:openedFromLink:showingReader:
+isDisplayingStandaloneImage
+readerViewTopScrollOffset
+readingListBookmarkID
+wasOpenedFromLink
+isShowingReader
+isSafeToLoadWebPage
+lastVisitTime
+sessionStateData
+ancestorTabUUIDs
+isDisposable
+isPinned
+pinnedPageURL
+pinnedPageTitle
+isMuted
+queuedNavigation
+tabIndex
+windowUUID
+_displayingStandaloneImage
+_openedFromLink
+_showingReader
+_isSafeToLoadWebPage
+_isDisposable
+_isPinned
+_isMuted
+_readingListBookmarkID
+_readerViewTopScrollOffset
+_lastVisitTime
+_sessionStateData
+_ancestorTabUUIDs
+_pinnedPageURL
+_pinnedPageTitle
+_queuedNavigation
+_tabIndex
+_windowUUID
+displayingStandaloneImage
+TB,R,N,GisDisplayingStandaloneImage,V_displayingStandaloneImage
+Td,R,N,V_readerViewTopScrollOffset
+Ti,R,N,V_readingListBookmarkID
+openedFromLink
+TB,R,N,GwasOpenedFromLink,V_openedFromLink
+showingReader
+TB,R,N,GisShowingReader,V_showingReader
+TB,R,N,V_isSafeToLoadWebPage
+T@"NSDate",R,N,V_lastVisitTime
+T@"NSData",R,C,N,V_sessionStateData
+T@"NSArray",R,C,N,V_ancestorTabUUIDs
+T@"NSDate",R,N,V_dateClosed
+TB,R,N,V_isDisposable
+TB,R,N,V_isPinned
+T@"NSURL",R,N,V_pinnedPageURL
+T@"NSString",R,C,N,V_pinnedPageTitle
+TB,R,N,V_isMuted
+T@"NSDictionary",R,C,N,V_queuedNavigation
+TQ,R,N,V_tabIndex
+T@"NSString",R,N,V_windowUUID
 _enqueueTask:
 _shouldEnqueueTask:
 _performNextTask
@@ -2110,7 +2742,6 @@ v20@0:8B16
 i16@0:8
 @"WebBookmarkCollection"
 @"WebBookmark"
-@32@0:8@16@24
 B24@0:8@16
 #16@0:8
 @24@0:8:16
@@ -2123,6 +2754,12 @@ Q16@0:8
 ^{_NSZone=}16@0:8
 B24@0:8@"Protocol"16
 @"NSString"16@0:8
+v24@0:8@"CKRecord"16
+@"NSArray"16@0:8
+q24@0:8@16
+v32@0:8@16@24
+@"WBSStartPageSectionManager"
+@32@0:8@16@24
 r^v16@0:8
 v24@0:8r^v16
 v28@0:8r^v16B24
@@ -2133,11 +2770,11 @@ v32@0:8r^v16r^v24
 v32@0:8r^{__CFString=}16r^v24
 r^{__CFString=}24@0:8r^v16
 i24@0:8r^v16
-B24@0:8r^v16
 r^v24@0:8r^v16
+B24@0:8r^v16
+q24@0:8r^v16
 B32@0:8r^v16@24
 v32@0:8r^v16@24
-q24@0:8r^v16
 v32@0:8q16r^v24
 @24@0:8r^v16
 v32@0:8@16r^v24
@@ -2161,7 +2798,6 @@ v40@0:8@"NSArray"16@"NSString"24r^v32
 @"NSDictionary"24@0:8r^v16
 v32@0:8@"NSDictionary"16r^v24
 @32@0:8@"NSString"16r^v24
-@"NSSet"16@0:8
 @24@0:8q16
 @32@0:8q16q24
 v24@0:8^v16
@@ -2173,11 +2809,11 @@ v32@0:8^v16^v24
 v32@0:8^{__CFString=}16^v24
 r^{__CFString=}24@0:8^v16
 i24@0:8^v16
-B24@0:8^v16
 r^v24@0:8^v16
+B24@0:8^v16
+q24@0:8^v16
 B32@0:8^v16@24
 v32@0:8^v16@24
-q24@0:8^v16
 v32@0:8q16^v24
 @24@0:8^v16
 v32@0:8@16^v24
@@ -2189,6 +2825,21 @@ v40@0:8@16@24^v32
 B32@0:8^v16^v24
 r^v32@0:8q16^v24
 q16@0:8
+v32@0:8@16@?24
+v40@0:8@16@24@?32
+v48@0:8@16@24@32@?40
+v32@0:8@"WBBrowserState"16@?<v@?B@"NSError">24
+v32@0:8@"WBTabGroup"16@?<v@?B@"NSError">24
+v40@0:8@"WBTabGroup"16@"WBTabGroup"24@?<v@?B@"NSError">32
+v32@0:8@"NSArray"16@?<v@?B@"NSError">24
+v48@0:8@"NSArray"16@"WBTabGroup"24@"WBTab"32@?<v@?B@"NSError">40
+v48@0:8@"WBTab"16@"WBTabGroup"24@"WBTab"32@?<v@?B@"NSError">40
+v40@0:8@"WBTab"16@"WBTab"24@?<v@?B@"NSError">32
+v32@0:8@"WBTab"16@?<v@?B@"NSError">24
+v40@0:8@"NSArray"16@"WBTabGroup"24@?<v@?B@"NSError">32
+v32@0:8@"WBWindowState"16@?<v@?B@"NSError">24
+@?16@0:8
+@"NSXPCConnection"
 @28@0:8@16i24
 @"NSArray"28@0:8@"WebBookmarkChangeSet"16i24
 @40@0:8@16@24@?32
@@ -2199,9 +2850,17 @@ v28@0:8@16B24
 @40@0:8@16i24i28q32
 B24@0:8Q16
 v20@0:8i16
-q24@0:8@16
-B20@0:8i16
+B20@0:8B16
 @20@0:8i16
+v28@0:8@16i24
+i24@0:8@16
+B36@0:8@16i24i28i32
+B28@0:8i16i20i24
+v24@0:8@"NSCoder"16
+@24@0:8@"NSCoder"16
+@40@0:8@16@24@32
+@"NSArray"
+B20@0:8i16
 Q20@0:8i16
 v24@0:8i16i20
 v24@0:8@?16
@@ -2216,6 +2875,7 @@ B48@0:8@16@24@32^@40
 @"NSString"
 @"NSData"
 @"NSDictionary"
+@"WBTabGroup"
 @28@0:8q16B24
 v24@0:8q16
 v28@0:8@"WBDatabaseLockAcquisitor"16B24
@@ -2233,9 +2893,8 @@ B28@0:8@16B24
 B36@0:8@16B24^@28
 B24@0:8^i16
 B44@0:8@16@24@32B40
-@40@0:8@16@24@32
-B20@0:8B16
 Q24@0:8Q16
+B28@0:8@?16B24
 @24@0:8i16I20
 @28@0:8i16I20B24
 @40@0:8i16I20B24B28@32
@@ -2244,9 +2903,8 @@ B32@0:8@16B24B28
 B28@0:8@16i24
 B28@0:8@16I24
 B32@0:8@16I24I28
-v28@0:8@16i24
+B32@0:8@16i24B28
 ^{sqlite3_stmt=}36@0:8@16r*24I32
-v40@0:8@16@24@?32
 @32@0:8r*16@24
 v44@0:8@16@24@32i40
 Q28@0:8@16B24
@@ -2262,9 +2920,7 @@ B32@0:8@16@24
 ^{sqlite3_stmt=}32@0:8@16q24
 i24@0:8^{sqlite3_stmt=}16
 i32@0:8@16@?24
-i24@0:8@16
 i24@0:8r*16
-B32@0:8@16i24B28
 B24@0:8i16B20
 B32@0:8Q16@24
 B68@0:8@16@24i32I36B40@44@52B60B64
@@ -2290,10 +2946,10 @@ B40@0:8@16@24B32B36
 v28@0:8i16B20B24
 B28@0:8q16B24
 ^{sqlite3=}
+@"WBCollectionConfiguration"
 ^{__CFLocale=}
 @"WebBookmarkTitleWordTokenizer"
 @"SafariFetcherServerProxy"
-@"WBCollectionConfiguration"
 @"WBDatabaseLockAcquisitor"
 @36@0:8^{sqlite3_stmt=}16B24^@28
 B40@0:8i16@20B28^@32
@@ -2302,6 +2958,8 @@ B36@0:8i16@20^@28
 B40@0:8@16B24B28^@32
 B40@0:8@16@24^B32
 @"NSMutableSet"
+@60@0:8@16@24@32@40@48i56
+@"NSDate"
 @20@0:8I16
 @24@0:8I16B20
 I16@0:8
@@ -2310,6 +2968,13 @@ I16@0:8
 @36@0:8@16I24@28
 v24@0:8I16I20
 I20@0:8I16
+@"WBWindowState"24@0:8@"NSString"16
+@"WBBrowserState"16@0:8
+@"WBWindowState"16@0:8
+@"NSArray"24@0:8@"WBTabGroup"16
+@"WBTabGroup"24@0:8@"NSString"16
+@"WBTab"24@0:8@"NSString"16
+@"WBTabCollection"
 @"WFUserSettings"
 {_NSRange=QQ}16@0:8
 @"TIWordTokenizer"
@@ -2320,35 +2985,47 @@ i32@0:8i16@20B28
 @32@0:8B16i20@24
 @28@0:8i16@20
 @32@0:8@16I24I28
-@"NSArray"
 @"<WebBookmarkInMemoryChangeFilter>"
+B40@0:8@16@24@32
+B36@0:8@16@24i32
+@"WebBookmarkTabCollection"
 @24@0:8^{sqlite3_stmt=}16
 @28@0:8^{sqlite3_stmt=}16B24
 v20@0:8I16
 v24@0:8Q16
-v24@0:8@"NSCoder"16
-@24@0:8@"NSCoder"16
+@"WBTabGroupSyncAgentProxy"
 @36@0:8q16@24B32
+@40@0:8q16@24B32B36
 @32@0:8Q16Q24
 @28@0:8B16^B20
 Q32@0:8@16@24
 @32@0:8q16@24
 @"WBWebsiteDataRecord"
-v32@0:8@16@24
+@"<WBReusableTab>"
+v32@0:8@"NSCache"16@24
+v36@0:8@16@24B32
+v24@0:8@"WBTabGroupManager"16
+v32@0:8@"WBTabGroupManager"16@"WBTabGroup"24
+v36@0:8@"WBTabGroupManager"16@"WBTab"24B32
+@"NSCache"
+@"NSTimer"
 v32@0:8@"WebBookmarksXPCConnection"16@"NSObject<OS_xpc_object>"24
 @"<WebBookmarksClientDelegateProtocol>"
+@"NSPointerArray"
+@"WBSavedStateManager"
+@"<WBTabProvider>"
 @32@0:8@16^B24
 @40@0:8#16@24^B32
-v32@0:8@16@?24
 @24@0:8#16
 v24@0:8d16
 v32@0:8d16d24
-@"NSTimer"
 @"<WBDatabaseLockAcquisitorDelegate>"
 @24@0:8r*16
 v32@0:8@?16r*24
 @"NSObject<OS_xpc_object>"
 @"<WebBookmarksXPCConnectionDelegate>"
-@?16@0:8
+@64@0:8@16@24@32B40d44i52B56B60
+@136@0:8q16B24@28@36@44@52Q60@68B76B80@84@92B100@104B112d116i124B128B132
+d16@0:8
 @"WBSettingsTask"
 @"WebBookmarksSettingsGateway"

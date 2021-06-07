@@ -9,7 +9,7 @@
 #TAFilterGeneral Location Tag Count for %{private}@: %{private}ld
 address does not exist in observation interval dictionary
 #TAFilterGeneral private vehicle reason for %{private}@ : %{private}@
-{"msg%{public}.0s":"#TAFilterGeneral decisions", "address":"%{private}@", "satisfy":%{public}hhd, "satisfy-length":%{public}hhd, "satisfy-duration":%{public}hhd, "satisfy-vehicular-requirement":%{public}hhd, "satisfy-private-automotive":%{public}hhd, "satisfy-pedestrian-requirement":%{public}hhd, "satisfy-pedestrian-speed-check":%{public}hhd, "satisfy-people-density":%{public}hhd}
+{"msg%{public}.0s":"#TAFilterGeneral decisions", "address":"%{private}@", "satisfy":%{public}hhd, "satisfy-length":%{public}hhd, "satisfy-duration":%{public}hhd, "satisfy-vehicular-requirement":%{public}hhd, "satisfy-private-automotive":%{public}hhd, "satisfy-pedestrian-requirement":%{public}hhd, "satisfy-pedestrian-speed-check":%{public}hhd, "satisfy-people-density":%{public}hhd, "satisfy-cycling-requirement":%{public}hhd}
 #TAFilterGeneral adding %{private}@ because requirements satisfied
 #TAFilterGeneral identified suspicious device %{private}@; issue people density scans to gather more information
 #TAFilterGeneral filterSuspiciousDeviceWithStore called with nil requests parameter
@@ -101,6 +101,9 @@ Current and past visits are not far enough to be considered for UT
 #ut no state update necessary
 #ut no state update necessary at %@ state
 {"msg%{public}.0s":"#ut session change", "oldSessionID":"%{public}s", "newSessionID":"%{public}s"}
+{"msg%{public}.0s":"#manager:visit no last visit to bootstrap onto"}
+{"msg%{public}.0s":"#manager:visit got last visit", "visits":"%{private}@"}
+{"msg%{public}.0s":"#manager:visit not ingesting TAEvent as TA service is down"}
 {"msg%{public}.0s":"#manager:persistence failed to load persistence store, aborting bootstrap"}
 {"msg%{public}.0s":"#manager:persistence no device record to bootstrap onto"}
 {"msg%{public}.0s":"#manager:persistence bootstrapping onto loaded store"}
@@ -155,7 +158,7 @@ Updating %{private}s to snapshot
 #TADeviceRecord unknown new state %lu while transitioning from old state %lu
 #TADeviceRecord unknown old state %lu
 #TADeviceRecord %s updating state for %{private}@ from %{public}@ to %{public}@
-#TADeviceRecord shouldScan:%d
+{"msg%{public}.0s":"#TADeviceRecord device record scan request", "shouldScanHawkeye":%{public}hhd, "shouldScanHawkeyeLowEnergy":%{public}hhd}
 #TADeviceRecord purging records
 #TADeviceRecord expiring %@ from record
 #TADeviceRecord updateDeviceRecordOnSessionChange called
@@ -217,6 +220,7 @@ known device
 unknown device
 RequestingPeopleDensity
 RequestingAdditionalScans
+RequestingAdditionalHawkeyeLowEnergyScans
 DonatingInterVisitMetrics
 DonatingVisitMetrics
 AdditionalInformation
@@ -352,6 +356,8 @@ v8@?0
 com.apple.tracking-avoidance
 Status
 Events
+com.apple.TrackingAvoidance
+SeparationAlerts
 Update
 process == 'locationd'
 subsystem == 'com.apple.tracking-avoidance'
@@ -381,8 +387,10 @@ Data
 Reserved
 RSSI
 DeviceType
+UUID
 Invalid
 Other
+HELE
 EventType
 com.apple.clx.ta.ScanRequests
 scanRequests
@@ -467,16 +475,19 @@ DeviceUnlockedSinceBoot
 LocationAndPrivacyReset
 HasKoreaCountryCode
 UserLocationInsideKorea
+AdvertisementBufferEmpty
 ArrivalDate
 DepartureDate
 Confidence
 High
+v24@?0@"NSArray"8@"NSError"16
 TrackingAvoidance load
 TrackingAvoidance save
 PendingStart
 Running
 RunningNoScanning
 UnknownState
+ReferenceFrame
 Home
 Work
 PeopleDensityState
@@ -488,6 +499,7 @@ ActivityType
 static
 pedestrian
 vehicular
+cycling
 VisitCap
 VisitDisplayCap
 InterCap
@@ -645,8 +657,8 @@ TAUserActivity
 TAInterVisitSummary
 TAVisitStateSettings
 TAVisitState
-TADeviceRecordSettings
 TADeviceRecord
+TADeviceRecordSettings
 TACircularBuffer
 TAStore
 TADisplayOnCalculator
@@ -1307,6 +1319,7 @@ _streamWait
 _outputPath
 _inputPersistencePath
 _analyticsManager
+initWithAddress:advertisementData:status:reserved:rssi:scanDate:uuid:
 isEqualToDate:
 advertisementData
 status
@@ -1317,10 +1330,12 @@ getType
 TASPAdvertisementTypeToString:
 getDeviceType
 TASPAdvertisementDeviceTypeToString:
+uuid
+UUIDString
 unsignedCharValue
-initWithAddress:advertisementData:status:reserved:rssi:scanDate:
 archivedDataWithRootObject:requiringSecureCoding:error:
 appendBytes:length:
+initWithAddress:advertisementData:status:reserved:rssi:scanDate:
 encodeWithOSLogCoder:options:maxLength:
 getEventSubtype
 _status
@@ -1328,11 +1343,13 @@ _advertisementData
 _reserved
 _rssi
 _scanDate
+_uuid
 T@"NSData",R,C,N,V_advertisementData
 TC,R,N,V_status
 T@"NSData",R,C,N,V_reserved
 Tq,R,N,V_rssi
 T@"NSDate",R,C,N,V_scanDate
+T@"NSUUID",R,C,N,V_uuid
 setEnableSubmission:
 _enableSubmission
 TB,V_enableSubmission
@@ -1563,10 +1580,18 @@ _shouldTerminateService
 _shouldSuspendAvengerScanner
 _registerForTATrackingAvoidanceServiceWithSettings:
 _registerForAvengerScanner
-UUIDString
 _changeSession
 _loadAndBootstrap
+_fetchAndIngestLastVisit
 _schedulePeriodicSaveAfterTimeInterval:
+initWithAscending:confidence:dateInterval:labelVisit:limit:
+routineManager
+location
+horizontalUncertainty
+entry
+exit
+service
+fetchStoredVisitsWithOptions:handler:
 registerForAvengerScanner
 unregisterForAvengerScanner
 onManagerStateChangeFrom:to:
@@ -1592,7 +1617,6 @@ queue
 setQueue:
 dataSources
 setDataSources:
-service
 setService:
 stateContext
 setStateContext:
@@ -1604,12 +1628,14 @@ sessionID
 setSessionID:
 analyticsManager
 setAnalyticsManager:
+setRoutineManager:
 _queue
 _dataSources
 _stateContext
 _persistenceManager
 _persistenceManagerLastSaveTime
 _sessionID
+_routineManager
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 T@"NSHashTable",&,N,V_dataSources
 T@"TATrackingAvoidanceService",&,N,V_service
@@ -1619,12 +1645,17 @@ T@"TAPersistenceManager",&,N,V_persistenceManager
 TQ,N,V_persistenceManagerLastSaveTime
 T@"NSUUID",&,N,V_sessionID
 T@"TAAnalyticsManager",&,N,V_analyticsManager
+T@"RTRoutineManager",&,N,V_routineManager
 TQ,R,V_state
 predicateForTAEventsInDateInterval:
 predicateForTAEventsClass:
 predicateForTAEventsClass:andEventSubtype:
+initWithType:latitude:longitude:horizontalAccuracy:referenceFrame:date:
+referenceFrame
 initWithType:latitude:longitude:horizontalAccuracy:date:
+_referenceFrame
 TQ,R,N,V_type
+TQ,R,N,V_referenceFrame
 initWithState:date:
 TQ,R,N,V_state
 additionalInfo
@@ -1702,7 +1733,6 @@ labelLoiTypeForLastVisitSnapshot:
 issueVisitEntryScanRequestIfNecessaryWithOpenSnapshot:clock:andAppendOutgoingRequestsTo:
 closeLatestInterVisitSnapshotWithStore:date:
 openInterVisitBackupSnapshotWithArrivalVisit:
-recoverInterVisitSnapshotWithArrivalVisit:store:
 initWithTACLVisit:uniqueUTBufferCap:displayEventBufferSizeCap:maxNSigmaBetweenLastLocationAndVisit:
 getAllTAEventsOf:between:
 getDisplayEventsWithFirstPrecedingInInterval:store:
@@ -1732,6 +1762,7 @@ initWithSettings:scanRequestSettings:
 isInSensitiveVisit
 ingestTAEvent:store:appendOutgoingRequestsTo:
 purgeWithClock:
+recoverInterVisitSnapshotWithArrivalVisit:store:
 setScanRequest:
 setInterVisitMetricsSnapshotBackup:
 _visitSnapshotBuffer
@@ -1745,6 +1776,8 @@ T@"TAInterVisitMetricsSnapshot",&,N,V_interVisitMetricsSnapshotBackup
 T@"TACircularBuffer",R,N,V_visitSnapshotBuffer
 T@"TACircularBuffer",R,N,V_interVisitMetricSnapshotBuffer
 T@"NSMutableDictionary",R,N,V_importantLois
+hasHawkeyeAdvertisementPolicy
+hasHawkeyeLowEnergyAdvertisementPolicy
 initWithExpiryTimeInterval:purgeTimeInterval:keepAliveInterval:minimumStagingInterval:stagingBackstopHour:assumedKeyRollHour:scanInterval:surfaceImmediatelyBetweenBackstopAndKeyroll:
 setExpiryTimeInterval:
 setPurgeTimeInterval:
@@ -1882,6 +1915,7 @@ T@"NSMutableDictionary",R,N,V_lastAdvPerDevice
 _vehicleCategoryType
 TQ,R,N,V_vehicleCategoryType
 getLocationRepresentingSnapshot
+location:withAdvertisementTimestamp:
 aggregateObservationsThroughHistoryForSingleDetection:visitSnapshotBuffer:intervisitSnapshotBuffer:clock:
 pruneDisplayEvents
 setRepresentativeVisit:
@@ -2066,7 +2100,9 @@ v40@0:8@"<OSLogCoder>"16Q24Q32
 @"NSDate"16@0:8
 @"NSDictionary"16@0:8
 @60@0:8@16@24C32@36q44@52
+@68@0:8@16@24C32@36q44@52@60
 C16@0:8
+@"NSUUID"
 v32@0:8@"TATrackingAvoidanceService"16@"NSArray"24
 v24@0:8@"TATrackingAvoidanceService"16
 v32@0:8@"NSURL"16Q24
@@ -2090,10 +2126,11 @@ v32@0:8Q16Q24
 @"NSObject<OS_dispatch_queue>"
 @"TATrackingAvoidanceServiceStateContext"
 @"TAPersistenceManager"
-@"NSUUID"
+@"RTRoutineManager"
 @24@0:8#16
 @32@0:8#16Q24
 @56@0:8Q16d24d32d40@48
+@64@0:8Q16d24d32d40Q48@56
 @32@0:8Q16@24
 @56@0:8q16d24@32@40@48
 @"TASuspiciousDevice"

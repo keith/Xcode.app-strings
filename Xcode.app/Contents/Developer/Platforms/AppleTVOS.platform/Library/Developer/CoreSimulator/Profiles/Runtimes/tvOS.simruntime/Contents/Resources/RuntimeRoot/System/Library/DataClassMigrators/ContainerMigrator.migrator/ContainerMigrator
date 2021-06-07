@@ -1,14 +1,4 @@
-@(#)PROGRAM:ContainerMigrator  PROJECT:MobileContainerManager-318.100.4
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-<key>com.apple.private.MobileContainerManager.dataMigration</key>
-<true/>
-<key>com.apple.usermanagerd.persona.fetch</key>
-<true/>
-</dict>
-</plist>
+@(#)PROGRAM:ContainerMigrator  PROJECT:MobileContainerManager-382
 MCMUserIdentitySharedCache
 MobileContainerManagerAdditions
 MCMMigrationStatus
@@ -88,6 +78,7 @@ T@"NSMutableDictionary",R,N,V_lock_managedPathRegistryForUserIdentity
 T@"NSMutableDictionary",R,N,V_lock_libraryRepairForUserIdentity
 T@"NSHashTable",R,N,V_observers
 T@"NSSet",&,N,V_previousUserIdentities
+TQ,N,V_savedGeneration
 hash
 TQ,R
 superclass
@@ -97,7 +88,6 @@ T@"NSString",R,C
 debugDescription
 _lock
 _flushQueue
-_registered
 _listener
 _cacheInvalid
 _lock_bundleToDataSeparatedIdentitiesMap
@@ -109,8 +99,12 @@ _lock_managedPathRegistryForUserIdentity
 _lock_libraryRepairForUserIdentity
 _previousUserIdentities
 _observers
+_savedGeneration
 userIdentityForPersonaUniqueString:POSIXUser:
 userIdentityForPersonalPersonaWithPOSIXUser:
+globalBundleUserIdentity
+globalSystemUserIdentity
+defaultUserIdentity
 isEqual:
 class
 self
@@ -127,6 +121,7 @@ release
 autorelease
 retainCount
 zone
+_refreshFromUserManagementIfNecessary
 userIdentitiesForBundleIdentifier:
 isBundleIdentifier:associatedWithUserIdentity:
 userIdentityForCurrentUserWithPersonaUniqueString:
@@ -135,20 +130,16 @@ userIdentityForPersonalPersona
 unspecificUserIdentity
 userIdentityWithPersonaID:
 flush
+allAccessibleUserIdentities
 forEachAccessibleUserIdentitySynchronouslyExecuteBlock:
-defaultUserIdentity
-globalBundleUserIdentity
-globalSystemUserIdentity
 personaUniqueStringForCurrentContext
 userIdentityForCurrentContext
 userIdentityForLegacyMobileUser
-unregister
 flushAndRepopulateWithUserIdentities:
 addObserver:
 removeObserver:
 managedUserPathRegistryForUserIdentity:
 libraryRepairForUserIdentity:
-dealloc
 lock_bundleToDataSeparatedIdentitiesMap
 lock_personaUniqueStringToUserIdentityMap
 lock_personaIDToUserIdentityMap
@@ -160,9 +151,7 @@ _lock_userIdentityForCurrentUserWithPersonaUniqueString:
 _lock_resync
 _lock_flush
 _lock_flushAndRepopulateWithUserIdentities:
-_registerForPersonaListUpdate
 _notifyObserversOfChangesWithUserIdentities:
-personaListDidUpdate
 lock_managedPathRegistryForUserIdentity
 lock_libraryRepairForUserIdentity
 previousUserIdentities
@@ -170,6 +159,8 @@ setPreviousUserIdentities:
 cacheInvalid
 setCacheInvalid:
 observers
+savedGeneration
+setSavedGeneration:
 countByEnumeratingWithState:objects:count:
 minusSet:
 allObjects
@@ -182,7 +173,6 @@ setWithObject:
 removeObject:
 addObject:
 count
-setWithArray:
 allValues
 stringWithUTF8String:
 weakObjectsHashTable
@@ -204,14 +194,17 @@ T@"NSURL",R,N,V_homeDirectoryURL
 TB,R,N
 Ti,R,N,V_personaType
 TI,R,N,V_kernelPersonaID
+Tq,N,V_extensionHandle
 _homeDirectoryURL
 _kernelPersonaID
 _personaType
 _personaUniqueString
+_extensionHandle
 _identifier
 _posixUser
 copyWithZone:
 initWithPOSIXUser:homeDirectoryURL:personaUniqueString:personaType:kernelPersonaID:
+dealloc
 initWithPlist:cache:error:
 initWithVersion1PlistDictionary:cache:error:
 initWithVersion2PlistDictionary:cache:error:
@@ -224,8 +217,11 @@ userIdentityWithPOSIXUser:
 shortDescription
 _descriptionForPersonaType:
 isEqualToUserIdentity:
+isStrictlyEqualToUserIdentity:
 personaUniqueString
 kernelPersonaID
+extensionHandle
+setExtensionHandle:
 identifier
 posixUser
 homeDirectoryURL
@@ -243,6 +239,7 @@ T@"MCMManagedPath",R,N,V_library
 T@"MCMManagedPath",R,N,V_containermanagerLibrary
 T@"MCMManagedPath",R,N,V_containermanagerPendingUpdates
 T@"MCMManagedPath",R,N,V_containermanagerReplaceOperations
+T@"MCMManagedPath",R,N,V_containermanagerDeleteOperations
 T@"MCMManagedPath",R,N,V_caches
 T@"MCMManagedPath",R,N,V_containermanagerCaches
 T@"MCMManagedPath",R,N,V_containermanagerDeathrow
@@ -255,6 +252,7 @@ _library
 _containermanagerLibrary
 _containermanagerPendingUpdates
 _containermanagerReplaceOperations
+_containermanagerDeleteOperations
 _caches
 _containermanagerCaches
 _containermanagerDeathrow
@@ -272,6 +270,7 @@ library
 containermanagerLibrary
 containermanagerPendingUpdates
 containermanagerReplaceOperations
+containermanagerDeleteOperations
 caches
 containermanagerCaches
 containermanagerDeathrow
@@ -422,6 +421,13 @@ fixUserPermissionsAtURL:limitToTopLevelURL:error:
 removeExclusionFromBackupFromURL:error:
 copyDescriptionOfURL:
 fsNodeOfURL:followSymlinks:error:
+fsSanitizedStringFromString:
+replaceCharactersInRange:withString:
+rangeOfCharacterFromSet:
+initWithData:encoding:
+dataUsingEncoding:allowLossyConversion:
+invertedSet
+characterSetWithCharactersInString:
 fileSystemRepresentation
 stringByAppendingFormat:
 string
@@ -462,8 +468,11 @@ root
 TB,R,N,GisRoot,V_root
 roleUser
 TB,R,N,GisRoleUser,V_roleUser
+useableHomeDirectory
+TB,R,N,GhasUseableHomeDirectory,V_useableHomeDirectory
 _root
 _roleUser
+_useableHomeDirectory
 _UID
 _primaryGID
 _unvalidatedHomeDirectoryURL
@@ -476,6 +485,7 @@ unvalidatedHomeDirectoryURL
 name
 isRoot
 isRoleUser
+hasUseableHomeDirectory
 currentPOSIXUser
 posixUserWithName:
 posixUserWithUID:
@@ -484,6 +494,8 @@ _posixUserWithPasswdFillBlock:
 _posixUserWithPasswdPtr:
 _getCachedUID:flush:onCacheMiss:
 _isRoleUserWithUID:homeDirectoryURL:
+hasPrefixFromArray:
+arrayWithObjects:
 removeAllObjects
 redactedDescription
 initWithBytes:length:encoding:
@@ -670,6 +682,7 @@ v16@0:8
 @"NSHashTable"
 @"MCMUserIdentity"32@0:8@"NSString"16@"MCMPOSIXUser"24
 @"MCMUserIdentity"24@0:8@"MCMPOSIXUser"16
+@"MCMUserIdentity"16@0:8
 @32@0:8@16@24
 @24@0:8@16
 #16@0:8
@@ -688,6 +701,7 @@ B32@0:8@16@24
 @20@0:8I16
 v24@0:8@?16
 v20@0:8B16
+v24@0:8Q16
 @"NSString"
 @"MCMPOSIXUser"
 @24@0:8^{_NSZone=}16
@@ -695,6 +709,8 @@ v20@0:8B16
 @40@0:8@16@24^Q32
 @20@0:8i16
 I16@0:8
+q16@0:8
+v24@0:8q16
 i16@0:8
 B24@0:8Q16
 @32@0:8I16@20i28
@@ -774,6 +790,140 @@ B48@0:8@16S24@28i36^@40
 f16@0:8
 -[NSDictionary(MobileContainerManagerAdditions) MCM_writeToURL:withOptions:error:]
 Attempting to write a zero-length plist file at [%@]
+container_error_free
+%llu
+(%llu) %s at path [%s] with errno (%d) %s
+%llu
+(%llu) %s
+UNKNOWN
+FAILURE_TO_GET_ERROR_REPLY
+success
+CREATE_BASE_DIRECTORY
+CREATE_CONTAINER_CLASS_DIRECTORY
+REMOVE_STAGING_DIRECTORY
+REMOVE_TEMP_CONTAINER
+CREATE_SUB_DIRECTORY
+CREATE_STAGING_DIRECTORY
+MOVE_STAGING_TO_LIVE
+REMOVE_INDIVIDUAL_STAGING_DIRECTORY
+INVALID_URL
+INVALID_CONTAINER_OBJECT
+READ_METADATA
+CREATE_TEMP_DIRECTORY
+REPLACE_MOVE_TO_TEMP
+CONTAINER_REPLACE
+SETUP_PROXY
+DESTROY_CONTAINER
+NIL_IDENTIFIER
+XPC_SETUP
+UNDEFINED_CONTAINER_CLASS
+CONTAINER_NOT_FOUND
+SAME_CONTAINER_REPLACE
+MISMATCHED_CLASS_REPLACE
+VALUE_NOT_FOUND_FOR_KEY
+RESTORE_PATH_EXISTS
+RESTORE_CONTAINER
+EXISTING_CONTAINER_REPLACE
+STAGE_FOR_DELETE
+INVALID_METADATA
+REMOVE_LEGACY_DIRECTORY
+BAD_INITIALIZER_VALUES
+CREATE_REPLACE_DIRECTORY
+REPLACE_URL
+WRITE_METADATA_DICTIONARY
+REPLACE_RECOVER
+REPLACE_REMOVE
+CONTAINERS_WITH_CLASS_INIT
+INVALID_PARAMETERS
+INVALID_METADATA_URL_MISMATCH
+EXCEPTION
+MOVE_TO_DEATH_ROW
+CREATE_DEATH_ROW_DIRECTORY
+CACHE_FAILED_TO_REBUILD
+CACHE_INCONSISTENCY
+CACHE_ADD
+CACHE_REMOVE
+CACHE_INVALID_DATA
+REGENERATE_UUID_MOVE
+INVALID_COMMAND
+XPC_UNKNOWN_REPLY
+XPC_INVALID_REPLY
+XPC_INTERRUPTED_REPLY
+INVALID_REPLY
+BAD_REPLY_CONTENTS
+NOT_ENTITLED_FOR_OPERATION
+MISMATCHED_USER_REPLACE
+SANDBOX_CONSUME_TOKEN_ERROR
+READ_ENTITLEMENT_FILE
+WRITE_ENTITLEMENT_FILE
+INVALID_ENTITLEMENT_INFO
+DATA_PROTECTION_FAIL_LOCKED
+BUNDLE_OWNER_MIGRATION_FAIL
+ACL_FAILURE
+STAGE_SHARED_CONTENT_FAILURE
+SET_SANDBOX_MAPPING
+SQLITE
+IDENTIFIER_NOT_FOUND_IN_DB
+SQLITE_UNEXPECTED_NUM_CHANGES
+PENDING_UPDATE_NO_LONGER_VALID
+UNKNOWN_SUBDIRECTORIES_FOR_CLASS
+PATH_NOT_FOUND
+UNSUPPORTED
+FAILED_MEMORY_ALLOCATION
+ACTION_NOT_PERMITTED_BY_CLIENT_UID
+USER_IDENTITY_DATA_INVALID
+INVALID_PERSONA
+COMMAND_QUEUE_EXHAUSTED
+BASE_PATH_MISMATCH_FOR_PERSONA
+SANDBOX_RELEASE_HANDLE_ERROR
+INVALID_CLIENT_OBJECT
+INVALID_FILE_ACTION
+FAILED_TO_BACKUP_FILE_DURING_SCHEMA_UPDATE
+BUNDLE_ID_UNSAFE_FOR_FILESYSTEM
+FAILED_TO_CREATE_GLOBAL_DIRECTORY
+WRITE_DATA_PROTECTION_OPERATION
+WRITE_REPLACE_OPERATION
+WRITE_MIGRATION_STATUS
+SANDBOX_EXTENSION_NOT_FOUND
+CLIENT_NOT_SANDBOXED
+FAILED_TO_ISSUE_SANDBOX_EXTENSION
+DURING_STARTUP
+GET_METADATA
+FAILED_TO_READ_CODESIGN_INFO
+INVALID_BUNDLE_PATH
+INVALID_EXECUTABLE_PATH
+NOT_CONTAINERIZED
+INVALID_CODE_SIGNATURE
+NOT_CODESIGNED
+UNABLE_TO_GET_USER_DETAILS
+USER_HAS_NO_HOME_DIRECTORY
+XPC_TERMINATION_IMMINENT
+USER_HOME_DIRECTORY_MISSING
+USER_HOME_DIRECTORY_INACCESSIBLE
+CONTAINER_SCHEMA_UPDATE_FAILED
+FAILED_TO_CHECK_CONTAINER_DATA_SUBDIR
+FAILED_TO_RECREATE_CONTAINER_DATA_SUBDIR
+STATE_RESET_RETRY_REQUEST
+CORRUPT_METADATA
+CONTAINER_SCHEMA_CREATE_FAILED
+INVALID_QUERY_OBJECT
+CANNOT_SET_QUERY_PARAMETERS_AFTER_EXECUTE
+END_OF_RESULT_SET
+QUERY_NOT_EXECUTED
+AMBIGUOUS_RESULT
+AMBIGUOUS_PERSONA
+CONTAINER_IDENTITY_DATA_INVALID
+LINK_DATA_INVALID
+INVALID_LINK
+LINK_NOT_MATCHING_CONTAINER
+WRONG_AGENT
+CANNOT_OPERATE_ACROSS_MULTIPLE_USERS
+FAILED_TO_DELETE_OPERATION_PLIST
+FAILED_TO_PARSE_DELETE_MANIFEST
+ZERO_DELETE_MANIFEST
+FAILED_TO_WRITE_DELETE_MANIFEST
+LINK_IS_SELF_REFERENCING
+GENERAL_FILESYSTEM_ERROR
 LastBuildInfo
 BundleMigration
 ACLMigration
@@ -799,10 +949,7 @@ mcm_user_migration_status.plist
 -[MCMMigrationStatus initForSystemMigration]
 mcm_migration_status.plist
 Unknown
-com.apple.containermanagerd.personaListDidUpdate
-com.apple.containermanagerd.personaobserver
-v16@?0@"NSObject<OS_xpc_object>"8
--[MCMUserIdentityCache forEachAccessibleUserIdentitySynchronouslyExecuteBlock:]
+-[MCMUserIdentityCache allAccessibleUserIdentities]
 com.apple.containermanagerd.MCMUserIdentityCache.flushQueue
 <cm-redacted>
 /~~/
@@ -825,6 +972,7 @@ SIMULATOR_LOG_ROOT
 Logs
 Dead
 Caches
+Delete
 Replace
 PendingUpdates
 MobileContainerManager
@@ -842,6 +990,7 @@ MCMErrorDomain
 FunctionName
 SourceFileLine
 v16@?0@"MCMUserIdentity"8
+ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_
 -[MCMFileManager fsNodeOfURL:followSymlinks:error:]
 Could not determine fsNode of path [%@]
 %d/0%o/[%s]/[%s]/%08x/%llx/%x-%x/%d
@@ -911,7 +1060,7 @@ _IterateDirectory
 _IterateDirectory for %@ returned %s
 %s/%s
 opendir of %s failed: %s
-B16@?0^{dirent=QQSSC[1024c]}8
+B20@?0C8r*12
 -[MCMFileManager standardizeOwnershipAtURL:toPOSIXUser:error:]
 .com.apple.mobile_container_manager.metadata.plist
 Could not stat %s: %s
@@ -966,11 +1115,14 @@ _removefile_error_callback
 nil url passed to -removeItemAtURL:error:
 mkstemp_dprotected_np
 <%@: %p; inode = %llu, device = %d>
-<%@: %p; UID = %u, primaryGID = %u, name = [%@], homeDirectoryURL = [%@]>
-(%u|%@|%@)
 /System/Volumes/Data/private/var/empty
 /private/var/empty
 /var/empty
+<%@: %p; UID = %u, primaryGID = %u, name = [%@], homeDirectoryURL = [%@]>
+(%u|%@|%@)
+/System/Volumes/Data/private/var/db
+/private/var/db
+/var/db
 @"MCMPOSIXUser"12@?0I8
 i40@?0^{passwd=**IIq****q}8*16Q24^^{passwd}32
 unknown
@@ -980,6 +1132,9 @@ com.apple.containermanager
 unspecified
 cache
 sandbox
+query
+link
+paths
 locking
 database
 upcall
@@ -1039,11 +1194,12 @@ Bundle
 Library/Backup/SystemContainers
 Temp
 Staging
-@(#)VERSION:Container Manager: Feb 20 2021 03:44:07; MobileContainerManager_Sim-318.100.4~74/x86_64
+@(#)VERSION:Container Manager: May 22 2021 03:17:36; MobileContainerManager_Sim-382~91/x86_64
 -[MCMContainerDataMigrator performMigration]
 MCMContainerDataMigrator
 mobile
 _installd
+%s: SPI MISUSE: Attempt to free container_error_extended_t that is owned by a container_query_t. Ignoring.
 %{public}s(%d): Did not find last build info; we must be upgrading from pre-9.3.1 or this is an erase install.
 %{public}s(%d) Could not get build version from last build info dictionary; assuming this is an upgrade
 %{public}s(%d) Could not get current build info; assuming this is an upgrade
@@ -1060,8 +1216,6 @@ _installd
 %{public}s(%d) Error reading user migration file from disk.  This is bad
 %{public}s(%d) Failed to get library url.
 %{public}s(%d) Error reading system migration file from disk.  This is bad
-Got persona list update from UM.
-Flushing cache from UM persona list update.
 Notifying observer <0x%p; %@> about an invalid user identity: %@
 Notifying observer <0x%p; %@> about a new user identity: %@
 Found %@ for %@
@@ -1070,6 +1224,7 @@ Failed creating working directories for %@: %{public}@
 %{public}s(%d) Expected to find at least one persona; self = %@, personaAttributeList = %@
 Found %@ for ID: %d
 After refresh, found %@ for ID: %d
+Sentinel persona, using: %@
 Unable to fetch platform from client for pid [%d]: %{darwin.errno}d
 %{public}s(%d) Invalid user identity plist data. Expected persona type for %@, got %@. Data: %@
 %{public}s(%d) Invalid user identity plist data. Expected number for %@, got %@. Data: %@
@@ -1149,6 +1304,8 @@ Hit maximum iterations trying to removefile([%s]); removefile error = %{public}d
 %{public}s(%d) removefile hit error for [%s] but we failed to get the error number
 %{public}s(%d) lstat of [%s] failed when trying to figure out why unlink failed: (%d) %s
 %{public}s(%d) unlink of [%s] failed: (%d) %s
+determined account with uid %u and home directory %@ is a role account
+determined account with uid %u and home directory %@ is NOT a role account
 NULL passwd
 container_realpath([%{public}@]) 
  [%{public}@]
@@ -1219,3 +1376,5 @@ NULL client when fetching euid
 Could not allocate memory to initialize a client object for pid [%d].
 Could not get platform from audit token to initialize a client object for pid [%d].
 Could not get code sign identifier from audit token to initialize a client object for pid [%d].
+NULL client when copying
+Could not allocate memory to initialize a client object.

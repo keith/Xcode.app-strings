@@ -1,5 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2038.100.48
-fffff
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2235.0.5
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -54,6 +53,8 @@ bundle_id
 setBundle_id:
 related_applications
 setRelated_applications:
+involved_processes
+setInvolved_processes:
 runOnAppForeground
 setRunOnAppForeground:
 bgwake_count
@@ -93,6 +94,8 @@ user_requested_backup_task
 setUser_requested_backup_task:
 requires_buddy_complete
 setRequires_buddy_complete:
+prevents_device_sleep
+setPrevents_device_sleep:
 requires_network_connectivity
 setRequires_network_connectivity:
 requires_inexpensive_network
@@ -115,6 +118,8 @@ schedule_rtc_wake
 setSchedule_rtc_wake:
 duet_power_budgeted
 setDuet_power_budgeted:
+data_budgeted
+setData_budgeted:
 bgtask_debug
 setBgtask_debug:
 confirmed_run
@@ -143,11 +148,13 @@ _may_reboot_device
 _post_install
 _user_requested_backup_task
 _requires_buddy_complete
+_prevents_device_sleep
 _requires_network_connectivity
 _requires_inexpensive_network
 _communicates_with_paired_device
 _schedule_rtc_wake
 _duet_power_budgeted
+_data_budgeted
 _bgtask_debug
 _confirmed_run
 _bgwake_count
@@ -172,6 +179,7 @@ _elapsedTime
 _state
 _bundle_id
 _related_applications
+_involved_processes
 _expected_network_download_size_bytes
 _expected_network_upload_size_bytes
 _network_endpoint
@@ -201,6 +209,7 @@ TB,N,V_das_eligible
 TB,N,V_das_started
 T@"NSString",&,N,V_bundle_id
 T@"NSArray",&,N,V_related_applications
+T@"NSArray",&,N,V_involved_processes
 TB,N,V_runOnAppForeground
 TI,N,V_bgwake_count
 TI,N,V_power_assertion
@@ -221,6 +230,7 @@ TB,N,V_may_reboot_device
 TB,N,V_post_install
 TB,N,V_user_requested_backup_task
 TB,N,V_requires_buddy_complete
+TB,N,V_prevents_device_sleep
 TB,N,V_requires_network_connectivity
 TB,N,V_requires_inexpensive_network
 Tq,N,V_expected_network_download_size_bytes
@@ -232,6 +242,7 @@ Tr*,N,V_desired_motion_state
 T@"NSObject<OS_xpc_object>",&,N,V_das_data
 TB,N,V_schedule_rtc_wake
 TB,N,V_duet_power_budgeted
+TB,N,V_data_budgeted
 TB,N,V_bgtask_debug
 TB,N,V_confirmed_run
 T@"NSString",&,N,V_group_name
@@ -305,7 +316,6 @@ releasing power assertion: %d for %{public}@
 XPC Activity client connection closed: %{public}@
 Unregistered unmanaged XPC Activity: %{public}@
 Running XPC Activity (PID %d): %{public}@
-taking power assertion: %{public}@: %d
 releasing temporary power assertion: %{public}@: %d
 Scheduling activity timer for [%{public}@] in %lld seconds
 activities are suspended
@@ -364,26 +374,24 @@ ActivityBaseDates
 com.apple.xpc.activity2
 DateCompleted
 DateSubmitted
+v8@?0
 com.apple.weather.watchapp.routine-forecast.
-BackgroundTask
-PreventUserIdleSystemSleep
 TEMP:%s
 AssertName
 PlugInBundleID
 com.apple.xpc.activity
 AssertType
+PreventUserIdleSystemSleep
 TimeoutAction
 TimeoutActionTurnOff
 TimeoutSeconds
 AssertLevel
-AssertionOnBehalfOfPID
 %@ (%p)
 Internal
 Activities
 com.apple.xpc.activity.unmanaged
 v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.xpc.activity.control
-v8@?0
 com.apple.xpc.activity.debug.trigger
 v12@?0i8
 DisableSmartPowerNap

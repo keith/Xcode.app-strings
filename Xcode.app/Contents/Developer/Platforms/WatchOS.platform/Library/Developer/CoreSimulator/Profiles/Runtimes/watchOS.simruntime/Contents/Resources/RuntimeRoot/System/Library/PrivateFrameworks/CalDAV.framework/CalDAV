@@ -193,6 +193,9 @@ calendar-proxy
 inbox-availability
 calendarserver-private-events
 calendarserver-subscribed
+calendarserver-managed-subscribed
+calendarserver-subscribed-mirror
+calendar-role
 calendarserver-principal-property-search
 calendar-query-extended
 calendar-managed-attachments
@@ -277,6 +280,8 @@ Finished updating sharing level on "%@". Error was %@
 Done updating sharing level on all calendars.
 Finished updating sharees on the Calendar "%@" (%{public}@). Error was %@
 Done updating sharees on all calendars. Refreshing calendar properties
+The refresh interval specified for the [%@] calendar, which is about to be created, is too large.  It is currently: [%lu].  It will be set to 0.
+We have a calendar (%@) that claims to be a subscribed calendar, but doesn't implement CalDAVSubscribedCalendar.
 Encountered an error while creating a calendar. error = %@; failing calendar = %@; failing task group = %@
 Retrying mkcalendar for calendar %@
 Skipping special non-calendar container at %@
@@ -371,6 +376,9 @@ supportsCalendarProxy
 supportsInboxAvailability
 supportsPrivateEvents
 supportsSubscriptionCalendars
+supportsManagedSubscriptionCalendars
+supportsSubscriptionMirroring
+supportsParticipantRoles
 supportsPrincipalPropertySearch
 supportsExtendedCalendarQuery
 supportsManagedAttachments
@@ -415,6 +423,13 @@ attachment; filename="%@";filename*=utf-8''%@
 [<%@ %p> %@ %@ "%@" %@ %@]
 CalDAVCalendarServerResourceChangeElement.m
 Don't initialize CalDAVCalendarServerResourceChange directly. Use a subclass, dude.
+MASTER
+CREATE
+CANCEL
+REPLY
+UPDATE
+com.apple.calendar.CalDAV
+CalDAVScheduleChanges
 [multi-move] ~ Response included etag %{public}@, but we're ignoring it and nilling etag because we got a schedule-tag.
 [multi-move] ~ Finished setting tags for moved CalDAV entity
 [multi-move] ~ No schedule-tag returned! PROPFINDing for the etag/schedule-tag...
@@ -468,6 +483,8 @@ Finished updating sharing level on "%@". Error was %@
 Done updating sharing level on all calendars.
 Finished updating sharees on the Calendar "%@" (%{public}@). Error was %@
 Done updating sharees on all calendars. Refreshing calendar properties
+The refresh interval specified for the [%@] calendar, which is about to be created, is too large.  It is currently: [%lu].  It will be set to 0.
+We have a calendar (%@) that claims to be a subscribed calendar, but doesn't implement CalDAVSubscribedCalendar.
 Encountered an error while creating a calendar. error = %@; failing calendar = %@; failing task group = %@
 Retrying mkcalendar for calendar %@
 Skipping special non-calendar container at %@
@@ -506,6 +523,11 @@ Performing a bulk upload of %lu/%lu items to the server at %@
 Bulk upload failed with a precondition error for ctag %{public}@, but we have sync-token %{public}@ that just might work. Retrying with that value.
 Performing PUT uploads of %lu/%lu items to the server at %@
 There's nothing for CalDAVMergeUploadTaskGroup to do. Exiting early
+invalid recurrence node - no master or recurrenceID specified
+:: ------- %@
+:: changed property "%@"
+:: :: changed parameter "%@" of "%@"
+Error: schedule changes message from server contains multiple master events - picking one at random...
 [multi-move] ~ Response included etag %{public}@, but we're ignoring it and nilling etag because we got a schedule-tag.
 [multi-move] ~ Finished setting tags for moved CalDAV entity
 [multi-move] ~ No schedule-tag returned! PROPFINDing for the etag/schedule-tag...
@@ -525,6 +547,7 @@ There's nothing for CalDAVMergeUploadTaskGroup to do. Exiting early
 [multi-move] ~ Error during PROPFIND.
 [multi-move] ~ %@;
 %{public}@ shouldn't be created finding nothing. Finding all instead.
+zPLR
 zPLR
 zPLR
 zPLR
@@ -650,6 +673,8 @@ CalDAVCalendarServerResourceChangeElement
 CalDAVCalendarServerDeletedDetailsItem
 CalDAVCalendarServerResourceChangeDeletedElement
 CalDAVCalendarServerCollectionChangesElement
+CalDAVOccurrenceChange
+CalDAVScheduleChangesProperty
 CalDAVMultiMoveWithFallbackTaskGroup
 CalDAVCalendarServerCollectionUpdatesElement
 CalDAVContainerChecksumSyncTaskGroup
@@ -1022,6 +1047,10 @@ delegatePrincipalURL
 principalURL
 initWithPropertiesToFind:atURL:withDepth:
 setDelegate:
+homeURL
+_copyHomePropertiesPropFindElements
+_taskCompleted:withError:
+propFindTask:parsedResponses:error:
 userAddressesForAddressSetItem:
 hrefsAsFullURLs
 unauthenticated
@@ -1036,6 +1065,7 @@ processPrincipalHeaders:
 homeSet
 forceOptionsRequest
 setDelegatePrincipalURL:
+setHomeURL:
 calendarHomes
 inboxURL
 outboxURL
@@ -1044,8 +1074,10 @@ notificationURL
 updatedPrincipalURL
 serverVersion
 supportsCalendarUserSearch
+_secondTask
 _supportsCalendarUserSearch
 _delegatePrincipalURL
+_homeURL
 _calendarHomes
 _preferredUserAddresses
 _inboxURL
@@ -1055,6 +1087,7 @@ _notificationURL
 _updatedPrincipalURL
 _serverVersion
 T@"NSURL",&,N,V_delegatePrincipalURL
+T@"NSURL",&,N,V_homeURL
 T@"NSSet",R,N,V_calendarHomes
 T@"NSSet",R,N,V_preferredUserAddresses
 T@"NSURL",R,N,V_inboxURL
@@ -1063,6 +1096,8 @@ T@"NSURL",R,N,V_dropboxURL
 T@"NSURL",R,N,V_notificationURL
 T@"NSURL",R,N,V_updatedPrincipalURL
 T@"CalDAVServerVersion",R,N,V_serverVersion
+T@"NSString",R,N,V_defaultTimedAlarms
+T@"NSString",R,N,V_defaultAllDayAlarms
 TB,R,N,V_supportsCalendarUserSearch
 transparent
 setTransparent:
@@ -1323,7 +1358,6 @@ TQ,R
 T#,R
 T@"NSString",R,C
 task:didFinishWithError:
-propFindTask:parsedResponses:error:
 propPatchTask:parsedResponses:error:
 initWithAccountInfoProvider:inboxURL:urlToAdd:suffixToFilterOut:taskManager:
 taskGroupWillCancelWithError:
@@ -1358,7 +1392,17 @@ ICSStringWithOptions:
 dataUsingEncoding:
 setPayload:
 initWithAccountInfoProvider:inboxURL:calendarAvailability:taskManager:
+initWithPrincipal:
+setUseCDATA:
 principal
+needsDefaultTimedAlarmUpdate
+propPatchForProperty:value:
+setNeedsDefaultTimedAlarmUpdate:
+needsDefaultAllDayAlarmUpdate
+setNeedsDefaultAllDayAlarmUpdate:
+calendarHomeURL
+sendLocallyChangedPropertiesIfNeeded
+_reallyRefreshProperties
 isDelegate
 outstandingTaskGroups
 account
@@ -1377,6 +1421,7 @@ displayName
 setFullName:
 setSupportsCalendarUserSearch:
 isExpandPropertyReportSupported
+expandPropertyReportIsUnreliable
 setIsExpandPropertyReportSupported:
 setPreferredCalendarUserAddresses:
 password
@@ -1385,6 +1430,7 @@ setPassword:
 propertyRefreshForPrincipal:completedWithError:
 refreshProperties
 getAccountPropertiesTask:completedWithError:
+_defaultAlarmGroup
 _fetchPrincipalSearchProperties
 T@"<CalDAVAccountPropertyRefreshDelegate>",D,N
 TB,N,V_fetchPrincipalSearchProperties
@@ -1479,8 +1525,10 @@ stringByTrimmingCharactersInSet:
 substringWithRange:
 user
 URLWithScheme:host:port:uri:
+absoluteURL
 URLWithoutPassword
 absoluteURLisEqual:
+calDAV_leastInfoStringRepresentationRelativeToParentURL:
 notificationTypeNamesToFetch
 notificationNameIn:
 initWithFolderURL:previousCTag:previousSyncToken:accountInfoProvider:taskManager:
@@ -1619,7 +1667,6 @@ T@"NSMutableSet",&,N,V_invalidSharees
 setInvitation:
 setAcceptInvitation:
 generateReply
-calendarHomeURL
 invitation
 acceptInvitation
 hostURL
@@ -1752,7 +1799,6 @@ dealloc
 cancelTaskGroup
 _tearDownAllTaskGroupsWithBlock:
 bailWithError:
-initWithPrincipal:
 setPrincipal:
 setOutstandingTaskGroups:
 _isCancellingTaskGroups
@@ -1800,36 +1846,6 @@ URLByAppendingPathComponent:
 order
 color
 setColorString:
-notes
-_generateTimeZoneString:
-_handleMkCalTaskGroupError:forCalendar:
-_retryMkCalForCalendar:
-calendarRefreshShouldRetryMkCalendarForPrincipal:calendar:error:
-calendarRefreshFoundUpdatedSpecialContainer:
-privileges
-hasWriteContentPrivileges
-isWritable
-hasWritePropertiesPrivileges
-isEnabledForEvents
-calendarRefreshFoundUpdatedContainerWithIgnoredEntityType:
-isEnabledForTodos
-containerTitle
-caseInsensitiveCompare:
-setIsEventContainer:
-setIsTaskContainer:
-calendarOfType:atURL:withOptions:
-setGuid:
-isEnabled
-setIsEnabled:
-setIsEditable:
-setIsRenameable:
-setIsSubscribed:
-setIsScheduleInbox:
-setIsScheduleOutbox:
-setIsPoll:
-setIsNotification:
-_sharingStatusForContainer:
-setSharingStatus:
 etagsForItemURLs:
 setEtag:forItemAtURL:
 setScheduleTag:forItemAtURL:
@@ -1837,7 +1853,9 @@ setURL:forResourceWithUUID:
 updateResourcesFromServer:
 deleteResourcesAtURLs:
 hasCalendarUserAddressEquivalentToURL:
+setGuid:
 setTitle:
+notes
 setNotes:
 setColor:
 pushKey
@@ -1851,11 +1869,23 @@ bulkRequests
 setBulkRequests:
 setOrder:
 sharingStatus
+setSharingStatus:
+setIsTaskContainer:
+setIsEventContainer:
+setIsSubscribed:
 isManagedByServer
 setIsManagedByServer:
+setIsScheduleInbox:
+setIsScheduleOutbox:
+setIsNotification:
 isPoll
+setIsPoll:
 isEditable
+setIsEditable:
 isRenameable
+setIsRenameable:
+isEnabled
+setIsEnabled:
 setIsPublished:
 setIsAffectingAvailability:
 wasModifiedLocally
@@ -1893,6 +1923,24 @@ setHasTaskFilter:
 refreshInterval
 setRefreshInterval:
 Td,N
+initWithWeeks:days:hours:minutes:seconds:
+_generateTimeZoneString:
+_handleMkCalTaskGroupError:forCalendar:
+_retryMkCalForCalendar:
+calendarRefreshShouldRetryMkCalendarForPrincipal:calendar:error:
+calendarRefreshFoundUpdatedSpecialContainer:
+privileges
+hasWriteContentPrivileges
+isWritable
+hasWritePropertiesPrivileges
+isEnabledForEvents
+calendarRefreshFoundUpdatedContainerWithIgnoredEntityType:
+isEnabledForTodos
+containerTitle
+caseInsensitiveCompare:
+calendarOfType:atURL:withOptions:
+_sharingStatusForContainer:
+_getSetPropertiesTaskWithItemsToSet:itemsToRemove:atURL:
 _getSetIsAffectingAvailabilityTask:forCalendar:atURL:
 isEqualToDictionary:
 _getSetPropertyStringTask:forName:andNamespace:atURL:
@@ -2022,8 +2070,13 @@ integerValue
 _minPreferredAddress:
 _preferredAddressNoPreferred:
 lowercaseString
+compareAddressURL:localURL:
+relativePath
+isEqualToNumber:
 packCalDAVUserAdress:
 unpackCalDAVUserAdress:
+compareAddressURL:localString:
+isSameAsUserAddressURL:
 _address
 _preferred
 T@"NSURL",&,N,V_address
@@ -2191,7 +2244,6 @@ serverHeader
 complianceClasses
 _allFlagKeys
 type
-isEqualToNumber:
 boolValue
 setByAddingObjectsFromSet:
 numberWithDouble:
@@ -2218,6 +2270,12 @@ supportsPrivateEvents
 setSupportsPrivateEvents:
 supportsSubscriptionCalendars
 setSupportsSubscriptionCalendars:
+supportsManagedSubscriptionCalendars
+setSupportsManagedSubscriptionCalendars:
+supportsSubscriptionMirroring
+setSupportsSubscriptionMirroring:
+supportsParticipantRoles
+setSupportsParticipantRoles:
 setSupportsPrincipalPropertySearch:
 supportsManagedAttachments
 setSupportsManagedAttachments:
@@ -2236,6 +2294,7 @@ supportsCalendarAudit
 setSupportsCalendarAudit:
 supportsTelephone
 setSupportsTelephone:
+setExpandPropertyReportIsUnreliable:
 _supportsTimeRangeFilter
 _supportsTimeRangeFilterWithoutEndDate
 _supportsTimeRangeFilterOnInbox
@@ -2248,6 +2307,9 @@ _supportsCalendarProxy
 _supportsInboxAvailability
 _supportsPrivateEvents
 _supportsSubscriptionCalendars
+_supportsManagedSubscriptionCalendars
+_supportsSubscriptionMirroring
+_supportsParticipantRoles
 _supportsPrincipalPropertySearch
 _supportsRequestCompression
 _supportsManagedAttachments
@@ -2259,6 +2321,7 @@ _supportsCalendarRecurrenceSplit
 _alwaysSupportsFreebusyOnOutbox
 _supportsCalendarAudit
 _supportsTelephone
+_expandPropertyReportIsUnreliable
 _version
 _complianceClasses
 _serverHeader
@@ -2275,6 +2338,9 @@ TB,N,V_supportsCalendarProxy
 TB,N,V_supportsInboxAvailability
 TB,N,V_supportsPrivateEvents
 TB,N,V_supportsSubscriptionCalendars
+TB,N,V_supportsManagedSubscriptionCalendars
+TB,N,V_supportsSubscriptionMirroring
+TB,N,V_supportsParticipantRoles
 TB,N,V_supportsPrincipalPropertySearch
 TB,N,V_supportsRequestCompression
 TB,N,V_supportsManagedAttachments
@@ -2286,6 +2352,7 @@ TB,N,V_supportsCalendarRecurrenceSplit
 TB,N,V_supportsCalendarAudit
 TB,N,V_supportsTelephone
 TB,N,V_alwaysSupportsFreebusyOnOutbox
+TB,N,V_expandPropertyReportIsUnreliable
 T@"NSString",C,N,V_supportedCalendarComponentSets
 T@"NSSet",&,N,V_complianceClasses
 T@"NSString",C,N,V_serverHeader
@@ -2439,6 +2506,63 @@ setDeletedItem:
 Tq,N,V_created
 Tq,N,V_updated
 Tq,N,V_deleted
+setIsMaster:
+initWithValue:
+initWithOccurrenceID:
+changeWithOccurrenceID:
+addChangedParameter:ofProperty:
+didPropertyChange:
+startTimeChanged
+endTimeChanged
+didParameterChange:onProperty:
+changeWithItem:
+dateTimeChanged
+timeZoneChanged
+locationChanged
+urlChanged
+summaryChanged
+attendeesChanged
+descriptionChanged
+statusChanged
+attachmentsChanged
+recurrenceChanged
+participationChanged
+privateCommentChanged
+proposedStartDateChanged
+_isMaster
+T@"NSMutableDictionary",&,N,V_changes
+TB,N,V_isMaster
+T@"ICSDate",&,N,V_recurrenceID
+setActionType:
+setDateStamp:
+setAttendeeAddress:
+setMasterChange:
+setOccurrenceChanges:
+actionType
+addOccurrenceChange:
+masterChange
+occurrenceChanges
+arrayByApplyingSelector:
+debugStringForType:
+propertyWithItem:
+isCancel
+isReply
+isUpdate
+isCreate
+recurrenceIDs
+changeForOccurrence:
+dateStamp
+attendeeAddress
+_actionType
+_dateStamp
+_attendeeAddress
+_masterChange
+_occurrenceChanges
+T@"NSMutableDictionary",&,N,V_occurrenceChanges
+T@"NSString",&,N,V_dateStamp
+Ti,N,V_actionType
+T@"NSString",&,N,V_attendeeAddress
+T@"CalDAVOccurrenceChange",&,N,V_masterChange
 initWithSourceURLs:destinationURL:overwrite:useFallback:sourceEntityDataPayloads:sourceEntityDataContentTypes:sourceEntityETags:accountInfoProvider:taskManager:
 sourceURLs
 dictionaryWithCapacity:
@@ -2503,32 +2627,36 @@ TB,R,N,V_isAllDay
 addVersionSupported:
 _versionStringsSupported
 symbolicColorForLegacyRGB:
-setFindAttendees:
-setFindLocations:
-findAttendees
-findLocations
-findUsers
-findGroups
-findResources
+searchType
 resultLimit
 tokensAreLegal:
 initWithSearchStrings:atURL:
-setFindUsers:
-setFindGroups:
-setFindResources:
+setSearchType:
 setResultLimit:
+findAttendees
+setFindAttendees:
+findLocations
+setFindLocations:
+findUsers
+setFindUsers:
+findGroups
+setFindGroups:
+findResources
+setFindResources:
 _findAttendees
 _findLocations
 _findUsers
 _findGroups
 _findResources
+_searchType
 _resultLimit
+Tq,N,V_searchType
+TQ,N,V_resultLimit
 TB,N,V_findAttendees
 TB,N,V_findLocations
 TB,V_findUsers
 TB,V_findGroups
 TB,V_findResources
-TQ,N,V_resultLimit
 matchResults
 rank
 initWithLanguages:location:calendarType:url:
@@ -2562,6 +2690,8 @@ v24@0:8q16
 @"ICSDuration"
 @"NSTimeZone"
 @"NSMutableSet"
+v40@0:8@16@24@32
+@"CoreDAVTask"
 @"CalDAVServerVersion"
 @"CoreDAVItemWithNoChildren"
 v24@0:8B16B20
@@ -2602,7 +2732,6 @@ Q16@0:8
 ^{_NSZone=}16@0:8
 B24@0:8@"Protocol"16
 v32@0:8@"CoreDAVTask"16@"NSError"24
-v40@0:8@16@24@32
 v40@0:8@"CoreDAVPropFindTask"16@"NSArray"24@"NSError"32
 v40@0:8@"CoreDAVPropPatchTask"16@"NSArray"24@"NSError"32
 v28@0:8@16i24
@@ -2612,6 +2741,7 @@ v20@0:8i16
 @24@0:8Q16
 @32@0:8@16Q24
 @48@0:8@16@24@32@40
+@"NSObject<OS_dispatch_group>"
 @20@0:8S16
 @24@0:8r*16
 @24@0:8#16
@@ -2669,7 +2799,6 @@ v40@0:8@"CoreDAVContainerInfoSyncTaskGroup"16@"NSArray"24@"NSArray"32
 v40@0:8@"CoreDAVContainerInfoSyncTaskGroup"16@"NSString"24@"NSError"32
 @36@0:8B16@20@28
 @"NSError"
-@"NSObject<OS_dispatch_group>"
 @"CalDAVPrincipalSearchPropertySet"
 @"CalDAVPrincipalEmailDetailsResult"
 @32@0:8@16q24
@@ -2685,6 +2814,8 @@ B40@0:8@16@24@32
 @"CalDAVBulkUploadTaskGroup"
 @"ICSDateValue"
 @"NSData"
+@"ICSDate"
+@"CalDAVOccurrenceChange"
 @92@0:8@16@24B32B36@40@48@56@64@72@80B88
 v40@0:8@16@24@?32
 v48@0:8@16@24@32@40

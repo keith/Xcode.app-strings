@@ -11,10 +11,7 @@ pragma foreign_keys=on
 @16@?0@"FLFollowUpItem"8
 com.apple.language.changed
 com.apple.corefollowup.agent
-com.apple.followup.badge.refresh
-v32@?0@8Q16^B24
 v16@?0@"NSNotification"8
-v32@?0@"NSString"8@"NSArray"16^B24
 com.apple.authkit.hsa2-password-reset
 com.apple.authkit
 com.apple.followup.badges
@@ -22,8 +19,10 @@ v32@?0@"FLFollowUpItem"8Q16^B24
 B24@?0@"FLFollowUpItem"8@"NSDictionary"16
 com.apple.followup.badge
 com.apple.corefollowup.items_changed
+com.apple.followup.badge.refresh
+v32@?0@"NSString"8@"NSArray"16^B24
 /Library/CoreFollowUp/items.db
-INSERT OR REPLACE INTO items (uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, extension_identifier, group_identifier, target_bundle_identifier, representing_bundle_path, bundle_icon_name, informative_footer_text, category_identifier) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT OR REPLACE INTO items (uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, extension_identifier, group_identifier, target_bundle_identifier, representing_bundle_path, bundle_icon_name, informative_footer_text, category_identifier, expiration_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 v16@?0^{sqlite3_stmt=}8
 INSERT INTO actions (label, url, launch_url, launch_arguments, item_id, action_identifier) VALUES (?, ?, ?, ?, ?, ?)
 INSERT OR REPLACE INTO notifications (item_id, title, body, unlock_label, relevance_date, activate_action_id, dismiss_action_id, clear_action_id, frequency, creationDate, options, id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -34,7 +33,7 @@ DELETE FROM actions WHERE id=?
 v24@?0@"FLFollowUpAction"8^B16
 v24@?0@"FLFollowUpNotification"8^B16
 v24@?0@"FLFollowUpItem"8^B16
-SELECT id, uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, extension_identifier, group_identifier, target_bundle_identifier, representing_bundle_path, bundle_icon_name, informative_footer_text, category_identifier FROM items
+SELECT id, uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, extension_identifier, group_identifier, target_bundle_identifier, representing_bundle_path, bundle_icon_name, informative_footer_text, category_identifier, expiration_date FROM items
  WHERE
  uuid = ?
  ORDER BY id
@@ -63,6 +62,7 @@ com.apple.followup.post-notification
 v32@?0@"UNNotification"8Q16^B24
 found
 not found
+_keepOnLockscreen
 com.apple.followup.post-teardown
 com.apple.followup.cfnotificationqueue
 NOTIFICATION_NOT_NOW_DEFAULT_VALUE
@@ -83,6 +83,8 @@ UPDATE items SET informative_footer_text=NULL
 ALTER TABLE items ADD COLUMN category_identifier TEXT
 UPDATE items SET category_identifier='%@'
 SELECT representing_bundle_path, bundle_icon_name, informative_footer_text FROM items
+ALTER TABLE items ADD COLUMN expiration_date INTEGER
+UPDATE items SET expiration_date=NULL
 _tmp
 INSERT INTO items_tmp (uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, extension_identifier, group_identifier, target_bundle_identifier, representing_bundle_path, bundle_icon_name, informative_footer_text, category_identifier) SELECT uuid, title, body, show_in_settings, style, persist_when_activated, persist_when_dismissed, user_info, client_identifier, NULL, '%@', '%@', NULL, NULL, NULL, '%@' FROM items
 INSERT INTO actions_tmp (label, url, launch_url, launch_arguments, item_id, action_identifier) SELECT label, url, launch_url, fl_convert_la_userinfo(launch_arguments), item_id, NULL FROM actions
@@ -95,7 +97,7 @@ CREATE TABLE databaseProperties%@ (key TEXT PRIMARY KEY, value TEXT)
 INSERT INTO databaseProperties%@ (key, value) VALUES ('schemaVersion', '%@')
 CREATE TABLE notifications%@ (id INTEGER PRIMARY KEY, item_id INTEGER REFERENCES items(id) ON DELETE CASCADE, title TEXT, body TEXT, unlock_label TEXT, relevance_date INTEGER, activate_action_id INTEGER REFERENCES actions(id) ON DELETE CASCADE, dismiss_action_id INTEGER REFERENCES actions(id) ON DELETE CASCADE, clear_action_id INTEGER REFERENCES actions(id) ON DELETE CASCADE, frequency INTEGER, creationDate INTEGER, options BLOB)
 CREATE TABLE actions%@ (id INTEGER PRIMARY KEY, item_id INTEGER REFERENCES items(id) ON DELETE CASCADE, label TEXT, url TEXT, launch_url TEXT, launch_arguments BLOB, action_identifier TEXT)
-CREATE TABLE items%@ (id INTEGER PRIMARY KEY, uuid TEXT, client_identifier TEXT, title TEXT, body TEXT, show_in_settings INTEGER, style INTEGER, persist_when_activated INTEGER, persist_when_dismissed INTEGER, user_info BLOB, extension_identifier TEXT, group_identifier TEXT, target_bundle_identifier TEXT, representing_bundle_path TEXT, bundle_icon_name TEXT, informative_footer_text TEXT, category_identifier TEXT, UNIQUE(uuid))
+CREATE TABLE items%@ (id INTEGER PRIMARY KEY, uuid TEXT, client_identifier TEXT, title TEXT, body TEXT, show_in_settings INTEGER, style INTEGER, persist_when_activated INTEGER, persist_when_dismissed INTEGER, user_info BLOB, extension_identifier TEXT, group_identifier TEXT, target_bundle_identifier TEXT, representing_bundle_path TEXT, bundle_icon_name TEXT, informative_footer_text TEXT, category_identifier TEXT, expiration_date INTEGER, UNIQUE(uuid))
 DROP TABLE IF EXISTS databaseProperties
 DROP TABLE IF EXISTS notifications
 DROP TABLE IF EXISTS actions
@@ -182,13 +184,8 @@ followUpItems
 itemsMatchingIdentifier:
 _clientIdentifier
 initWithMachServiceName:
-allApprovedItemsByBundle
-currentEnvironment
-supportedBundleIdentifiers
-refreshBadgesWithItems:forBundleIdentifier:
-enumerateObjectsUsingBlock:
+updateBadgeCounts:
 defaultCenter
-enumerateKeysAndObjectsUsingBlock:
 addObserverForName:object:queue:usingBlock:
 sharedController
 setDelegate:
@@ -236,6 +233,7 @@ UUIDString
 itemsForClientIdentifier:
 count
 uniqueIdentifier
+currentEnvironment
 stressMode
 insertFollowUpItem:
 notification
@@ -243,6 +241,7 @@ previousNotificationActionDate
 setPreviousNotificationActionDate:
 creationDate
 setCreationDate:
+enumerateObjectsUsingBlock:
 recalculateActionDateToAccountForDelay
 _telemetryProcessor
 processItemAddition:
@@ -253,12 +252,21 @@ deleteFollowUpItem:
 tearDownNotificationForItem:
 firstObject
 predicateWithBlock:
-processCurrentItems:
+_updateBadgeCounts:processTelemetry:
 updateRepeatingActivityState
+supportedBundleIdentifiers
+allApprovedItemsByBundle
+setWithArray:
+removeObject:
+containsObject:
+processCurrentItems:
+refreshBadgesWithItems:forBundleIdentifier:
+enumerateKeysAndObjectsUsingBlock:
 allFollowUpItems
 targetBundleIdentifier
 fl_multiMap:
 displayStyle
+isExpired
 updateBadgeCount:bundleID:
 _badgeQueue
 initWithBundleIdentifier:
@@ -286,6 +294,7 @@ pendingFollowUpItemsForClientIdentifier:completion:
 clearPendingFollowUpItemsForClientIdentifier:completion:
 clearPendingFollowUpItemsForClientIdentifier:uniqueIdentifiers:completion:
 clearNotificationForItem:completion:
+updateBadgesForTimer
 postHSA2LoginNotification:completion:
 postHSA2LoginCode:withNotification:completion:
 postHSA2PasswordChangeForAppleID:completion:
@@ -315,6 +324,8 @@ representingBundlePath
 bundleIconName
 informativeFooterText
 categoryIdentifier
+expirationDate
+timeIntervalSince1970
 setBindHandler:
 label
 absoluteString
@@ -325,7 +336,6 @@ clearAction
 _unsafeSelectNotificationForFollowUpItem:
 _unsafe_deleteActionWithID:
 unlockActionLabel
-timeIntervalSince1970
 dismissAction
 frequency
 _optionsData
@@ -353,9 +363,10 @@ setRepresentingBundlePath:
 setBundleIconName:
 setInformativeFooterText:
 setCategoryIdentifier:
+dateFromColumn:inStatement:
+setExpirationDate:
 setActions:
 setUnlockActionLabel:
-dateFromColumn:inStatement:
 setActivateAction:
 setClearAction:
 intervalFromColumn:inStatement:
@@ -394,6 +405,10 @@ shouldDeliverNotification
 valueForKey:
 sortDescriptorWithKey:ascending:
 sortedArrayUsingDescriptors:
+_midnightAdjustedDate
+compare:
+timeIntervalSinceNow
+oneDayTimeInterval
 _activityCriteriaWithFrequency:
 numberWithLong:
 _deliverNotificationsForItem:forceDelivery:
@@ -407,7 +422,6 @@ isHSA2LoginItem
 isHSA2PasswordResetItem
 captureActionForItem:withEvent:source:
 options
-containsObject:
 _handleNotificationAction:forItem:activationSource:
 updateNotificationDeliveryDateForItem:
 followUpExtensionSupportEnabled
@@ -417,7 +431,6 @@ remoteInterface
 _processFollowUpItemNotificationWithExtension:activatedAction:
 followUpPerformUpdateWithCompletionHandler:
 mutableCopy
-removeObject:
 initWithItem:
 setEventSource:
 handleAction:completion:
@@ -441,20 +454,23 @@ notificationProvider
 _itemStoreDecorator
 _notificationProvider
 T@"<NotificationProvider>",&,N,V_notificationProvider
-setWantsNotificationResponsesDelivered
-setNotificationCategories:
+createNotificationCenterWithBundleIdentifier:
+dictionaryWithObject:forKey:
 _notificationDeliveryQueue
 addCategoryForFollowUpItem:
 userNotificationRequestForFollowUpItem:
+getNotificationCenterForItem:
 addNotificationRequest:withCompletionHandler:
 deliveredNotifications
 request
 content
 body
+_informativeNotificationTextOrDate
 actionsForFollowUpItem:
 categoryWithIdentifier:actions:intentIdentifiers:options:
 notificationCategories
 setWithSet:
+setNotificationCategories:
 initWithCapacity:
 actionWithIdentifier:title:options:
 removePendingNotificationRequestsWithIdentifiers:
@@ -470,12 +486,16 @@ setObject:forKey:
 requestWithIdentifier:content:trigger:destinations:
 delegate
 actionIdentifier
+setWantsNotificationResponsesDelivered
+supportedNotifyingAppIds
+getNotificationCenterForBundleIdentifier:
 T@"<NotificationProviderDelegate>",W,N
 userNotificationCenter:willPresentNotification:withCompletionHandler:
 userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:
 userNotificationCenter:openSettingsForNotification:
-_noteCenter
 _foundationNotificationController
+_noteCenters
+_noteCentersLock
 _delegate
 T@"<NotificationProviderDelegate>",W,N,V_delegate
 dictionary
@@ -525,6 +545,7 @@ Inserting a new follow up
 Searching for matching item in store, using identifier: %@
 BEGIN [%llu]: FetchDecoratedItems
 END [%llu] %fs: FetchDecoratedItems
+No items found for bundle ID, %@, ensuring badge count is 0
 No bundle identifier, nothing to badge...
 %@: Badging (%lu, %@)
 %@: Badged (%@, %@)
@@ -580,10 +601,13 @@ Posting a followup notification: %@
 UN: Notification request added with error %@
 Checking existing UNNotifications
 Existing UNNotification that is out of date: %@
+Keeping %@ on lockscreen
 Target bundle provided identifier is not permitted for notifications, returning nil
 Using the activate action URL as the default URL: %@
 No activate action URL specified, default action will use redirect URL: %@
 Notification response received with id: %@ (uid: %@)
+Creating UNUserNotificationCenter for bundle identifier %@
+Bundle id %@ is not allowed as a notifying app id. Will use %@ instead
 Attempting to post springboard alert for item: %@
 Alert already visible, bailing...
 Looks like CFU regressed somewhere... you shuld never see this, please file radar.
@@ -655,6 +679,7 @@ B32@0:8@16@24
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 v24@0:8@16
 @"NSXPCListener"
+v28@0:8B16@20
 v32@0:8@16@24
 v32@0:8Q16@24
 v32@0:8@16@?24
@@ -693,13 +718,13 @@ v24@0:8@"<NotificationProviderDelegate>"16
 v40@0:8@"UNUserNotificationCenter"16@"UNNotification"24@?<v@?Q>32
 v40@0:8@"UNUserNotificationCenter"16@"UNNotificationResponse"24@?<v@?>32
 v32@0:8@"UNUserNotificationCenter"16@"UNNotification"24
-@"UNUserNotificationCenter"
 @"FLFoundationNotificationController"
+@"NSMutableDictionary"
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"<NotificationProviderDelegate>"
 v32@0:8^{__CFUserNotification=}16@24
 v32@0:8^{__CFUserNotification=}16@?24
 ^{__CFUserNotification=}24@0:8@16
-@"NSMutableDictionary"
 @"NSObject<OS_dispatch_queue>"
 q16@0:8
 v32@0:8q16q24
@@ -709,7 +734,7 @@ v24@0:8q16
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241111</string>
+<string>20A241115</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -735,21 +760,21 @@ v24@0:8q16
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>18E164</string>
+<string>19A5261t</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>14.5</string>
+<string>15.0</string>
 <key>DTSDKBuild</key>
-<string>18E164</string>
+<string>19A5261t</string>
 <key>DTSDKName</key>
-<string>iphonesimulator14.5.internal</string>
+<string>iphonesimulator15.0.internal</string>
 <key>DTXcode</key>
-<string>1240</string>
+<string>1300</string>
 <key>DTXcodeBuild</key>
-<string>12E6178j</string>
+<string>13A6139f</string>
 <key>MinimumOSVersion</key>
-<string>14.5</string>
+<string>15.0</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
@@ -789,10 +814,15 @@ v24@0:8q16
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<key>com.apple.private.security.storage.CoreFollowUp</key>
+<true/>
 <key>com.apple.private.usernotifications.bundle-identifiers</key>
 <array>
 <string>com.apple.Preferences</string>
 <string>com.apple.followupd</string>
+<string>com.apple.iCloud.FollowUp</string>
+<string>com.apple.mobileslideshow</string>
+<string>com.apple.Home</string>
 </array>
 <key>com.apple.security.exception.mach-lookup.global-name</key>
 <array>

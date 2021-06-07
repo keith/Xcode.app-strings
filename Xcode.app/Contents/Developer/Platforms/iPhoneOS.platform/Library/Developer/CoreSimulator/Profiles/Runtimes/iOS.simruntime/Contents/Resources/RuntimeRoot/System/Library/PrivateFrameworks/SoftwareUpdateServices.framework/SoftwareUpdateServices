@@ -262,6 +262,7 @@ SUSessionID
 SULastDeletedSUAssetID
 SULastAssetAudience
 SUAppliedTime
+SUUnderExclusiveControl
 SUDiscoveryDates
 %@%@
 Failed to create state file path
@@ -290,6 +291,7 @@ sessionID: %@
 lastDeletedAssetID: %@            
 lastAssetAudience: %@            
 appliedSate: %@            
+underExclusiveControl: %@            
 UpdateDiscoveryDates: %@
 SUDownloadInterfaceReport
 Skipping SUDownloadInterfaceReport in SUState (legacy).
@@ -492,6 +494,7 @@ InsufficientDiskSpace
 InstallationKeybagRequired
 CarplayConnected
 MediaPlaying
+Driving
 v28@?0Q8i16^B20
 DefaultWiFiOnly
 DefaultRoamingRestricted
@@ -636,6 +639,8 @@ Error demoting apps: %@
 %ld bytes freed after app demotion
 -[SUManagerClient installServerConfiguration]
 -[SUManagerClient installServerConfiguration]_block_invoke
+-[SUManagerClient setExclusiveControl:]
+-[SUManagerClient setExclusiveControl:]_block_invoke
 -[SUManagerClient scheduleDateActivity:]
 -[SUManagerClient scheduleDateActivity:]_block_invoke
 -[SUManagerClient recordSUAnalyticsEvent:]
@@ -707,6 +712,7 @@ No update found.
 Remote connection lost.
 Unknown Error.
 No Error.
+client is not authorised, SoftwareUpdateServicesd is in exclusive mode
 /System/Library/PrivateFrameworks/SoftwareUpdateServices.framework
 SoftwareUpdateServices
 failed to display notification: %ld
@@ -861,6 +867,7 @@ Error getting subscription info: %@
 Failed to get network path evaluator
 SUNetworkMonitor.m
 Network type changed from:%@ to:%@
+Cellular type changed from:%@ to:%@
 nodename
 www.apple.com
 ResolverBypass
@@ -876,8 +883,6 @@ Unable to determine network type from cellular data indicator: %d
 Error getting current data service descriptor: %@
 Failed to get international data status: %@
 Error copying registration status: %@
-com.apple.carrier
-com.apple.operator
 com.apple.SoftwareUpdate.EmbeddedSoftwareUpdateUsage
 UserInteractionType
 DaysSinceLastUpdate
@@ -1042,8 +1047,6 @@ SUBannerDelay
 Sets the delay value in seconds for presenting auto update banner (30 minutes by default)
 SUAutoDownloadDeletedBuild
 Enabled auto download of deleted builds
-SUUseSUCore
-Use SUCore for driving the update
 SUMDMSoftwareUpdatePath
 Sets the MDM user initiated scan SU path
 0 = Default
@@ -1086,6 +1089,7 @@ Failed to create carplay _CDContextualPredicate
 %{public}@
 %@ - iTunes restore constraint changed (satisfied? %@)
 %@ - iCloud restore constraint changed (satisfied? %@)
+%@ - is driving constraint changed (satisfied? %@)
 [Token] Create: %@
 [Token] Dealloc: %@
 [Token] Invalidate: %@
@@ -1138,6 +1142,7 @@ SUInstallationConstraintMonitorRestoreFromICloud
 SUEmptyObject
 SUState
 NSKeyedUnarchiverDelegate
+SUInstallationConstraintMonitorDriving
 _SUInstallationConstraintBlockObserverToken
 SUInvalidatable
 SUInstallationConstraintObserver
@@ -1536,6 +1541,7 @@ downloadPolicyTypeForClass:
 cellularFeeAgreementStatus
 isDownloadAllowableForCellular
 isDownloadFreeForCellular
+is5GDownloadAllowed
 allowExpensiveNetwork
 allowCellular
 isDownloadAllowableForCellularRoaming
@@ -1592,6 +1598,7 @@ initOnQueue:withDownload:networkMonitor:
 initOnQueue:withRepresentedInstallationConstraints:andDownload:
 _queue_networkDidChange
 currentNetworkType
+cellularChangedFromCellularType:toCellularType:
 networkChangedFromNetworkType:toNetworkType:
 cellularRoamingStatusChanged:
 carrierBundleChanged
@@ -1766,6 +1773,7 @@ mandatoryUpdateDict
 lastDeletedSUAssetID
 lastAssetAudience
 appliedTime
+underExclusiveControl
 updateDiscoveryDates
 _queue_addFailedPatchDescriptor:
 arrayWithArray:
@@ -1785,6 +1793,7 @@ loadPersistedFailedPatchDescriptors
 lastScannedDescriptorScanOptions
 addFailedPatchDescriptor:
 unlockCallbacks
+setUnderExclusiveControl:
 setLastScannedDescriptorScanOptions:
 _lastDownload
 _preferredLastScannedDescriptor
@@ -1810,6 +1819,7 @@ _lastDeletedSUAssetID
 _lastAssetAudience
 _appliedTime
 _updateDiscoveryDates
+_underExclusiveControl
 T@"_SUAutoInstallOperationModel",&,N,V_lastAutoInstallOperationModel
 T@"SUDownload",C,N,V_lastDownload
 T@"SUDescriptor",C,N,V_preferredLastScannedDescriptor
@@ -1834,6 +1844,15 @@ T@"NSString",&,N,V_lastDeletedSUAssetID
 T@"NSString",&,N,V_lastAssetAudience
 T@"NSDate",&,N,V_appliedTime
 T@"NSDictionary",&,N,V_updateDiscoveryDates
+TB,N,V_underExclusiveControl
+isAvailable
+defaultCenter
+_handleVehicularStateChangeNotification:
+addObserver:selector:name:object:
+_queue_pollSatisfied
+vehicularState
+vehicularOperatorState
+_queue_isDriving
 _removeToken:
 initWithObserver:
 _observer
@@ -1868,10 +1887,7 @@ discoveryDateforBuildVersion:
 dictionaryRepresentation
 _buildVersionArray
 _discoveryDateArray
-defaultCenter
 _handlePlaybackChangeNotification:
-addObserver:selector:name:object:
-_queue_pollSatisfied
 _queue_mediaPlaying
 _mediaRemoteQueue
 initWithInstallPolicyType:
@@ -2198,6 +2214,7 @@ consentToAutoInstallOperation:withResult:
 cancelAutoInstallOperation:withResult:
 demoteApps:withError:
 installServerConfiguration
+setExclusiveControl:
 scheduleDateActivity:
 recordSUAnalyticsEvent:
 submitSUAnalyticsEvent:
@@ -2519,11 +2536,14 @@ _isCurrentlyRoaming
 getSubscriptionInfoWithError:
 subscriptionsInUse
 isEqualToArray:
+_queue_currentCellularType
 isNetworkTypeCellular:
 isExpensive
 _initNetworkObservation
 _networkTypeFromFlags:
 setCurrentNetworkType:
+_networkTypeFromCurrentCellularDataRespectingWifiAssist:
+setCurrentCellularType:
 initWithQueue:
 setSubscriptions
 _networkTypeFromCurrentCellularDataWithError:
@@ -2555,9 +2575,11 @@ networkReselectionNeeded:
 encryptionStatusChanged:info:
 ratSelectionChanged:selection:
 nrDisableStatusChanged:status:
+plmnChanged:plmn:
 carrierBundleChange:
 operatorBundleChange:
 defaultBundleChange
+currentCellularType
 isCurrentNetworkTypeCellular
 isCurrentNetworkTypeExpensive
 isCellularRoaming
@@ -2565,6 +2587,7 @@ _networkTypeFromCurrentCellularData
 _reachability
 _observers
 _currentNetworkType
+_currentCellularType
 _roaming
 _ctClient
 _ctQueue
@@ -2595,10 +2618,10 @@ T@"NSDictionary",R,&,N
 setNetworkMonitor:
 _isCellularCapable
 isDownloadAllowableForCellularIncludingInexpensiveHDM:
+_inexpensiveHDM
 isDownloadableForCurrentNetworkConditions:cellularFeesApply:powerRequired:
 networkMonitor
 _isDownloadableForNetworkType:error:cellularFeesApply:powerRequired:
-_inexpensiveHDM
 isEqualToDate:
 cellularDownloadFeesApply
 wifiOnlyPeriodInDays
@@ -2728,7 +2751,6 @@ autoUpdateForceOn
 autoUpdateForceOff
 bannerDelay
 autoDownloadDeletedBuild
-useSUCore
 allowLiveAssetServerFallback
 analyticsSubmissionIntervalOverride
 setPreference:toBool:
@@ -3024,7 +3046,9 @@ v24@0:8@"CTXPCServiceSubscriptionContext"16
 v32@0:8@"CTServiceDescriptor"16@"CTEncryptionStatusInfo"24
 v32@0:8@"CTServiceDescriptor"16@"CTRatSelection"24
 v32@0:8@"CTServiceDescriptor"16@"CTNRStatus"24
+v32@0:8@"CTServiceDescriptor"16@"CTPlmnInfo"24
 i20@0:8I16
+i20@0:8B16
 i24@0:8^@16
 ^{__SCNetworkReachability=}
 @"NWPathEvaluator"
