@@ -85,7 +85,11 @@ v32@?0@"NSString"8@"NSString"16^B24
 dictationUIInteractionIdentifier
 samplingTimestamp
 samplingRate
--[ESStoreAudioData initWithUUIDString:language:samplingRate:]
+inferenceSpeakerCode
+numTrainedFrames
+trainingNnetVersion
+isSpeakerCodeUsed
+-[ESStoreAudioData initWithUUIDString:language:samplingRate:inferenceSpeakerCode:numTrainedFrames:trainingNnetVersion:isSpeakerCodeUsed:]
 -[ESStoreAudioData saveAudioToDisk]
 -[ESStoreAudioData _cleanupCacheAndReset:]
 -[ESStoreAudioData _saveAudioToCache:]
@@ -117,6 +121,10 @@ audioPackets
 T@"NSMutableData",&,N,V_audioPackets
 hasRecognizedAnything
 TB,N,V_hasRecognizedAnything
+T@"NSString",R,N,V_inferenceSpeakerCode
+T@"NSNumber",R,N,V_numTrainedFrames
+T@"NSNumber",R,N,V_trainingNnetVersion
+TB,R,N,V_isSpeakerCodeUsed
 audioMetadata
 T@"NSMutableDictionary",&,N,V_audioMetadata
 collectedAudioDurationMS
@@ -167,6 +175,7 @@ v16@?0@"MAProgressNotification"8
 v24@?0@"MAAsset"8^B16
 -[ESAssetManager purgeInstalledAssetsExceptLanguages:error:]_block_invoke
 MAPurgeResult
+-[ESAssetManager purgeOutdatedAssets]_block_invoke
 %@: ModelInfo=%@: AssetId=%@:
 Installed
 Installing
@@ -261,6 +270,7 @@ v32@?0@"NSString"8Q16^B24
 +[ESConnection _cancelCooldownTimer]
 +[ESConnection _cooldownTimerFired]
 +[ESConnection _cachedRecognizerCleanUp]
++[ESConnection purgeOutdatedAssets]_block_invoke
 +[ESConnection _sendPendingAnalyticsEvents]
 +[ESConnection _adaptRecipe:userData:profile:]_block_invoke
 v32@?0@"NSString"8@"NSDictionary"16^B24
@@ -491,6 +501,7 @@ moveItemAtPath:toPath:error:
 stringByDeletingPathExtension
 _saveAudioMetadataToFilePath:
 numberWithUnsignedInteger:
+numberWithBool:
 writeToFile:atomically:
 _createCachesDirectoryIfItDoesNotExist
 timeIntervalSince1970
@@ -503,7 +514,7 @@ localizedDescription
 userInfo
 sharedAnalytics
 logEventWithType:context:
-initWithUUIDString:language:samplingRate:
+initWithUUIDString:language:samplingRate:inferenceSpeakerCode:numTrainedFrames:trainingNnetVersion:isSpeakerCodeUsed:
 addAudioPacket:
 markRecognition
 saveAudioToDisk
@@ -515,6 +526,10 @@ audioPackets
 setAudioPackets:
 hasRecognizedAnything
 setHasRecognizedAnything:
+inferenceSpeakerCode
+numTrainedFrames
+trainingNnetVersion
+isSpeakerCodeUsed
 audioMetadata
 setAudioMetadata:
 collectedAudioDurationMS
@@ -522,9 +537,13 @@ setCollectedAudioDurationMS:
 currentAudioFilePath
 setCurrentAudioFilePath:
 _hasRecognizedAnything
+_isSpeakerCodeUsed
 _UUIDString
 _samplingRate
 _audioPackets
+_inferenceSpeakerCode
+_numTrainedFrames
+_trainingNnetVersion
 _audioMetadata
 _collectedAudioDurationMS
 _currentAudioFilePath
@@ -551,6 +570,7 @@ retainCount
 zone
 superclass
 listener:shouldAcceptNewConnection:
+purgeOutdatedAssets
 enableTransactions
 serviceListener
 setDelegate:
@@ -612,7 +632,6 @@ queryMetaData:
 _installedLocalAssetForLanguage:error:
 arrayByAddingObject:
 _startedDownloadingEmbeddedSpeechAsset:error:
-cancelDownloadSync
 initWithType:
 returnTypes:
 addKeyValuePair:with:
@@ -624,6 +643,9 @@ spaceCheck:
 attachProgressCallBack:
 startDownload:then:
 invalidateInstallationStatusCache
+array
+allKeys
+cancelDownloadSync
 sharedInstance
 installationStatusForLanguagesIgnoringCache:withError:
 installedQuasarModelPathForLanguage:error:
@@ -635,6 +657,8 @@ _assetUpdatedNotificationToken
 _lastCatalogDownload
 _numFailedCatalogDownloadAttempts
 _lastFailedCatalogDownload
+_recognizerAssetPathsInUse
+_profileAssetPathsInUse
 longLongValue
 numberWithLongLong:
 allocWithZone:
@@ -664,11 +688,10 @@ invalidate
 setInterruptionHandler:
 setInvalidationHandler:
 remoteObjectProxy
-allKeys
 dataWithJSONObject:options:error:
 data
 _speechRecognizerWithLanguage:enableITN:overrides:modelOverrideURL:error:
-initWithConfiguration:overrides:generalVoc:lexiconEnh:itnEnh:
+initWithConfiguration:overrides:overrideConfigFiles:generalVoc:lexiconEnh:itnEnh:language:
 initWithConfiguration:overrides:
 setDetectUtterances:
 setRecognizeEagerCandidates:
@@ -689,8 +712,11 @@ setUserProfileData:
 setExtraLmList:
 setMaximumRecognitionDuration:
 setFarField:
-runRecognitionWithResultStream:language:task:samplingRate:
+runRecognitionWithResultStream:speakerCodeWriter:language:task:samplingRate:
 version
+speakerCodeInfo
+numFrames
+nnetVersion
 bytes
 addAudioSamples:count:
 updateAudioDuration:
@@ -706,7 +732,6 @@ _userProfileWithLanguage:modelOverridePath:overrides:foundPath:error:
 JSONObjectWithData:options:error:
 objectEnumerator
 nextObject
-array
 initWithOrthography:pronunciations:tagName:frequency:
 addWordWithParts:templateName:
 dataProfile
@@ -825,6 +850,7 @@ _audioDurationMs
 _localMetrics
 _recognitionBeginTime
 _recognitionEndTime
+_speakerCodeWriter
 _weakFidesRecognizer
 filteredArrayUsingPredicate:
 fileURLWithPath:isDirectory:
@@ -935,10 +961,6 @@ initWithAcousticFeatureValue:frameDuration:
 %s Returning no installed asset for nil language
 %s Recording newly installed offline language (%@) installed list is now: [%@]
 %s Previously installed offline language (%@) removed; installed list is now: [%@]
-%s Error canceling download of (%@) before fetching newer version: %ld
-%s Error purging (%@) before fetching newer version: %ld
-%s Purged old asset %@
-%s Just ignoring %@
 %s Found %lu asset(s) for %@, with latest being (%@)
 %s Starting a download because %p != %p
 %s %@
@@ -959,6 +981,11 @@ initWithAcousticFeatureValue:frameDuration:
 %s Ignoring Purging asset: %@, language %@
 %s Purging asset: %@, language %@
 %s Purging failed: %@
+%s Purging outdated assets.
+%s Error canceling download of (%@) before fetching newer version: %ld
+%s Error purging (%@) before fetching newer version: %ld
+%s Purged old asset %@
+%s Just ignoring %@
 %s MobileAsset is sad: %ld
 %s %@ cancelling instance %@
 %s %@ deallocating
@@ -1008,6 +1035,8 @@ initWithAcousticFeatureValue:frameDuration:
 %s Ignoring locationOfInterestName "%@" because it is too short (minimum length is %lu)
 %s Using eventLocationNameAdaptationFrequency adaption for names %@ into slot %@ for template %@
 %s Ignoring calendar event word "%@" because it is too short (minimum length is %lu)
+%s Cooldown timer triggered asset purge
+%s embeddedspeech process launch triggered asset purge
 %s Sending %lu events
 %s Recipe has invalid json for "%{public}@"
 %s Recipe has invalid tagName for "%{public}@": "%{public}@"
@@ -1087,13 +1116,14 @@ v16@0:8
 @"NSString"
 @"NSArray"
 @"NSDictionary"
-@40@0:8@16@24Q32
+@68@0:8@16@24Q32@40@48@56B64
 v40@0:8q16@24@32
 v24@0:8Q16
 v20@0:8B16
 d16@0:8
 v24@0:8d16
 @"NSMutableData"
+@"NSNumber"
 @"NSMutableDictionary"
 #16@0:8
 @24@0:8:16
@@ -1172,6 +1202,7 @@ v48@0:8@16@24@32@?40
 @"NSMutableArray"
 @"NSSet"
 @"ESStoreAudioData"
+@"_EARSpeakerCodeWriter"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

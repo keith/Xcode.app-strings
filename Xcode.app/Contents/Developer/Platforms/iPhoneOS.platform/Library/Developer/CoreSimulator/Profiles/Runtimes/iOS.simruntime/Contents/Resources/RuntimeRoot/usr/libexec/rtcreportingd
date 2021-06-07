@@ -120,8 +120,6 @@ initWithName:profile:productFamily:
 containsString:
 initWithName:profile:productFamily:clientType:
 UTF8String
-stringWithCapacity:
-appendFormat:
 componentsSeparatedByString:
 objectAtIndex:
 integerValue
@@ -133,10 +131,12 @@ intValue
 allKeys
 removeObjectForKey:
 caseInsensitiveCompare:
-convertIntoSHA256:
+convertIntoSHA256
 setObject:forKey:
 objectForKeyedSubscript:
 rangeOfString:options:
+stringWithCapacity:
+appendFormat:
 hashString:
 matchExactStringWithList:wholeString:whitelist:
 mutableCopy
@@ -306,8 +306,11 @@ numberOfMatchesInString:options:range:
 dataWithLength:
 mutableBytes
 setLength:
+increaseLengthBy:
+dataWithData:
 firstObject
 gzipDeflate
+decompressGzip
 arrayWithArray:
 hasPrefix:
 replaceObjectAtIndex:withObject:
@@ -350,7 +353,9 @@ uploadFileWithURL:extensionToken:completionHandler:
 sendOneMessageWithSessionInfo:userInfo:storebag:category:type:payload:
 updateSharedDataForSession:sharedData:
 removeObjectFromSharedDataForSession:key:
+getEphemeralSessions
 addObject:
+saveEphemeralSessions
 removeObject:
 sharedActivitySchedulerForRealtimeBackend:isBatching:
 clientPID
@@ -388,6 +393,7 @@ fetchDisplayURL:
 getSessionId:
 setEphemeralSession:enabled:
 removeEphemeralSession:withHandler:
+validateEphemeralSession:withHandler:
 sendMessageWithDictionary:reply:
 finishSessionGracefully
 uploadFileAtPath:extensionToken:completionHandler:
@@ -483,6 +489,7 @@ _eligibilityHandler
 _task
 _schedulingDisabled
 _diskCache
+_lastSessionProcessed
 _activityName
 _exponentialDelay
 _delegat
@@ -544,6 +551,7 @@ updatePerformanceData
 writeToFile:atomically:
 dictionaryWithContentsOfFile:
 updateFromDisk
+removeAllObjects
 resetData
 sendFailureSummary:forType:
 numberWithUnsignedInt:
@@ -560,6 +568,7 @@ skippedStorebagFetchForError
 wokeupForPrefix:
 addFailure:forPrefix:withPayload:
 sendFailureSummary:
+sendDupeEventFor:serviceName:clientType:eventTime:sessionID:
 _performanceData
 _internalState
 _agent
@@ -648,9 +657,11 @@ addObjectsFromArray:
 createReportingSessionWithDelegate:connection:
 invalidateReportingSession:
 distantPast
+loadOrCreateEphemeralSessionsLookup
 initForSchedulingMode:
 mainRunLoop
 auditToken
+arrayWithContentsOfFile:
 processNameForPID:
 perPIDInfo:
 valueForEntitlement:
@@ -661,6 +672,7 @@ setClasses:forSelector:argumentIndex:ofReply:
 canFetchNetworkStorebag
 fetchAndCacheStorebag:forBundleID:andUserInfo:
 getFirstSessionWithHierarchy:inSessionList:
+saveEphermalSessionsToDisk
 initWithCapacity:
 networkFetchDidFail
 isEqual:
@@ -683,6 +695,7 @@ _processActiveSessions
 _sessionList
 _cachedStorebags
 _correlatedSessions
+_emphemeralSessions
 _sharedData
 _sharedConnectivityHelpers
 _OSTransactionReferenceCounter
@@ -794,7 +807,6 @@ arrayWithObjects:count:
 createMessageForPostAndLogging:prettyJsonString:
 initWithFormat:
 postJSONMessage:withFlag:method:responseCode:completion:
-removeAllObjects
 postURL
 setPostURL:
 _useDefaultPostURL
@@ -846,6 +858,7 @@ NSCoding
 RTCDiskCache
 RTCReportingBackend
 ReportingdUtil
+SHA256
 zlib
 ReportingdSession
 ClientSessionInterface
@@ -981,6 +994,7 @@ v24@0:8@"NSString"16
 v32@0:8^{tagReportingPacket={tagReportingPacketHeader=CCCCIISSSS[40C]SS}[1024c]}16S24S28
 @24@0:8^{tagReportingPacket={tagReportingPacketHeader=CCCCIISSSS[40C]SS}[1024c]}16
 v36@0:8i16@20@28
+v56@0:8@16@24@32@40@48
 @"ReportingdAgent"
 v48@0:8@"NSDictionary"16d24S32S36@"NSDictionary"40
 @20@0:8B16
@@ -1017,6 +1031,7 @@ v32@0:8@"ReportingdSession"16@"NSDictionary"24
 v32@0:8@"ReportingdSession"16@"NSString"24
 @"RTCSelfReporter"16@0:8
 @"RTCActivityScheduler"24@0:8B16B20
+@"NSMutableArray"16@0:8
 B32@0:8@"ReportingdSession"16@"NSDictionary"24
 @20@0:8i16
 @28@0:8i16@20
@@ -1101,7 +1116,6 @@ T@"RTCActivitySchedulerOptions",R,V_options
 ClientData
 SharedData
 Macintosh
-%02x
 com.apple.RTCReportingBackendStateQueue
 method
 status
@@ -1113,6 +1127,7 @@ blacklistValues
 whitelistValues
 _method
 _status
+%02x
 hashed_client
 client
 service
@@ -1231,6 +1246,7 @@ fetchNetworkStorebag: Fetch failed due to client error
 fetchNetworkStorebag: Fetch failed due to server error
 expired and will be
 is valid and will not be
+ephemeralSessions
 rtcreporting_storebag_url
 https://pancake.apple.com/_/development/bags/maple
 https://pancake.apple.com/_/internal/bags/maple
@@ -1265,7 +1281,6 @@ The stream state was inconsistent (e.g., next_in or next_out was NULL).
 The deflate data was invalid or incomplete.
 Memory could not be allocated for processing.
 Ran out of output buffer for writing compressed bytes.
-ephemeralSessions
 sessionId=%@
 sessionTS
 enabled
@@ -1427,6 +1442,11 @@ NumLostEventsART
 postFailure%@%d
 %@Count
 failureCount
+dupeClientName
+dupeServiceName
+dupeClientType
+dupeEventTime
+dupeSessionID
 framework
 performance
 v16@?0@"NSString"8
@@ -1476,6 +1496,8 @@ com.apple.RTCReportingAgentStateQueue
 application-identifier
 sandboxd
 com.apple.sandboxd
+~/Library/Caches/rtcreportingd/ephemeral_sessions
+%@/ephemeral.%@
 listener: new XPC connection for PID '%@' - '%@' exceeds maximum per process limit for sessions currently set to '%d'. Dropping the connection...
 com.apple.private.rtcreportingd
 StorebagFetchTime
@@ -1533,9 +1555,10 @@ v32@?0@8Q16^B24
 v32@?0@8@16^B24
 v40@?0@"NSMutableDictionary"8@16@24^B32
 %@(createMessageForPostAndLogging): NSJSONSerialization unable to handle key: %s, value: %s
-postTime
 clientId
 events
+_jsonTime
+postTime
 postURL is nil
 https
 %@%@%@
@@ -1694,6 +1717,9 @@ sendMessageWithSessionInfo: Could not retrieve identifiers from sessionInfo
 sendMessageWithSessionInfo: Sending message with session info for session %u
 getSessionId: session for sessionID '%@'
 getSessionId: handler session for sessionID '%@'
+validateEphemeralSession: validating ephemeral session '%@' on '%@' with %d
+validateEphemeralSession: validating ephemeral session '%@' is '%f' old
+validateEphemeralSession: ephemeral session '%@' does not exists.
 setEphemeralSession: ephemeral session '%@' already exists.
 setEphemeralSession: set ephemeral session '%@' on '%@' with %d
 removeEphemeralSession: closing ephemeral session '%@' on '%@' with %d
@@ -1768,6 +1794,7 @@ UploadBackend(uploadFileAtPath): Unable to create URL request
 RTCSelfReporter initWithAgent created
 RTCSelfReporter writeToDisk
 RTCSelfReporter readFromDisk
+RTCSelfReporter:addEventForPrefix _internalState larger than '%d' Emptying state.
 RTCSelfReporter sendDailySummary
 sendMessageToClient: %u, %u
 sendMessageToClient: Exception during invocation of aggregation block. Disabling aggregation
@@ -1785,7 +1812,6 @@ startConfigurationWithCompletionHandler: Failed to get remote object proxy: %s
 Cached %d enabled backends, (%@, %@) listed events
 fetchReportingStatesWithUserInfo: Failed to get remote object proxy: %s
 setMessageLoggingBlock: called
-notifyMessageWasSent: called
 Event %u is filtered by storebag
 sendMessageWithDictionary: %s
 flushMessages:
@@ -1801,6 +1827,7 @@ createEphemeralSessiontWithSessionInfo: Failed to connect to daemon
 createEphemeralSessiontWithSessionInfo: XPC connection invalidated
 createEphemeralSessiontWithSessionInfo: XPC connection interrupted
 createEphemeralSessiontWithSessionInfo: Failed to get remote object proxy: %@
+createEphemeralSessionWithSessionInfo: ephemeralSession '%@' was provided while trying to create one.
 createEphemeralSessiontWithSessionInfo getSessionId %@
 createEphemeralSessiontWithSessionInfo: Failed to get remote object proxy
 createEphemeralSessiontWithSessionInfo finished with sessionId %@
@@ -1813,6 +1840,8 @@ sendOneMessageWithSessionInfo: Failed to connect to daemon
 sendOneMessageWithSessionInfo: XPC connection invalidated
 sendOneMessageWithSessionInfo: XPC connection interrupted
 sendOneMessageWithSessionInfo: Failed to get remote object proxy: %@
+sendOneMessage: ephemeralSession '%@' is valid.
+sendOneMessage: ephemeralSession '%@' is invalid or expired
 sendOneMessageWithSessionInfo: Failed to get remote object proxy
 _myPeriodicTask: Started RT periodic task
 _myPeriodicTask: Timeout scheduling RT metrics report tasks
@@ -1840,9 +1869,6 @@ validateSessionInfo: sessionInfo is nil
 validateSessionInfo: clientType is invalid
 validateSessionInfo: bundleID is invalid. Please specify the bundleID for kRTCReportingSessionInfoClientBundleID
 validateSessionInfo: invalid kRTCReportingSessionInfoSuppress provided, please remove
-validateEphemeralSession: validating ephemeral session '%@' on '%@' with %d
-validateEphemeralSession: validating ephemeral session '%@' is '%f' old
-validateEphemeralSession: ephemeral session '%@' does not exists.
 validateMessageWithCategory: payload provided '%@' is not secure and will not be able to get through XPC. Failing message send operation...
 createReportingSessionWithDelegate: OS transaction started with session %@
 createReportingSessionWithDelegate: retained OS transaction. Ref count is %d
@@ -1853,6 +1879,9 @@ invalidateReportingSession: Should never be here: trying to decrement per-proces
 Unable to create options for all scheduling policies. Terminating...
 ReportingdAgent: Listener resumes with sandbox, start loop.
 perPIDInfo: PID '%d' has session '%@' from clientType: '%d' sender: '%@' sessionInfo: '%@' userInfo: '%@
+RTCReportingdAgent loadOrCreateEphemeralSessionsLookup
+RTCReportingdAgent loadOrCreateEphemeralSessionsLookup storeage root folder is: %@
+RTCReportingdAgent saveEphermalSessionsToDisk
 listener: new XPC connection for PID '%@' has processName: '%@'
 listener: new XPC connection for PID '%@' - '%@' does NOT exceeds maximum per process limit for sessions currently set to '%d'. Per process session usage increased to '%d'
 listener: Accepting new XPC connection from PID '%@' - '%@' as it has proper entitlement, %d(%d) connections.

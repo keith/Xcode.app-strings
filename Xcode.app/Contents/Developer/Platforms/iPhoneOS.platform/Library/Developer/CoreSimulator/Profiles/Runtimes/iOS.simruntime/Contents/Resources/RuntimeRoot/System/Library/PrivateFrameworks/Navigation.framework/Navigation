@@ -724,7 +724,7 @@ TraceSchema
 sqlite
 INSERT INTO info (version, original_version, directions_url, simulation, route_genius) VALUES (?, ?, ?, 0, 0)
 Error preparing statement to record trace info
-/Library/Caches/com.apple.xbs/Sources/Navigation_Sim/Navigation-2131.31.8.24.5/Traces/MNTraceRecorder.m
+/Library/Caches/com.apple.xbs/Sources/Navigation_Sim/Navigation-2131.33.11.29.2/Traces/MNTraceRecorder.m
 Error recording trace info
 INSERT OR IGNORE INTO navigation_event_types (event_id, event_name) VALUES (?, ?)
 SELECT cl_timestamp FROM locations ORDER BY db_timestamp ASC LIMIT 1
@@ -795,6 +795,7 @@ T@"<MNTraceRecorderBackgroundGuard>",W,N,V_backgroundGuardDelegate
 copyToCrashReporterDirectory
 MNErrorDomain
 MNErrorInternalDescriptionKey
+MNErrorInterruptionDatesKey
 MNErrorCode_ErrorCreatingRoute
 MNErrorCode_NilWaypoints
 MNErrorCode_InvalidTransportType
@@ -1122,6 +1123,8 @@ endWaypointData
 T@"NSData",&,N,V_endWaypointData
 routeSelections
 T@"NSArray",&,N,V_routeSelections
+navigationEvents
+T@"NSArray",&,N,V_navigationEvents
 annotatedUserBehavior
 T@"NSArray",&,N,V_annotatedUserBehavior
 annotatedUserEnvironments
@@ -1146,6 +1149,10 @@ error
 T@"NSError",&,N,V_error
 matchInfo
 T@"MNLocationMatchInfo",&,N,V_matchInfo
+correctedCoordinate
+T{?=dd},N,V_correctedCoordinate
+correctedCourse
+Td,N,V_correctedCourse
 locationEventType
 Tq,N,V_locationEventType
 originalMatchType
@@ -1181,6 +1188,18 @@ Td,N,V_startTimestamp
 endTimestamp
 Td,N,V_endTimestamp
 T@"NSData",C,N,V_routeID
+%0.2fs (%d)
+YYYY-MM-dd h:mm:ss a
+relativeTimestamp
+Td,N,V_relativeTimestamp
+locationID
+TQ,N,V_locationID
+Tq,N,V_eventType
+eventName
+T@"NSString",C,N,V_eventName
+T@"NSString",C,N,V_eventDescription
+speakableEventDescription
+T@"NSString",C,N,V_speakableEventDescription
 Tq,N,V_event
 environmentType
 Tq,N,V_environmentType
@@ -1930,6 +1949,7 @@ Connection to the navigation service was interrupted over %d times in %g seconds
 -[MNNavigationServiceRemoteProxy _closeConnection]_block_invoke
 v16@?0*8
 yyyy-MM-dd HH:mm:ssZ
+interruptionDates
 interruptionCount
 clientCount
 T@"<MNTimeAndDistanceUpdaterDelegate>",W,N,V_delegate
@@ -2517,6 +2537,7 @@ isInPreArrivalRegion
 {StreetName}
 Attempting to open trace with version %d which is newer than this build's version of %d. Forward compatibility usually works, but is not guaranteed.
 SELECT start_data, end_data, simulation, route_genius, original_version, cl_mapmatch, initial_course FROM info LIMIT 1
+SELECT db_timestamp, cl_timestamp, latitude, longitude, raw_latitude, raw_longitude, horizontal_accuracy, vertical_accuracy, altitude, speed, speed_accuracy, course, raw_course, course_accuracy, type, reference_frame, raw_reference_frame, error_data, event_type, match_info_quality, match_info_latitude, match_info_longitude, match_info_course, match_info_form_of_way, match_info_road_class, match_info_shifted, match_info_data_array, match_type, corrected_latitude, corrected_longitude, corrected_course FROM locations
 SELECT db_timestamp, cl_timestamp, latitude, longitude, raw_latitude, raw_longitude, horizontal_accuracy, vertical_accuracy, altitude, speed, speed_accuracy, course, raw_course, course_accuracy, type, reference_frame, raw_reference_frame, error_data, event_type, match_info_quality, match_info_latitude, match_info_longitude, match_info_course, match_info_form_of_way, match_info_road_class, match_info_shifted, match_info_data_array, match_type FROM locations
 SELECT request_timestamp, response_timestamp, request_data, response_data, response_error_data, waypoints_data FROM directions
 SELECT request_timestamp, response_timestamp, request_data, response_data, response_error_data FROM eta_traffic_updates ORDER BY request_timestamp ASC
@@ -2524,6 +2545,7 @@ SELECT relative_timestamp, true_heading, magnetic_heading, accuracy FROM compass
 SELECT relative_timestamp, type, exit_type, confidence FROM motion_data ORDER BY relative_timestamp ASC
 SELECT relative_timestamp, heading FROM vehicle_heading_data ORDER BY relative_timestamp ASC
 SELECT relative_timestamp, speed FROM vehicle_speed_data ORDER BY relative_timestamp ASC
+SELECT relative_timestamp, absolute_timestamp, last_location_id, event_name, event_description, navigation_events.event_id FROM navigation_events INNER JOIN navigation_event_types ON navigation_events.event_id = navigation_event_types.event_id
 SELECT timestamp_start, timestamp_end, route_id, selected_route_index FROM route_selections
 SELECT timestamp, event FROM annotated_user_behavior ORDER BY timestamp ASC
 SELECT start_timestamp, end_timestamp, environment_type FROM annotated_user_environments ORDER BY start_timestamp ASC
@@ -3362,11 +3384,13 @@ Failed to load compass heading data for trace: %{public}@
 Failed to load motion data for trace: %{public}@
 Failed to load vehicle data for trace: %{public}@
 Failed to load route selection data for trace: %{public}@
+Failed to load navigation events table for trace: %{public}@
 Failed to load annotated user behavior for trace: %{public}@
 Failed to load annotated user environment for trace: %{public}@
 Failed to load commute destinations table for trace: %@
 Failed to load commute directions requests table for trace: %@
 Failed to load misc info table for trace: %@
+Failed to load extra data for trace: %@
 Error decoding waypoints: %@
 Error loading row from misc_info. Type %d is not supported.
 Trace was recorded with a newer build than the current build. Trace load failed because we can't downgrade.
@@ -3380,6 +3404,10 @@ StopNavigation
 %{public}@ to %{public}@
 TransitionToState
 Changed from state %@ to %@
+creating transit updater %@ for %lu requests
+tearing down transit updater %@ because we have no requests
+stopping transit/ETA updates
+restarting ETA updates
 Last request was server-driven. Skipping server update.
 Time since last update (%f seconds ago) is within minimum (%f seconds). Skipping server update.
 Scheduling the next update for %f seconds from now
@@ -3546,6 +3574,7 @@ MNTraceMotionDataRow
 MNTraceVehicleHeadingRow
 MNTraceVehicleSpeedRow
 MNTraceRouteSelectionsRow
+MNTraceNavigationEventRow
 MNTraceAnnotatedUserBehaviorRow
 MNTraceAnnotatedUserEnvironmentRow
 MNTraceCommuteDestinationRow
@@ -5852,6 +5881,7 @@ traceIsPlaying
 tracePosition
 setDetails:
 interruptionCount
+interruptionDates
 capitalizedString
 routeLookupIDs
 setOriginalDestination:
@@ -6349,6 +6379,8 @@ setCommuteDestinations:
 commuteDirectionsRequests
 setCommuteDirectionsRequests:
 setMiscInfo:
+navigationEvents
+setNavigationEvents:
 setBookmarkImages:
 _writeQueue
 _writeGroup
@@ -6375,8 +6407,13 @@ _commuteDestinations
 _copyToCrashReporter
 _mainTransportType
 _miscInfo
+_navigationEvents
 setError:
 setMatchInfo:
+correctedCoordinate
+setCorrectedCoordinate:
+correctedCourse
+setCorrectedCourse:
 locationEventType
 setLocationEventType:
 originalMatchType
@@ -6384,8 +6421,10 @@ setOriginalMatchType:
 _timestamp
 _error
 _matchInfo
+_correctedCourse
 _locationEventType
 _originalMatchType
+_correctedCoordinate
 setRequestTimestamp:
 setResponseTimestamp:
 setRequest:
@@ -6419,6 +6458,18 @@ endTimestamp
 setEndTimestamp:
 _startTimestamp
 _endTimestamp
+relativeTimestamp
+locationID
+eventName
+setRelativeTimestamp:
+setLocationID:
+setEventName:
+speakableEventDescription
+setSpeakableEventDescription:
+_relativeTimestamp
+_locationID
+_eventName
+_speakableEventDescription
 environmentType
 setEnvironmentType:
 _environmentType
@@ -8371,21 +8422,24 @@ hasStructuredAddress
 hasFullThoroughfare
 hasThoroughfare
 _serverStringDictionaryForMapItem:
+loadTraceWithPath:options:outError:
 _loadTraceVersion
 _updateTraceFromVersion:outError:
 _loadInfoTable
-_loadLocationsTable
+_loadLocationsTable:
 _loadDirectionsTable
 _loadETAUpdatesTable
 _loadCompassHeadingDataTable
 _loadMotionDataTable
 _loadVehicleDataTable
 _loadRouteSelectionsTable
+_loadNavigationEventsTable
 _loadAnnotatedUserBehaviorTable
 _loadAnnotatedUserEnvironmentTable
 _loadCommuteDestinationsTable
 _loadCommuteDirectionsRequestsTable
 _loadMiscInfo
+loadExtraData
 _executeQuery:rowHandler:
 initWithMatchQuality:matchCoordinate:matchCourse:matchFormOfWay:matchRoadClass:matchShifted:matchDataArray:
 matchShifted
@@ -9160,6 +9214,8 @@ d40@0:8@16@24@32
 ^{sqlite3=}16@0:8
 ^{sqlite3=}
 @"NSObject<OS_dispatch_group>"
+{?=dd}16@0:8
+v32@0:8{?=dd}16
 @"NSError"
 @"MNLocationMatchInfo"
 @"GEOETATrafficUpdateRequest"
@@ -9175,7 +9231,6 @@ v44@0:8B16@20@28@?36
 @"GEORouteMatch"
 @"<MNTrafficIncidentAlertUpdaterDelegate>"
 @"MNTrafficIncidentAlert"
-v32@0:8{?=dd}16
 v32@0:8Q16d24
 {?="remainingTime"d"remainingDistance"d}
 @"GEONavigationGuidanceState"
@@ -9206,7 +9261,6 @@ v24@0:8@"MNLocationManager"16
 v32@0:8@"MNLocationManager"16@"NSError"24
 B24@0:8@"MNLocationManager"16
 v40@0:8@"MNLocationManager"16d24@"NSDate"32
-{?=dd}16@0:8
 v24@0:8@"MNEVChargingStateMonitor"16
 v32@0:8@"MNEVChargingStateMonitor"16@"NSMeasurement"24
 B48@0:8^{?={?=@*QQQQIQBQfQ@i}QQiiiQQII(?={?={?=ff}{?=ff}}{?=ffff})^{?}{?=[2S][2S]}CBCBBCBS{_NSRange=QQ}BI}16{?=dd}24d40
@@ -9440,6 +9494,7 @@ Q20@0:8i16
 @72@0:8d16Q24Q32d40@48Q56@64
 v24@0:8@"MNArrivalRegionTimer"16
 @44@0:8d16d24@32B40
+@40@0:8@16Q24o^@32
 B32@0:8Q16^@24
 B32@0:8@16@?24
 @32@0:8d16@?24

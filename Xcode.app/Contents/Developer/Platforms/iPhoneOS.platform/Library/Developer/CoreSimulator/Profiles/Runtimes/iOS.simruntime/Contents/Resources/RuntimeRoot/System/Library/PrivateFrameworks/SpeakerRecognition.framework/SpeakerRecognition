@@ -90,9 +90,11 @@
 %s No locale set when creating phrase spotter.
 %s Creation of Keyword Detector failed.
 %s %s async called
-%s %{public}s Called
 %s %{public}s async called
+%s Waiting for didStop
+%s Done waiting for didStop
 %s Called before completion called
+%s %{public}s Called
 %s BEGIN num:%{public}ld use:%{public}d
 %s AudioSession setup failed
 %s Has wrong audio routing, ask user to unplug headset
@@ -107,6 +109,7 @@
 %s Suspend training
 %s Stop Listening
 %s ERR: Failed to save explicit utterance
+%s audioSessionDidStopRecording
 %s ERR: SpeakerRecognition is not available on this platform
 %s Creating OS Transaction for %{public}@
 %s Release OS Transaction for %{public}@
@@ -730,6 +733,7 @@ SpeechLogs
 VoiceTrigger
 siriBC
 Second Pass Audio Logging Enabled
+Speaker Recognition Audio Logging Enabled
 Jarvis Audio Logging Enabled
 Jarvis Trigger Mode
 Enable SoS Audio Logging
@@ -757,6 +761,8 @@ v32@?0@8Q16^B24
 SpeakerId Enabled
 SpeakerId Score Type
 SmartSiriVolume SoftVolume Enabled
+HomePod
+SiriQuietRoomResponse
 Audio Session Activation Delay
 Max Number Logging Files
 Max Number Grading Files
@@ -777,6 +783,7 @@ Bypass Personalized HeySiri
 MultiPhraseVTEnabled
 MultiChannelAudioLoggingEnabled
 Enable AdBlocker Audio Logging
+Is Staggered CAT Download Enabled
 Enable Self Trigger Audio Logging
 com.apple.ssr.vad.spg
 -[SSRVoiceActivityDetector initWithContext:delegate:]
@@ -1051,6 +1058,7 @@ com.apple.VoiceTriggerUI.TrainingManager
 -[SSRVTUITrainingManager setSuspendAudio:]_block_invoke
 -[SSRVTUITrainingManager CSVTUITrainingSessionStopListen]
 -[SSRVTUITrainingManager CSVTUITrainingSession:hasTrainUtterance:languageCode:payload:]
+-[SSRVTUITrainingManager audioSessionDidStopRecording:]
 audioFileWriter
 T@"CSPlainAudioFileWriter",&,N,V_audioFileWriter
 voiceProfile
@@ -1194,7 +1202,7 @@ useRemoteBuiltInMic
 -[CSAudioRecorder voiceControllerDidSetAudioSessionActive:isActivated:]
 -[CSAudioRecorder voiceControllerMediaServicesWereLost:]
 -[CSAudioRecorder voiceControllerMediaServicesWereReset:]
--[CSAudioRecorder _deinterleaveBufferIfNeeded:]
+-[CSAudioRecorder _deinterleaveBufferIfNeeded:force:]
 -[CSAudioRecorder _createDeInterleaverIfNeeded]
 -[CSAudioRecorder _getRecordSettingsWithRequest:]
 voiceControllerCreationQueue
@@ -1560,6 +1568,7 @@ recordStoppedBySessionInterruption
 InsufficientPriority
 secondPassCompleteWatchDogFire
 APLeak
+launchSlow
 Endpointer
 endpointerModelVersionIsNil
 {wordCount: %ld, trailingSilDuration: %ld, eosLikelihood: %f, pauseCounts: (%@), silencePosterior: %f, taskName: %@, processedAudioDurationInMilliseconds: %ld}
@@ -2093,6 +2102,8 @@ BuildVersion
 IOPlatformExpertDevice
 +[CSUtils deviceHwRevision]
 config-number
+VirtualAudio
+siri_hands_free
 speakerRecognition
 satThreshold
 implicitProfileThreshold
@@ -2414,6 +2425,7 @@ getCatAdBlockerAssetUpdateDirectory
 assistantAudioFileLogDirectory
 myriadHashFilePath
 secondPassAudioLoggingEnabled
+speakerRecognitionAudioLoggingEnabled
 jarvisAudioLoggingEnabled
 setJarvisTriggerMode:
 getJarvisTriggerMode
@@ -2455,6 +2467,7 @@ bypassPersonalizedHeySiri
 isMultiPhraseVTEnabled
 isMultiChannelAudioLoggingEnabled
 isAdBlockerAudioLoggingEnabled
+isStaggeredCATDownloadEnabled
 isSelfTriggerFileLoggingEnabled
 avvcContext
 objectForKeyedSubscript:
@@ -2755,6 +2768,8 @@ setSpeakerRecognitionProcessingStatus:
 debugUtteranceAudioFile
 debugUtteranceMetaFile
 updateDebugFilePathsForSegment:
+ssrAudioLogsDir
+createDirectoryIfDoesNotExist:
 ssrAudioLogsCountWithinPrivacyLimit
 timeIntervalSinceReferenceDate
 maxAllowedAudioSamples
@@ -2937,8 +2952,11 @@ initWithLocale:
 prepareRecord
 isRecording
 releaseAudioSession
+enter
 _stopAudioSession
+leave
 destroySpeakerTrainer
+waitWithTimeout:
 _destroyAudioSession
 _setupAudioSession
 closeSessionBeforeStartWithStatus:successfully:withCompletion:
@@ -3010,6 +3028,7 @@ _cleanupCompletion
 _speechRecognizer
 _currentAsset
 _profile
+_didStopWaitingGroup
 _speechRecognizerAvailable
 _rms
 _audioFileWriter
@@ -3224,7 +3243,7 @@ updateMeterForStream:
 getPeakPowerForStream:forChannel:
 getAveragePowerForStream:forChannel:
 streamDescription
-_deinterleaveBufferIfNeeded:
+_deinterleaveBufferIfNeeded:force:
 _compensateChannelDataIfNeeded:receivedNumChannels:
 _processAudioChain:audioStreamHandleId:remoteVAD:atTime:
 opusDecoder
@@ -3340,8 +3359,6 @@ _configVersion
 _assetProvider
 URLsForDirectory:inDomains:
 lastObject
-createDirectoryIfDoesNotExist:
-ssrAudioLogsDir
 predicateWithFormat:
 removeItemAtPath:
 URLByAppendingPathComponent:
@@ -3355,10 +3372,7 @@ deviceCategoryStringRepresentationForCategoryType:
 dataWithContentsOfURL:
 pathExtension
 enumeratorAtPath:
-enter
-leave
 getHomeUserIdForSharedUserId:completion:
-waitWithTimeout:
 userVoiceProfilesForAppDomain:
 userVoiceProfilesForAppDomain:forLocale:
 objectAtIndexedSubscript:
@@ -4282,6 +4296,7 @@ v32@0:8i16B20@?24
 @"SFSpeechRecognizer"
 @"CSAsset"
 @"SSRVoiceProfile"
+@"CSDispatchGroup"
 @"<SSRVTUITrainingManagerDelegate>"
 @"CSPlainAudioFileWriter"
 @24@0:8^{_NSZone=}16
@@ -4364,6 +4379,7 @@ v48@0:8@16Q24@32Q40
 B32@0:8@16q24
 v36@0:8B16Q20@28
 v32@0:8q16Q24
+@28@0:8@16B24
 @"AVVoiceController"
 ^{OpaqueAudioConverter=}
 {AudioBufferList="mNumberBuffers"I"mBuffers"[1{AudioBuffer="mNumberChannels"I"mDataByteSize"I"mData"^v}]}
