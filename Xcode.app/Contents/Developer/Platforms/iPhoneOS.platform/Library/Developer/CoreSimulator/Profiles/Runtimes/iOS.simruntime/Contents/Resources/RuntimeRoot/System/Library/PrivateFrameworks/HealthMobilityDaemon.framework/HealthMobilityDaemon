@@ -12,12 +12,13 @@
 [%{public}@] Failed to notify user for AppleWalkingSteadinessEvent with error: %@
 [%{public}@] showing notification for event: %@
 [%{public}@] Unable to submit notification analytics for category: %@, error: %{public}@
+[%{public}@] Error while determining if height is present: %{public}@
+[%{public}@] Error while determining if height is present: no sample and no error
 [%{public}@] %{public}@ changed: %{public}@ -> %{public}@
 [%{public}@] %{public}@ Country code is nil. Defaulting to true.
 [%{public}@] Notification defaults written
 [%{public}@] Resetting onboarding
 [%{public}@] Starting observation of changes
-[%{public}@] Stopping observation of changes
 [%{public}@] Error when retrieving notifications onboarding status: %{public}@
 [%{public}@] Error when retrieving classifications onboarding status: %{public}@
 [%{public}@] Error when retrieving earliest date for lowest onboarding version: %{public}@
@@ -40,8 +41,11 @@
 [%{public}@] User does not have a compatible device, marking notification unavailability reason
 [%{public}@] User has fitness tracking disabled, marking notification unavailability reason
 [%{public}@] User has health app hidden, marking notification unavailability reason
+[%{public}@] User no longer has any values for Height set, marking notification unavailability reason
 [%{public}@] Error when retrieving onboarding state for notification status: %{public}@
 [%{public}@] User has not completed onboarding, marking notification unavailability reason
+[%{public}@] Asked to stop observation of changes but we are not observing.
+[%{public}@] Stopping observation of changes
 [%{public}@] Received darwin notification of Motion & Fitness Tracking changing, refreshing onboarding and notification status.
 [%{public}@] Received darwin notification of user characteristics changing, refreshing onboarding and notification status.
 [%{public}@] Feature availability notified onboarding complete, sending update to client
@@ -100,6 +104,8 @@ HDHealthDaemonReadyObserver
 HDPeriodicActivityDelegate
 HDMobilityNotificationManager
 HDDataObserver
+HDMobilityDefaultIsHeightPresentProvider
+HDMobilityIsHeightPresentProvider
 HDMobilityRegionSupportedDeterminer
 HDMobilityWalkingSteadinessFeatureStatusManagerServer
 HDFeatureAvailabilityExtensionObserver
@@ -115,6 +121,7 @@ HKMobilityWalkingSteadinessAnalyticsNotificationEventDataSourceProvider
 HDMobilityWalkingSteadinessFeatureAvailabilityManager
 HDFeatureAvailabilityExtension
 HKFeatureAvailabilityProviding
+profileType
 initWithProfile:
 arrayWithObjects:count:
 isEqual:
@@ -220,9 +227,12 @@ samplesAdded:anchor:
 didAddSamplesOfTypes:anchor:
 samplesJournaled:type:
 samplesOfTypesWereRemoved:anchor:
+quantityTypeForIdentifier:
+mostRecentSampleWithType:profile:encodingOptions:predicate:anchor:error:
+isHeightPresent
 initWithUUID:configuration:client:delegate:
 dataCollectionManager
-_stopObservingChanges
+_stopObservingChangesAndExpectToBeObserving:
 objectForKeyedSubscript:
 isEqualToString:
 _notifyClientChangesToOnboardingStatus:changesToNotificationStatus:
@@ -260,6 +270,7 @@ healthAppHidden
 isAppleWatch
 isOnboardingCompletionWithRegionSupportedOnLocalDevicePresentWithError:
 _isAgePresent
+_isHeightPresent
 initWithState:unavailableReasons:fitnessTrackingEnabled:
 unregisterObserver:
 hkmobility_safeRemoveObserver:forKeyPath:
@@ -274,7 +285,7 @@ remoteObjectProxy
 profileExtensionWithIdentifier:
 featureAvailabilityExtensionForFeatureIdentifier:
 initWithSuiteName:
-initWithUUID:configuration:client:delegate:classificationsFeatureAvailabilityExtension:notificationsFeatureAvailabilityExtension:regionSupportedDeterminer:ageGatingDefaults:mobilitySettingsDefaults:userCharacteristicsManager:
+initWithUUID:configuration:client:delegate:classificationsFeatureAvailabilityExtension:notificationsFeatureAvailabilityExtension:regionSupportedDeterminer:ageGatingDefaults:mobilitySettingsDefaults:userCharacteristicsManager:isHeightPresentProvider:
 createTaskServerWithUUID:configuration:client:delegate:error:
 configurationClass
 validateConfiguration:client:error:
@@ -297,6 +308,7 @@ remoteInterface
 _regionSupportedDeterminer
 _classificationsFeatureAvailabilityExtension
 _notificationsFeatureAvailabilityExtension
+_isHeightPresentProvider
 _ageGatingDefaults
 _mobilitySettingsDefaults
 _dataCollectionManager
@@ -306,10 +318,10 @@ _userCharacteristicsNotificationToken
 countryIsSupportedOnLocalDeviceForFeatureWithIdentifier:
 dictionaryWithObjects:forKeys:count:
 initWithRequirementsByContext:
+anyCountryAvailability
 initWithProfile:featureIdentifier:currentOnboardingVersion:pairedDeviceCapability:regionAvailabilityProvider:loggingCategory:remoteAvailabilityProvider:availabilityRequirements:
 initWithProfile:featureAvailabilityExtension:loggingCategory:
 initWithProfile:regionAvailabilityProvider:
-profileType
 listenerEndpointForClient:error:
 _notificationManager
 _walkingSteadinessClassificationsAvailabilityManager
@@ -318,13 +330,14 @@ _walkingSteadinessNotificationsAvailabilityManager
 _walkingSteadinessAnalyticsDailyEventActivity
 activeWatchProductType
 date
+initWithIdentifier:
+_hasSampleWithType:error:
 _numberOfDaysSinceLastSampleWithSampleType:predicate:error:
 integerValue
 categoryTypeForIdentifier:
 _countOfCategorySamplesInPastYearWithType:values:error:
 _numberOfDaysSinceLastCategorySampleWithSampleType:values:error:
 hasWalkingSteadinessMeasurementsWithError:
-mostRecentSampleWithType:profile:encodingOptions:predicate:anchor:error:
 quantity
 payloadStringForWalkingSteadinessClassification:
 startDate
@@ -348,6 +361,7 @@ numberOfDaysBetweenStartDate:endDate:
 activePairedWatchTypeWithError:
 ageWithError:
 biologicalSexWithError:
+hasHeightWithError:
 daysSinceLastInitialNotificationWithError:
 daysSinceLastRepeatNotificationWithError:
 numberOfDaysSinceLastWalkingSteadinessMeasurementWithError:
@@ -368,7 +382,8 @@ _category
 _value
 _date
 initWithProfile:featureIdentifier:currentOnboardingVersion:loggingCategory:
-isCountryCodeAllowed:
+onboardingEligibilityForCountryCode:
+isEligible
 featureIdentifier
 hk_error:description:
 featureOnboardingRecordWithError:
@@ -380,8 +395,10 @@ stringWithFormat:
 _onboardedCountryCodeSupportedStateWithError:
 isFeatureCapabilitySupportedOnActivePairedDeviceWithError:
 pairedFeatureAttributesWithError:
+regionAvailability
 _currentOnboardingVersion
 initWithFeatureIdentifier:version:completionDate:countryCode:countryCodeProvenance:
+saveOnboardingCompletion:settings:completion:
 onboardingCompletionManager
 insertOnboardingCompletion:error:
 nanoSyncManager
@@ -389,18 +406,19 @@ syncHealthDataWithOptions:reason:completion:
 _unitTest_currentOnboardingVersionOverride
 version
 onboardingCompletionsForHighestVersionOfFeatureIdentifier:error:
+isCountryCodeAllowed:
 getFeatureOnboardingRecordWithCompletion:
 isCurrentOnboardingVersionCompletedWithCompletion:
 canCompleteOnboardingForCountryCode:error:
 onboardingEligibilityForCountryCode:error:
 onboardedCountryCodeSupportedStateWithError:
 featureAvailabilityRequirementsWithError:
+regionAvailabilityWithError:
 setCurrentOnboardingVersionCompletedForCountryCode:countryCodeProvenance:date:settings:completion:
 setFeatureSettingData:forKey:completion:
 setFeatureSettingString:forKey:completion:
 setFeatureSettingNumber:forKey:completion:
 removeFeatureSettingValueForKey:completion:
-countryAvailabilityVersion
 canCompleteOnboardingWhileBypassingDeviceForDemoDataPurposesWithCountryCode:
 set_unitTest_currentOnboardingVersionOverride:
 _supportedRegionProvider
@@ -458,12 +476,14 @@ v24@0:8@?<v@?@"HKMobilityWalkingSteadinessOnboardingStatus"@"NSError">16
 v24@0:8@?<v@?@"HKMobilityWalkingSteadinessNotificationStatus"@"NSError">16
 v24@0:8@?<v@?B@"NSError">16
 v28@0:8B16@?<v@?B@"NSError">20
-@96@0:8@16@24@32@40@48@56@64@72@80@88
+@104@0:8@16@24@32@40@48@56@64@72@80@88@96
 v48@0:8@16@24@32^v40
 B24@0:8^@16
+v20@0:8B16
 v24@0:8B16B20
 @"<HDMobilityRegionSupportedDeterminer>"
 @"<HDFeatureAvailabilityExtension>"
+@"<HDMobilityIsHeightPresentProvider>"
 @"NSUserDefaults"
 @"HDDataCollectionManager"
 @"HDUserCharacteristicsManager"
@@ -488,9 +508,11 @@ v24@0:8@?<v@?@"NSNumber"@"NSError">16
 @"NSDate"24@0:8^@16
 @"HKPairedFeatureAttributes"24@0:8^@16
 @"HKFeatureAvailabilityRequirementSet"24@0:8^@16
+@"HKRegionAvailability"24@0:8^@16
 v32@0:8@"<HKFeatureAvailabilityProvidingObserver>"16@"NSObject<OS_dispatch_queue>"24
 v24@0:8@"<HKFeatureAvailabilityProvidingObserver>"16
 v56@0:8@"NSString"16q24@"NSDate"32@"HKFeatureSettings"40@?<v@?B@"NSError">48
+v40@0:8@"HKOnboardingCompletion"16@"HKFeatureSettings"24@?<v@?B@"NSError">32
 v40@0:8@"NSData"16@"NSString"24@?<v@?B@"NSError">32
 v40@0:8@"NSString"16@"NSString"24@?<v@?B@"NSError">32
 v40@0:8@"NSNumber"16@"NSString"24@?<v@?B@"NSError">32

@@ -1,3 +1,4 @@
+!%)-15999=AEEEIIMQUY]aeimquy}
 webBookmarksMetaDataDidChangeNotification
 com.apple.WebBookmarks.MetaDataDidChangeNotification
 DeviceUUID
@@ -219,6 +220,7 @@ CREATE INDEX group_index ON bookmarks (parent, order_index)
 CREATE INDEX sync_index ON bookmarks (external_uuid)
 CREATE INDEX server_id_index ON bookmarks(server_id)
 CREATE INDEX dav_generation_index ON bookmarks(dav_generation)
+CREATE INDEX reading_list_index ON bookmarks (parent, deleted, web_filter_status, order_index DESC)
 INSERT INTO bookmarks (id, type, order_index, num_children, title, external_uuid) VALUES (0, 1, 0, 0, 'Root', 'Root')
 ALTER TABLE bookmarks ADD COLUMN special_id INTEGER DEFAULT 0
 UPDATE bookmarks SET title = 'Root', external_uuid = 'Root' WHERE id = 0
@@ -434,7 +436,6 @@ special_id == 0 AND id != 0
 com.apple.WebBookmarks.ErrorDomain
 SQLiteResult
 come.apple.WebBookmarks.syncLockQueue
-<Redacted>
 com.apple.WebBookmarks
 Bookmarks
 History (bookmark proxy)
@@ -589,13 +590,13 @@ Received bookmarks metadata file change distributed notification
 Posting bookmarks metadata file change distributed notification
 -> %s(database: %{public}@)
 @@ %s: Unlocking bookmark database
+<- %s
 -> %s()
 <- %s -> database: NULL due to failure to obtain lock
 @@ %s: Did successfully lock database
 <- %s -> database: NULL due to failure to allocate WebBookmarkCollection
 <- %s -> database: NULL due to not running in data access process with DAV enabled
 <- %s -> database: %{public}@
-<- %s
 -> %s(database: %{public}@, shouldSave: %d)
 <- %s -> Return data of size: %{public}@
 -> %s(database: %{public}@, data size: %{public}@)
@@ -605,6 +606,7 @@ XX %s: Client passed us a change token that does not match the current generatio
 XX %s: Could not clear the current change list
 XX %s: Client requested that we remove the root folder
 XX %s: Client requested that we remove item with server ID "%{public}@" but it does not exist
+Deleting bookmark with ID %d and serverID %{public}@ from parent with ID %d
 -> %s(item: %{public}@)
 <- %s -> %{public}@
 -> %s(item: %{public}@, %{public}@)
@@ -619,6 +621,7 @@ WebBookmarks could not start a deferred transaction; sleeping and trying again l
 WebBookmarks still could not start a deferred transaction; sleeping longer
 WebBookmarks could not start a deferred transaction; bailing. Error was: %{public}s
 WebBookmarks could not start a deferred transaction; bailing. Result code was: %d
+%{public}@
 WebBookmarks could not start an immediate transaction; sleeping.
 WebBookmarks could not start an immediate transaction; sleeping longer.
 WebBookmarks could not start an immediate transaction; bailing. Error was: %{public}s
@@ -668,20 +671,24 @@ Failed to save bookmark %{public}@: Write transaction isn't valid
 No BookmarkImages directory exists, but bookmark had an icon UUID
 Failed to delete bookmark icon: %{public}@
 Deleted bookmark icon successfully
-Moving bookmark with identifier %ld to folder with identifier %ld
+Moving bookmark with identifier %ld and parent ID %d to folder with identifier %ld
+Moving bookmark with ID %d and parent ID %d to index %d
 Creating a directory for Reading List icons failed: %{public}@
 Saving Reading List icon failed: %{public}@
 Saving a bookmark failed
 Saving a previously deleted bookmark failed
 Moving bookmark %d to folder %d failed
+Update %lu bookmarks with folder ID %d. There are %lu current bookmarks, and %lu will be deleted
 Failed to save and move bookmark during update with error: %@
 Failed to reorder bookmark during update with error: %@
 Number of children mismatch detected for bookmark with id: %d, parent: %d, expected number of children: %d, actual: %d
 Could not fix number of children of folder with id: %d, error: %d, %{public}s
+Failed to create a fresh database because we failed to lock sync
 Got nil local attributes dictionary: %{public}@
 Got nil reading list attributes dictionary, creating one
 Bookmarks database appears to have skipped migration steps. Rerunning migration.
 Warning: The web bookmarks database has a greater version number than expected. Restoring a database from a newer version is not supported.
+Failed to migrate schema because we failed to lock sync
 Couldn't get current version of bookmarks database.
 Failed to import bookmarks with plist path %{public}@
 Failed to remove old bookmarks plist at path %{public}@. Error: %{public}@
@@ -694,6 +701,7 @@ Failed to clear local bookmark tombstones
 Failed to clear sync server ids. Sqlite error: %d
 Clearing all DAV sync data, likely because the user is logging out
 Failed to mark bookmrks as added during clearing sync data. Sqlite error: %d
+Deleted bookmark with ID %d from parent with ID %d
 Could not delete records recursively starting with localID: %d, error: %d
 Error reading bookmark attributes: %{public}@
 Could not insert record with server ID: %{public}@ into parent with ID: %d, error: %d
@@ -721,7 +729,6 @@ Failed to set sync properties value for key %{private}@. Sqlite error: %d
 Failed to set sync data for key %{public}@. Sqlite error: %d
 Bookmarks failed to begin sync transaction with result code: %i. SQL Error: %{public}s
 Bookmarks failed to begin sync transaction with result code: %i
-%{public}@
 Failed to open bookmarks sync lock file at: %{public}s
 Process %{public}@ did fail to acquire lock: %{public}@ (%d)
 Process %{public}@ did acquire lock: %{public}@
@@ -762,18 +769,6 @@ Successfully performed settings task with type: %ld
 Settings task with type %ld finished with a non-xpc error %{public}@
 Received error while performing settings task with type: %ld, error: %{public}@
 softlink:o:path:/System/Library/PrivateFrameworks/WebContentAnalysis.framework/WebContentAnalysis
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
 WebBookmarkDeviceIdentifier
 BAChangeRecord
 WebBookmarkCloudKitSyncCollection
@@ -968,13 +963,13 @@ isReadingListItem
 clearReadingListArchiveWithUUID:
 isReadingListFolder
 clearAllReadingListArchives
+parentID
 _deleteBookmark:leaveTombstone:
 _setMergeMode:
 copy
 isInserted
 _setServerID:forBookmark:
 setServerID:
-parentID
 _serverIDForBookmarkID:
 syncKey
 _setSyncKey:forBookmark:
@@ -1213,6 +1208,8 @@ fileExistsAtPath:isDirectory:
 _defaultDatabaseFileNameForCollectionType:
 _primaryCollection
 lastPathComponent
+isReadonly
+setHandler:
 _removeCorruptedBookmarksDatabaseAtPath:
 userInfo
 objectForKey:
@@ -1280,7 +1277,6 @@ setDateLastArchived:
 saveBookmark:
 clearArchiveSynchronously
 vacuum
-isReadonly
 createIfNeeded
 _simulateCrashWithDescription:
 applyInMemoryChangesToDatabase
@@ -1682,6 +1678,7 @@ componentsWithString:
 path
 _wb_stringByDeletingTrailingSlash
 hasSuffix:
+safari_stringByRedactingBookmarkDAVServerID
 safari_bestURLForUserTypedString
 _web_bestURLForUserTypedString
 T@"NSURL",R,N

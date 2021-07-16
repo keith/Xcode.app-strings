@@ -102,6 +102,7 @@ ConnectionLock
 ReplyLock
 com.apple.calaccessd
 v16@?0i8i12
+You have overridden beginRequestWithExtensionContext: on your subclass of EKVirtualConferenceProvider (%@) - this is not allowed
 v24@?0@"NSArray"8@"NSError"16
 v24@?0@"EKVirtualConferenceDescriptor"8@"NSError"16
 v28@?0B8q12@"NSArray"20
@@ -826,6 +827,8 @@ date != nil
 %@ <%p> {triggerDate = %@}
 %@ <%p> {triggerInterval = %lf}
 location-reminders
+EKVirtualConferenceError
+v24@?0@"EKVirtualConference"8@"NSError"16
 v24@?0@"<NSCopying>"8@"NSArray"16
 EKVirtualConference title: %@, conferenceDetails: %@, joinMethods: %@, source: %@
 com.apple.calendar.virtualconference
@@ -861,7 +864,9 @@ managedConfigurationAccountAccess
 _EKVirtualConferenceRequestTypeKey
 _EKVirtualConferenceRequestTypeRoomTypes
 _EKVirutalConferenceRequestTypeJoinMethodsForRoomType
+_EKVirtualConferenceRequestTypeURLInvalidate
 _EKVirtualConferenceRequestRoomTypeIdentifier
+_EKVirtualConferenceRequestURLParameterForInvalidation
 _EKVirtualConferenceRoomTypeTitleKey
 _EKVirtualConferenceRoomTypeIdentifierKey
 _EKVirtualConferenceJoinMethodTypeIdentifierKey
@@ -870,6 +875,9 @@ _EKVirtualConferenceJoinMethodURLKey
 _EKVirtualConferenceInfoTypeIdentifierKey
 _EKVirtualConferenceInfoTitleKey
 _EKVirtualConferenceInfoDetailsKey
+_EKVirtualConferenceInvalidationResultKey
+_EKVirtualConferenceInvalidationResultSucceeded
+_EKVirtualConferenceInvalidationResultFailed
 _EKVirtualConferenceTypeIdentifierKey
 EKVirtualConferenceExtensionContext.m
 Invalid completion method called for request type
@@ -1034,6 +1042,9 @@ Skype
 v24@?0@"LSAppLink"8@"NSError"16
 com.apple.InCallService
 com.apple.facetime
+v16@?0@"NSString"8
+com.apple.faceTime
+com.apple.mobilecal.FacetimeExtension
 [%@] startDate: [%@] endDate: [%@] duration: [%@ seconds] conflictedParticipants count: [%@]
 Event update: %@
 iTIP
@@ -1385,6 +1396,7 @@ CADCalendarItemsWithExternalIdentifierPredicate
 CADPropertySearchPredicate
 CADEventTimeWindowPredicate
 CADNaturalLanguageSuggestedEventsSearchPredicate
+CADEventsForConferenceURLPredicate
 Unexpected predicate class: %@
 Unknown Predicate Search
 predicateClass=%@; predicateFormat=%@
@@ -1516,7 +1528,7 @@ Error moving subscribed calendar: %@
 Unable to export calendar data: %@
 Error trying to report calendar invite as junk. Error: %@
 Could not load extension for room type title: %@ identifier: %@ extensionIdentifier: %@, error = %@
-Skipping extension item %@ because it has insufficient information. userInfo = %@
+Skipping extension join method %@ because it has insufficient information. Title = %@ URL = %@
 Extension %@ did not provide any join methods.
 Failed to get virtual conference join methods, extension = %@ request = %@ error = %@
 Failed to find virtual conference extensions. Error = %@
@@ -1685,6 +1697,7 @@ Attempting to commit changes in event store: [%@].
 Client not allowed to modify the calendar database.  Will not commit.
 No changes detected.  Calling commit successful.
 Error committing event store: [%@]
+Failed to insert %{public}@ delete %{public}@ update %{public}@
 Enumeration attempt for events that were fetched is complete.  Predicate: [%@]
 Invalid fetchIdentifier given to cancelFetchRequest. Type: %{public}@
 Error fetching alarm with UUID.  UUID: [%@].  Error: [%@]
@@ -1718,11 +1731,15 @@ Failed to create destination .icbu: %@
 Failed to backup: %@
 Failed to restore: %@
 Attempt to set the default calendar for new reminders using EventKit. This is unsupported. You must use ReminderKit.
-URL should be opened with the FaceTime app, but there was an error fetching FaceTime's application record: %@
 Couldn't find out what app opens URL as a universal link, trying to see what opens it as a custom URL scheme: %@
+URL should be opened with the FaceTime app, but there was an error fetching FaceTime's application record: %@
 Error getting claim binding for URL, error: %@
 Failed to find app extension record for extension bundle identifier: %@
 Containing record for app extension record could not be found or was the wrong type
+Unable to find application record for URL %@, not invalidating.
+Could not load extension for extensionIdentifier: %@, error = %@
+URL invalidated successfully: %@
+Unable to invalidate URL: %@
 Me Card missing email address, can't send iMIP event: %@
 Missing Subject, (invalid part-stat?) can't send iMIP event: %@
 No email recipients for iMIP event: %@
@@ -3129,14 +3146,17 @@ T@"CADDatabaseInitializationOptions",&,N,V_initializationOptions
 Ti,R,N
 maxNumberOfOpenConnections
 TQ,R,N
+beginRequestWithExtensionContext:
 requestType
 completeRequestWithAvailableRoomTypes:completionHandler:
 fetchAvailableRoomTypesWithCompletionHandler:
 roomTypeIdentifier
 completeRequestWithVirtualConference:completionHandler:
 fetchVirtualConferenceForIdentifier:completionHandler:
+URLForInvalidation
+completeRequestWithInvalidationSuccess:error:completionHandler:
+invalidateURL:withCompletionHandler:
 completeRequestReturningItems:completionHandler:
-beginRequestWithExtensionContext:
 isURLValid:withCompletion:
 extendExpirationOfURL:toRequestedDate:withCompletion:
 _filterObjectChangesNotConformingToOwnerIDProvidingProtocol:
@@ -4018,11 +4038,6 @@ conferenceURLDetected
 _detectConferenceURL
 _prioritizedConferencesSources
 conferenceURLFromSources:
-_hasChangesForConferenceURLDetection
-_updateConferenceURL
-_canWriteConferenceURL
-setConferenceURL:
-preventConferenceURLDetection
 setIsJunk:shouldSave:
 setCachedJunkStatus:
 _couldBeJunkCommon
@@ -4032,7 +4047,6 @@ setURLCommon:
 parsedConference
 conferenceURLForDisplayCached
 conferenceURLForDisplay
-updateConferenceURLIfNeeded
 reputationStore
 junkStatusForInvitation:withReputationStore:
 sendersEmail
@@ -5508,6 +5522,8 @@ joinMethods
 conference
 serializeConference:
 _buildConferenceStringFromNotesWithoutConference:serializedConference:
+_originallyCommittedVirtualConference
+invalidateConferenceURL:
 hasSuffix:
 _setInvitationStatusAlertedIfNecessary
 _setInvitationStatusUnalertedIfNecessary
@@ -5608,11 +5624,13 @@ _detachWithStartDate:newStartDate:future:
 _isSimpleRepeatingEvent
 conformsToRecurrenceRules:
 _isSignificantlyDetachedComparedToMaster:shouldIgnorePartStat:
+_updateVideoConferenceOnlyModified
 _propagateChangesToDetachedEvents:significantlyDetachedEvents:startDateOffset:duration:calendar:
 _clearExceptionDatesAndUpdateDetachedOriginalDates
 _filterExceptionDatesAndDetachments
 _applyTimeChangesToMaster
 _updateModifiedPropertiesForThisEventAndAllDetachments
+invalidateConferenceURLIfNeeded:inEventStore:
 _updateModifiedProperties
 applyChanges:
 knownKeysToSkipForFutureChanges
@@ -5659,6 +5677,7 @@ updateEventToEvent:commit:
 isDate:inSameDayAsDate:
 isEqualToLocation:
 infoWithConflicts:needsAction:event:
+isAffectingAvailability
 potentialConflictOccurrenceDatesInTimePeriod:
 predicateForEventsWithStartDate:endDate:calendars:loadDefaultProperties:
 _fetchedEventIsConflict:forStartDate:endDate:
@@ -5769,6 +5788,8 @@ confirmPredictedLocation:
 rejectPredictedLocation
 hasPredictedLocation
 setLocationPredictionAllowed:
+forceLocationPredictionUpdate
+setConferenceURL:
 setEndLocation:
 compareStartDateWithEvent:
 compareStartDateIncludingTravelWithEvent:
@@ -5810,6 +5831,7 @@ requiresCopyToMoveFromCalendar:toCalendar:
 attendeesNotIncludingOrganizer
 birthdayPersonUniqueID
 setProposedEndDate:
+preventConferenceURLDetection
 setPreventConferenceURLDetection:
 showEventURLString
 setVirtualConferenceTextRepresentation:
@@ -6112,7 +6134,6 @@ setIsIgnoringEventAlerts:
 allowsIgnoringSharedEventChangeNotifications
 isIgnoringSharedCalendarNotifications
 setIsIgnoringSharedCalendarNotifications:
-isAffectingAvailability
 setIsAffectingAvailability:
 syncHash
 selectionSyncIdentifier
@@ -6220,9 +6241,13 @@ virtualConferenceForRoomType:completion:queue:
 firstPhoneNumber
 setJoinMethods:
 setConferenceDetails:
+serializationBlockTitle
+setSerializationBlockTitle:
 _joinMethods
+_serializationBlockTitle
 T@"NSArray",&,N,V_joinMethods
 T@"NSString",&,N,V_conferenceDetails
+T@"NSString",&,N,V_serializationBlockTitle
 TQ,N,V_source
 initWithTitle:identifier:extensionBundleIdentifier:
 setRequestCancellationBlock:
@@ -6685,6 +6710,7 @@ _cacheSourceWithCADObjectID:withDefaultLoadedPropertyValues:forKeys:
 _loadSourcesIfNeeded
 _sourceWithID:
 publicObjectWithFetchedObjectID:
+_clearAllCaches
 _localSourceWithEnableIfNeeded:
 stampedCopyWithGeneration:
 _loadCalendarsIfNeeded
@@ -6710,6 +6736,7 @@ closestCachedOccurrenceToDate:forEventUID:
 initWithEntityType:entityID:
 eventWithUniqueId:occurrenceDate:
 _saveEvent:span:commit:error:
+_isRegisteredObject:
 _removeEvent:span:commit:error:
 setInvitationStatus:forEvents:error:
 initWithContentsOfFile:
@@ -6782,7 +6809,6 @@ classForEntityName:
 _addFetchedObjectWithID:
 weakObjectsHashTable
 _forgetRegisteredObjects
-_clearAllCaches
 _commitObjectsWithIdentifiers:error:
 _filteredObjectsWithIdentifiers:fromObjects:
 _markObjectsWithIdentifiersAsCommitted:
@@ -6839,6 +6865,7 @@ initWithProperty:comparison:dateValue:
 initWithFilters:operation:
 initWithPredicate:limitWithStartDate:endDate:mustStartInInterval:
 initWithEntityType:filters:calendars:
+initWithURL:limit:
 registerForDetailedChangeTrackingInSource:error:
 _processChangedObjectIDsWithToken:errorCode:changesTruncated:latestToken:changeData:insertCount:updateCount:deleteCount:resultHandler:
 constraintsCacheQueue
@@ -7006,6 +7033,7 @@ predicateForMasterEventsWithInvitationsAndOccurrencesAfter:inCalendar:
 predicateForNonrecurringEventsWithStartDate:endDate:calendars:
 predicateForIncompleteRemindersAndRemindersCompletedAfter:inCalendar:
 timeToLeaveLocationAuthorizationStatus
+predicateForEventsWithConferenceURL:limit:
 registerForDetailedChangeTracking:
 unregisterForDetailedChangeTracking:
 fetchChangedObjectIDsSinceToken:resultHandler:
@@ -7131,6 +7159,9 @@ initWithURL:error:
 bundleRecord
 initWithBundleIdentifier:error:
 containingBundleRecord
+isTUConversationLink:
+_findExtensionIdentifierForURL:completionHandler:
+caseInsensitiveCompare:
 conferenceImageSize
 virtualConference:likelyCameFromRoomTypes:completionHandler:
 synchronousAppTitleOnlyForURL:
@@ -7191,6 +7222,7 @@ _range
 T{_NSRange=QQ},R,N,V_range
 T@"EKVirtualConference",R,N,V_conference
 _ekVirtualConferenceFromCalVirtualConference:
+blockTitle
 _calJoinMethodsFromEKJoinMethods:
 _calSourceFromEKSource:
 initWithTitle:joinMethods:conferenceDetails:source:isWritable:
@@ -7709,6 +7741,7 @@ i24@0:8Q16
 v24@0:8i16B20
 B40@0:8@16Q24^@32
 v32@0:8Q16@?24
+v36@0:8B16@20@?28
 @64@0:8q16@24@32@40@48@56
 @"RTPredictedLocationOfInterest"
 @"EKPredictedLocationOfInterest"

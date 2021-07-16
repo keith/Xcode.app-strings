@@ -27,10 +27,10 @@ END [%lld] %fs: CachedCircleStatus  status=%{public,signpost.telemetry:number1,n
 "This is not an HSA2 account, not calling waitForOctagonUpgrade"
 "Reporting success for %@"
 "Reporting failure for %@"
-CircleStatus
 BEGIN [%lld]: CircleStatus  enableTelemetry=YES 
 "Checking clique status with fetchCliqueStatus from %@"
 "Call to fetchCliqueStatus returned a status: %@"
+CircleStatus
 END [%lld] %fs: CircleStatus  status=%{public,signpost.telemetry:number1,name=status}d 
 BEGIN [%lld]: SOSCircleStatus  enableTelemetry=YES 
 SOSCircleStatus
@@ -86,6 +86,12 @@ CustodianCreateRecoveryKey
 BEGIN [%lld]: CustodianCreateRecoveryKey  enableTelemetry=YES 
 END [%lld] %fs: CustodianCreateRecoveryKey  Error=%{public,signpost.telemetry:number1,name=Error}d 
 "Error creating custodian recovery key: %@"
+"Asking security to delete custodian recovery key for %@"
+CustodianDeleteRecoveryKey
+BEGIN [%lld]: CustodianDeleteRecoveryKey  enableTelemetry=YES 
+END [%lld] %fs: CustodianDeleteRecoveryKey  Error=%{public,signpost.telemetry:number1,name=Error}d 
+"Error deleting custodian recovery key: %@"
+"Deleted custodian recovery key: for %@"
 "Generating Inheritance access key from security for beneficiary: %@"
 "Creating the access key for beneficiary: %@"
 "Error creating access key for beneficiary %@: %@."
@@ -188,6 +194,7 @@ END [%lld] %fs: RepairCloudDataProtectionState  Error=%{public,signpost.telemetr
 "Requesting repair of CDP state..."
 "XPC Error while accepting sharing session: %@"
 "Requesting start of accepting sharing session..."
+"Requesting start of accepting sharing session, skipping escrow fetches..."
 "Requesting repair and synchronization of CDP state with Squirrel..."
 "Requesting repair of CDP state with Squirrel..."
 "XPC Error while attempting to escrow preRecord: %@"
@@ -203,6 +210,8 @@ cdp: repair state check
 "Attempting to generate a new recovery key"
 "XPC Error while deleting a recovery key: %@"
 "Attempting to delete a recovery key"
+"XPC Error while fetching recovery key state: %@"
+"Attempting to fetch recovery key state"
 "Handling URL action: %@"
 cdp: recovery flow
 "XPC Error while recovering data: %@"
@@ -240,6 +249,7 @@ _cachedLocalSecret
 _cachedLocalSecretType
 __useSecureBackupCachedPassphrase
 __alwaysCreateEscrowRecord
+__skipEscrowFetches
 __recoveryToken
 _guestMode
 _idmsRecovery
@@ -332,10 +342,10 @@ core
 signpost
 v24@?0Q8@"NSError"16
 v24@?0@"CDPUpdateDataPrivacyContext"8@"NSError"16
-A remote secret or recovery key is required to attempt backup recovery (use -r <secret> OR -rk <recoveryKey>)
+A remote secret or recovery key is required to attempt backup recovery (use -remote <secret> OR -mk <recoveryKey>)
 Remote secret is invalid... cancelling prompt/validation
 Recovery key is invalid... cancelling prompt/validation
-An iCSC is required to attempt backup recovery (use -i <iCSC>)
+An iCSC is required to attempt backup recovery (use -icsc <iCSC>)
 ICSC is invalid... cancelling prompt/validation
 C5DDE5DD-2FF7-4735-80A3-0108488556DE
 com.apple.CoreCDP
@@ -366,19 +376,6 @@ _wrappedRKC
 _wrappingKey
 _custodianUUID
 <%@: %p> for UUID: %@
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
 CDPProtectedCloudStorageProxyImpl
 CDPProtectedCloudStorageProxy
 NSObject
@@ -523,6 +520,7 @@ finishCyrusFlowAfterTermsAgreementWithContext:uiProvider:completion:
 generateNewRecoveryKeyWithContext:uiProvider:completion:
 deleteRecoveryKeyWithContext:uiProvider:completion:
 generateRandomRecoveryKeyWithContext:completion:
+isRecoveryKeyAvailableWithCompletion:
 isICDPEnabledForDSID:checkWithServer:completion:
 hasLocalSecretWithCompletion:
 isUserVisibleKeychainSyncEnabledWithCompletion:
@@ -638,6 +636,8 @@ _useSecureBackupCachedPassphrase
 set_useSecureBackupCachedPassphrase:
 _alwaysCreateEscrowRecord
 set_alwaysCreateEscrowRecord:
+_skipEscrowFetches
+set_skipEscrowFetches:
 _recoveryToken
 set_recoveryToken:
 _ignoreLockAssertErrors
@@ -658,6 +658,7 @@ _failSignInOnError
 __supportsCustodianRecovery
 __useSecureBackupCachedPassphrase
 __alwaysCreateEscrowRecord
+__skipEscrowFetches
 __ignoreLockAssertErrors
 _idmsRecovery
 _idmsMasterKeyRecovery
@@ -687,6 +688,7 @@ TB,N,V__supportsCustodianRecovery
 T@"CUMessageSession",&,N,V_sharingChannel
 TB,N,V__useSecureBackupCachedPassphrase
 TB,N,V__alwaysCreateEscrowRecord
+TB,N,V__skipEscrowFetches
 T@"NSString",C,N,V__recoveryToken
 TB,N,V__ignoreLockAssertErrors
 TB,N,V_idmsRecovery
@@ -837,7 +839,9 @@ cdp_errorWithCode:
 wrappedKey
 initWithWrappedRKC:wrappingKey:custodianUUID:
 createCustodianRecoveryKey:uuid:reply:
+removeCustodianRecoveryKey:custodianRecoveryKeyUUID:reply:
 createRecoveryKeyWithContext:forUUID:completion:
+deleteRecoveryKeyWithContext:forUUID:completion:
 numberWithUnsignedInteger:
 unsignedIntValue
 initWithStatusToUpdate:
@@ -1070,13 +1074,14 @@ setCircleProxy:
 _circleProxy
 T@"<CDPDCircleProxy>",&,N,V_circleProxy
 uiProviderProxy
+startCircleApplicationApprovalServer:
 attemptToEscrowPreRecord:completion:
 handleURLActionWithInfo:completion:
 repairCloudDataProtectionStateWithCompletion:
 finishOfflineLocalSecretChangeWithCompletion:
 generateNewRecoveryKey:
 handleCloudDataProtectionStateWithCompletion:
-startCircleApplicationApprovalServer:
+startCircleApplicationApprovalServerSkipEscrowFetches:
 recoverAndSynchronizeWithSquirrel:
 recoverWithSquirrel:
 attemptToEscrowPreRecord:preRecordUUID:secretType:completion:
@@ -1085,6 +1090,7 @@ finishCyrusFlowAfterTermsAgreementWithContext:
 shouldPerformRepairWithOptionForceFetch:error:
 deleteRecoveryKey:
 deleteRecoveryKeyWithError:
+isRecoveryKeyAvailableWithError:
 generateRandomRecoveryKey:
 handleURLActionWithInfo:
 _sanitizedRecoveryErrorWithError:
@@ -1196,9 +1202,9 @@ v32@0:8@"CDPContext"16@?<v@?@"CDPContext"@"NSError">24
 v40@0:8@"CDPContext"16@"NSString"24@?<v@?@"NSDictionary"@"NSError">32
 v36@0:8@16B24@?28
 v56@0:8@16Q24@32@40@?48
+Vv24@0:8@?16
 v28@0:8B16@?20
 v48@0:8@16@24@32@?40
-Vv24@0:8@?16
 Vv32@0:8@16@?24
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?BB@"NSError">32
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?B@"NSError">32
@@ -1206,6 +1212,7 @@ v36@0:8@"CDPContext"16B24@?<v@?B@"NSError">28
 v56@0:8@"NSString"16Q24@"CDPContext"32@"<CDPStateUIProviderInternal>"40@?<v@?B@"NSError">48
 v40@0:8@"NSString"16@"CDPContext"24@?<v@?B@"NSError">32
 v32@0:8@"CDPContext"16@?<v@?@"NSString"@"NSError">24
+Vv24@0:8@?<v@?B@"NSError">16
 v36@0:8@"NSString"16B24@?<v@?B>28
 v24@0:8@?<v@?B>16
 v28@0:8B16@?<v@?B@"NSError">20

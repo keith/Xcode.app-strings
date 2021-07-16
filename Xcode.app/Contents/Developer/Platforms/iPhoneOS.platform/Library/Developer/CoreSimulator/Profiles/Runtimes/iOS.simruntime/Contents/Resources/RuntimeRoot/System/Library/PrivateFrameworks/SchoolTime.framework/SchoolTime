@@ -12,9 +12,11 @@ scheduleEndMinute
 timeInterval
 <%@ %p; startTime: %@:%@; endTime: %@:%@; %@>
 q24@?0@"SCLScheduleRecurrence"8@"SCLScheduleRecurrence"16
+v12@?0i8
 v8@?0
 v16@?0@"NSError"8
 v24@?0@"SCLSchoolModeServerSettings"8@"NSError"16
+v20@?0B8@"NSError"12
 version
 isEnabled
 recurrences
@@ -47,7 +49,6 @@ acquired
 unacquired
 invalidated
 <%@ %p (%@); %@>
-v20@?0B8@"NSError"12
 v24@?0@"SCLSuppressSchoolModeAssertion"8@"NSError"16
 -[SCLSchoolMode init]
 SCLSchoolMode.m
@@ -72,7 +73,7 @@ transport
 framework
 interrupt
 com.apple.schooltime.schoolmodeserver
-v12@?0i8
+com.apple.schooltime.schedule.active
 SignificantTimeChangeNotification
 com.apple.schooltime.eventBehaviorResolution
 com.apple.schooltime.behaviorResolutionConnection
@@ -128,6 +129,7 @@ v32@?0@"SCLScheduleRecurrence"8Q16^B24
 SCHEDULE_TIME_INTERVAL_SHORT_FORMAT
 v16@?0@"SCLScheduleFormatter"8
 <%@ %p; %@>
+com.apple.Schooltime.activeDuration
 Did not iterate all weekdays; %@; %@ %@ - %@
 SchoolTime
 momd
@@ -185,6 +187,7 @@ hasPairingStorePath
 isArchived
 UnlockHistory.sqlite3
 com.apple.schooltime.database.maintenance
+com.apple.schooltime.wake.activity
 event
 interruptEligible
 none
@@ -194,19 +197,28 @@ com.apple.schooltime.schedule
 com.apple.schooltime.setschedule
 com.apple.schooltime.unlockhistory
 com.apple.schooltime.edithistory
+SCLServerStartNotification
 syncStatus
 messageIdentifier
 error
 recoveryHistory
+received server restart notification
+Could not register for server restart notification: %@
+Connection was interrupted.
 Connection was invalidated remotely.
 Resume SCLSchoolMode
 Activate SCLSchoolMode %@
 Failed to get initial settings for school mode: %@
+synchronous, updating server settings before applying
 Reconnect SCLSchoolMode
-Connection interrupted. Reconnecting %@ - %@
-Failed to reconnect to server with error %@
-Type: %d
+will attempt new connection
+new connection and previously running, resuming
+[%@] setActive %{BOOL}u error %@
+[%@] setActive %{BOOL}u success %{BOOL}u error %@
+Dropping connection and NOT reconnecting %@ - %@
+Applying server settings, oldState %@, newState %@
 No transport controller for incoming message from %@; %@
+Type: %d
 Incoming Protobuf
 Service message with identifier %@ did send with success %{BOOL}u error: %@
 Service message with identifier %@ failed to send with error %@
@@ -226,7 +238,7 @@ qosClass: 0x%x
 Initial server evaluation
 School Mode Server Initial Evaluation
 Cancelling timer
-Setting timer for duration: %@
+Setting timer for duration: %@ with transaction %@
 Creating SCLInterruptBehaviorResolution for client %@
 Resolving behavior for client %@ event %@
 Resolved behavior %@
@@ -308,9 +320,6 @@ Relinquished suppression assertion for %@
 Client %@ is not entitled to acquire suppression assertions
 Client: %p
 Connect Client
-Reconnect Client
-Coordinator is ready. Syncing settings
-Coordinator is not ready. Settings will be synced when coordinator becomes ready.
 State dump
 Start School Mode Manager
 Loading devices %@
@@ -336,12 +345,19 @@ AutoUpdatingPairingID used when multiple pairings are present. Linking to %@
 No coordinator for pairingID %@. Pending client until pairing.
 Checked in with activity %@
 Old criteria doesn't exist - setting new criteria
+using old criteria
 No tinker-paired devices available. Unregistering %s
 Database Maintenance
 Performing database maintenance: %@
 Failed to move activity to CONTINUE state
 Completed database maintenance
 Failed to move activity to DONE state
+Registering xpc activity %s for %@
+registered & received xpc activity %@ with state %ld
+%s checked in, setting criteria wake interval %f
+%s deferred
+xpc_activity_set_state(%s, XPC_ACTIVITY_STATE_DEFER) failed
+%s asked to run
 Transition from state %@ to state: %@
 SCLInterruptBehaviorResolutionXPCServer
 NSObject
@@ -412,6 +428,7 @@ SCLScheduleIntervalFormatter
 SCLWatchServer
 SCLRecurrenceSchedule
 SCLRecurrenceScheduleCreation
+SCLActiveDurationAnalyticsSource
 SchoolTime
 SCLUnlockHistoryPersistentStore
 SCLScheduling
@@ -436,6 +453,7 @@ SCLSchoolModeXPCServer
 SCLSchoolModeManager
 SCLSchoolModeClientProxyDelegate
 SCLSchoolModeManagerConfiguration
+SCLSchoolModeWakeScheduler
 SCLInterruptEventBehavior
 SCLSettingsSyncContext
 SCLSettingsSyncStateMachine
@@ -575,19 +593,24 @@ isActiveAtDate:calendar:
 intersectsRecurrence:
 isContiguousWithRecurrence:
 dayOfWeekAndStartTimeComparator
+setSchedule:
+setScheduleSettings:
+initWithActiveState:scheduleEnabled:inSchedule:
+setState:
+_makeConnection:
+UTF8String
+configuration
+targetQueue
+_reconnectToServer
+dealloc
 testingEndpoint
 initWithListenerEndpoint:
 initWithMachServiceName:options:
 setExportedObject:
 setExportedInterface:
 setRemoteObjectInterface:
-targetQueue
 _setQueue:
-setSchedule:
-setScheduleSettings:
-initWithActiveState:scheduleEnabled:inSchedule:
-setState:
-_reconnect
+_dropConnection
 setInterruptionHandler:
 setInvalidationHandler:
 resume
@@ -599,6 +622,7 @@ remoteObjectProxyWithErrorHandler:
 pairingID
 state
 connectWithPairingID:identifier:completion:
+isRunning
 scheduleSettings
 isLoaded
 connection
@@ -612,8 +636,6 @@ deleteHistoryWithCompletion:
 noteSignificantUserInteraction
 triggerRemoteSync
 dumpState
-configuration
-reconnectWithPairingID:identifier:
 delegate
 client:didUpdateToState:fromState:
 client:didLoadScheduleSettings:
@@ -625,14 +647,20 @@ applyScheduleSettings:completion:
 setDelegate:
 setConnection:
 setConfiguration:
+setRunning:
 _lock
+_connectionLock
 _serverSettings
+_restartNotificationToken
+_running
 _delegate
 _connection
 _configuration
 T@"<SCLSchoolModeXPCClientDelegate>",W,N,V_delegate
 T@"NSXPCConnection",&,N,V_connection
 T@"SCLSchoolModeConfiguration",&,N,V_configuration
+running
+TB,N,GisRunning,V_running
 T@"SCLState",R,N
 T@"SCLScheduleSettings",R,N
 loaded
@@ -951,7 +979,6 @@ setPairingID:
 initWithConfiguration:
 cStringUsingEncoding:
 setTargetQueue:
-dealloc
 resumeState
 raise:format:
 setResumeState:
@@ -1050,7 +1077,6 @@ T@"SCLInterruptEventBehavior",R,C,N,V_eventBehavior
 T@"NSString",R,C,N,V_clientIdentifier
 dataWithPropertyList:format:options:error:
 length
-UTF8String
 bytes
 schedulingEngine
 handleSignificantTimeChange
@@ -1069,30 +1095,39 @@ _scheduleTimerForDate:
 observers
 timeIntervalSinceNow
 numberWithFloat:
+scheduleWakeForDate:
 timerFired
+cancelWake
 server:didUpdateState:fromState:
 assertionManager:didUpdateAssertionsStatus:
-initWithQueue:suppressionManager:
+initWithQueue:suppressionManager:wakeScheduler:
 currentState
 startWithScheduleSettings:shouldStartManuallyActive:
 removeObserver:
 setActive:
 applySchedule:
+wakeScheduler
 setQueue:
 timerSource
 setTimerSource:
+activeTransaction
+setActiveTransaction:
 _timeChangeToken
 _suppressionManager
+_wakeScheduler
 _observers
 _schedulingEngine
 _timerSource
+_activeTransaction
 T@"NSHashTable",R,N,V_observers
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 Ti,N,V_timeChangeToken
 T@"SCLSchedulingEngine",&,V_schedulingEngine
 T@"NSObject<OS_dispatch_source>",&,N,V_timerSource
+T@"NSObject<OS_os_transaction>",&,N,V_activeTransaction
 T@"SCLState",R
 T@"SCLSuppressSchoolModeAssertionManager",R,N,V_suppressionManager
+T@"SCLSchoolModeWakeScheduler",R,N,V_wakeScheduler
 mapTableWithKeyOptions:valueOptions:
 initWithClientIdentifier:
 serverConnection
@@ -1224,6 +1259,7 @@ T@"SCLPBTimeInterval",&,N,V_timeInterval
 Ti,N,V_day
 directoryURL
 URLByAppendingPathComponent:
+initWithInitialState:
 server
 transportController
 _createSchoolTimeDirectoryIfNeeded
@@ -1275,6 +1311,7 @@ setPendingUnlockItem:
 timeIntervalSinceDate:
 setManualSchoolModeEnabled:
 didUpdateState:fromState:
+activeDurationAnalyticsSource
 addClient:
 removeClient:
 applySchedule:error:
@@ -1293,6 +1330,7 @@ _scheduleURL
 _pendingUnlockItem
 _persistentSettings
 _stateHandle
+_activeDurationAnalyticsSource
 T@"NSMutableSet",R,N,V_clients
 T@"NSURL",R,N,V_directoryURL
 T@"NSURL",R,N,V_scheduleURL
@@ -1300,6 +1338,7 @@ T@"SCLUnlockHistoryItem",&,N,V_pendingUnlockItem
 T@"SCLPersistentSettings",&,N,V_persistentSettings
 T@"SCLSettingsSyncCoordinator",&,N,V_settingsSyncCoordinator
 TQ,N,V_stateHandle
+T@"SCLActiveDurationAnalyticsSource",R,N,V_activeDurationAnalyticsSource
 T@"SCLSchoolModeCoordinatorConfiguration",R,C,N,V_configuration
 T@"SCLState",R,N,V_currentState
 T@"SCLScheduleSettings",&,D,N
@@ -1416,6 +1455,19 @@ T@"SCLSchoolModeManager",R,N,V_schoolModeManager
 performBlockWithSharedFormatter:
 decodeObjectOfClasses:forKey:
 initWithTimeIntervals:repeatSchedule:
+isActiveForState:
+commitAnalyticsEventForTransitionFromState:toState:
+setActiveStartTimestamp:
+activeStartTimestamp
+secondsSinceContinuousTimestamp:
+numberWithUnsignedLongLong:
+secondsWithMachTimeInterval:
+timebase
+_activeStartTimestamp
+_timebase
+TQ,N,V_activeStartTimestamp
+T{mach_timebase_info=II},R,N,V_timebase
+T@"SCLState",C,N,V_currentState
 firstWeekday
 isDateInWeekend:
 localeIdentifier
@@ -1579,12 +1631,12 @@ clientProxyDidInvalidate:
 appendInt:withName:
 clientProxy:didConnectWithPairingID:
 serverSettings
-coordinator
-sendServerSettings:
 validateBooleanEntitlement:error:
 validatePairing:
+coordinator
 remoteClient
 remoteObjectProxy
+sendServerSettings:
 _coordinator
 T@"NSUUID",&,V_pairingID
 T@"NSString",C,V_identifier
@@ -1809,8 +1861,10 @@ v28@0:8@16B24
 i16@0:8
 v20@0:8i16
 @"SCLSuppressSchoolModeAssertionManager"
+@"SCLSchoolModeWakeScheduler"
 @"SCLSchedulingEngine"
 @"NSObject<OS_dispatch_source>"
+@"NSObject<OS_os_transaction>"
 @32@0:8@16o^@24
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 v40@0:8@"SCLSchoolModeServer"16@"SCLState"24@"SCLState"32
@@ -1846,6 +1900,7 @@ B36@0:8@16B24^@28
 @"NSURL"
 @"SCLUnlockHistoryItem"
 @"SCLPersistentSettings"
+@"SCLActiveDurationAnalyticsSource"
 @"IDSDevice"
 @"SCLTransportController"
 @"SCLSchoolModeServer"
@@ -1854,6 +1909,9 @@ B36@0:8@16B24^@28
 Vv40@0:8@"NSString"16@"NSUUID"24@?<v@?B@"NSError">32
 @"NSBundle"
 @"SCLSchoolModeManager"
+Q24@0:8Q16
+{mach_timebase_info=II}16@0:8
+{mach_timebase_info="numer"I"denom"I}
 B24@0:8^@16
 @"NSPersistentContainer"
 @"NSManagedObjectContext"
@@ -1876,12 +1934,10 @@ v24@0:8@"SCLSuppressSchoolModeAssertionClient"16
 @32@0:8Q16Q24
 q24@0:8@16
 @40@0:8@16Q24@32
-Vv32@0:8@16@24
 Vv32@0:8@16@?24
 Vv28@0:8B16@?20
 Vv24@0:8@?16
 Vv40@0:8@"NSUUID"16@"NSString"24@?<v@?@"SCLSchoolModeServerSettings"@"NSError">32
-Vv32@0:8@"NSUUID"16@"NSString"24
 Vv32@0:8@"SCLScheduleSettings"16@?<v@?B@"NSError">24
 Vv28@0:8B16@?<v@?B@"NSError">20
 Vv24@0:8@?<v@?@"NSArray"@"NSError">16

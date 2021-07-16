@@ -200,6 +200,7 @@ v44@?0B8Q12Q20@"NSError"28^B36
 BUZipArchiveErrorDescription
 -[BUZipArchive initWithOptions:]
 -[BUZipArchive readArchiveWithQueue:completion:]
+v24@?0@8@"NSError"16
 v24@?0@"NSObject<OS_dispatch_data>"8@"NSError"16
 Wrong data size for BUZipEndOfCentralDirectoryRecord
 Don't support end of central directory comments
@@ -231,6 +232,7 @@ __MACOSX
 -[BUZipArchive newArchiveReadChannel]
 -[BUZipArchive isValid]
 entries
+Exception thrown during extractToURL - toURL: %@, exception: %@
 %02x
 0123456789ABCDEF
 data:image/png;base64,
@@ -324,13 +326,16 @@ File isn't open
 Failed to stat URL information. url: %{mask.hash}@ error: %@
 Could not perform copyToURL: %@
 %@: %{public}s
+Failed to read ZIP archive. %{public}@, error: %@
 Failed first attempt to read ZIP archive, but we will attempt to recover. %{public}@
 %@: reading central directory of size %zu with %tu entries
 Failed to parse ZIP entry %tu. Will attempt to adjust offset forward.
 Failed to parse ZIP entry %tu. Will attempt to adjust offset backward.
 Attempted to adjust the offset for %llu times. Will assume the ZIP is complete.
 Duplicate entry for name: %@
+Can't create output directory
 Exception thrown during extractToURL - toURL: %{mask.hash}@, exception: %@
+extractToURL failed - toURL: %{mask.hash}@, error: %@
 -newAssertion: triggering transition to zero delegation
 -newAssertion: triggering transition to non zero delegation
 -newAssertion: _beginAssertion increased _count to %ld and returning result as %d
@@ -339,8 +344,6 @@ Exception thrown during extractToURL - toURL: %{mask.hash}@, exception: %@
 Error cleaning up dispatch channel: %{public}s
 %@: initWithType:URL:oflag:mode:, fd = %d, self.channel = %@, URL = %@
 Error opening file at path %s: %{public}s
-%@: dealloc
-%@: closing
 Read was less than file header size for entry %@
 Requested range is not within the entry: %@. Size: %llu. Requested offset: %llu
 Read was less than record size for entry %@
@@ -354,13 +357,17 @@ Failed to fetch iCloud CKRecordID: %@
 ACAccountStoreDidChangeNotification account type identifier is '%@', treat it as if there was an iTunes account change
 Error reading from filter BUStreamReadChannel: %zd %{public}@ %@
 Error reading from source BUReadChannel: %zd %{public}@ %@
+Failed to initialize zip archive at %@. error: %@
 Nil data for entry. %@
 Failed to produce plist from data. %@
 Exception creating xml document. %@
+Error creating temporary directory: %@
 Failed to create temp directory for extraction at %@. %@
 Error creating symlink at %@ with destination %@: %@
+Skipping extraction of symlink (%@) because destination of symlink (%@) is outside root.
 Unable to read symlink destination path from the entry's data: %@
 Failed to write entry to directory. %@
+Skipping entry because it is outside the root of the zip: %@
 Beginning streaming extraction for archive %@
 Unable to read symlink destination path from %@: %@
 Moving temporary %@ to requested URL: %@
@@ -374,6 +381,10 @@ inflate() failed: %d
 CRC does not match.
 Stream is incomplete.
 IOS_SIMULATOR books url is %@
+bu_isDirectory: bu_utType failed. url: %{mask.hash}@
+bu_isFolder: bu_utType failed. url: %{mask.hash}@
+bu_utType: resourceValuesForKeys failed. url: %{mask.hash}@ error: %@
+bu_utType: NSURLContentTypeKey not found.
 softlink:r:fw:CloudKit
 BUBag
 AMSBagProtocol
@@ -433,6 +444,9 @@ NSCopying
 BUReadChannelInputStreamAdapter
 BUInputStream
 BUZipInflateReadChannel
+offlineCacheProvider
+setOfflineCacheProvider:
+runFromCache
 defaultBagKeysDictionary
 _keySetWithDictionary:
 registerBagKeySet:forProfile:profileVersion:
@@ -452,6 +466,7 @@ distantFuture
 setExpirationDate:
 setProfile:
 setProfileVersion:
+loadCache
 setData:
 buildWithError:
 dictionaryWithObjects:forKeys:count:
@@ -484,7 +499,6 @@ createSnapshotWithCompletion:
 doubleForKey:
 registerKeySetToDefaultBag:
 audiobookStoreIsAvailable:
-setRunFromOfflineCacheWithLoadBlock:
 isEqual:
 class
 self
@@ -515,6 +529,7 @@ TB,R,N,GisExpired
 T@"NSDate",R,N
 T@"NSString",R,C,N
 T@"AMSProcessInfo",R,C,N
+T@"<BUBagOfflineCacheProviding>",&,N
 T@"BUBag",R
 T@"NSDictionary",R
 bu_addFundsURL
@@ -1168,13 +1183,14 @@ T@"NSURL",R,N
 T@"NSUserDefaults",R,N
 collapsedName
 extraFieldsLength
+externalFileAttributes
+isSymLink
 setCollapsedName:
 setCompressed:
 nameLength
 setExtraFieldsLength:
 fileHeaderLength
 setFileHeaderLength:
-externalFileAttributes
 setExternalFileAttributes:
 _compressed
 _nameLength
@@ -1192,6 +1208,8 @@ TS,N,V_nameLength
 TS,N,V_extraFieldsLength
 TQ,N,V_fileHeaderLength
 TI,N,V_externalFileAttributes
+symLink
+TB,R,N,GisSymLink
 fileSystemRepresentation
 isZipArchiveAtFD:
 initForReadingFromURL:options:error:
@@ -1346,6 +1364,7 @@ initWithReadChannel:blockInfos:streamReadChannelBlock:
 streamReadChannelForEntry:validateCRC:
 zipArchiveFromEntry:zipArchive:options:error:
 lowercaseString
+usableName
 pathComponents
 initWithArray:
 removeLastObject
@@ -1360,7 +1379,7 @@ sortUsingSelector:
 entryForName:
 initFileURLWithPath:
 characterAtIndex:
-extractFromArchive:toURL:error:
+extractFromArchive:destinationURL:error:
 test_setForceZipEntriesRecalculationOnRead:
 test_removeEntryWithName:
 hasNonEmptyEntries
@@ -1607,13 +1626,15 @@ _dataFromArchive:error:
 initWithData:
 propertyListWithData:options:format:error:
 raise:format:
-fileURLWithPath:
+fileURLWithPath:relativeToURL:
+bu_isContainedWithinFileURL:
 URLByDeletingLastPathComponent
 createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-_extractFromArchiveData:toURL:error:
+_extractFromArchiveData:destinationURL:allowEntriesOutsideRoot:error:
 initWithData:encoding:
 createSymbolicLinkAtPath:withDestinationPath:error:
 writeToURL:options:error:
+initFileURLWithPath:relativeToURL:
 stringWithContentsOfURL:encoding:error:
 moveItemAtURL:toURL:error:
 _beginStreamingWriteForArchive:forDestinationURL:completion:
@@ -1708,11 +1729,19 @@ bu_dictionaryForQueryItems
 bu_isbnForURI
 fileSize
 absoluteString
+baseURL
+relativeString
+URLByStandardizingPath
+fileURLWithPath:isDirectory:relativeToURL:
+stringByResolvingSymlinksInPath
 componentsWithURL:resolvingAgainstBaseURL:
 componentsSeparatedByString:
 stringByReplacingOccurrencesOfString:withString:
 getCharacters:range:
 stringWithCharacters:length:
+bu_utType
+conformsToType:
+resourceValuesForKeys:error:
 queryItems
 value
 lastObject
@@ -1721,12 +1750,15 @@ URLQueryAllowedCharacterSet
 removeCharactersInString:
 bu_URLQueryParameterValueAllowedCharacterSet
 stringByAddingPercentEncodingWithAllowedCharacters:
+fileURLWithPath:
 bu_assetIDFromURL
 bu_libraryIDFromURL
 bu_storeURLForISBNURN
 bu_storeURLForISBNURNWithCompletion:
 bu_fileAllocatedSizeWithError:
 bu_identifierFromPermlink
+bu_isDirectory
+bu_isFolder
 bu_urlWithAssetID:
 bu_booksGroupContainerDocumentsURL
 bu_mediaURL
@@ -1775,7 +1807,7 @@ v24@0:8Q16
 @40@0:8@16#24@32
 @32@0:8@16#24
 @32@0:8^v16@24
-@48@0:8@16#24@32[1{__va_list_tag=II^v^v}]40
+@48@0:8@16#24@32*40
 v32@0:8@16@24
 @"NSObject"
 @"NSMutableDictionary"
@@ -1905,6 +1937,7 @@ v32@0:8q16Q24
 @"<BUStreamReadChannel>"
 @"BUZipFileArchive"
 ^{_xmlDoc=^vi*^{_xmlNode}^{_xmlNode}^{_xmlNode}^{_xmlNode}^{_xmlNode}^{_xmlDoc}ii^{_xmlDtd}^{_xmlDtd}^{_xmlNs}**^v^v*i^{_xmlDict}^vii}24@0:8@16
+@44@0:8@16@24B32^@36
 @40@0:8@16@24Q32
 @24@0:8^{_NSZone=}16
 q32@0:8@16@24

@@ -1,4 +1,4 @@
-@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-570
+@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-591
 <%@:%p 
   <itemsToAdd: 
     %@,
@@ -41,6 +41,8 @@ momd
 [BLJaliscoServerSource managedObjectModel]
 [[NSBundle bundleForClass:[self class]] pathForResource:@'BKPurchases' ofType:@'momd'] failed
 BKJaliscoServerSource
+[BLJaliscoServerSource persistentStoreCoordinator] failed
+Failed to add Persistent Store: %@
 userUID = %@
 server.userUID = %@
 identifier = %@ AND server.userUID = %@
@@ -156,6 +158,7 @@ BookLibrary.HLSStreaming
 BLJalisco
 BLFamily
 BLAudiobookMLImporter
+BLBooksAskPermissionExtensionLog
 BLBooksDiagnosticExtensionLog
 Metadata.plist
 BLAudiobookCacheMetadataKeyCachedStartTime
@@ -227,6 +230,7 @@ Too many errors when downloading segment.
 v24@?0@"ICSecureKeyDeliveryResponse"8@"NSError"16
 retry-after
 cloud-daap-client-expired
+com.apple.NanoBooks
 update-on-app-focus-enabled
 update-polling-frequency-seconds
 update-polling-frequency-secs
@@ -576,9 +580,11 @@ Processing %llu media playlist to find key identity.
 Error parsing %llu media playlist %@. Error: %@
 Using %llu key identity: %@
 Finished fetching key %llu. Error: %@
+Unable to initialize BLJaliscoServerSource
 Failed to delete database:  %@
 Failed to fetch distinct items count:  %@
 Failed to fetch all items count:  %@
+[BLJaliscoServerSource setupCoreDataStack]: Unable to bring up jalisco core data stack. Exception: %{public}@ %{public}@ %{public}@
 It looks like the migration failed:  %@
 Setup jalisco stack with history token %@
 Failed to add jalisco Persistent Store: %@
@@ -658,6 +664,7 @@ Failed to update item %@ for jalisco item %@
 Failed to update item %@. Cannot find matching jalisco item
 Failed to delete item %@ for jalisco item %@
 Failed to delete item %@. Cannot find matching jalisco item
+Unable to initialize BLJaliscoDAAPClient
 ARTWORK: Ignoring timebomb on its %lu try.
 Moc Save Error:  %@
 No update required
@@ -670,6 +677,7 @@ DAAP Update, dsid: %@, success: %d
 Dispatch group:leave thread %@ dsid:%@  purchaseDAAPSyncsInFlight %lu - after DAAP update
 Dispatch group:leave thread %@ dsid:%@ purchaseDAAPSyncsInFlight %lu - NO DAAP update
 Dispatch group:NOTIFY thread %@  purchaseDAAPSyncsInFlight %lu - updatePolitely
+[BLJaliscoDAAPClient] no update - no signed in user
 ERROR: Could not reset polite timer.
 deleteItemsWithStoreIDs storeIDs:%@
 Deleting items %@
@@ -689,8 +697,10 @@ Removing family member BLPurchaseDAAPServer objects for %@
 _processFamilyCircle: Failed to fetch jalisco objects excluding current family members: %@,  %@
 _processFamilyCircle: Fetched %lu items to delete: %@
 _processFamilyCircle: No items up for deletion
-Account Changed. Resetting and refreshing...
+Account Changed. Resetting and refreshing... with reason %lu
 Could not truncate database. error:  %@
+Account Changed. Truncated jalisco database
+Account Changed. Updating accountNumber from old:%{private}@ to new:%{private}@
 (MediaItem %llu): Caching starting at segment %lu for %lu segments
 (MediaItem %llu): Error listing segment directory: %@
 (MediaItem %llu): Failed to remove segment: %@ error: %@
@@ -867,16 +877,6 @@ Unknown code: '%c%c%c%c', size=%ld, value=0x%x
 Unknown code: '%c%c%c%c', size=%ld
 Unknown code: '%c%c%c%c', size=%ld, value=%s
 Import items can only be created for audiobooks
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
 BLMLAudiobookImportChangeset
 BLMLAudiobookImportStoreAccount
 BLMLAudiobookImportChangesetProducer
@@ -1242,6 +1242,7 @@ TQ,N,V_contentType
 persistentStoreCoordinator
 defaultIdentifier
 initWithIdentifier:databaseContainerPath:
+_setupCoreDataStack
 initWithEntityName:
 setResultType:
 setReturnsDistinctResults:
@@ -1266,16 +1267,20 @@ p_persistentStoreFullPathAtPrivateiBooksLocation
 p_persistentStoreFullPathAtSharediBooksLocation
 relativePath
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+managedObjectModel
+name
+userInfo
 dictionaryWithObjectsAndKeys:
 p_databaseExistsAtSharediBooksContainerLocation
 p_databaseExistsAtPrivateiBooksContainerLocation
-managedObjectModel
 initWithManagedObjectModel:
 p_createPersistentDirectoryIfNeeded
 addPersistentStoreWithType:configuration:URL:options:error:
 migratePersistentStore:toURL:options:withType:error:
 removeItemAtPath:error:
 currentPersistentHistoryTokenFromStores:
+null
+initWithName:reason:userInfo:
 initWithConcurrencyType:
 setPersistentStoreCoordinator:
 setUndoManager:
@@ -1310,7 +1315,7 @@ allItemsFetchRequestForDSIDs:
 predicateForNeedsImport:
 fetchRequestForAllStoreIDs:dsids:
 andPredicateWithSubpredicates:
-preWarm
+preWarmSync
 setSharedSource:
 workaround_18397698
 newManagedObjectContextWithPrivateQueueConcurrency
@@ -1341,7 +1346,6 @@ _databaseContainerPath
 T@"NSString",&,N,V_databaseContainerPath
 T@"NSPersistentHistoryToken",C,N,V_currentJaliscoHistoryToken
 T@"NSString",C,N,V_identifier
-userInfo
 objectForKey:
 UTF8String
 unsignedLongLongValue
@@ -1428,7 +1432,6 @@ T@"NSData",&,N,V_body
 T@"NSString",&,N,V_daapURL
 Tq,N,V_requestMethod
 Tq,N,V_dataEncoding
-_setupCoreDataStack
 addObserver:accountTypes:
 removeObserver:accountTypes:
 p_allItemsFetchRequestForDSIDs:
@@ -1438,9 +1441,6 @@ performBlockAndWait:
 p_allItemsFetchRequestForDSIDs:matchingSearchString:isExplicitRestricted:
 p_fetchRequestForStoreIDs:dsids:
 _itemsFetchRequestForDSIDs:excludeStoreIDs:isExplicitRestricted:
-initWithName:reason:userInfo:
-null
-name
 p_itemsFetchRequestIncludingHiddenItems:dsids:
 currentAccountDSID
 escapedPatternForString:
@@ -1927,6 +1927,8 @@ T@"NSMutableSet",&,N,V_failedItemsToDelete
 schemaVersion
 registerDefaults:
 initWithDSID:delegate:
+startObservingNotifications
+stopObservingNotifications
 _allPurchaseDAAPServers
 updateItemImageURLsIgnoringCache:completion:
 dsidQueue
@@ -1969,8 +1971,6 @@ initialize
 isSupported
 purchaseServerHandleClientExpired
 purchaseServerRequestITunesAuthenticationWithCompletion:
-startObservingNotifications
-stopObservingNotifications
 refreshSignInStatus
 setResetJaliscoStatusHandler:
 jaliscoArtworkTimebombed
@@ -2107,6 +2107,7 @@ finishAssetResourceLoadingRequest:withError:
 performWithResponseHandler:
 _loadingRequest
 setTimeoutIntervalForRequest:
+_clientIdentifier
 serverParametersWithCompletionHandler:
 valueForDAAPBagKey:completion:
 timeIntervalFromDAAPBagKey:completion:

@@ -1,4 +1,4 @@
-@(#)PROGRAM:bookassetd  PROJECT:BookLibrary-570
+@(#)PROGRAM:bookassetd  PROJECT:BookLibrary-591
 iBooks
 metrics
 push-notifications/environment
@@ -41,6 +41,8 @@ Missing account
 q24@?0@8@16
 com.apple.bookassetd.startup.transaction
 com.apple.bookassetd.cleanup.transaction
+com.apple.bookassetd.keepQueuesAlive
+com.apple.bookassetd.BLService
 BKSimulateCrashAtInstallStart
 BKSimulateCrashAtInstallDuringDecrypt
 BKSimulateCrashAtInstallDuringUnzip
@@ -52,7 +54,6 @@ nil download manager
 bookassetd is missing a download manager
 nil purchase manager
 bookassetd is missing a purchase manager
-com.apple.bookassetd.BLService
 v24@?0@"NSString"8@"NSError"16
 v24@?0@"NSNumber"8@"NSError"16
 nil purchase parameters
@@ -161,6 +162,8 @@ AppleID
 appleId
 iTunesMetadata
 plist
+BLOperationQueueOperationCountChangedNotification
+operationCount
 auto-download
 isDeviceBased
 isRental
@@ -845,6 +848,7 @@ AMSURLSession:task:handleAuthenticateRequest:completion:
 AMSURLSession:task:handleDialogRequest:completion:
 AMSURLSession:task:handleEngagementRequest:completion:
 AMSURLSession:task:shouldFailWithServerError:
+reportMetricsForContext:
 AMSURLSession:handleAuthenticateRequest:completion:
 AMSURLSession:handleDialogRequest:completion:
 AMSURLSession:shouldFailWithServerError:
@@ -1317,7 +1321,6 @@ flushInProcessWithCompletion:
 pauseDownloadWithID:withCompletion:
 resumeDownloadWithID:withCompletion:
 restartDownloadWithID:withCompletion:
-reinitiateDownloadWithID:withCompletion:
 cancelDownloadWithID:withCompletion:
 _cancelAllActiveDownloads
 buyParameters
@@ -1329,8 +1332,17 @@ setBool:forKey:
 removeObjectForKey:
 cStringUsingEncoding:
 initWithTransactionName:
+keepAliveOperationQueues
+_operationCountChanged:
+dq_reloadOperationKeepAliveTransaction
+removeObserver:name:object:
+operationCount
+aliveForOperationQueues
+setAliveForOperationQueues:
 state
 purchaseManager:requestDownloadWithParameters:completion:
+addKeepAliveOperationQueue:
+removeKeepAliveOperationQueue:
 userAccount:didChangeWithReason:
 fetchDownloadListWithReply:
 fetchDownloadFromDownloadID:withReply:
@@ -1348,7 +1360,6 @@ requestDownloadsWithManifestRequest:uiHostProxy:reply:
 processAutomaticDownloadsWithReply:
 setAutomaticDownloadEnabled:uiHostProxy:reply:
 restartDownloadWithID:withReply:
-reinitiateDownloadWithID:withReply:
 reloadFromServerWithReply:
 flushMetricsWithReply:
 setValueSimulateCrashAtInstallStart:withReply:
@@ -1369,19 +1380,24 @@ downloadPolicyManager
 setDownloadPolicyManager:
 transactionsMap
 setTransactionsMap:
+setKeepAliveOperationQueues:
 _transactionsUpdateLock
+_aliveForOperationQueues
 _downloadManager
 _installManager
 _databaseManager
 _purchaseManager
 _downloadPolicyManager
 _transactionsMap
+_keepAliveOperationQueues
 T@"BLDownloadManager",&,N,V_downloadManager
 T@"BLBookInstallManager",&,N,V_installManager
 T@"BLDatabaseManager",&,N,V_databaseManager
 T@"BLPurchaseManager",&,N,V_purchaseManager
 T@"BLDownloadPolicyManager",&,N,V_downloadPolicyManager
 T@"NSMutableDictionary",&,N,V_transactionsMap
+TB,N,V_aliveForOperationQueues
+T@"NSMutableSet",&,N,V_keepAliveOperationQueues
 T@"<BLAutomaticDownloadProcessing>",R,N
 initWithData:
 parse
@@ -1685,8 +1701,9 @@ stringByDeletingPathExtension
 bu_isFileExistsError
 stringByAppendingPathExtension:
 moveItemAtPath:toPath:error:
-downloadedAssetPath
 _moveFile:toPath:installBehavior:error:
+downloadedAssetPath
+_moveFile:toPath:error:
 installedAssetPath
 setInstalledAssetPath:
 setInstallInfo:
@@ -1812,14 +1829,17 @@ propertyListWithData:options:format:error:
 itunesMetadataPlistDictionaryFromPath:
 _plist
 T@"NSDictionary",&,N,V_plist
+addObserver:forKeyPath:options:context:
+removeObserver:forKeyPath:context:
 addOperation:
-operationCount
 maxConcurrentOperationCount
 operations
 setName:
 setSuspended:
 qualityOfService
 setQualityOfService:
+postNotificationName:object:
+observeValueForKeyPath:ofObject:change:context:
 Tq,N
 _stringValueForValue:
 indexInCollection
@@ -2170,7 +2190,7 @@ pumpDownloadsWithCompletion:
 taskStates
 taskIdentifier
 bl_cancelWithReason:error:
-removeDownloadWithDownloadID:
+dq_removeDownloadFromPipelineQueue:
 dq_setDownloadState:forDownloadIdentifier:completion:
 preparationOperationQueue
 preparationDownloadIDs
@@ -2215,9 +2235,10 @@ setProgressTimer:
 dq_commitProgress
 numberWithDouble:
 postNotificationName:object:userInfo:deliverImmediately:
+dq_cancelProgressTimer
+removeDownloadWithDownloadID:
 inFlightDiscretionaryDownloadIDs
 inFlightNondiscretionaryDownloadIDs
-dq_cancelProgressTimer
 setPriority:
 availableSampleDownloads
 availableDiscretionaryDownloads
@@ -2342,7 +2363,6 @@ _operation
 T@"_BLPerformDownloadOperation",&,N,V_operation
 sharedDefaultEvaluator
 initWithPathEvalulator:
-addObserver:forKeyPath:options:context:
 bu_booksGroupContainerURL
 _initWithSuiteName:container:
 removeObserver:forKeyPath:
@@ -2364,7 +2384,6 @@ isConstrained
 usesInterfaceType:
 interface
 type
-postNotificationName:object:
 getDataStatus:completion:
 subscriptionInfoDidChange
 simLessSubscriptionsDidChange
@@ -2389,7 +2408,6 @@ tetheringStatus:connectionType:
 serviceDisconnection:status:
 dataRoamingSettingsChanged:status:
 isConnected
-observeValueForKeyPath:ofObject:change:context:
 interfaceType
 _defaultsToken
 _pathEvaluator
@@ -2509,6 +2527,7 @@ backgroundSessionConfigurationWithIdentifier:
 allowsCellularAccess
 allowsExpensiveNetworkAccess
 setAllowsExpensiveNetworkAccess:
+set_infersDiscretionaryFromOriginatingClient:
 setHTTPCookieAcceptPolicy:
 setHTTPShouldSetCookies:
 setHTTPShouldUsePipelining:
@@ -2536,8 +2555,8 @@ destinationPath
 requiresPowerPluggedIn
 taskPriority
 URLRequest
-_isPerDeviceVPP
 _discretionary
+_isPerDeviceVPP
 _requiresPowerPluggedIn
 _result
 _backgroundOperations
@@ -2944,7 +2963,6 @@ _pauseDownloadsWithIDs:withCompletion:
 orderedSetWithObjects:
 _resumeDownloadsWithIDs:prioritizeDownloadID:withCompletion:
 _resumeDownloadWithID:withCompletion:
-_reinitiateDownloadsWithIDs:withCompletion:
 unionSet:
 initWithEnabledMediaKinds:account:
 resultingEnabledMediaKinds
@@ -3019,6 +3037,7 @@ _accessQueue
 _ongoingPurchaseRequestsByStoreID
 T@"NSObject<OS_dispatch_queue>",R,N,V_accessQueue
 T@"NSMutableSet",R,N,V_ongoingPurchaseRequestsByStoreID
+storeRequestOperationQueue
 ongoingPurchaseRequests
 _purchaseWithRequest:uiHostProxy:completion:
 currentConnection
@@ -3038,7 +3057,6 @@ restoreAuthenticationQueue
 setValidDownloadIDs:
 _requestDownloadsWithStoreDownloadItems:isRestore:completion:
 initWithRequest:uiHostProxy:downloadBlock:
-storeRequestOperationQueue
 _distinctDownloadsArrayForDownloads:
 _updateNetworkPolicyForQueueDownloads:suppressDialogs:
 _newQueueRequests
@@ -3544,6 +3562,7 @@ v48@0:8@"AMSURLSession"16@"NSURLSessionTask"24@"AMSAuthenticateRequest"32@?<v@?@
 v48@0:8@"AMSURLSession"16@"NSURLSessionTask"24@"AMSDialogRequest"32@?<v@?@"AMSDialogResult"@"NSError">40
 v48@0:8@"AMSURLSession"16@"NSURLSessionTask"24@"AMSEngagementRequest"32@?<v@?@"AMSEngagementResult"@"NSError">40
 B40@0:8@"AMSURLSession"16@"NSURLSessionTask"24@"NSError"32
+v24@0:8@"AMSMetricsLoadURLContext"16
 v40@0:8@"AMSURLSession"16@"AMSAuthenticateRequest"24@?<v@?@"AMSAuthenticateResult"@"NSError">32
 v40@0:8@"AMSURLSession"16@"AMSDialogRequest"24@?<v@?@"AMSDialogResult"@"NSError">32
 B32@0:8@"AMSURLSession"16@"NSError"24
@@ -3628,6 +3647,7 @@ v40@0:8@16@24^@32
 @?16@0:8
 @"NSArray"
 v40@0:8@"BLPurchaseManager"16@"NSDictionary"24@?<v@?@"NSString"@"NSError">32
+v24@0:8@"NSObject<BLOperationQueueProtocol>"16
 v32@0:8Q16Q24
 v32@0:8@16@?24
 v36@0:8@16B24@?28
@@ -3655,6 +3675,7 @@ v24@0:8@?<v@?B@"NSError">16
 @"BLPurchaseManager"
 @"BLDownloadPolicyManager"
 @"NSMutableDictionary"
+@"NSMutableSet"
 v56@0:8@16@24@32@40@48
 @40@0:8@16@24@32
 v24@0:8@"NSXMLParser"16
@@ -3693,6 +3714,7 @@ B48@0:8@16N^@24q32^@40
 v24@0:8@"NSOperation"16
 v28@0:8@"NSArray"16B24
 @"NSArray"16@0:8
+v48@0:8@16@24@32^v40
 @"NSOperationQueue"
 v48@0:8Q16@24@32@?40
 @24@0:8^@16
@@ -3726,7 +3748,6 @@ v40@0:8@16@24q32
 v64@0:8@16@24@32@40@48@?56
 @"<BLOSTransactionCoordinating>"
 @"<BLOperationQueueProtocol>"
-@"NSMutableSet"
 @"NSMapTable"
 @"BLDownloadPipelineQueue"
 @"BLPrepareDownloadResponse"
@@ -3750,7 +3771,6 @@ v24@0:8@"CTTetheringStatus"16
 v28@0:8@"CTTetheringStatus"16i24
 v32@0:8@"CTXPCServiceSubscriptionContext"16@"CTServiceDisconnectionStatus"24
 v28@0:8@"CTServiceDescriptor"16B24
-v48@0:8@16@24@32^v40
 @"NWPathEvaluator"
 @"CTXPCServiceSubscriptionContext"
 @"CoreTelephonyClient"
@@ -3930,7 +3950,6 @@ ContentRestore: Falling back to primary account to restore item: %@
 [Service]: pauseDownloadWithID
 [Service]: resumeDownloadWithID
 [Service]: restartDownloadWithID
-[Service]: reinitiateDownloadWithID
 [Service]: cancelDownloadWithID
 [Service]: cancelAllActiveDownloadsWithReply
 [Service]: purchaseWithRequest:uiHostProxy:reply:
@@ -4057,6 +4076,7 @@ Unsupported download kind: %{public}@
 Daemon starting up.
 Daemon exited.
 (dID=%{public}@) [Download]: Reprioritized download
+[Download-Mgr]: Attempt to restart downloads: %@
 (dID=%{public}@) [Download]: Cancel task: %lu to restart download
 (dID=%{public}@) [Download]: Stop preparation operation for download
 (dID=%{public}@) [Download]: Stop task: %lu for download with reason [pause]
@@ -4096,10 +4116,10 @@ Posting DidComplete Notification
 Posting Progress Notification
 (dID=%{public}@) [Download]: Posting download/install progress for download [%.2f%% complete]
 (dID=%{public}@) [Download]: Sending the didFinishTransactionWithIdenfifier
+(dID=%{public}@) [Download]: dq_commitProgress is going to call dq_pumpDownloadsWithCompletion
 (dID=%{public}@) Removing from inFlight lists. New discretionary count %lu, New nondiscretionary count %lu
 In flight discretionary %{public}@
 In flight nondiscrtionary %{public}@
-(dID=%{public}@) [Download]: dq_commitProgress is going to call dq_pumpDownloadsWithCompletion
 (dID=%{public}@) [Download]: Reprioritizing to high task: %lu
 (dID=%{public}@) [Download]: Reprioritizing to default task: %lu to restart download
 Pumping Downloads
@@ -4365,8 +4385,7 @@ The object [%@] of class: [%{public}@] could not be converted to neither an NSSt
 (dID=%{public}@) [Download-Mgr]: Last cellularResult for download is %ld
 (dID=%{public}@) [Download-Mgr]: Cellular evaluation for download failed due to  %@
 (dID=%{public}@) [Download-Mgr]: Set cellular evaluation result for download to %ld
-[Download-Mgr]: Restarting download: %@
-[Download-Mgr]: Reinitiating downloads: %@
+(dID=%{public}@) [Download-Mgr]: Restarting download
 [Download]: Error fetching downloads. %@
 [Download-Mgr]: Attempting to set automatic download enabled to %d
 local enabledMediaKinds before attempting to save: %@
@@ -4561,23 +4580,23 @@ Error initializing unarchiving copier. sourceURL: %{mask.hash}@, error:  %@
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>570</string>
+<string>591</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19A5261t</string>
+<string>13A5154d</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.0</string>
 <key>DTSDKBuild</key>
-<string>19A5261t</string>
+<string>19A5294s</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.0.internal</string>
 <key>DTXcode</key>
 <string>1300</string>
 <key>DTXcodeBuild</key>
-<string>13A6139f</string>
+<string>13A5154d</string>
 <key>MinimumOSVersion</key>
 <string>15.0</string>
 <key>NSHumanReadableCopyright</key>

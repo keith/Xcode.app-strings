@@ -1,4 +1,4 @@
-@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-51.6.305
+@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-58.5
 SEGB
 %@ %@
 segmentName
@@ -31,15 +31,27 @@ BMDataProtectionClassUnknown(%lu)
 BMFrameStorePermissionReading
 BMFrameStorePermissionPruning
 BMFrameStorePermissionUnknown(%lu)
+<%@: segmentName=%@, offset=%lu, deletionReason=%lu>
 data
 v24@?0@"BMFrame"8@"BMFrameStore"16
 Potentially overwriting whatever data is currently there
 BMFrameStore.m
 Invalid parameter not satisfying: %@
 block
+Not Checked
+Valid
+Not Valid
+no prev frame
 B24@?0(?=Qd)8(?=Qd)16
 -[BMFrameStore appendFrameHeader:offset:]
 -[BMFrameStore writeFrameForBytes:length:dataVersion:timestamp:outOffset:]
+BMFrameStatePreWrite
+BMFrameStateWritten
+BMFrameStatePreDelete
+BMFrameStateDeleted
+BMFrameStateEOF
+BMFrameStateUnknown
+BMFrameStateUnknown(%lu)
 BMFrameWriteStatusError
 BMFrameWriteStatusFileFull
 BMFrameWriteStatusDataTooLarge
@@ -97,8 +109,8 @@ Can't read frame header data at frame file %{public}@ due to error: %@
 Can't seek to beginning of frame file %{public}@ due to error: %@
 Unable to read frames file segment header %{public}@. Received data of %{public}lu length. Potentially overwriting whatever data is currently there
 Segment header magic number %{public}.4s doesn't match %{public}.4s in file %{public}@. Potentially overwriting whatever data is currently there
-Segment header in %{public}@ says file size is %{public}llu but that is larger than the max size (%{public}lu) we can support.
-Attempted to open %{public}@ for writing but the file is already full.
+Segment header in %{public}@ says file size is %{public}llu but that is larger than the actual file size(%{public}lu).
+Attempted to open %{public}@ for writing but the file is already full, byteUsed:%llu, fileSize:%zu
 Not mapping an empty file %{public}@
 Segment versions of %{public}@ don't match. Received %{public}d, expected %{public}d.%s
 Failed to resize backing file
@@ -107,17 +119,30 @@ Failed to map header for %{public}@ with permission %lu
 Failed to map frames for %{public}@ with permission %lu
 Exception when truncating file. %{public}@
 Attempting to resize a non-writable file
-Checksums don't match. Header: %u, Generated checksum: %{public}u. Skipping frame.
+isValidFrame: Frame is not 8-byte aligned:%d
+isValidFrame: Frame size:%d runs past the length of the segment:%zu, starting at offset:%ld
+isValidFrame: Unexpected frame state. Expected: %{public}@, found: %{public}@
 %@ - exception during %@: %@. Data length: %i
-Attempting to read data from framestore out of bounds. Cannot read data of length %{public}u at offset %{public}lu.File size: %{public}lu
+Checksums don't match. Header: %u, Generated checksum: %{public}u. Skipping frame.
+frameWithOffset: offset is not 8-byte aligned:%zu
+frameWithOffset: offset (%lu) is beyond frame size (%lu)
+frameWithOffset: current offset (%lu) leaves insufficient space in the segment size (%lu) for a BMFrameHeader
+enumerateWithOptions: offset (%lu) is not 8-byte aligned
+enumerateWithOptions: offset (%lu) beyond segment size
+Use of reverse enumeration is only supported for reading.
+Reverse enumeration offset not found %zu.
+Found frame with state: BMFrameStateUnknown
+Unrecognized frame state in segment: %{public}@
+Unrecognized frame state: %d, frame offset:%ld reverse:%d, frameCount=%d, prevFrameState:%{public}@, prevFrameValid:%{public}@ prevLastSize/offset:%zu prevStateSize:%zu
+isValidFrame failed, path:%{public}@, offset:%ld
 Frame store: %@, bytesUsed: %llu
 Attempted to move cursor beyond end of file. This shouldn't be possible
 No space left to write to the mapped region
+Sample too large %{public}zu but only %zu supported
+Sample is empty but only non-empty samples are supported
 Attempt to write data too large to fit in segment
 Failed to find a segment header while writing. Dropping incoming data
 [%s] Frame should come in chronological order. Input %f < last %f
-Sample too large %{public}zu but only %u supported
-Sample is empty but only non-empty samples are supported
 Unable to write frame for reason: %@
 Unable to update status to written, someone else seems to have overwritten the value. We expect to see %llu, but instead are seeing %llu. The write status is %d
 Unable to mark frame as pre-delete
@@ -140,6 +165,8 @@ Removing frame store: %{public}@
 Unable to unlink frame store (%{public}@). Error: %{public, darwin.errno}d
 Fail to create enumerator for stream: %@ startTime: %f
 Failed to create enumerator with bookmark for stream: %@
+deleteEventAtBookmark: couldn't find event with bookmark %@
+deleteEventAtBookmark: event at bookmark %@ already in deleted state %u
 Fail to write event due to nil event data
 Not enough free space to write event of size %zu. Attempting to create new segment
 Failed to open new segment
@@ -153,9 +180,12 @@ Failed to create new segment without error code
 Failed to create new segment with error code %ld, %@
 Failed to create a new framestore with path: %{public}@.
 Received an index beyond _segmentNames in newEnumeratorFromStartTime:
+updateMetadata: eventBodyClass (%@) does not match existing class metadata (%@)
+updateMetadata: unable to update metadata file for %@
 Metadata doesn't exist
 Unable to decode metadata. Err: %@
 Unable to encode metadata. Err: %@
+Offset too large, frame size:%zu fileSize:%zu offset:%lld file:%{public}@
 Offset less than zero, size:%zu offset:%lld file:%{public}@
 Attempt to map zero bytes, size:%zu offset:%lld file:%{public}@
 Failed to get file descriptor for NSFileHandle. %{public}@
@@ -174,12 +204,6 @@ Failed to create file directory: %@
 Failed to open lockfile %@: %s (%d)
 Failed to acquire lockfile %@: %s (%d)
 Failed to unlock lockfile %@: %s (%d)
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
-zPLR
 BMPBTombstoneEvent
 NSCopying
 BMStoreEvent
@@ -342,6 +366,7 @@ T@"NSData",R,N,V_eventBodyData
 TQ,R,N,V_eventCategory
 Td,R,N,V_timestamp
 TC,R,N,V_error
+T@"NSString",R,N,V_segmentName
 initWithEventBody:timestamp:
 initWithFilePath:permission:protectionClass:
 path
@@ -377,30 +402,38 @@ TI,R,N
 initWithSegmentName:offset:length:
 deletionReason
 _deletionReason
-T@"NSString",R,N,V_segmentName
 TQ,R,N,V_offset
 TQ,R,N,V_length
 TQ,R,N,V_deletionReason
-copySegmentWithFilename:error:
+segmentWithFilename:error:
 iterationStartTime
-initWithStreamDatastore:currentFrameStore:frameStoreOffset:iterationStartTime:options:
+distantFuture
+timeIntervalSinceReferenceDate
+initWithStreamDatastore:currentFrameStore:frameStoreOffset:iterationStartTime:endTime:maxEvents:lastN:options:
 frameStoreOfSegmentContainingEventTime:
-copyPeekEvent
-copyNextEvent
+advanceBookmarkToStartTime:eventsFound:lastN:
+usedBytes
 copyNextEventAndMoveBookmark:
+nextEvent
 canReadOrPruneData
 copyNextEventAndMoveBookmark:makeEvent:
 fetchEventFromFrameStore:atOffset:withOptions:callback:
+state
+nextOffset
 modifiedTimestamp
 _eventWithFrameStore:frame:error:
-nextOffset
 initWithStreamDatastore:bookmark:options:
-initWithStreamDatastore:startTime:options:
+initWithStreamDatastore:startTime:endTime:maxEvents:lastN:options:
 nextEventWithContext:
+peekEvent
 isDataAccessible
 currentFrameStore
 _frameStoreOffset
 _iterationStartTime
+_endTime
+_maxEvents
+_eventCount
+_lastEventCount
 _options
 _currentFrameStore
 T@"BMFrameStore",R,N,V_currentFrameStore
@@ -414,9 +447,10 @@ losesReadAccessOnLock:
 seekToEndReturningOffset:error:
 bmPathname
 seekToOffset:error:
-bmSegmentName
+lastPathComponent
 readDataUpToLength:error:
 bytes
+stringByAppendingPathComponent:
 segmentHeaderFromFile:withVersion:fileSize:
 resizeBackingFileTo:
 lastObject
@@ -426,11 +460,20 @@ backingFile
 sync
 dealloc
 truncateFileAtOffset:
-enumerateWithOptions:fromOffset:usingBlock:
 initWithBytes:length:
+enumerateWithOptions:fromOffset:usingBlock:
+isValidFrame:expectedState:copyOfData:frameStatus:validations:
 initWithHeader:storePath:data:framePtr:offset:nextOffset:
+unsignedLongValue
+addObject:
+updateFrameStoreIndex
+indexOfObject:
 currentHandler
 handleFailureInMethod:object:file:lineNumber:description:
+distantPast
+getReverseOffsetIndex:
+objectAtIndexedSubscript:
+integerValue
 writeFrameForBytes:length:dataVersion:timestamp:outOffset:
 appendFrameHeader:offset:
 updateHeader
@@ -438,11 +481,12 @@ framePtr
 setFilterByAgeOnRead:
 setPruneOnAccess:
 setMaxAge:
-initWithFileHandle:maxSize:permission:datastoreVersion:
+initWithFileHandle:streamPath:filename:maxSize:permission:datastoreVersion:
 enumerateFromOffset:withCallback:
 frameWithOffset:expectedState:
 writeFrameForBytes:length:dataVersion:timestamp:
 markFrameAsRemoved:
+segmentPath
 filterByAgeOnRead
 pruneOnAccess
 maxAge
@@ -453,16 +497,18 @@ _header
 _lastAbsoluteTimestamp
 _usedBytes
 _maxSize
+_framePointers
 _filterByAgeOnRead
 _pruneOnAccess
+_segmentPath
 _maxAge
 _backingFile
 T@"NSString",C,N,V_segmentName
 T@"NSFileHandle",&,N,V_backingFile
+T@"NSString",R,N,V_segmentPath
 TB,R,N,V_filterByAgeOnRead
 TB,R,N,V_pruneOnAccess
 Td,R,N,V_maxAge
-usedBytes
 TI,R
 UTF8String
 arrayWithObjects:count:
@@ -480,11 +526,10 @@ T@"NSMutableOrderedSet",&,N,V_segmentNames
 T@"NSMutableDictionary",&,N,V_segmentFileHandles
 initWithFormat:
 longLongValue
-newFileNameWithTimestamp:
+fileNameWithTimestamp:
 timestampWithFilename:
 compare:
 indexOfObject:inSortedRange:options:usingComparator:
-objectAtIndexedSubscript:
 updateSegmentsWithGuardedDeviceLockStateData:
 runWithLockAcquired:
 effectiveStreamPath
@@ -498,9 +543,8 @@ array
 removeObjectsForKeys:
 openFiles:saveToOpenFiles:
 countByEnumeratingWithState:objects:count:
-newFileHandleForFile:error:
+fileHandleForFile:error:
 setObject:forKeyedSubscript:
-stringByAppendingPathComponent:
 filePathForFilename:
 initFileURLWithPath:
 domain
@@ -508,8 +552,6 @@ code
 defaultManager
 enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
 fileSizeOfURL:
-lastPathComponent
-addObject:
 numberWithLongLong:
 sortUsingComparator:
 getResourceValue:forKey:error:
@@ -523,7 +565,7 @@ remoteStreamName
 pruningPolicy
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 initWithGuardedData:
-copySegmentWithFilename:segmentNames:segmentFileHandles:error:
+segmentWithFilename:segmentNames:segmentFileHandles:error:
 handleDeviceUnlock
 handleDeviceLocking
 registerForLockStateChangeNotifications:
@@ -537,7 +579,7 @@ attributesOfItemAtPath:error:
 fileSize
 writeEventWithEventBody:timestamp:outBookmark:
 eventBodyClass
-writeEventBodyClass:
+updateMetadata:
 writeEventData:dataVersion:timestamp:outBookmark:
 fetchEventsFrom:to:options:
 enumerateEventsFrom:to:options:usingBlock:
@@ -552,19 +594,22 @@ removeFrameStoreFileWithSegmentName:
 streamSizeInBytes
 eventsFrom:to:reason:shouldDeleteUsingBlock:
 newEnumeratorFromStartTime:options:
+newEnumeratorFromStartTime:endTime:options:
+newEnumeratorFromStartTime:endTime:maxEvents:options:
+newEnumeratorFromStartTime:endTime:maxEvents:lastN:options:
 newEnumeratorFromBookmark:options:
+didMarkFrameAsRemovedWithSegmentName:frame:reason:outTombstoneBookmark:
 writeEventBytes:length:dataVersion:timestamp:outBookmark:
-copySegmentAfterFrameStore:createNewSegment:
+segmentAfterFrameStore:createNewSegment:
 _bookmarkWithSegmentName:offset:
 indexOfSegmentContainingEventTime:fromSegments:
-indexOfObject:
-nextSegmentAfterFrameStore:segmentNames:
+segmentAfterFrameStore:createNewSegment:direction:
+nextSegmentAfterFrameStore:segmentNames:direction:
 filelockPath
 newFramestoreWithTime:
 acquireLockfile:andRunBlock:
 setFramesStore:
 fileExistsAtPath:
-indexForFrameStoreAfterFrameStore:segmentNames:
 _segmentStillExists:
 newFramestoreWithTime:segmentNames:segmentFileHandles:
 maxStreamSize
@@ -572,6 +617,7 @@ pruneStreamToMaxStreamSizeInBytes:
 pruneStreamToMaxSegmentAge:
 objectForKeyedSubscript:
 removeObject:
+updateMetadata:pruningPolicy:
 initWithStreamId:eventType:remoteStreamName:pruningPolicy:
 saveMetadata:
 metadataPath
@@ -590,18 +636,19 @@ removeEventsFrom:to:pruneFutureEvents:usingBlock:
 eventsFrom:to:shouldDeleteUsingBlock:
 newEnumeratorFromStartTime:
 newEnumeratorFromBookmark:
-deleteEventAtBookmark:
+deleteEventAtBookmark:outTombstoneBookmark:
 writeEventData:dataVersion:timestamp:
 writeEventBytes:length:dataVersion:timestamp:
 maxFileSize
+config
 streamPath
 isRemote
-config
 _maxFileSize
 _streamPath
 _isRemote
 _remoteStreamName
 _pruningPolicy
+_eventDataClass
 _config
 _lockStateChangeRegistration
 _deviceLockStateLock
@@ -614,10 +661,11 @@ T@"NSString",R,N,V_streamPath
 TB,R,N,V_isRemote
 T@"NSString",R,N,V_remoteStreamName
 T@"BMPruningPolicy",R,N,V_pruningPolicy
-T@"BMStoreConfig",R,N,V_config
 T@"NSString",R,C,N,V_streamId
 T@"BMFrameStore",&,N,V_framesStore
+T@"BMStoreConfig",R,N,V_config
 fileDescriptor
+bmSegmentName
 dataWithBytes:length:
 dataWithBytesNoCopy:length:freeWhenDone:
 canAtomicallyAccessOffset:
@@ -657,12 +705,13 @@ streamPathForStream:
 storeConfigurationForStream:
 initWithStream:streamPath:permission:config:streamDatastore:
 eventClass
-writeTombstoneEvent:
-newOriginalEventFromTombstoneEvent:
+writeTombstoneEvent:outTombstoneBookmark:
+originalEventFromTombstoneEvent:
 _streamDatastore
 stringWithUTF8String:
 T@"NSString",R,N
 newStreamDefaultConfigurationForPublicStream:protectionClass:
+newStreamDefaultConfigurationForPublicStream:protectionClass:segmentSize:
 directoryForPrivateStreams
 initWithStoreVersion:storeBasePath:segmentSize:protectionClass:storeLocationOption:remoteStreamName:pruningPolicy:
 newRestrictedStreamDefaultConfigurationWithProtectionClass:
@@ -676,6 +725,7 @@ newPublicStreamDefaultConfiguration
 newRestrictedStreamDefaultConfiguration
 newRestrictedStreamWithSegmentSize:
 newPrivateStreamDefaultConfigurationWithStoreBasePath:
+newPrivateStreamDefaultConfigurationWithProtectionClass:segmentSize:
 initWithStoreVersion:datastorePath:maxAllowedMappedPages:segmentSize:segmentResizeFactor:segmentPaddingFactor:
 initWithStoreBasePath:segmentSize:
 streamType
@@ -693,14 +743,16 @@ TQ,R,N,V_protectionClass
 initWithStream:streamPath:permission:config:includeTombstones:
 initWithStream:permission:config:includeTombstones:
 frameHeader
-writeTombstoneEventWithSegmentName:offset:length:reason:
+writeTombstoneEventWithSegmentName:offset:length:reason:outTombstoneBookmark:
 tombstoneStore
 includeTombstones
 initForReadingWithStream:config:includeTombstones:
 initForWritingWithStream:config:includeTombstones:
 initForPruningWithStream:config:includeTombstones:
+updatePruningPolicy:
 newTombstoneEnumeratorFromStartTime:
 newTombstoneEnumeratorFromBookmark:
+writeTombstoneEventWithSegmentName:offset:length:reason:
 _tombstoneStore
 _includeTombstones
 TB,R,N,V_includeTombstones
@@ -713,8 +765,8 @@ setWithObjects:
 decodeObjectOfClasses:forKey:
 unsignedIntegerValue
 boolValue
-_eventDataClass
 T#,R,N,V_eventDataClass
+writeEventBodyClass:
 initWithStream:config:
 _writeEventData:dataVersion:timestamp:outBookmark:
 streamIdentifier
@@ -726,7 +778,6 @@ streamIdentifiers
 containsObject:
 removeEventsFrom:to:callback:
 removeEventsFrom:to:usingBlock:
-state
 storePath
 _framePtr
 _storePath
@@ -795,27 +846,31 @@ v24@0:8Q16
 @28@0:8@"NSData"16I24
 @48@0:8@16Q24Q32Q40
 @40@0:8@16@24Q32
-@40@0:8@16d24Q32
-@56@0:8@16@24Q32d40Q48
+@64@0:8@16d24d32Q40Q48Q56
+@80@0:8@16@24Q32d40d48Q56Q64Q72
 v24@0:8@?16
 @36@0:8@16@24C32
 @20@0:8B16
+B40@0:8d16^Q24Q32
 @28@0:8B16@?20
 @"BMFrameStore"
 @"BMStreamDatastoreBase"
 i24@0:8Q16
 B24@0:8Q16
-{?=QdI[32c][4c]}36@0:8@16I24^Q28
 v24@0:8d16
+{?=QdI[32c][4c]}36@0:8@16I24^Q28
+@64@0:8@16@24@32Q40Q48Q56
+B48@0:8^v16I24^@28{?=II}36B44
 v32@0:8Q16@?24
 @28@0:8Q16I24
+q24@0:8Q16
 v40@0:8Q16Q24@?32
 C32@0:8^{?=(?={?=II}Q){?=ddII}}16^Q24
 C44@0:8r^v16Q24I32d36
 C52@0:8r^v16Q24I32d36^Q44
 @"BMMemoryMapping"
-@"NSFileHandle"
 @"NSMutableOrderedSet"
+@"NSFileHandle"
 @"NSMutableDictionary"
 @24@0:8d16
 d24@0:8@16
@@ -834,17 +889,21 @@ v52@0:8d16d24Q32B40@?44
 v40@0:8d16d24@?32
 v48@0:8d16d24Q32@?40
 @32@0:8d16Q24
+@48@0:8d16d24Q32Q40
+@56@0:8d16d24Q32Q40Q48
 @32@0:8@16Q24
+B32@0:8@16^@24
 B36@0:8@16I24d28
 B44@0:8r^v16Q24I32d36
 B44@0:8@16I24d28^@36
 B52@0:8r^v16Q24I32d36^@44
 v48@0:8@16Q24Q32@?40
-q32@0:8@16@24
-@32@0:8@16@24
+@36@0:8@16B24Q28
 @40@0:8d16@24@32
 @48@0:8@16@24@32^@40
 v40@0:8@16@24Q32
+v48@0:8@16@24Q32^@40
+B32@0:8#16@24
 @"BMPruningPolicy"
 @"BMStoreConfig"
 @"_PASLock"
@@ -857,6 +916,7 @@ B56@0:8d16@24@32@40q48
 @56@0:8@16@24Q32@40@48
 @"BMStreamDatastore"
 @28@0:8B16Q20
+@36@0:8B16Q20Q28
 @24@0:8Q16
 @32@0:8Q16Q24
 @48@0:8Q16@24Q32Q40
@@ -869,8 +929,10 @@ v24@0:8q16
 @44@0:8@16Q24@32B40
 @36@0:8@16@24B32
 v48@0:8@16Q24Q32Q40
+v56@0:8@16Q24Q32Q40^@48
 @"BMStreamTombstoneEventDatastore"
 @48@0:8@16#24@32@40
+@32@0:8@16@24
 @88@0:8{?=(?={?=II}Q){?=ddII}}16@48@56^v64Q72Q80
 ^v16@0:8
 {?=(?={?=II}Q){?=ddII}}16@0:8

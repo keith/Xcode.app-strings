@@ -21,15 +21,15 @@ marked_for_purge_without_successful_upload
 unknown
 SELECT uploadId FROM fileUploads WHERE status=? ORDER BY rowid ASC;
 SELECT uploadId FROM fileUploads ORDER BY rowid ASC;
-SELECT uploadId FROM fileUploads WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5))
+SELECT uploadId FROM fileUploads WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5))
 SELECT payload, dateCreated, uploadId FROM fileUploads WHERE dateCreated >= ? AND dateCreated <= ? ORDER BY dateCreated ASC;
 UPDATE fileUploads SET status=? WHERE uploadId=?;
 UPDATE fileUploads SET processedAttempts=processedAttempts+1 WHERE uploadId=?;
 UPDATE fileUploads SET dateLastProcessed=strftime('%s',datetime('now')) WHERE uploadId=?;
 UPDATE fileUploads SET dateUploaded=strftime('%s',datetime('now')) WHERE uploadId=?;
 UPDATE fileUploads SET status=0 WHERE status=1;
-UPDATE fileUploads SET status=5 WHERE uploadId IN (SELECT uploadId FROM fileUploads WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5))) AND status NOT IN (2, 3, 4);
-DELETE FROM fileUploads WHERE uploadId IN (SELECT uploadId FROM fileUploads WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5)));
+UPDATE fileUploads SET status=5 WHERE uploadId IN (SELECT uploadId FROM fileUploads WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5))) AND status NOT IN (2, 3, 4);
+DELETE FROM fileUploads WHERE uploadId IN (SELECT uploadId FROM fileUploads WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (3, 4, 5)));
 INSERT INTO fileUploads(uploadId, payload, timestampRefId, dateCreated) VALUES (?, ?, ?, ?);
 SELECT payload, timestampRefId, status, processedAttempts, dateCreated, dateUploaded, dateLastProcessed FROM fileUploads WHERE uploadId=?;
 SELECT uploadId, payload, timestampRefId, status, processedAttempts, dateCreated, dateUploaded, dateLastProcessed FROM fileUploads WHERE status=0;
@@ -39,7 +39,7 @@ open
 closed
 SELECT batchId FROM batchStatus WHERE status=? ORDER BY rowid ASC;
 SELECT batchId FROM batchStatus ORDER BY rowid ASC;
-SELECT batchId FROM batchStatus WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))
+SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))
 SELECT r.payload, r.dateCreated, r.batchId FROM records r WHERE r.dateCreated >= ? AND r.dateCreated <= ? ORDER BY r.dateCreated ASC;
 SELECT s.batchId, s.timestampRefId, COALESCE(sum(length(r.payload)), 0), s.status, s.processedAttempts, s.dateCreated, s.dateUploaded, s.dateLastProcessed, COUNT(DISTINCT(r.rowId)) FROM batchStatus s LEFT JOIN records r ON s.batchId = r.batchId WHERE s.batchId=? group by s.batchId;
 UPDATE batchStatus SET status=? WHERE batchId=?;
@@ -53,8 +53,8 @@ UPDATE batchStatus SET status=1 WHERE status=0 AND dateCreated < strftime('%s',d
 UPDATE batchStatus SET status=1 WHERE status=0;
 UPDATE batchStatus SET status=1 WHERE status=0 AND batchId=?;
 UPDATE batchStatus SET status=1 WHERE status=2;
-UPDATE batchStatus SET status=6 WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))) AND status NOT IN (3, 4, 5);
-DELETE FROM records WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))); DELETE FROM batchStatus WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded < strftime('%s',datetime('now', '-1 day')) OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6)));
+UPDATE batchStatus SET status=6 WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))) AND status NOT IN (3, 4, 5);
+DELETE FROM records WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))); DELETE FROM batchStatus WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR processedAttempts>3 OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6)));
 BEGIN TRANSACTION;
 DELETE FROM records WHERE batchId=?;
 DELETE FROM batchStatus WHERE batchId=?;
@@ -81,7 +81,6 @@ PRAGMA foreign_keys=ON;
 -shm
 com.apple.parsecd
 FLLogger
-@"NSDictionary"8@?0
 Signposts
 com.apple.feedbacklogger
 data.sqlite
@@ -114,18 +113,22 @@ getRecordsRangeStartDate:endDate uploadId failed
 getRecordsRangeStartDate:endDate, failed
 Failed to update status for upload %@
 Failed to update status metadata for upload %@
-Can't getBatchIdsWithStatus, initializeConnection failed
+Can't persistUploadPayload, initializeConnection failed
 Failed to create SQLite iterate uploads statement
 Successfully added file upload record
 Database quota exceeded, using %llu out of %llu bytes, failing persist request
 Failed to insert upload record %d
+Can't getUploadRecordWithId, initializeConnection failed
+Upload record has no creation date.
 SQLite iterate uploads, failed: %d
+Can't iterateUploadsWithCodeblock, initializeConnection failed
 Can't deleteUploadWithIdentifier, initializeConnection failed
 Failed to deleteUploadWithIdentifier, rolling back transaction
 Failed to deleteUploadWithIdentifier
 deleteUpload (%s) failed: %d
 Can't deleteUpload (%s), statement prep failed
 Can't deleteAllUploads, initializeConnection failed
+Can't getBatchIdsWithStatus, initializeConnection failed
 getBatchIdsWithStatus failed
 Can't getBatchIdsWithAllStatuses, initializeConnection failed
 getBatchIdsWithAllStatuses failed
@@ -191,9 +194,6 @@ Row insertion observer failed
 XPC connection to parsec-fbf invalidated
 parsec-fbf remote object proxy failed with error %@
 Waiting 2s for sqlite connections to close.
-zPLR
-zPLR
-zPLR
 BatchMetadata
 FLLogger
 UploadManager
@@ -201,7 +201,6 @@ BatchManager
 SchemaManager
 FLSQLitePersistence
 FLLoggingContext
-FLTelemetryReporter
 NSObject
 UploadRecord
 FeedbackLogger
@@ -289,6 +288,7 @@ _cleanPersistantStores
 setPersistentStoreCacheTTLTimer:
 persistentStoreCacheTTLTimer
 allValues
+forceCloseOpenBatches
 removeAllObjects
 userDefaults
 mutableCopy
@@ -396,7 +396,6 @@ updateStatusForBatch:toStatus:
 getDataVersion
 initializeNewBatch
 closeAllBatches
-forceCloseOpenBatches
 recoverOrphanedProcessingBatches
 markBatchesforPurge
 doBatchesHousekeeping
@@ -480,7 +479,6 @@ debugDescription
 TQ,R
 T#,R
 T@"NSString",R,C
-report:payload:
 TQ,R,N
 T@"NSString",R,C,N
 T@"NSFileManager",R,N
@@ -591,7 +589,6 @@ Vv16@0:8
 ^{_NSZone=}16@0:8
 B24@0:8@"Protocol"16
 @"NSString"16@0:8
-v32@0:8@"NSString"16@"NSDictionary"24
 @"NSFileManager"16@0:8
 @"NSObject<OS_dispatch_queue>"16@0:8
 @"NSUserDefaults"16@0:8

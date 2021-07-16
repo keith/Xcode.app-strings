@@ -119,9 +119,8 @@ class String
       map{|l| prefix + l}.
       join('') #lines retains \n
   end
-  # We still support Ruby 2.0, so we need a workaround for unicode equivalence
   def unicode_equal?(other)
-    return CmdSpec.new(locate_tool("python"), ["-c", "import sys; import unicodedata; print(unicodedata.normalize('NFC', sys.argv[1].decode('utf-8')) == unicodedata.normalize('NFC', sys.argv[2].decode('utf-8')))", self, other]).run(0, false, true).strip == "True"
+    return self.encode(Encoding::UTF_8).unicode_normalize == other.encode(Encoding::UTF_8).unicode_normalize
   end
 class Exception
   def to_log_s
@@ -572,6 +571,7 @@ OPTIONS.validateBitcode = true
 OPTIONS.validateOutput = false
 OPTIONS.validateOutputZeroVariants = nil
 OPTIONS.bitcodeOptions = []
+OPTIONS.symbolsDaemon = false
 USAGE_BANNER = "usage: #{File.basename(__FILE__).shellescape} <ipa-or-dir> [options] [--output=<ipa-or-dir>]"
 OptionParser.new do |opts|
   opts.banner = USAGE_BANNER
@@ -602,6 +602,14 @@ OptionParser.new do |opts|
   do |v|
     OPTIONS.compileBitcodeIfNeeded = v
     OPTIONS.compileBitcode = nil
+  end
+  opts.on("--[no-]symbols-daemon") \
+  do |v|
+    OPTIONS.symbolsDaemon = v
+  end
+  opts.on("--[no-]keep-symbols") \
+  do |v|
+    OPTIONS.keepSymbols = v
   end
   opts.on("--[no-]translate-watchos") \
   do |v|
@@ -2090,6 +2098,17 @@ def CreateOutputIPA(srcIPA, cleanSrcIPA, dstPath, thinningContext, extractAssetP
     # (Note: we *do* want to check the source app deployment target, not the thinned variant's deployment target)
     makeiOSPlaceholderForWatch(srcIPA.mainBundle.watchKit2ContaineriOSApp, dstPath)
   end
+  if OPTIONS.keepSymbols
+    symDirs = [
+      "dSYMs",
+      "Symbols",
+    ]
+    
+    for d in symDirs
+      srcDir = srcIPA.path + d
+      FS.cp_r(srcDir.to_s + "/.", dstPath + d) if File.exist?(srcDir)
+    end
+  end
   if OPTIONS.validateOutput
     ValidateOutputIPA(cleanSrcIPA, IPA.new(dstPath), OPTIONS)
   end
@@ -2267,6 +2286,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
             cmdln  = []
             cmdln += [ "-failIfMissingDsym" ]
             cmdln += [ "-symbolsPackageDir", symtmp.to_s ]
+            cmdln += [ "-noDaemon" ] unless options.symbolsDaemon
             cmdln += [ machoImageOutputPath ]
             CmdSpec.new(locate_tool("symbols", [machoImage.platform.toolsPath]), cmdln).run(level)
             # We successfully created the symbol cache file(s).  We don't get told their names, so we scan them all, and figure out which ones are new.

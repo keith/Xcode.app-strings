@@ -52,6 +52,7 @@ SMTP_SSL_PORT = 465
 CRLF = "\r\n"
 bCRLF = b"\r\n"
 _MAXLINE = 8192 # more than 8 times larger than RFC 821, 4.5.3
+_MAXCHALLENGE = 5  # Maximum number of AUTH challenges sent
 OLDSTYLE_AUTH = re.compile(r"auth=(.*)", re.I)
 # Exception classes used by this module.
 class SMTPException(OSError):
@@ -196,6 +197,7 @@ class SMTP:
         self.esmtp_features = {}
         self.command_encoding = 'ascii'
         self.source_address = source_address
+        self._auth_challenge_count = 0
         if host:
             (code, msg) = self.connect(host, port)
             if code != 220:
@@ -267,8 +269,6 @@ class SMTP:
                     raise OSError("nonnumeric port")
         if not port:
             port = self.default_port
-        if self.debuglevel > 0:
-            self._print_debug('connect:', (host, port))
         sys.audit("smtplib.connect", self, host, port)
         self.sock = self._get_socket(host, port, self.timeout)
         self.file = None
@@ -530,14 +530,23 @@ class SMTP:
         if initial_response is not None:
             response = encode_base64(initial_response.encode('ascii'), eol='')
             (code, resp) = self.docmd("AUTH", mechanism + " " + response)
+            self._auth_challenge_count = 1
         else:
             (code, resp) = self.docmd("AUTH", mechanism)
+            self._auth_challenge_count = 0
         # If server responds with a challenge, send the response.
-        if code == 334:
+        while code == 334:
+            self._auth_challenge_count += 1
             challenge = base64.decodebytes(resp)
             response = encode_base64(
                 authobject(challenge).encode('ascii'), eol='')
             (code, resp) = self.docmd(response)
+            # If server keeps sending challenges, something is wrong.
+            if self._auth_challenge_count > _MAXCHALLENGE:
+                raise SMTPException(
+                    "Server AUTH mechanism infinite loop. Last response: "
+                    + repr((code, resp))
+                )
         if code in (235, 503):
             return (code, resp)
         raise SMTPAuthenticationError(code, resp)
@@ -556,7 +565,7 @@ class SMTP:
     def auth_login(self, challenge=None):
         """ Authobject to use with LOGIN authentication. Requires self.user and
         self.password to be set."""
-        if challenge is None:
+        if challenge is None or self._auth_challenge_count < 2:
             return self.user
         else:
             return self.password

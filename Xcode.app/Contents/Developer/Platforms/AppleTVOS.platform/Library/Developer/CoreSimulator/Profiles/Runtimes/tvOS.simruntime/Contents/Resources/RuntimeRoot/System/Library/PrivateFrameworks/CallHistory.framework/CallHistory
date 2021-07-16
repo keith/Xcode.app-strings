@@ -24,6 +24,7 @@ value
 <%@ %p 
 %@=%ld
 %@=%@
+temp:
 date
 duration
 read
@@ -65,8 +66,8 @@ DatabaseVersionPerm
 com.apple.callhistory.databaseInfo.plist
 CHDBMetaInfoDomain
 cloudKitEnabled
-1149
-1149~1
+1160
+1160~1
 stock
 %s%s
 CallHistory-
@@ -87,6 +88,7 @@ com.apple.callhistory.RecentDeletedNotification
 com.apple.callhistory.RecentsClearedNotification
 ch.pbm
 v24@?0@"CNContact"8^B16
+v32@?0@"<CHCallInteractionManagerDelegate>"8@"NSObject<OS_dispatch_queue>"16^B24
 ch.dbm
 kDBMDataStoreDoesNotExist
 kDBMDataStoreNotMigrated
@@ -126,6 +128,7 @@ NOT (%K IN %@)
 oldSchema
 newSchema
 intent
+com.apple.CallHistory.queue.%@.%p
 kCHCallOccurrenceUniqueIdKey
 kCHCallOccurrenceCallTypeKey
 kCHCallOccurrenceCallStatusKey
@@ -265,9 +268,9 @@ InternalBuild
 CarrierInstallCapability
 ReleaseType
 Desense
-com.apple.CallHistory.queue.%@.%p
 com.apple.mobile.keybagd.first_unlock
 v12@?0i8
+com.apple.callhistory.interactions.changed
 kCallHistoryDatabaseChangedNotification
 kCallHistoryTimersChangedNotification
 kCallHistoryContactStoreChangedInternalNotification
@@ -279,7 +282,6 @@ kCallHistoryDatabaseChangedInternalNotification
 kCallHistoryTimersDistributedSaveNotification
 kCallHistorySyncHelperReadyNotification
 kCallHistoryDatabaseInitializedKey
-kCallHistoryDatabaseChangedTokenKey
 kCHCoalescingStrategyRecents
 kCHCoalescingStrategyCollapseIfEqual
 kCHLimitCallTypeKey
@@ -405,6 +407,7 @@ Coalescing with kCHCoalescingStrategyRecents
 Coalescing with kCHCoalescingStrategyCollapseIfEqual
 Coalescing hash not found for call %@
 Returning calls with no coalescing since none or invalid (%@) strategy was provided
+==> %@
 <== %@ => %lu calls
 No predicate to apply, return all calls
 ==> %@(%@)
@@ -464,7 +467,6 @@ The predicate used to find contact: %@
 Num of contacts found: %lu for %@
 Error looking for contacts matching caller ID %@, error: %@
 Can't find contact for identifier %@, error: %@
-==> %@
 %@ <== %@
 Contacts have not been cached yet, begin prefetching...
 Prefetched identifiers for (%ld) handles, found (%ld) contacts
@@ -565,11 +567,11 @@ ABRecordID was searched before and not found. Don't need to look agian. Return n
 <== %@ => %@
 Caller name is null. Look in AddressBook for a name
 AddressBook did not have a caller name for this caller id. Setting it to network sent name.
+<== %@ = %@
 MainBundle: %@
 ClassBundle: %@
 Caller name is nil, let's use caller id formatted
 Caller id and caller name are nil, call is blocked or unknown
-<== %@ = %@
 Could not get location information for phone number %@ error: %@
 Timeout occured waiting for GeoServices to return location!
 ==> %@. Current location info for %@ is %@
@@ -642,6 +644,7 @@ AWDCallHistoryCallAddedBeforeUnlock
 CHPhoneNumber
 CHEntityMigrationPolicy
 CallDBProperties
+CHDelegateController
 CHConfigurationAggregator
 CHConfigurationDelegate
 CHManagedHandleMigrationPolicy
@@ -650,6 +653,8 @@ SyncManager
 SyncManagerProtocol
 CHPhoneBookIOSManager
 CHPhoneBookManagerProtocol
+CHCallInteractionManager
+CHCallInteractionDataSourceDelegate
 Intents
 DBMigrationResult
 DBManager
@@ -668,6 +673,8 @@ AWDCallHistoryDatabaseMigration
 AWDCallHistoryMissingCloudChangeToken
 DeserializedTransaction
 CHSynchronizedLoggable
+CHCallInteractionInProcessDataSource
+CHCallInteractionDataSource
 CHRecentCall
 DayComparison
 CHRecentCallAdditions
@@ -984,6 +991,7 @@ appendFormat:
 isEqualToHandle:
 lowercaseString
 containsString:
+hasPrefix:
 supportsSecureCoding
 normalizedEmailAddressHandleForValue:
 normalizedGenericHandleForValue:
@@ -992,6 +1000,7 @@ handleTypeForValue:
 encodeWithCoder:
 initWithCoder:
 TB,R
+isTemporary
 _type
 _value
 _normalizedValue
@@ -1213,6 +1222,10 @@ T@"NSString",R,C,N,V_normalizedRepresentation
 T@"NSNumber",&,D,N
 timer_all
 timer_last
+enumerateDelegatesUsingBlock:
+delegateLock
+_delegateLock
+T{os_unfair_lock_s=I},R,N,V_delegateLock
 registerConfigurationDelegate
 configurations
 configurationAggregator:didChangeConfiguration:
@@ -1242,7 +1255,7 @@ setCallerIdFormatted:
 coalescedCallWithCall:usingStrategy:
 phoneBookManager
 fetchAndCacheContactIdentifiersForCalls:
-coalescingHash
+uniqueId
 numberOfOccurrences
 callOccurrences
 objectAtIndexedSubscript:
@@ -1270,7 +1283,6 @@ uncoalescedUnFilteredRecentCalls
 predicateFormat
 uncoalescedRecentCallsSync
 countCallsWithPredicateSync:
-uniqueId
 callType
 callStatus
 callAddedWithNilUuid:withCallStatus:
@@ -1449,10 +1461,22 @@ isABContactASuggestion
 setFContactsStore:
 _fContactsStore
 T@"CNContactStore",&,N,V_fContactsStore
+delegateController
+callInteractionsDidChangeForManager:
+callInteractionsDidChangeForDataSource:
+_delegateController
+T@"<CHCallInteractionDataSource>",R,N,V_dataSource
+T@"CHDelegateController",R,N,V_delegateController
 T@"NSNumber",C,D,N
 T@"NSDate",C,D,N
 T@"NSUUID",C,D,N
+timeToEstablish
+dateByAddingTimeInterval:
+dateWithTimeIntervalSinceNow:
+initWithStartDate:duration:
+interactionDateInterval
 T@"INInteraction",R,N
+T@"NSDateInterval",R,N
 initWithErrorCode:andDBVersion:
 errorCode
 setErrorCode:
@@ -1646,6 +1670,13 @@ donateCallHistoryInteractionWithCall:
 deleteInteractionWithCalls:
 _logger
 _synchronizable
+UTF8String
+initWithName:queue:callback:
+T@"<CHCallInteractionDataSourceDelegate>",&,N
+callInteractionObserver
+_callInteractionObserver
+T@"CHNotifyObserver",R,N,V_callInteractionObserver
+T@"<CHCallInteractionDataSourceDelegate>",&,N,V_delegate
 arrayByAddingObjectsFromArray:
 compare:
 sortedArrayUsingComparator:
@@ -1726,7 +1757,6 @@ setMobileNetworkCode:
 clientAddressBookRecordId
 setClientAddressBookRecordId:
 setContactIdentifier:
-timeToEstablish
 setTimeToEstablish:
 addressBookRecordRef
 setAddressBookRecordRef:
@@ -1885,10 +1915,8 @@ currentLocale
 stringWithUTF8String:
 stringByAppendingString:
 initFileURLWithPath:isDirectory:
-UTF8String
 initWithQueue:dataSource:
 setBootLockEnabled:
-initWithName:queue:callback:
 setFirstUnlockNotifyObserver:
 firstUnlockNotifyObserver
 _bootLockEnabled
@@ -2075,6 +2103,9 @@ v24@0:8@"NSDictionary"16
 @"NSString"36@0:8@"CNContact"16@"NSString"24B32
 @40@0:8@16@24^@32
 @"CNContactStore"
+v24@0:8@"<CHCallInteractionDataSource>"16
+@"<CHCallInteractionDataSource>"
+@"CHDelegateController"
 @32@0:8q16q24
 q32@0:8@16@24
 @36@0:8@16@?24B32
@@ -2122,6 +2153,10 @@ v36@0:8@16@24B32
 @32@0:8r*16@24
 @"CHLogger"
 @"CHSynchronizable"
+@"<CHCallInteractionDataSourceDelegate>"16@0:8
+v24@0:8@"<CHCallInteractionDataSourceDelegate>"16
+@"<CHCallInteractionDataSourceDelegate>"
+@"CHNotifyObserver"
 q20@0:8I16
 I32@0:8q16q24
 I20@0:8I16
@@ -2141,7 +2176,6 @@ v40@0:8@16@24@?32
 @"CallDBMigrator"
 @"NSXPCInterface"
 @"<CHDeviceDataSource>"
-@"CHNotifyObserver"
 {?="timestamp"b1"callStatus"b1"callType"b1}
 @40@0:8@16@24@?32
 @?16@0:8
