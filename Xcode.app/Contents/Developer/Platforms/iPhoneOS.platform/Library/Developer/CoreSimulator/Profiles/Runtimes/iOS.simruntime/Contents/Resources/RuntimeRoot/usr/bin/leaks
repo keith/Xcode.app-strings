@@ -1,5 +1,5 @@
-@(#)PROGRAM:leaks  PROJECT:SamplingTools-64550.65
-DYLD_INSERT_LIBRARIES=
+@(#)PROGRAM:leaks  PROJECT:SamplingTools-64550.77.2
+@DYLD_INSERT_LIBRARIES=
 MbP?
 .memgraph
 %s[%d]: [fatal] unable to read input graph: %s
@@ -62,6 +62,8 @@ because you do not have appropriate privileges to examine it
 %s[%d]: %s cannot examine process %d (%s) %s%s.
 %s[%d]: %s cannot examine process %d (with name like '%s') %s.
 %s[%d]: %s cannot examine process %d %s.
+SIMULATOR_ROOT
+SIMULATOR_SHARED_RESOURCES_DIRECTORY
 libclang_rt.asan
 Address Sanitizer
 libclang_rt.tsan
@@ -77,8 +79,6 @@ sharedCode.m
 Only one of kVMURespawnForAllProcesses and kVMURespawnForAllNonNativeProcesses can be set
 DYLD_ROOT_PATH
 SIMULATOR_UDID
-SIMULATOR_ROOT
-SIMULATOR_SHARED_RESOURCES_DIRECTORY
 DT_NO_RESPAWN
 DT_FORCE_RESPAWN
 %s[%d]: [fatal] respawning is disabled (because DYLD_ROOT_PATH or DT_NO_RESPAWN is set), but analysis process does not match architecture of target process %d.
@@ -88,7 +88,8 @@ DYLD_FRAMEWORK_PATH
 DYLD_SHARED_REGION
 avoid
 DYLD_FORCE_PLATFORM
-arm64
+x86_64
+i386
 posix_spawnattr_init
 posix_spawnattr_setbinpref_np
 %s[%d]: [fatal] 'mach_ports_register' failed: %s (%d)
@@ -99,29 +100,10 @@ v12@?0I8
 %s/usr/bin/%s
 v20@?0I8@?<v@?>12
 Running in DT_RESPAWN_FOR_NONNATIVE mode -- respawning only if necessary to match target process arch and/or platform.
-_.([@
-error in %@ <classes> pattern '%@' - cannot match the start of a class name
-error in %@ <classes> pattern '%@' - no starting bracket [: %s
-malloc
-non-object
-error in %@ <classes> pattern '%@': %s
-Region
-Thread
-.*%@
-%@.*
-error in % <region-description> pattern '%@': %s
-malloc size pattern '%@' was not of expected format '[size]' or '[lowerSizeBound-upperSizeBound]'
-error in malloc size pattern '%@':  if upper bound of size is given, it must be %llu or more
-error in malloc size pattern '%@': lower bound of size (%llu) should be <= upper bound of size (%llu)
-error in malloc size pattern '%@':  size must be %llu or more
-error in malloc size pattern '%@':  size must be a multiple of %llu, or a range like '[lowerSizeBound-upperSizeBound]'
-%s[%d]: [fatal] %s
--[VMUClassPatternMatcher matchesNodeDetails:orNodeDescription:]
-VMUClassPatternMatcher.m
-malloc size lower bound (%llu) expected to be <= upper bound (%llu)
 com.apple.dt.instruments
 message
 unknown error
+%s[%d]: [fatal] %s
 Search through a process for leaked memory.
 [options] pid | partial-process-name | memory-graph-file
        leaks [options] --atExit -- <command-and-arguments>
@@ -138,7 +120,7 @@ list
 print the leaks as a list ("classic"-style) rather than as a tree
 groupByType
 in leak trees, group children by type rather than showing individual instances
-(for normal leak detection output, and --referenceTree and --autoreleasePools modes)
+(for normal leak detection output, and --referenceTree, --dominatorTree, and --autoreleasePools modes)
 nostacks
 do not print backtraces or save them in the memory graph file, even when available
 fullStacks
@@ -186,6 +168,9 @@ print chains of references from process 'roots' (e.g., global data) to the given
 traceTree
 print a reverse tree of references, from the given block up to the process roots
 -traceTree
+dominatorTree
+print a dominator tree of allocated memory starting at root nodes. Provide an address to print only its subtree instead. Supports -virtual and -groupByType
+-dominatorTree
 referenceTree
 print a reference tree of allocated memory starting at root nodes
 virtual
@@ -239,7 +224,7 @@ processInfo
 show only process description header and binary images list
 debugSymbolicators
 symbolicate
-<dSYM-path>|<library-name>|all
+<dSYM-path>|<library-names>|all
 symbolicate given memgraph
 dSYM
 showResymbolicationInfo
@@ -247,7 +232,7 @@ Cannot pass pid, process-name, or memgraph ('%@'), with '--atExit -- <command>'
 unknown argument: %@
 '--symbolicate' can only be combined with '--outputGraph' flag
 com.apple.leaks
-at most one mode should be specified (--outputGraph, --autoreleasePools, --traceTree, --referenceTree, --debug, --processInfo, --diffFrom)
+at most one mode should be specified (--outputGraph, --autoreleasePools, --traceTree, --referenceTree, --dominatorTree, --debug, --processInfo, --diffFrom)
 at most one mode should be specified (--outputGraph, --traceTree, --diffFrom)
 %s[%d]: --nocontext is deprecated, use --noContent instead
 only one of --fullContent, --readonlyContent, --noContent, or --nocontext can be specified;  also, --nocontext is deprecated, use --noContent instead
@@ -366,6 +351,21 @@ expected to get VMUVMRegion for VM region node
 %@  purgableVolatile: %s
 addChildCountsIntoNode
 printing call tree
+create call tree
+This is a dominator tree showing dynamic memory for the process. In a dominator tree a node(X) can
+be a descendant of node(Y) only if all paths of owning references from root nodes to node(X) go
+through node(Y). When there are multiple paths a node will be promoted up the tree until it reaches
+a node which satisfies this requirement or it becomes a root itself.
+Each line shows:
+  1. The total count of allocations for this node and all descendants.
+  2. The total size of allocations for this node and all descendants.
+  3. A description of the reference to the node. (optional)
+  4. A description of the node itself.
+The sizes for VM regions are calculated as dirty+compressed-purgeable unless --virtual was passed.
+Any VM regions with zero size and no children are excluded. Also any VM regions which don't represent
+dynamic memory owned by this process are also excluded. Examples are __AUTH_CONST, MALLOC metadata,
+mapped files, and Owned unmapped memory.
+print call tree
 no posix thread
 unsigned int printAutoreleasePools(VMUProcessObjectGraph *__strong, VMUTaskMemoryScanner *__strong, __strong id<VMUStackLogReader>)_block_invoke
 dyld
@@ -439,46 +439,17 @@ initWithPid:
 name
 reason
 callStackSymbols
+valueForEnvVar:
 currentHandler
 stringWithUTF8String:
 handleFailureInFunction:file:lineNumber:description:
 is64Bit
-valueForEnvVar:
 stringWithFormat:
 numberWithUnsignedInt:
 init
-letterCharacterSet
-addCharactersInString:
-rangeOfCharacterFromSet:
-rangeOfString:options:
-substringFromIndex:
-substringToIndex:
-_parseMallocSizePattern:error:
-isEqualToString:
-hasPrefix:
-dealloc
-className
-_regex:matchesName:
-displayName
-superclassInfo
-_matchesClassInfo:
-classInfoWithClassName:binaryPath:type:
-isMatchingKindOfClass
-setMatchingKindOfClass:
-initWithPattern:forArgument:error:
-resetCachedMatches
-matchesNodeDetails:orNodeDescription:
-_classesRegex
-_vmRegionsRegex
-_memoizedRegexResult
-_matchingKindOfClass
-_patternMatchesNonObjects
-_allocationSizeLowerBound
-_allocationSizeUpperBound
-matchingKindOfClass
-TB,N,GisMatchingKindOfClass
 resymbolicationDsymPath
-resymbolicationLibraryName
+resymbolicationLibraryNames
+count
 resymbolicateAll
 symbolicationMode
 debugTimer
@@ -515,6 +486,8 @@ debugReferences
 setDebugReferences:
 debugContents
 setDebugContents:
+dominatorTreeMode
+setDominatorTreeMode:
 referenceTreeMode
 setReferenceTreeMode:
 groupByType
@@ -596,7 +569,7 @@ setTargetIsAncestor:
 autoreleasePoolsExtraReleasesCount
 setAutoreleasePoolsExtraReleasesCount:
 setResymbolicationDsymPath:
-setResymbolicationLibraryName:
+setResymbolicationLibraryNames:
 setResymbolicateAll:
 showResymbolicationDetails
 setShowResymbolicationDetails:
@@ -608,6 +581,7 @@ _debugLayout
 _debugHistogram
 _debugReferences
 _debugContents
+_dominatorTreeMode
 _referenceTreeMode
 _groupByType
 _referenceTreeShowRegionVirtualSize
@@ -661,7 +635,7 @@ _classesPatternMatcher
 _ipsIncidentID
 _outputFile
 _resymbolicationDsymPath
-_resymbolicationLibraryName
+_resymbolicationLibraryNames
 T@"VMUDebugTimer",&,N,V_debugTimer
 Ti,N,V_returnCode
 T@"NSString",&,N,V_inputGraphPath
@@ -679,6 +653,7 @@ TB,N,V_debugLayout
 TB,N,V_debugHistogram
 TB,N,V_debugReferences
 TB,N,V_debugContents
+TB,N,V_dominatorTreeMode
 TB,N,V_referenceTreeMode
 TB,N,V_groupByType
 TB,N,V_referenceTreeShowRegionVirtualSize
@@ -720,7 +695,7 @@ TB,N,V_corpseWasGenerated
 TB,N,V_targetIsAncestor
 TI,N,V_autoreleasePoolsExtraReleasesCount
 T@"NSString",&,N,V_resymbolicationDsymPath
-T@"NSString",&,N,V_resymbolicationLibraryName
+T@"NSArray",&,N,V_resymbolicationLibraryNames
 TB,N,V_resymbolicateAll
 TB,N,V_showResymbolicationDetails
 initWithTask:graph:scanner:stackLogReader:
@@ -744,12 +719,17 @@ sharedTimer
 startWithMessage:
 stringByExpandingTildeInPath
 boolValue
+hasPrefix:
+initWithPattern:forArgument:error:
 registerOptionWithLongName:shortName:argumentKind:argumentName:optionDescription:flags:handler:
+isEqualToString:
 copy
 optind
+componentsSeparatedByString:
 parseArguments:withBlock:
 stringWithCString:encoding:
 characterAtIndex:
+resetCachedMatches
 directedGraphWithData:error:
 processDescriptionString
 binaryImagesDescription
@@ -813,6 +793,7 @@ zoneNameForIndex:
 usesLiteMode
 nodeDetails:
 nodeDescription:
+matchesNodeDetails:orNodeDescription:
 enumerateReferencesOfNode:withBlock:
 symbolicatedBacktraceForNode:nodeDetails:isLiteZone:options:
 referenceInfoWithName:
@@ -822,6 +803,7 @@ enumerateEdgesOfNode:withBlock:
 instanceSize
 pointerSize
 contentForNode:
+className
 typeName
 offset
 bitfieldWidth
@@ -837,7 +819,6 @@ enumerateTypeFieldsWithBlock:
 enumerateClassHierarchyWithBlock:
 referenceDescription:withSourceNode:destinationNode:alignmentSpacing:
 enumerateRegionsWithBlock:
-count
 enumerateObjectsWithBlock:
 invertEdges
 breadthFirstSearch:nodeVisitBlock:edgeVisitBlock:
@@ -864,6 +845,10 @@ is64bit
 referenceDescription:dstDescription:is64bit:
 addChildCountsIntoNode
 printCallTreeToFile:
+numberWithUnsignedLongLong:
+callTreeWithGraph:groupByType:showRegionVirtualSize:desiredClassesPattern:debugTimer:
+callTreeWithGraph:groupByType:showRegionVirtualSize:desiredAddress:debugTimer:
+printCallTreeToFile:cumulativeOutput:options:
 markReachableNodesFromRoots:inMap:
 threadNameForAddress:
 nodeIsAutoreleasePoolContentPage:
@@ -874,8 +859,6 @@ unsignedIntValue
 graph
 removeObject:
 srcAddressToExtraAutoreleaseCountDict
-numberWithUnsignedLongLong:
-componentsSeparatedByString:
 nodeDescription:usingDetails:
 stringFromCallTreeWithOptions:
 examining %@ [%u]
@@ -885,37 +868,29 @@ examining %@ [%u]
 %s[%d]: [error] 'mach_port_insert_right' failed: %s (%d)
 generate analysis task
 adding root nodes from task
-adding malloc nodes from task
 leaks
+adding malloc nodes from task
 write graph to file
 identifying root regions
 building call tree from references
 addChildCountsIntoNode
 printing call tree
 printReferenceTree
-VMUClassPatternMatcher
 LeaksGlobals
 LeakDetector
-B16@0:8
-v20@0:8B16
-@40@0:8@16@24^@32
-v16@0:8
-B32@0:8@16^@24
-B32@0:8^{?=iQ*^{re_guts}}16@24
-B24@0:8@16
-B48@0:8{?=Qb60b4@}16@40
-^{?=iQ*^{re_guts}}
-^{__CFDictionary=}
 @16@0:8
+B16@0:8
 v24@0:8@16
 i16@0:8
 v20@0:8i16
+v20@0:8B16
 Q16@0:8
 v24@0:8Q16
 I16@0:8
 v20@0:8I16
 ^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sbuf=*i}iq}16@0:8
 v24@0:8^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sbuf=*i}iq}16
+v16@0:8
 @"VMUDebugTimer"
 @"NSString"
 @"NSData"
@@ -924,6 +899,7 @@ v24@0:8^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sb
 @"NSMutableSet"
 @"VMUClassPatternMatcher"
 ^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sbuf=*i}iq}
+@"NSArray"
 I44@0:8I16@20@28@36
 @44@0:8I16@20@28@36
 <?xml version="1.0" encoding="UTF-8"?>
@@ -949,19 +925,19 @@ I44@0:8I16@20@28@36
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13A5154d</string>
+<string>19A329z</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.0</string>
 <key>DTSDKBuild</key>
-<string>19A5294s</string>
+<string>19A329z</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.0.internal</string>
 <key>DTXcode</key>
 <string>1300</string>
 <key>DTXcodeBuild</key>
-<string>13A5154d</string>
+<string>13A191</string>
 <key>MinimumOSVersion</key>
 <string>15.0</string>
 <key>UIDeviceFamily</key>

@@ -30,6 +30,7 @@ SELF_USER_OWNERSHIP
 (unknown: %i)
 identifier
 personal
+decomissioned
 statusType
 encryptionKeys
 dateChannelCreated
@@ -43,15 +44,18 @@ com.apple.StatusKitAgent.PublishingManager
 com.apple.statuskit.pendingPublish
 v24@?0@"NSString"8@"NSError"16
 shared-channels-stale-publish-wait-time-seconds
+shared-channels-rate-limit-wait-time-seconds
+shared-channels-request-retry-count
 SKAStatusPublishingManager
 Could not find or create a channel to publish status of type "%@".
 Status Publish Request %@ created at %@ is not newer than existing status %@ at %@
 Status Publish Request has the same status unique identifier as existing status: %@
-<%@: %p; identifier = "%@"; personal = %ld, statusType = "%@"; dateCreated = "%@">;
+<%@: %p; identifier = "%@"; personal = %ld, decomissioned = %ld, statusType = "%@"; dateCreated = "%@">;
 SKADatabaseChannel
 %@_%p
 v16@?0q8
 No valid IDS destinations could be determined
+status-kit-keysharing-disabled
 SKAMessagingProvider
 Client is not entitled to publish status of type "%@". Missing entitlement "%@"
 Could not determine any users to share with from request
@@ -61,6 +65,7 @@ dateCreated of StatusPayload differs too much from server time
 SKAStatusPublishingServiceClient
 v24@?0@"SKHandleInvitability"8@"NSError"16
 shared-channels-scheduled-publish-variance-max-slop-period-seconds
+shared-channels-unscheduled-publish-variance-max-slop-period-seconds
 shared-channels-secondary-device-republish-variance-min-slop-period-seconds
 Client is not entitled to subscription information for status of type "%@". Missing entitlement "%@"
 com.apple.StatusKit.subscribe.types
@@ -73,6 +78,7 @@ SKAStatusReceivingManager
 dateCreated
 statusUniqueIdentifier
 SKAChannelManagerErrorDomain
+SKAChannelManagerErrorRetryIntervalKey
 StatusKitDataKey
 com.apple.icloud.presence.mode.status
 Generic non-success response status
@@ -165,6 +171,7 @@ SKAStatusSubscriptionServiceClientConnection
 applicationIdentifier
 <%@: %p; statusPayload = "%@"; invitation = "%@">;
 v32@?0@"ReceivedInvitation"8Q16^B24
+v32@?0@"Channel"8Q16^B24
 SKADatabaseManager
 datePublished
 uniqueIdentifier
@@ -254,6 +261,7 @@ No existing channel matches incoming invitation, creating new channel
 Could not find or create channel for incoming invitation, dropping invitation.
 Storing received invitation
 Cleaning up ReceivedInvitations for channel: %@
+Removing old channels for handle: %@
 fromHandle "%@" is NOT a valid sender handle for active iCloud account
 fromHandle "%@" is a valid sender handle for active iCloud account
 toHandle "%@" inviteability check completed with result: %d
@@ -276,6 +284,13 @@ Invitation payload is already up to date
 Could not find an existing invited user matching handle: %@ and senderHandle %@, attempting to create a new one.
 Received a nil created user from createInvitedUserWithHandle
 Could not find an existing personal status channel, attempting to create a new one.
+Account refresh required for error: %@
+Account refresh succeeded, reattempting channel creation
+Account refresh failed with error: %@
+Error is an auth expired error, we should attempt reauth
+Error is an auth failed error, we should attempt reauth
+Error is an auth missing auth token error, we should attempt reauth
+Error does not appear to be auth related, we should not attempt reauth
 XPC connection to PID %ld interrupted
 XPC connection to PID %ld invalidated
 XPC Error (async): %{public}@
@@ -287,21 +302,26 @@ Publishing status unique identifier: %@ to channel: %@
 Error publishing status with the channel manager: %@
 Attempting reauth to resolve error
 Account refresh succeeded, publishing pending publish requests
-Account refresh failed with error: %@
 Removing pending publish based on error
 Rolling channel.
 Channel was rolled succesfully.
 Channel roll failed.
+Not rolling channel because this is a secondary device publish.
+Attempting retry with delay.
+Retrying after %f sec delay
+Retry interval is 0--not retrying
 Successfully published status %@ to channel %@
-Dropping status publish request with unique identifier %@. Error: %@
+Dropping and removing status publish request with unique identifier %@. Error: %@
 Could not find or create a personal channel for statusTypeIdentifier %@ error: %@
 Pending publish request has already been scheduled.  Not enqueing again
 Will attempt to process %ld pending publish requests after a %.2f second delay
 Skipping publish of pending request that lacks an status identifier
 Deleting pending status with ID %@ as it has expired
+Deleting pending status with ID %@ as it has passed the max retry count of %lu
 Attempting to publish pending request with ID: %@
 Publish of pending status request with ID:%@ finished with error:%@
 No pending publish requests
+Publish requested for reason: %lu
 Dropping status publish request, a status with unique identifier %@ has already been published. PublishRequest: %@
 Dropping status publish request, existing status %@ was created at %@, publish request %@ from %@ is not newer.
 Deleting pending publish request with ID: %@ because it is older than newly received publish request with ID %@
@@ -313,16 +333,17 @@ Channel creation request failed with error: %@
 Channel creation request succeeded, new personal channel for statusTypeIdentifier %@ has channel identifier %@
 Deleting pending status publish request with identifier: %@
 Delete failed for pending status publish request with identifier: %@
-Error is an auth expired error, we should attempt reauth
-Error is an auth failed error, we should attempt reauth
-Error is an auth missing auth token error, we should attempt reauth
-Error does not appear to be auth related, we should not attempt reauth
 Publish was rejected for being stale. Abandoning.
 Publish was rejected for being malformed. Abandoning.
 Channel identity validation failed. We should roll this channel.
+Publish was rejected because we've hit a rate limit.
 Server bag indicates our pending publish request delay time should be %.2f
+Server bag indicates our rate limit delay time should be %.2f
+Server bag indicates our max retry count should be %lu
 Failed to create currentOutgoingRatchet due to invalid data. Error: %@
 Initializing messaging provider with service %@ and delegate %@
+Keysharing has been disabled by the server! Not initializing messaging service
+Keysharing has been disabled by the server! Not sending message
 Failed to generate IDS destination for handle: %@
 No valid IDS destinations generated from handles: %@
 Sending message %@ to destinations %@ options: %@
@@ -331,9 +352,11 @@ Failed to send invitation message with error: %@
 Sender handle "%@" is a valid sender handle for active iCloud account
 Sender handle "%@" is NOT a valid sender handle for active iCloud account
 Received incoming message: %@ fromID: %@
+Keysharing has been disabled by the server! Dropping incoming message
 Received didHintCheckingTransportLogWithReason
 Resolved default caller ID: %@
 Unable to determine default caller ID among URIs: %@
+Keysharing has been disabled in the server bag!
 Received request to publish status: %@
 Rejecting publish request, client is not entitled
 Account is not StatusKit capable
@@ -431,6 +454,7 @@ Asking push manager to execute create channel request
 Channel create request failed with error: %@
 Channel create response received
 Create channle response contains non success status: %ld - %@
+Retry interval specified: %ld
 Channel create success response received: %@
 Received request to publish data on channel %@
 Unable to fetch JWT auth token.  Failing request.
@@ -558,6 +582,7 @@ Couldn't decrypt current status on channel
 No current status to republish
 Scheduling maintenance XPC activity %@
 Finished maintenance subscription update with error %@
+Removing decomissioned channels
 Creating persistent container
 Failed to load persistent store. Error: %@ Store: %@
 Completed loading of persistent store: %@
@@ -590,6 +615,8 @@ Failed to create incoming ratchet due to lack of outgoing ratchet
 Client is not entitled to subscription information for status of type %{public}@
 Error fetching personal status channel. Error: %@
 Fetch request for personal status channel type "%@" completed with result: %@
+Error fetching decomissioned channel. Error: %@
+Fetch request for decomissioned personal channels completed with %lu results
 Deleted existing channel.
 Could not find existing channel
 More than one personal channel exists for channel identifier: %@
@@ -612,6 +639,7 @@ Fetch request for channel by handle completed with %ld result(s)
 Error saving managed object context for storing new personal channel. Error: %@
 Error saving managed object context for storing channel invitation. Error: %@
 Error saving managed object context for updated outgoing ratchet state. Error: %@
+Error saving managed object context for decomissioning. Error: %@
 Could not find generated ratchet keys matching database channel. Channel: %@
 Beginning fetch request for active subscription assertions
 Error fetching subscription assertions. Error: %@
@@ -662,6 +690,8 @@ Error saving managed object context for storing pending publish request. Error: 
 Error saving managed object context for deleting pending publish request. Error: %@
 Deleted existing pending publish request with identifier: %@
 Could not find existing pending publish request with identifier: %@
+Error saving managed object context for incrementing pending publish request. Error: %@
+Incremented pending publish request rc with identifier: %@
 Error saving managed object context for storing removed user. Error: %@
 Error saving managed object context for deleting removed user. Error: %@
 Deleted existing removed user with handle: %@
@@ -679,6 +709,11 @@ Keeping invitation %@ because it was excluded by the caller
 Keeping invitation %@ because it is the most recent invitation from senderHandle: %@
 Deleting invitation %@ as it is no longer the most recent
 Error saving managed object context for invitation cleanup. Error: %@
+Deleting channel %@ as it is decomissioned and not recent or old
+Not deleting channel %@ as it is in our most recent and old decomissioned channels
+Error saving managed object context for decomissioned channel cleanup. Error: %@
+No decomissioned channel to clean up
+Channel cleanup is disabled.
 Delivering %@ to %@
 SKAStatusEncryptionManager
 SKAStatusEncryptionManaging
@@ -866,6 +901,7 @@ createRemovedUserWithHandle:dateRemoved:statusTypeIdentifier:databaseContext:
 invitationManager:didRevokeInvitationOnChannel:
 _unableToFindExistingInvitationForHandlesError:
 copyInvitedUsersFromChannel:toChannel:databaseContext:
+decomissionAllPersonalChannelsWithStatusTypeIdentifier:databaseContext:
 _createPersonalChannelForStatusTypeIdentifier:databaseContext:completion:
 serializedData
 createGeneratedEncryptionKeyWithOriginalOutgoingRatchetState:personalChannel:databaseContext:
@@ -892,6 +928,7 @@ createReceivedInvitationForChannel:senderHandle:invitedHandle:invitationIdentifi
 invitationManager:didReceiveInvitation:forChannel:
 allExistingChannelsForHandle:statusTypeIdentifier:databaseContext:
 cleanupOldReceivedInvitationsForChannelIdentifier:excludingInvitation:databaseContext:
+cleanupOldChannelsForHandle:statusTypeIdentifier:databaseContext:
 messagingProvider
 isHandleAvailableToMessageFrom:
 _isHandleInviteable:completion:
@@ -908,8 +945,14 @@ existingInvitedUsersForInvitedHandle:onChannel:databaseContext:
 isNormalizedEqualToHandle:
 updateInvitationPayload:onExistingInvitedUser:channel:databaseContext:
 createInvitedUserWithHandle:senderHandle:invitationPayload:channel:databaseContext:
+_shouldReauthForError:
+accountProvider
+channelManager
 createPersonalChannelForStatusTypeIdentifier:channelIdentifier:channelToken:databaseContext:
 createChannelWithCompletion:
+refreshCredentialForPrimaryAccountWithCompletion:
+domain
+code
 stringWithFormat:
 dictionaryWithObjects:forKeys:count:
 errorWithDomain:code:userInfo:
@@ -923,20 +966,22 @@ fetchHandleInvitability:fromHandle:forStatusTypeIdentifier:completion:
 delegate
 setDelegate:
 T@"<SKAInvitationManagingDelegate>",W,N
-initWithMessagingProvider:databaseManager:channelManager:
+initWithMessagingProvider:databaseManager:accountProvider:channelManager:
 setDatabaseManager:
 setMessagingProvider:
-channelManager
 setChannelManager:
+setAccountProvider:
 backgroundCleanupQueue
 setBackgroundCleanupQueue:
 _delegate
 _messagingProvider
 _channelManager
+_accountProvider
 _backgroundCleanupQueue
 T@"<SKADatabaseManaging>",&,N,V_databaseManager
 T@"<SKAMessagingProviding>",&,N,V_messagingProvider
 T@"<SKAChannelManaging>",&,N,V_channelManager
+T@"<SKAAccountProviding>",&,N,V_accountProvider
 T@"NSObject<OS_dispatch_queue>",&,N,V_backgroundCleanupQueue
 T@"<SKAInvitationManagingDelegate>",W,N,V_delegate
 lastSubscriptionDateKeyPath
@@ -985,11 +1030,13 @@ TB,N
 Ti,N,V_channelOwnershipType
 identifierKeyPath
 personalKeyPath
+decomissionedKeyPath
 statusTypeKeyPath
 encryptionKeysKeyPath
 dateChannelCreatedKeyPath
 numberWithBool:
 predicateForPersonal:
+predicateForDecomissioned:
 predicateForCreationDateNotNil
 sortDescriptorForStatusTypeIdentifierOrderedAscending:
 sortDescriptorForPersonalOrderedAscending:
@@ -1033,24 +1080,29 @@ serverTime
 encryptionManager
 channelToken
 isScheduledRequest
-_shouldReauthForError:
-accountProvider
-publishPendingPublishRequests
-refreshCredentialForPrimaryAccountWithCompletion:
+isSecondaryDeviceRepublish
+userInfo
+objectForKey:
+doubleValue
+publishPendingRequestsWithDelay:
 _shouldAbandonRequestForError:
 _removePendingPublishRequestWithUniqueIdentifier:databaseContext:
 _shouldRollChannelForError:
+_shouldRetryWithDelayForError:
 publishData:onChannel:withChannelToken:publishInitiateTime:isPendingPublish:isScheduledPublish:completion:
 findOrCreatePersonalChannelForStatusTypeIdentifier:databaseContext:completion:
 pendingRequestScheduled
 existingPendingPublishRequestsWithDatabaseContext:
-_pendingDelayTime
 setPendingRequestScheduled:
 timeIntervalSinceDate:
+retryCount
+_maxRetryCount
 initWithStatusPayload:
 setDateCreated:
 setStatusUniqueIdentifier:
 statusTypeIdentifier
+incrementPendingPublishRequestRetryCountWithUniqueIdentifier:databaseContext:
+_pendingDelayTime
 existingStatusForChannel:databaseContext:
 uniqueIdentifier
 _errorForDuplicateStatusPublishRequestWithIdentifier:
@@ -1061,33 +1113,30 @@ existingPendingPublishRequestForUniqueIdentifier:withDatabaseContext:
 createPendingPublishRequestWithUniqueIdentifier:dateCreated:payloadData:statusTypeIdentifier:databaseContext:
 createPersonalChannelForStatusTypeIdentifier:databaseContext:completion:
 deletePendingPublishRequestWithWithUniqueIdentifier:databaseContext:
-domain
-code
 sharedInstanceForBagType:
-objectForKey:
-doubleValue
 publishStatusRequest:statusTypeIdentifier:afterTime:isPendingPublish:completion:
 removePendingPublishRequestsForStatusTypeIdentifier:olderThanRequest:
+publishPendingRequestForReason:
 initWithDatabaseManager:channelManager:accountProvider:encryptionManager:invitationManager:
+_rateLimitDelayTime
 setEncryptionManager:
-setAccountProvider:
 setInvitationManager:
 setInternalWorkQueue:
 _pendingRequestScheduled
 _encryptionManager
-_accountProvider
 _internalWorkQueue
 T@"<SKAStatusEncryptionManaging>",&,N,V_encryptionManager
-T@"<SKAAccountProviding>",&,N,V_accountProvider
 T@"<SKAInvitationManaging>",&,N,V_invitationManager
 T@"NSObject<OS_dispatch_queue>",&,N,V_internalWorkQueue
 TB,V_pendingRequestScheduled
-initWithChannelToken:identifier:personal:currentOutgoingRatchetState:dateCreated:statusType:invitedUsers:
+initWithChannelToken:identifier:personal:decomissioned:currentOutgoingRatchetState:dateCreated:statusType:invitedUsers:
+isDecomissioned
 currentOutgoingRatchetState
 dateChannelCreated
 setDateChannelCreated:
 invitedUsers
 _personal
+_decomissioned
 _channelToken
 _identifier
 _currentOutgoingRatchetState
@@ -1098,12 +1147,15 @@ T@"NSData",R,N,V_channelToken
 T@"NSString",R,C,N,V_identifier
 personal
 TB,R,N,GisPersonal,V_personal
+decomissioned
+TB,R,N,GisDecomissioned,V_decomissioned
 T@"NSData",R,N,V_currentOutgoingRatchetState
 T@"NSData",&,N,V_dateChannelCreated
 T@"NSString",R,C,N,V_statusType
 T@"NSArray",R,C,N,V_invitedUsers
 initWithData:error:
 T@"MPStatusKitOutgoingRatchet",R,N
+_keysharingIsDisabledByServer
 initWithService:
 addDelegate:queue:
 arrayWithObjects:count:
@@ -1124,6 +1176,7 @@ service:didReceiveIncomingMessage:fromID:toID:messageGuid:
 networkBecameReachable
 unprefixedURI
 initWithString:
+boolValue
 service:account:incomingOpportunisticData:withIdentifier:fromID:context:
 service:didSendOpportunisticDataWithIdentifier:toIDs:
 service:account:incomingMessage:fromID:context:
@@ -1178,11 +1231,12 @@ deviceToDeviceEncryptedDatabaseCapableWithCompletion:
 _serverBagNumberForKey:
 _serverBagTimeIntervalForKey:withDefaultValue:
 _scheduledPublishMaxDelayTime
+_unscheduledPublishMaxDelayTime
 _secondaryDeviceRepublishMaxDelayTime
 _secondaryDeviceRepublishMinDelayTime
-isSecondaryDeviceRepublish
 _randomSecondaryDeviceRepublishDelay
 _randomScheduledPublishDelay
+_randomUnscheduledPublishDelay
 _noUsersToShareWithError
 publishStatusRequest:statusTypeIdentifier:completion:
 invitedHandlesForStatusTypeIdentifier:completion:
@@ -1294,7 +1348,7 @@ dateInvitationCreated
 incomingRatchetState
 initWithInvitationIdentifier:senderHandle:invitedHandle:statusTypeIdentifier:dateInvitationCreated:incomingRatchetState:invitationPayload:
 initWithCoreDataReceivedInvitation:
-initWithStatusTypeIdentifier:dateCreated:payloadData:statusUniqueIdentifier:
+initWithStatusTypeIdentifier:dateCreated:payloadData:statusUniqueIdentifier:retryCount:
 initWithCoreDataPendingPublishRequest:
 originalOutgoingRatchetState
 dateGenerated
@@ -1316,6 +1370,9 @@ setSimpleJwt:
 data
 pushManager
 status
+hasRetryIntervalSeconds
+retryIntervalSeconds
+numberWithUnsignedInt:
 channelIdentity
 channelId
 createChannelWithProtoData:completion:
@@ -1347,7 +1404,6 @@ setPushManager:
 _pushManager
 T@"<SKAPushManaging>",&,N,V_pushManager
 T@"<SKAChannelManagingDelegate>",W,N,V_delegate
-numberWithUnsignedInt:
 setStatus:
 setHasStatus:
 hasStatus
@@ -1355,8 +1411,6 @@ statusAsString:
 StringAsStatus:
 setRetryIntervalSeconds:
 setHasRetryIntervalSeconds:
-hasRetryIntervalSeconds
-retryIntervalSeconds
 _retryIntervalSeconds
 _status
 Ti,N,V_status
@@ -1430,10 +1484,8 @@ getRegisteredChannelsForTopic:completion:
 isConnected
 dateWithTimeIntervalSinceReferenceDate:
 expirationDate
-userInfo
 timestamp
 failureReason
-boolValue
 connection:didReceivePublicToken:
 connection:didReceiveToken:forTopic:identifier:
 connection:didReceiveIncomingMessage:
@@ -1588,6 +1640,7 @@ donateReceivedStatusToBiomeOnChannel:
 standardUserDefaults
 initWithStatusPayload:isScheduledRequest:
 dateByAddingTimeInterval:
+cleanupDecommisionedChannelsWithDatabaseContext:
 listener:shouldAcceptNewConnection:
 databaseDidReceiveRemoteChangesForChannels:
 databaseManager:didCreateChannel:
@@ -1755,14 +1808,17 @@ deleteObject:
 _existingChannelsForChannelIdentifier:databaseContext:
 _existingChannelsForDatabaseChannel:databaseContext:
 _existingReceivedInvitationsForHandle:statusTypeIdentifier:databaseContext:
+refreshObject:mergeChanges:
 allValues
 initWithContext:
 setStatusType:
+setDecomissioned:
 setPersonal:
 setIdentifier:
 save:
 _existingPersonalChannelForDatabaseChannel:databaseContext:
 setCurrentOutgoingRatchetState:
+_existingPersonalChannelsForStatusTypeIdentifier:databaseContext:
 setOriginalOutgoingRatchetState:
 setDateGenerated:
 addGeneratedEncryptionKeysObject:
@@ -1790,6 +1846,7 @@ setDateReceived:
 setRawData:
 setDateExpired:
 setPayloadData:
+setRetryCount:
 _existingPendingPublishRequestForUniqueIdentifier:databaseContext:
 _existingPendingPublishRequestsForStatusTypeIdentifier:databaseContext:
 _existingPendingPublishRequestsWithDatabaseContext:
@@ -1802,6 +1859,7 @@ setIncomingRatchetState:
 addReceivedInvitationsObject:
 receivedInvitations
 _existingReceivedInvitationsForChannelIdentifier:sortedByDateReceived:databaseContect:
+_existingDecomissionedPersonalChannelsWithDatabaseContext:
 deletePersonalChannelForStatusTypeIdentifier:databaseContext:
 T@"<SKADatabaseProviding>",R,N,V_databaseProvider
 T@"<SKADatabaseManagingDelegate>",R,W,N,V_delegate
@@ -1813,9 +1871,11 @@ _applicationIdentifier
 T@"NSString",R,N,V_applicationIdentifier
 _payloadData
 _statusUniqueIdentifier
+_retryCount
 T@"NSString",R,C,N,V_statusTypeIdentifier
 T@"NSData",R,N,V_payloadData
 T@"NSString",R,C,N,V_statusUniqueIdentifier
+Tq,R,N,V_retryCount
 containsString:
 invitedHandleKeyPath
 channelKeyPath
@@ -1842,10 +1902,11 @@ T@"NSHashTable",&,N,V_listeners
 fetchRequestWithEntityName:
 T@"NSData",&,D,N
 T@"NSDate",C,D,N
-T@"NSString",C,D,N
 TB,D,N
+T@"NSString",C,D,N
 T@"NSSet",&,D,N
 T@"Channel",&,D,N
+Ti,D,N
 @16@0:8
 B24@0:8@16
 #16@0:8
@@ -1890,13 +1951,14 @@ v48@0:8@"SKHandle"16@"SKHandle"24@"NSString"32@?<v@?@"SKHandleInvitability"@"NSE
 @"SKHandle"24@0:8@"SKHandle"16
 @"<SKAInvitationManagingDelegate>"16@0:8
 v24@0:8@"<SKAInvitationManagingDelegate>"16
-@40@0:8@16@24@32
+@48@0:8@16@24@32@40
 B40@0:8@16@24^@32
 B48@0:8@16@24@32^@40
 @48@0:8@16@24^B32^@40
 @"<SKAInvitationManagingDelegate>"
 @"<SKAMessagingProviding>"
 @"<SKAChannelManaging>"
+@"<SKAAccountProviding>"
 @"NSObject<OS_dispatch_queue>"
 @20@0:8B16
 @24@0:8^{_NSZone=}16
@@ -1909,18 +1971,20 @@ i24@0:8@16
 @"NSString"
 {?="channelOwnershipType"b1}
 B32@0:8@16@24
+@40@0:8@16@24@32
 @24@0:8@?16
 @"NSXPCConnection"
-@48@0:8@16@24@32@40
 v52@0:8@16@24d32B40@?44
 v32@0:8@16@24
+v24@0:8q16
 v52@0:8@"SKStatusPublishRequest"16@"NSString"24d32B40@?<v@?@"NSString"@"NSError">44
 v32@0:8@"NSString"16@"SKStatusPublishRequest"24
+v24@0:8d16
 v40@0:8@16@24@32
 d16@0:8
+q16@0:8
 @"<SKAStatusEncryptionManaging>"
-@"<SKAAccountProviding>"
-@68@0:8@16@24B32@36@44@52@60
+@72@0:8@16@24B32B36@40@48@56@64
 @"NSData"
 @"NSArray"
 v64@0:8@16@24@32@40@48@56
@@ -2028,7 +2092,6 @@ v32@0:8@"<SKAClientConnectionRepresentable>"16@?<v@?@"NSError">24
 v24@0:8@?<v@?@"NSError">16
 v32@0:8@"NSString"16@?<v@?@"NSArray">24
 @40@0:8@16q24@32
-q16@0:8
 @"NSMapTable"
 @"NSObject<OS_os_activity>"
 {?="authCredentialOneof"b1}
@@ -2092,8 +2155,11 @@ v40@0:8@"NSString"16@"NSString"24@"NSManagedObjectContext"32
 B40@0:8@"SKHandle"16@"NSString"24@"NSManagedObjectContext"32
 @"SKADatabaseReceivedInvitation"80@0:8@"SKADatabaseChannel"16@"SKHandle"24@"SKHandle"32@"NSString"40@"NSDate"48@"NSData"56@"NSData"64@"NSManagedObjectContext"72
 v40@0:8@"NSString"16@"SKADatabaseReceivedInvitation"24@"NSManagedObjectContext"32
+v24@0:8@"NSManagedObjectContext"16
+v40@0:8@"SKHandle"16@"NSString"24@"NSManagedObjectContext"32
 @36@0:8q16B24@28
 @"<SKADatabaseManagingDelegate>"
+@56@0:8@16@24@32@40q48
 v24@0:8:16
 {os_unfair_lock_s=I}16@0:8
 v20@0:8{os_unfair_lock_s=I}16

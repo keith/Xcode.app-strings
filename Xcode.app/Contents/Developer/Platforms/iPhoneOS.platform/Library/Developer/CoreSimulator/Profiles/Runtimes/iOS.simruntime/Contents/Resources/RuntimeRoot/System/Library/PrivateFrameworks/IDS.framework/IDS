@@ -105,6 +105,10 @@ decryptData: failed to verify auth tag for topic %@ keyID %@ error %ld
 decryptData: failed to reset cryptor for topic %@ keyID %@ error %ld
 Invalidating _IDSGroupSession { self: %p, _internal: %p }
 IDSGroupSession method invoked without a valid internal session! { self: %p, _internal: %p }
+createAliasForParticipantID created %llu from %llu and %@
+createAliasForLocalParticipantIDWithSalt created %llu from %llu and %@
+createAliasForLocalParticipantIDWithSalt created and returning %llu
+IDS daemon took too long to respond to participantIDForAlias:salt:
 manageDesignatedMembers: invalid type: %u
 IDSReportiMessageSpam - %@  (toURI: %@)
 IDSReportiMessageUnknownSenderWithBlackholeStatus - %@, %@, %@, %@  (toURI: %@)
@@ -299,6 +303,7 @@ Failed to soft link IDSSimulatorLocalPairingAddPairedDevice
 Failed to soft link IDSSimulatorLocalPairingDeletePairedDevice
 Failed to soft link IDSSimulatorLocalPairingSwitchActivePairedDevice
 IDSGroupEncryptionKeyMaterialCache
+IDSGroupEncryptionKeyMaterialCache received key %@
 IDSGroupEncryptionKeyMaterialCache invalidateKeyMaterialByKeyIndexes %@
 IDSGroupEncryptionKeyMaterialCache enumerating keyID %@, locally generated:%@, generation counter:%u
 There are currently no family handles on service. Failing message, will try to fetch members.
@@ -427,6 +432,8 @@ Ignoring group session shouldInvalidateKeyMaterialByKeyIndexes, session doesn't 
 Ignoring group session participantUpdated, session doesn't match %@ vs. %@
 participantUpdatedForSession %@
 hasOutdatedSKI %@
+didCreateParticipantIDAlias %llu salt %@ participantID %llu
+didReceiveParticipantID %llu salt %@ participantIDAlias %llu
 xpc object: [%@] context: [%@]
 Ignoring socket, session doesn't match %@ vs. %@
 Received XPC Response Error: %@
@@ -642,6 +649,9 @@ iCloud sign in hack with userName %@ password %@
 iCloud sign out hack
 Kicking get dependent
 Client request for IDSCopyLocalDeviceUniqueID: %@
+createDataBlobFrom: encoded %@
+extractDictionaryFromDataBlobFrom: decoded %@
+requestNWConnectionWithDataBlob: decoded participantIDAlias %llu from %@
 Tried to create an account with empty service name, bailing...
 Tried to create an account with unknown account type %d, bailing...
 No account type specified, setting to Apple ID
@@ -947,6 +957,7 @@ No completion block, bailing...
 No queue, bailing...
 No listener ID, bailing...
 Destination "%@" not found in id query results %@. Verify destination is a properly formed IDS destination (and not just the handle string).
+Received results for service: %@  updates {%@}
 _warmupQueryCacheForService:  (service: %@)
 No service name, bailing...
 Received cache for service %@, %d count
@@ -961,9 +972,9 @@ Listeners after REMOVE %@
 <%p> Creating with destination %@
 -dealloc called for %@
 <%@> sent the first data packet (size: %lu)
-<%@> TX %f bytes/s
+<%@> TX %f bytes/s %f packets/s
 <%@> received the first data packet (size: %lu)
-<%@> RX %f bytes/s
+<%@> RX %f bytes/s %f packets/s
 -underlyingFileDescriptor called for %@
 <%@> first read, will send dummy link information
 <%@> dummy link information
@@ -975,7 +986,7 @@ Got relay server provider:%d, session token:%dB, session key:%dB.
 <%@> got connectedLinkID %d (link family:%u) (mtu:%u) (l-conn:%u) (l-RAT:%u) (l-flags:0x%x) (l-dataSoMask: %u) (r-conn:%u) (r-RAT:%u) (r-flags:0x%x) (r-datasoMask:%u) isVirtualRelayLink: %@, (Current LinkContexts %@
 <%@> sent IDSDataChannelEventConnected, current link contexts %@
 can't find link %d for the default
-<%@> sendMediaEncryptionEventInfo MKM:%{private}@, MKS:%{private}@, MKI:%{private}@ locally generated:%{private}@
+<%@> sendMediaEncryptionEventInfo MKM:%{private}@, MKS:%{private}@, MKI:%{private}@ locally generated:%{private}@ encryptionSequenceNumber:%{private}@
 <%@> there is no report yet for the first packet of this MKI %{private}@.
 <%@> sendMediaMembershipChangedInfo membershipChanged:%u
 processMetadataForDatagram datagramSize(%zd) <= kIDSClientChannelMetadataLengthSize - returning
@@ -1069,6 +1080,8 @@ kClientChannelMetadataType_SoMaskChanged got SoMask: %u
 send event to client about kClientChannelMetadataType_SoMaskChanged, SoMask: %u
 kClientChannelMetadataType_SoMaskChanged should be %u bytes, not %u bytes, field: %u
 kClientChannelMetadataType_NeedsHBHEncryption should be %u byte, not %u
+kClientChannelMetadataType_EncryptionSequenceNumber got %llu (*Client <- IDSD)
+kClientChannelMetadataType_EncryptionSequenceNumber should be %u bytes, not %u bytes, field: %u
 Unknown metadata type: %u
 readDatagramWithCompletionHandler: _internal->_connection: Only has statsID: %x
 <%@> read details: datagramSize %ld metadataSize %ld dataOffset %ld [%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x ...]
@@ -1145,6 +1158,7 @@ readDatagramsWithCompletionHandler: _internal->_connection: Only has statsID: %x
 %@: reportFirstPacketForMKI: MKI %{private}@ has not arriaved yet. report later when it arrives.
 %@: _reportFirstPacketForMKI: one of values is nil: MKIArrivalTime %@, firstPacketForMKIArrivalTime %@
 %@: _reportFirstPacketForMKI: first packet arrival: %@, MKI arrival: %@
+storing encryption sequence number: %llu (*Client -> IDSD)
 Client setup service -- checked in {service: %@}
 Client setup service -- failed check in! {service: %@}
 Finalized check in -- finishing {service: %@}
@@ -1155,11 +1169,13 @@ Client ID status to refresh ID status for destinations %@  on service: %@   from
 Client %@ is attempting to send more than a reasonable amount of URI's in a query {count: %lu}
 Client ID status to force refresh ID status for destinations %@  on service: %@   from listenerID: %@
 Client ID status to refresh ID status for destination %@  on service: %@   from listenerID: %@
+Client ID status for required ID status for destinations %@  on service: %@   from listenerID: %@
+Client ID status for required ID status for destination %@  on service: %@   from listenerID: %@
 Client requesting to warmup the query cache for service: %@
 Client requesting to flush the query cache for service: %@
 ** BLOCKING Client ID status to refresh ID status for destination %@  on service: %@   from listenerID: %@
-  => Done: %f
 ** BLOCKING Client ID status to refresh ID status for destinations %@  on service: %@   from listenerID: %@
+  => Done: %f
 ** BLOCKING Client ID status cache request for destination %@  on service: %@ respectExpiry: %@   from listenerID: %@
 ** BLOCKING Client ID status cache request for destinations %@  on service: %@ respectExpiry: %@   from listenerID: %@
 Client Remote Device Request for destinations %@  on service: %@   from listenerID: %@
@@ -1427,11 +1443,11 @@ decryptingKeySalts
 -[IDSGroupSession initWithAccount:destinations:options:]
 -[IDSGroupSession initWithAccount:options:]
 -[IDSGroupSession _internal_sessionWithValidityCheck]
+v16@?0Q8
 session:
 -[IDSGroupSession _internal]
 %@%u
-%llu
-groupsession:%@:ids:%@:L
+groupsession
 0.0.0.0
 3030
 IDSReportiMessageSpam
@@ -1626,8 +1642,8 @@ IDSSendMessageOptionPublicMessageIntent
 -[IDSConnection _initWithAccount:commands:indirectDelegateCallouts:]
 -[IDSConnection _internal]
 groupSessionID
+salt
 serviceName
-groupsession:%@:ids:%d
 Unable to create nw_connection. The failure was caused due to invalid parameters or not being able to extract the address from the socket.
 Error
 %F %T 
@@ -1642,7 +1658,6 @@ remoteParticipantID
 connectionIndex
 dataMode
 IDSRealTime
-groupsession:%@:ids:%llu
 com.apple.identityservicesd.nsxpc
 -[IDSPairedDeviceManager setAllowedTrafficClassifiers:]_block_invoke
 -[IDSPairedDeviceManager deletePairedDevice:withCompletionBlock:queue:]_block_invoke
@@ -1749,9 +1764,12 @@ v16@?0@"<IDSGroupSessionDelegate>"8
 -[_IDSGroupSession session:shouldInvalidateKeyMaterialByKeyIndexes:]
 -[_IDSGroupSession participantUpdatedForSession:]
 -[_IDSGroupSession session:hasOutdatedSKI:]
+-[_IDSGroupSession session:didCreateParticipantIDAlias:forParticipantID:salt:]
+-[_IDSGroupSession session:didReceiveParticipantID:forParticipantIDAlias:salt:]
 session-device-socket
 sessionID
 error
+%llu
 kIDSGroupContextControllerPersistedToken
 kIDSGroupContextControllerListenerID
 v24@?0@"IDSGroupContextControllerContent"8@"NSError"16
@@ -2011,17 +2029,19 @@ urn:ck:%@
 Required Field Is Empty
 A required Field Is Empty
 ServiceUserID and AdminID can not be the same
-participantID
+groupSessionIDAlias
+participantIDAlias
 listeningPort
 IDSGroupSessionUnicastConnector
+PreSharedKey has Unexpected size.
 Unknown parameter
-groupsession:%@
 Unable to create PSK.
 Listener failed with error code %d
 Listener cancelled
 v16@?0@"NSObject<OS_nw_connection>"8
 v16@?0@"NSObject<OS_nw_protocol_options>"8
 v32@?0@"NSObject<OS_sec_protocol_metadata>"8@"NSObject<OS_sec_trust>"16@?<v@?B>24
+groupsession:%@:ids:%@:L
 Unable to create connection to the virtual participant.
 IDSToolTestOnlyPSKIdentity
 -[_IDSAccount initWithDictionary:uniqueID:serviceName:delegateContext:]
@@ -2289,6 +2309,7 @@ Missing entitlements
 Unable to send request
 Pseudonym limit reached
 Request failed
+Max number of in flight provisions reached
 .XXXX
 addressbooksyncd
 amsaccountsd
@@ -2407,6 +2428,7 @@ cached-id-status-query
 respect-expiry
 id-status-query
 force
+bypass-limit
 remote-device-status-query
 destination
 disallow-query
@@ -2562,6 +2584,9 @@ _IDSIDQueryControllerConnectionQueue
 _IDSIDQueryControllerQueue
 set-id-status
 v40@?0@"NSDictionary"8@"NSString"16@"NSString"24@"NSError"32
+    "%@" =     (
+        %@
+    );
 -[IDSDevice _initWithDictionary:]
 -[IDSDevice initWithDictionary:]
 -[IDSDevice _internal]
@@ -2613,6 +2638,7 @@ DatagramChannelFunctionalLogging
 <%p> channelFD %d connected %@ eventHandler %p readHandler %p withOptions %p auto %@
 <%p> socket %d connected %@ eventHandler %p readHandler %p withOptions %p connetion %@
 <%p> socket %d connected %@ eventHandler %p readHandler %p withOptions %p
+none
 _internal->_MKIArrivalTime
 IDSFoundation
 got CT(packet counting) option
@@ -3118,6 +3144,8 @@ registerPluginForGroup:options:
 unregisterPluginForGroup:options:
 requestEncryptionKeyForGroup:participants:
 setRequiredCapabilities:requiredLackOfCapabilities:forSessionWithUniqueID:
+createAliasForParticipantID:salt:sessionID:
+getParticipantIDForAlias:salt:sessionID:
 setupRealtimeEncryptionController:forAccountWithID:
 sendRealTimeMediaPrekey:toGroup:
 requestPublicKeysForRealTimeEncryption:forAccountWithID:
@@ -3682,6 +3710,9 @@ initWithAccount:destinations:options:delegateContext:
 setWithArray:
 _IDSGroupSession
 uniqueID
+sessionIDAliasWithSalt:
+localParticipantID
+getParticipantIDForAlias:salt:completionHandler:
 stringByAppendingString:
 sessionEndedReason
 requiredCapabilities
@@ -3702,23 +3733,30 @@ setRequiredCapabilities:requiredLackOfCapabilities:
 requestActiveParticipants
 registerPluginWithOptions:
 unregisterPluginWithOptions:
-localParticipantID
-sessionID
-initWithGroupSessionID:localParticipantID:remoteParticipantID:dataMode:connectionIndex:
+createAliasForParticipantID:salt:
+unicastParameterForParticipantIDAlias:salt:dataMode:connectionIndex:
+createAliasForLocalParticipantIDWithSalt:
+initWithGroupSessionID:localParticipantID:remoteParticipantID:salt:dataMode:connectionIndex:
 _requestNWConnectionforIDSGroupSessionUnicastParameter:
-initWithGroupSessionID:participantID:dataMode:
+initWithGroupSessionIDAlias:participantIDAlias:salt:dataMode:
 requestNWConnectionWithDataBlob:completionHandler:
-requestNWConnectionToVirtualParticipant:forSession:completionHandler:
+augmentNetworkParametersForSessionAlias:participantIDAlias:salt:parameters:
+setMultiplexer:
+setSessionID:
+setParticipantID:
+setSalt:
+stringRepresentation
 requestDataCryptorForTopic:completionHandler:
 requestEncryptionKeyForParticipants:
-initWithGroupSessionID:serviceName:
+sessionID
+initWithGroupSessionID:salt:serviceName:
 _requestNWConnectionforIDSGroupSessionBroadcastParameter:
 requestNWConnectionforIDSGroupSessionUnicastParameter:withCompletionHandler:
-requestConnectionToVirtualParticipant:sessionID:completionHandler:
 augmentNetworkParametersForSession:participantID:parameters:
 requestNWConnectionforIDSGroupSessionBroadcastParameter:withCompletionHandler:
 initWithAccount:destinations:options:
 initWithAccount:options:
+participantIDForAlias:salt:
 destination
 removeParticipants:
 unicastParameterForParticipantID:dataMode:connectionIndex:
@@ -3859,6 +3897,8 @@ session:didUnregisterPluginAllocationInfo:
 session:didReceiveKeyMaterial:
 session:shouldInvalidateKeyMaterialByKeyIndexes:
 session:hasOutdatedSKI:
+session:didCreateParticipantIDAlias:forParticipantID:salt:
+session:didReceiveParticipantID:forParticipantIDAlias:salt:
 receivedGroupSessionParticipantUpdate:forTopic:toIdentifier:fromID:
 receivedGroupSessionParticipantDataUpdate:forTopic:toIdentifier:fromID:
 allocationDone:sessionInfo:
@@ -4457,10 +4497,14 @@ IDSConnection
 endpoint
 parameters
 groupSessionID
+salt
+initWithGroupSessionID:serviceName:
 _groupSessionID
+_salt
 _parameters
 _endpoint
 T@"NSString",R,N,V_groupSessionID
+T@"NSData",R,N,V_salt
 T@"NSString",R,N,V_serviceName
 T@"NSObject<OS_nw_parameters>",R,N,V_parameters
 T@"NSObject<OS_nw_endpoint>",R,N,V_endpoint
@@ -4534,6 +4578,7 @@ encodeInt:forKey:
 decodeIntForKey:
 remoteParticipantID
 connectionIndex
+initWithGroupSessionID:localParticipantID:remoteParticipantID:dataMode:connectionIndex:
 initWithConnectedSocket:dataMode:connectionIndex:
 requestNWConnectionforIDSGroupSessionUnicastParameter:
 setSocket:
@@ -4692,6 +4737,7 @@ session:didReceiveBlockedParticipantIDs:withCode:isTruncated:
 sessiondidReceiveKeyUpdate:
 connection:didReceiveData:
 connectionDidClose:
+createAliasForParticipantID:salt:completionHandler:
 setKeyMaterialCache:
 boostContext
 setBoostContext:
@@ -4733,6 +4779,8 @@ _qrReason
 _previousError
 _keyMaterialCache
 _dataCryptorRequests
+_createParticipantIDAliasCallbacks
+_getParticipantIDForAliasCallbacks
 _requiredCapabilities
 _requiredLackOfCapabilities
 T@"NSString",R,N,V_uniqueID
@@ -5290,17 +5338,26 @@ _refreshUserAccessTokensCompletion
 _strictlyUnarchivedObjectOfClasses:fromData:error:
 createDataBlobFrom:port:
 extractDictionaryFromDataBlobFrom:error:
+scannerWithString:
+scanUnsignedLongLong:
 participantID
+groupSessionIDAlias
+participantIDAlias
+requestNWConnectionToVirtualParticipant:forSession:completionHandler:
+initWithGroupSessionID:participantID:dataMode:
 requestDataBlob:
 listenForIncomingConnection:
 connectionReadyCallback
 setConnectionReadyCallback:
 cachedConnection
 setCachedConnection:
-_participantID
+_groupSessionIDAlias
+_participantIDAlias
 _connectionReadyCallback
 _cachedConnection
-TQ,R,N,V_participantID
+T@"NSString",R,N,V_groupSessionIDAlias
+TQ,R,N,V_participantIDAlias
+T@"NSData",&,N,V_salt
 T@?,C,N,V_connectionReadyCallback
 T@"NSObject<OS_nw_connection>",&,N,V_cachedConnection
 _loadCachedDevices
@@ -5649,7 +5706,7 @@ _createXPCConnectionOnQueue:
 _disconnectFromQueryService
 _requestCacheForService:completionBlock:
 _requestCachedStatusForDestinations:service:waitForReply:respectExpiry:listenerID:completionBlock:
-_requestStatusForDestinations:service:waitForReply:forceRefresh:listenerID:completionBlock:
+_requestStatusForDestinations:service:waitForReply:forceRefresh:bypassLimit:listenerID:completionBlock:
 _requestRemoteDevicesForDestination:service:listenerID:waitForReply:completionBlock:
 initialize
 initWithSubscriptionSlot:labelID:
@@ -5802,11 +5859,13 @@ initWithSuccess:
 _updateCacheWithDictionary:service:
 _delegateMapForListenerID:service:
 _callDelegatesWithBlock:delegateMap:
-_idStatusForDestinations:service:listenerID:allowRenew:respectExpiry:waitForReply:forceRefresh:completionBlock:
-_refreshIDStatusForDestinations:service:listenerID:allowRefresh:respectExpiry:waitForReply:forceRefresh:queue:completionBlock:
+_idStatusForDestinations:service:listenerID:allowRenew:respectExpiry:waitForReply:forceRefresh:bypassLimit:completionBlock:
+_refreshIDStatusForDestinations:service:listenerID:allowRefresh:respectExpiry:waitForReply:forceRefresh:bypassLimit:queue:completionBlock:
 _currentRemoteDevicesForDestinations:service:listenerID:queue:waitForReply:completionBlock:
 refreshIDStatusForDestinations:service:listenerID:forceRefresh:queue:completionBlock:
+requiredIDStatusForDestinations:service:listenerID:queue:completionBlock:
 currentIDStatusForDestinations:service:respectExpiry:listenerID:queue:completionBlock:
+appendString:
 initWithDelegateContext:queueController:
 _isListenerWithID:listeningToService:
 _setCurrentIDStatus:forDestination:service:
@@ -5814,6 +5873,7 @@ _sync_refreshIDStatusForDestinations:service:listenerID:completionBlock:
 _sync_currentIDStatusForDestinations:service:respectExpiry:listenerID:completionBlock:
 _sync_currentRemoteDevicesForDestinations:service:listenerID:completionBlock:
 refreshIDStatusForDestination:service:listenerID:queue:completionBlock:
+requiredIDStatusForDestination:service:listenerID:queue:completionBlock:
 currentIDStatusForDestination:service:respectExpiry:listenerID:queue:completionBlock:
 _hasCacheForService:
 _currentCachedIDStatusForDestination:service:listenerID:
@@ -5903,6 +5963,8 @@ _sendingMetadata
 _needsMediaEncryptionInfo
 _outgoingBytes
 _incomingBytes
+_outgoingPackets
+_incomingPackets
 _lastOutgoingStatReport
 _lastIncomingStatReport
 _MKIArrivalTime
@@ -5913,7 +5975,7 @@ _reportFirstPacketTimeForMKI:
 addNewIDSDataChannelLinkWithAttributes:linkAttributesLength:
 removeIDSDataChannelLinkContext:linkUUID:reason:
 selectDefaultLink:
-sendMediaEncryptionInfoWithMKM:MKS:MKI:isLocallyGenerated:
+sendMediaEncryptionInfoWithMKM:MKS:MKI:isLocallyGenerated:encryptionSequenceNumber:
 sendMediaMembershipChangedInfo:
 processMetadataForDatagram:size:datagramInfo:options:
 _logReceivingStats:
@@ -6191,6 +6253,7 @@ v28@0:8@16I24
 v32@0:8q16@24
 v60@0:8@16@24@32@40@48B56
 v44@0:8@16@24@32S40
+v40@0:8Q16@24@32
 v48@0:8q16@24@32B40B44
 v52@0:8@16@24B32@36@44
 v40@0:8q16q24@32
@@ -6236,6 +6299,7 @@ v40@0:8@"NSSet"16@"NSString"24@"NSString"32
 v48@0:8@"NSData"16@"NSString"24@"NSString"32@"NSData"40
 v32@0:8@"NSString"16@"NSArray"24
 v40@0:8@"NSArray"16@"NSArray"24@"NSString"32
+v40@0:8Q16@"NSData"24@"NSString"32
 v40@0:8q16@"NSData"24@"NSDictionary"32
 v40@0:8q16@"NSData"24@"NSData"32
 v48@0:8q16@"NSData"24@"NSData"32@"NSArray"40
@@ -6337,11 +6401,14 @@ v24@0:8@"NSCoder"16
 @"NSData"
 ^{_CCCryptor=}
 @"NSMapTable"
-v40@0:8Q16@24@?32
 @40@0:8@16Q24@32
+@48@0:8@16Q24@32@40
+Q32@0:8Q16@24
+Q24@0:8@16
 v44@0:8@16@24@32B40
 v28@0:8@16S24
 @40@0:8Q16q24Q32
+@48@0:8Q16@24q32Q40
 @24@0:8q16
 @"_IDSGroupSession"
 v32@0:8@"IDSPhoneSubscription"16@?<v@?@"NSArray"@"NSError">24
@@ -6360,6 +6427,7 @@ v36@0:8@16I24@28
 v28@0:8@16B24
 v44@0:8@16@24I32S36B40
 v40@0:8@16@24I32B36
+v48@0:8@16Q24Q32@40
 v40@0:8@16q24@32
 v40@0:8@16@24^B32
 v52@0:8@16q24B32d36@44
@@ -6393,6 +6461,7 @@ v36@0:8@"NSString"16@"NSArray"24B32
 v44@0:8@"NSString"16@"NSArray"24I32S36B40
 v40@0:8@"NSString"16@"NSArray"24I32B36
 v32@0:8@"NSString"16@"NSUUID"24
+v48@0:8@"NSString"16Q24Q32@"NSData"40
 v48@0:8@"NSDictionary"16@"NSString"24@"NSString"32@"NSString"40
 v40@0:8@"NSObject<OS_xpc_object>"16@"NSString"24@"NSError"32
 v40@0:8@"NSString"16q24@"NSError"32
@@ -6469,7 +6538,6 @@ v48@0:8@16@24Q32@?40
 v44@0:8@16Q24B32@?36
 v52@0:8@16@24Q32B40@?44
 v40@0:8d16@24B32B36
-Q24@0:8@16
 B40@0:8Q16Q24@?32
 d16@0:8
 v24@0:8d16
@@ -6498,6 +6566,7 @@ v40@0:8@"NSString"16@"NSSet"24@?<v@?@"NSError">32
 B72@0:8@16@24@32q40@48^@56^@64
 v48@0:8@"NSString"16@"NSString"24@"NSString"32@?<v@?@"NSString"@"NSString"B>40
 @56@0:8@16Q24Q32q40Q48
+@64@0:8@16Q24Q32@40q48Q56
 @36@0:8i16q20Q28
 v24@0:8@?<v@?@"<IDSXPCPairing>"@"NSError">16
 v24@0:8@?<v@?@"<IDSXPCPairedDeviceManager>"@"NSError">16
@@ -6522,6 +6591,7 @@ q24@0:8^@16
 @"_IDSAccountController"
 v32@0:8@"IDSBaseSocketPairConnection"16@"NSData"24
 v24@0:8@"IDSBaseSocketPairConnection"16
+v40@0:8Q16@24@?32
 @"IDSBaseSocketPairConnection"
 ^{cfs_client_s=}
 @"NSError"
@@ -6588,6 +6658,7 @@ v64@0:8@16@24@32@40@?48@56
 @"_IDSGenericCompletionHandler"
 @32@0:8@16^@24
 @40@0:8@16Q24q32
+@48@0:8@16Q24@32q40
 @28@0:8@16S24
 v24@0:8@?<v@?@"NSDictionary"@"NSError">16
 B32@0:8Q16q24
@@ -6646,6 +6717,7 @@ B56@0:8@16q24@32^@40@?48
 @"CUTDeferredTaskQueue"
 @"IDSPseudonym"
 v56@0:8@16@24B32B36@40@?48
+v60@0:8@16@24B32B36B40@44@?52
 @52@0:8@16@24@?32@?40B48
 @"IDSURI"
 @48@0:8q16@24@32@40
@@ -6659,8 +6731,8 @@ v36@0:8@"NSXPCConnection"16@"NSInvocation"24B32
 @"<NSXPCProxyCreating>"
 @48@0:8@16@24d32@?40
 @"IDSEndpointCapabilities"
-v64@0:8@16@24@32B40B44B48B52@?56
-B72@0:8@16@24@32B40B44B48B52@56@?64
+v68@0:8@16@24@32B40B44B48B52B56@?60
+B76@0:8@16@24@32B40B44B48B52B56@60@?68
 B48@0:8@16@24@32@?40
 B52@0:8@16@24B32@36@?44
 B60@0:8@16@24@32B40@44@?52
@@ -6683,16 +6755,17 @@ S16@0:8
 v32@0:8c16@20C28
 v28@0:8*16S24
 v20@0:8c16
+v52@0:8@16@24@32B40Q44
 v20@0:8C16
-v48@0:8*16Q24^{?=cSCSC}32^{?=IQSCc[12S]CS{?=SSSSS}dQB}40
+v48@0:8*16Q24^{?=cSCSC}32^{?=IQSCc[12S]CS{?=SSSSS}dQBQ}40
 v60@0:8r^^v16^I24^{?=cSCSC}32i40^^{?}44@?52
-v62@0:8r^^v16^I24{?=cSCSC}32i42^{?=IQSCc[12S]CS{?=SSSSS}dQB}46@?54
-v54@0:8r^v16I24{?=cSCSC}28^{?=IQSCc[12S]CS{?=SSSSS}dQB}38@?46
+v62@0:8r^^v16^I24{?=cSCSC}32i42^{?=IQSCc[12S]CS{?=SSSSS}dQBQ}46@?54
+v54@0:8r^v16I24{?=cSCSC}28^{?=IQSCc[12S]CS{?=SSSSS}dQBQ}38@?46
 v46@0:8r^v16I24{?=cSCSC}28@?38
 v24@0:8^{?=*QqqIBBBBBBI{sockaddr_storage=CC[6c]q[112c]}{sockaddr_storage=CC[6c]q[112c]}SCi[8{?=*Si[12S]qCSCBBS{?=SSSSS}BBi[4S]CI}]ccidQ[0C]}16
 ^{?=*QqqIBBBBBBI{sockaddr_storage=CC[6c]q[112c]}{sockaddr_storage=CC[6c]q[112c]}SCi[8{?=*Si[12S]qCSCBBS{?=SSSSS}BBi[4S]CI}]ccidQ[0C]}20@0:8B16
 v24@0:8B16B20
-v50@0:8{?=cSCSC}16^{?=IQSCc[12S]CS{?=SSSSS}dQB}26C34C38^{?=****B}42
+v50@0:8{?=cSCSC}16^{?=IQSCc[12S]CS{?=SSSSS}dQBQ}26C34C38^{?=****B}42
 @"_IDSDatagramChannel"
 @"<IDSXPCConnectionProtocol>"
 @"<IDSXPCAdapter>"

@@ -19,19 +19,22 @@ BEGIN [%lld]: CachedCircleStatus  enableTelemetry=YES
  status=%{public,signpost.telemetry:number1,name=status}d 
 CachedCircleStatus
 END [%lld] %fs: CachedCircleStatus  status=%{public,signpost.telemetry:number1,name=status}d 
+"Beneficiary account detected. Faking cached SOS circle status."
 "Checking circle status with SOSCCThisDeviceIsInCircle"
 "Failed to check circle status: %@"
 "Call to SOSCCThisDeviceIsInCircle returned a status: %d"
+"Checking combined circle status"
 "%s (%d) called"
 "Clique waitForOctagonUpgrade %@ with error %@"
 "This is not an HSA2 account, not calling waitForOctagonUpgrade"
 "Reporting success for %@"
 "Reporting failure for %@"
+CircleStatus
 BEGIN [%lld]: CircleStatus  enableTelemetry=YES 
 "Checking clique status with fetchCliqueStatus from %@"
 "Call to fetchCliqueStatus returned a status: %@"
-CircleStatus
 END [%lld] %fs: CircleStatus  status=%{public,signpost.telemetry:number1,name=status}d 
+"Beneficiary account detected. Faking non-cached SOS circle status."
 BEGIN [%lld]: SOSCircleStatus  enableTelemetry=YES 
 SOSCircleStatus
 END [%lld] %fs: SOSCircleStatus  status=%{public,signpost.telemetry:number1,name=status}d 
@@ -97,6 +100,7 @@ END [%lld] %fs: CustodianDeleteRecoveryKey  Error=%{public,signpost.telemetry:nu
 "Error creating access key for beneficiary %@: %@."
 "Unable to create the access key without access string or data."
 "Attempting to recover Octagon with the inheritance key."
+"Error creating access key: %@."
 "Creating the access code from data."
 "Creating the access code from string."
 "Attempted to present CDPUI with incomplete uiProvider: %s"
@@ -204,12 +208,18 @@ END [%lld] %fs: RepairCloudDataProtectionState  Error=%{public,signpost.telemetr
 "Attempting to finish secure terms flow..."
 cdp: repair state check
 "XPC Error while checking recovery existence: %@"
+cdp/generate-rk
 "XPC Error while generating a recovery key: %@"
 "Attempting to generate a new recovery key"
+cdp/delete-rk
 "XPC Error while deleting a recovery key: %@"
 "Attempting to delete a recovery key"
 "XPC Error while fetching recovery key state: %@"
+cdp/rk-availability
 "Attempting to fetch recovery key state"
+"Failed to fetch recovery key availability with error %@"
+"Recovery key availability - %@"
+"XPC Error while fetching recovery key availability."
 "Handling URL action: %@"
 cdp: recovery flow
 "XPC Error while recovering data: %@"
@@ -260,6 +270,7 @@ _findMyiPhoneUUID
 _supportsSkipSignIn
 _altDSID
 _isFederatedAccount
+_isBeneficiaryAccount
 __ignoreLockAssertErrors
 _custodianRecoveryInfo
 _beneficiaryAccount
@@ -602,6 +613,8 @@ isHSA2Account
 setIsHSA2Account:
 isFederatedAccount
 setIsFederatedAccount:
+isBeneficiaryAccount
+setIsBeneficiaryAccount:
 didUseSMSVerification
 setDidUseSMSVerification:
 type
@@ -648,6 +661,7 @@ beneficiaryWrappedKeyData
 setBeneficiaryWrappedKeyData:
 _isHSA2Account
 _isFederatedAccount
+_isBeneficiaryAccount
 _didUseSMSVerification
 _guestMode
 _supportsSkipSignIn
@@ -701,6 +715,7 @@ T@"NSNumber",C,N,V_dsid
 T@"NSString",C,N,V_altDSID
 TB,N,V_isHSA2Account
 TB,N,V_isFederatedAccount
+TB,N,V_isBeneficiaryAccount
 TB,N,V_didUseSMSVerification
 T@"NSString",C,N,V_cachedLocalSecret
 TQ,N,V_cachedLocalSecretType
@@ -719,23 +734,24 @@ numberWithInteger:
 cdpStatusFromOT:
 cachedCliqueStatus:
 platformSupportsSOS
-sos_cachedCircleStatus:
+cachedSOSCircleStatus:
 cdpStatusFromSOS:
-_authenticatedCircleStatus:
+_authenticatedCliqueStatus:
 _sos_circleStatus:
 waitForOctagonUpgrade:
 contextType
 performedSuccessfulCDPStateMachineRun:reply:
 performedFailureCDPStateMachineRun:error:reply:
 fetchCliqueStatus:
-_circleStatus:
+_cliqueStatus:
 _sos_authenticatedCircleStatus:
 tryRegisteringCredentials
 registerCredentials
+nonCachedSOSCircleStatus:
 cliqueMemberIdentifier
 peerDeviceNamesByPeerID:
 waitForInitialSync:
-circleStatus:
+combinedCircleStatus:
 removeThisDeviceFromCircle:
 leaveClique:
 requestToJoinCircle:
@@ -772,7 +788,7 @@ wrappedRKC
 wrappingKey
 initWithWrappedKey:wrappingKey:uuid:error:
 recoverOctagonUsingCustodianRecoveryKey:custodianRecoveryKey:reply:
-cachedCircleStatus:
+combinedCachedCircleStatus:
 peerId
 peerDeviceNamesByPeerID
 didJoinCircleAfterRecovery:
@@ -811,6 +827,8 @@ altDSIDForAccount:
 primaryAccountAltDSID
 authKitAccountWithAltDSID:
 securityLevelForAccount:
+primaryAuthKitAccount
+isBeneficiaryForAccount:
 aa_authToken
 propertiesForDataclass:
 objectForKey:
@@ -819,7 +837,9 @@ primaryAccountDSID
 longLongValue
 numberWithLongLong:
 primaryAccountUsername
+primaryAccountIsBeneficiary
 aa_firstName
+aa_fullName
 defaultStore
 aa_primaryAppleAccount
 credentialForAccount:error:
@@ -830,6 +850,7 @@ authToken
 escrowURL
 iCloudEnv
 primaryAccountFirstName
+primaryAccountFullName
 primaryAccountStashedPRK
 proxyWithAuthProvider:
 cdp_errorWithCode:
@@ -859,6 +880,7 @@ createInheritanceKey:uuid:reply:
 _inheritanceKeyFromAccessKey:keyError:
 beneficiaryID
 recoverOctagonUsingInheritanceKey:inheritanceKey:reply:
+removeInheritanceKey:inheritanceKeyUUID:reply:
 uuid
 initWithBeneficiairyIdentifier:
 claimTokenData
@@ -879,6 +901,7 @@ initWithWrappedKeyData:wrappingKeyString:uuid:error:
 createInheritanceKeyWithContext:completion:
 recoverOctagonWithContext:inheritanceKey:completion:
 isInheritanceAccessKeyValid:
+deleteInheritanceAccessKeyWithContext:completion:
 errorWithDomain:code:userInfo:
 initWithContext:validator:
 initWithContext:handler:
@@ -1022,6 +1045,7 @@ updateDataPrivacyWithContext:shouldContinue:completion:
 isUserVisibleKeychainSyncEnabled
 initWithValidatedSecret:secretType:
 recoveryKey
+accessKey
 cdpContext:promptToInformUserOfAccountUnlockWithCompletion:
 cdpContext:promptToInformUserOfAccountLockOutWithCompletion:
 localSecret
@@ -1031,14 +1055,17 @@ setRemoteSecret:
 icsc
 setIcsc:
 setRecoveryKey:
+setAccessKey:
 _localSecret
 _remoteSecret
 _icsc
 _recoveryKey
+_accessKey
 T@"NSString",C,N,V_localSecret
 T@"NSString",C,N,V_remoteSecret
 T@"NSString",C,N,V_icsc
 T@"NSString",C,N,V_recoveryKey
+T@"AKInheritanceAccessKey",C,N,V_accessKey
 isInternalBuild
 bundleForClass:
 localizedStringForKey:value:table:
@@ -1228,6 +1255,7 @@ v24@0:8q16
 @"CDPCustodianRecoveryInfo"
 @"NSData"
 Q24@0:8^@16
+i24@0:8^@16
 @32@0:8@16^@24
 B24@0:8^@16
 B32@0:8@16@24
@@ -1242,7 +1270,6 @@ B32@0:8@"NSSet"16@"NSSet"24
 @"KCPairingChannel"16@0:8
 v32@0:8@"CDPCustodianRecoveryInfo"16@?<v@?@"NSError">24
 @"CDPContext"16@0:8
-i24@0:8^@16
 Q20@0:8i16
 Q24@0:8q16
 q24@0:8^@16
@@ -1270,6 +1297,7 @@ v48@0:8@"CDPContext"16B24@"NSNumber"28B36@"CDPRemoteDeviceSecretValidator"40
 v32@0:8@"CDPContext"16@"CDPLocalDeviceSecretHandler"24
 v32@0:8@"CDPContext"16@"CDPRemoteDeviceSecretValidator"24
 v32@0:8@"CDPContext"16@?<v@?>24
+@"AKInheritanceAccessKey"
 v32@0:8r*16Q24
 @"<CDPDCircleProxy>"
 v40@0:8@16Q24@?32

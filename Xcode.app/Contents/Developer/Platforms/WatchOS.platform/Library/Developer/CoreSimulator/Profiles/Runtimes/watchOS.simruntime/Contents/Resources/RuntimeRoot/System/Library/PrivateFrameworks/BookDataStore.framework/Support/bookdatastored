@@ -4,10 +4,10 @@ Daemon initializing.
 Daemon shutting down.
 Daemon starting up.
 Some error happened in pre-listener startup: %@
+bookdatastored received sigterm signal
 Daemon finished starting up.
 Setting up listeners.
 Handled Exception {%@}
-*** Assertion failure: %s in %s - %@:%@ %@
 [Transaction]: Created transaction %{public}s(%p)
 [Transaction]: Ending transaction %{public}s(%p)
 [Transaction]: EndTransaction was called but transaction was already nil.(%p)
@@ -52,7 +52,7 @@ BCCloudKitDatabaseController - fetchRecordForRecordID attached: %@
 WARNING: BCCloudKitDatabaseController - fetchRecordForRecordID called without a database.  attached: %@
 BCCloudKitDatabaseController - containerIdentifer changed from: %{public}@ to: %{public}@
 BCCloudKitDatabaseController (%{public}@) - connectUserTo:container:updateSubscription:completion:
-BCCloudKitDatabaseController (%{public}@) - user recordID: %{public}@
+BCCloudKitDatabaseController (%{public}@) - user recordID: %{public}@ database:%@
 BCCloudKitDatabaseController - archiveComplete
 BCCloudKitDatabaseController - Error fetching user recordID: %{public}@
 [BCCloudKitDatabaseController (%@)] 1. attachToZones Creating Record Zones - zones:%@
@@ -74,6 +74,7 @@ CKFetchDatabaseChangesOperation zoneID was changed: %{public}@
 CKFetchDatabaseChangesOperation failed: %{public}@
 CKFetchDatabaseChangesOperation Success
 CKFetchDatabaseChangesOperation Success, but no serverChangeToken
+BCCloudKitDatabaseController (%{public}@)- Adding fetch database changes %@
 [BCCloudKitDatabaseController (%@)] 2. p_createRecordZones:%@ database:%{public}@
 3. BCCloudKitDatabaseController - fetchRecordZonesOperation.fetchRecordZonesCompletionBlock fetchedZones:[%{public}@]
 BCCloudKitDatabaseController - assigning recordZones[%{public}@]
@@ -88,6 +89,7 @@ CKFetchRecordZonesOperation failed: %{public}@
 CKFetchRecordZonesOperation failed. Account Temporarily Unavailable: %{public}@
 BCCloudKitDatabaseController - calling saveResultsBlock
 CKFetchRecordZonesOperation Wanted:%@ Received:%@
+(%{public}@) Establishing record salt
 (%{public}@) Successfully read existing record salt salt:(%@) changeTag:(%@). Calling completion
 (%{public}@) Error retrieving record salt: %@ serverRecord:%@.. Trying to recover
 (%{public}@) Will save record salt
@@ -118,6 +120,7 @@ BCCloudKitDatabaseController - CKFetchRecordZoneChangesOperation NOT retrying fe
 BCCloudKitDatabaseController (%{public}@) - CKFetchRecordZoneChangesOperation fetchRecordZoneChangesCompletionBlock success (%{public}@).
 BCCloudKitDatabaseController (%{public}@) - p_informObserversOfAttachmentChange. Attached to container: %@
 BCCloudKitDatabaseController (%{public}@) - p_informObserversOfRecordsChanged.
+p_informObserversOfRecordsChanged: changedRecords.count=%lu recordType=%{public}@
 BCCloudKitDatabaseController (%{public}@) - p_informObserversOfSaltVersionIdentifierChanged: saltVersionIdentifier=%{public}@ zoneIDs=%{public}@ observers:%@
 %@ name:%@ salt:%@  success:%{BOOL}d  LEAVE GROUP
 p_informObserversOfSaltVersionIdentifierChanged DONE
@@ -209,6 +212,7 @@ BCMutableCloudData recordType called
 BCMutableCloudData identifier called
 Unable to create persistent stores on the coordinator:%@
 Error %{public}@: %{public}@ %d
+Unable to migrate legacy database since file does not exist at URL %@
 Unable to create cloud data source persistent store. Attempting to remove files and start over
 Unable to recreate cloud data source persistent store. Giving up
 Migrating legacy cloud data source from %@ to %@
@@ -217,15 +221,23 @@ Adding cloud data source persistent store for %@
 #dissociateCloudData error: %@
 #dissociateCloudData Successfully transitioned to a new cloud container for entity: %@
 BCCloudDataManager error: %@
+BCCloudDataManager Incremented cloudSyncVersion to %lld
 No managed object context!
 BCCloudDataManager %{public}@ startSyncToCKWithCompletion found %lu dirty records
 BCCloudDataManager %@ startSyncToCKWithCompletion no records need updating
+BCCloudDataManager #recordChange %{public}@ setCloudData for id:%{public}@ data:%@
 Did not find %{public}@ to remove for predicate:%{pubic}@
 Did not match the same results as the cloud data provided.
+BCCloudDataManager #recordChange %{public}@ updateSyncGeneration %@
 Did not find %{public}@ to update sync gen from cloudData:%@
+BCCloudDataManager #recordChange %{public}@ deleteCloudDataForPredicate data:%@
 Did not find %{public}@ to delete for predicate %{public}@
 Tried to look up cloud data but there was no moc.
+BCCloudDataManager #recordChange resolveConflictsForRecords: %{public}@
 CKRecord unexpected with no local identifier: %{public}@
+BCCloudDataManager resolveConflictsForRecords:%{public}@ did not find existing record.  Creating new from %@
+BCCloudDataManager resolveConflictsForRecords:%{public}@ configuration did not allow creation of new record from %@
+BCCloudDataManager #recordChange failedRecordIDs:%{public}@
 BCCloudDataManager %@ #dissociateCloudData
 BCCloudDataManager %@ #hasSaltChangedWithCompletion
 No managed object context! #hasSaltChangedWithCompletion
@@ -395,6 +407,8 @@ init
 dealloc
 listenersReadyQueue
 lrq_setupListeners
+setSigterm_source:
+sigterm_source
 startupQueue
 sq_finishedStartingUp
 lrq_setupBeforeListenersWithCompletion:
@@ -428,6 +442,7 @@ _startupQueue
 _serviceListener
 _syncUserDefaultsStateHandler
 _notificationConnection
+_sigterm_source
 _syncPrepareActivity
 T@"BDSServiceDelegate",&,N,V_serviceDelegate
 T@"NSObject<OS_dispatch_queue>",&,N,V_listenersReadyQueue
@@ -435,6 +450,7 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_startupQueue
 T@"NSXPCListener",&,N,V_serviceListener
 T@"BUOSStateHandler",&,N,V_syncUserDefaultsStateHandler
 T@"BDSNotificationConnection",&,N,V_notificationConnection
+T@"NSObject<OS_dispatch_source>",&,N,V_sigterm_source
 T@"BDSAudiobookSyncPrepareActivity",&,N,V_syncPrepareActivity
 bundleForClass:
 bundleURL
@@ -2094,7 +2110,6 @@ assetIDFromCollectionMemberID:
 initWithCollectionMemberID:
 _collectionMemberID
 T@"NSString",C,N,V_collectionMemberID
-MbP?
 v8@?0
 com.apple.bookdatastored.xpc-listener-ready
 com.apple.bookdatastored.startup-queue
@@ -2104,15 +2119,10 @@ com.apple.iBooks
 BookDataStore.CloudKit
 BookDataStore.CloudKitSync
 BookDataStore.CloudKitAudiobook
-BookDataStore.ServiceCenter
 BookDataStore.Service
-BookDataStore.ArtworkImporter
-BookDataStore.BDSCtl
 BDSArrayAdditionsErrorDomain
 v20@?0B8@"NSError"12
-BDSReachabilityErrorDomain
 kNetworkReachabilityChangedNotification
-NSManagedObjectContextIMAdditionsSafeAccessState
 objectID
 NSError %@
 NSDetailedErrors
@@ -2141,9 +2151,6 @@ iCloudIdentityExists
 <%@=%p %@>
 AssetZone
 CollectionZone
-ReadingStatistics
-GlobalMetadata
-ReadingHistoryModel
 com.apple.iBooks.CloudKitController
 com.apple.iBooks.cloudData
 BCCloudKit-BookDataStoreService
@@ -2204,8 +2211,6 @@ BDSErrorDomain
 com.apple.bookdatastored.prepareForSync
 v16@?0@"NSObject<OS_xpc_object>"8
 BCSaltVersionIdentifier
-BKUbiquitousLastAppVersion
-BKUbiquitousFinishedOptInFlow
 BDSTCCAccessChangedNotification
 com.apple.notifyd.matching
 v44@?0@"NSSet"8@"NSSet"16@"BCMutableCloudSyncVersions"24@"NSError"32B40
@@ -2280,7 +2285,6 @@ localRecordID
 localRecordIDEncrypted
 editGeneration
 syncGeneration
-systemFields
 deletedFlag
 BCCloudData-BookDataStoreService
 BCCloudAsset-BookDataStoreService
@@ -2307,6 +2311,8 @@ deletedFlag == NO
 saltedHashedID
 v32@?0@"NSArray"8{_NSRange=QQ}16
 syncGeneration >= 1
+%@-%@
+v32@?0@"CKRecord"8Q16^B24
 com.apple.iBooks.CloudDataSyncManager
 v32@?0@"CKRecordID"8@"BCMutableCloudData"16^B24
 BDSInitialPinningUpdateDone
@@ -2549,6 +2555,7 @@ v24@0:8@16
 @"NSXPCListener"
 @"BUOSStateHandler"
 @"BDSNotificationConnection"
+@"NSObject<OS_dispatch_source>"
 @"BDSAudiobookSyncPrepareActivity"
 v44@0:8:16B24@28@?36
 @24@0:8^{_NSZone=}16
@@ -2682,7 +2689,6 @@ v24@0:8@?<v@?@"NSNumber"@"NSError">16
 @"BDSJaliscoDAAPClient"
 v24@0:8q16
 @"BDSOSTransaction"
-@"NSObject<OS_dispatch_source>"
 @"<BCCloudKitTransactionDelegate>"
 B24@0:8d16
 v24@0:8@"NSCoder"16
@@ -2774,6 +2780,7 @@ v40@0:8@"BCCloudKitDatabaseController"16@"NSString"24@?<v@?B>32
 @"NSObject<BCCloudCollectionDetailManager>"
 @"NSObject<BCCloudCollectionMemberManager>"
 v48@0:8@16Q24@?32@?40
+MbP?
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -2838,3 +2845,16 @@ v48@0:8@16Q24@?32@?40
 <string>1328318286</string>
 </dict>
 </plist>
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR
+zPLR

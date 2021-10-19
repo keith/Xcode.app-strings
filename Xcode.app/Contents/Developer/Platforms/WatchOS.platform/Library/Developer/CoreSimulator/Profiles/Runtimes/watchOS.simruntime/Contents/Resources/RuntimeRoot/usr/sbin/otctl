@@ -1,4 +1,4 @@
-@(#)PROGRAM:otctl  PROJECT:Security-60144
+@(#)PROGRAM:otctl  PROJECT:Security-60157.14.1
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -21,6 +21,7 @@
 </plist>
 EscrowRequestCLI
 OTControlCLI
+Octagon
 T@"SecEscrowRequest",&,V_escrowRequest
 _escrowRequest
 initWithEscrowRequest:
@@ -58,7 +59,8 @@ depart:context:
 resetOctagon:context:altDSID:
 resetProtectedData:context:altDSID:appleID:dsid:
 printPeer:prefix:
-printPeers:egoPeerID:informationOnPeers:
+printCRKWithPeer:information:prefix:
+printPeers:egoPeerID:informationOnPeers:informationOnCRKs:
 fetchEscrowRecords:context:
 fetchAllEscrowRecords:context:
 performEscrowRecovery:context:recordID:appleID:secret:
@@ -74,17 +76,19 @@ fetchUserControllableViewsSyncStatus:contextID:
 resetAccountCDPContentsWithContainerName:contextID:
 createCustodianRecoveryKeyWithContainerName:contextID:json:
 joinWithCustodianRecoveryKeyWithContainerName:contextID:wrappingKey:wrappedKey:uuidString:
+preflightJoinWithCustodianRecoveryKeyWithContainerName:contextID:wrappingKey:wrappedKey:uuidString:
 removeCustodianRecoveryKeyWithContainerName:contextID:uuidString:
 createInheritanceKeyWithContainerName:contextID:json:
 joinWithInheritanceKeyWithContainerName:contextID:wrappingKey:wrappedKey:uuidString:
+preflightJoinWithInheritanceKeyWithContainerName:contextID:wrappingKey:wrappedKey:uuidString:
 removeInheritanceKeyWithContainerName:contextID:uuidString:
 control
 setControl:
-retryableCuttlefishError
 removeInheritanceKey:contextID:uuid:reply:
 initWithUUIDString:
-joinWithInheritanceKey:contextID:inheritanceKey:reply:
+preflightJoinWithInheritanceKey:contextID:inheritanceKey:reply:
 initWithWrappedKeyData:wrappingKeyData:uuid:error:
+joinWithInheritanceKey:contextID:inheritanceKey:reply:
 initWithData:encoding:
 localizedDescription
 dataWithJSONObject:options:error:
@@ -109,8 +113,9 @@ wrappingKeyData
 uuid
 createInheritanceKey:contextID:uuid:reply:
 removeCustodianRecoveryKey:contextID:uuid:reply:
-joinWithCustodianRecoveryKey:contextID:custodianRecoveryKey:reply:
+preflightJoinWithCustodianRecoveryKey:contextID:custodianRecoveryKey:reply:
 initWithWrappedKey:wrappingKey:uuid:error:
+joinWithCustodianRecoveryKey:contextID:custodianRecoveryKey:reply:
 wrappedKey
 wrappingKey
 recoveryString
@@ -199,6 +204,9 @@ waitForPriorityViewKeychainDataRecovery:contextID:reply:
 dataWithBytesNoCopy:length:freeWhenDone:
 errorWithDomain:code:userInfo:
 errorFromEncodedData:
+_isCuttlefishError:
+_isCKServerInternalError
+retryableCuttlefishError
 @"SecEscrowRequest"
 @24@0:8@16
 i16@0:8
@@ -211,9 +219,12 @@ i40@0:8@16@24@32
 i56@0:8@16@24@32@40@48
 v32@0:8@16@24
 v40@0:8@16@24@32
+v48@0:8@16@24@32@40
 i48@0:8@16@24@32@40
 i36@0:8@16@24B32
 i64@0:8@16@24@32@40@48@56
+B16@0:8
+B24@0:8q16
 Errored: %s
 Complete: %d records written.
 Complete.
@@ -276,6 +287,8 @@ dsid
 DSID
 container
 CloudKit container name
+context
+Context name
 radar
 Radar number
 wrapping-key
@@ -334,12 +347,16 @@ create-custodian-recovery-key
 Create a custodian recovery key
 join-with-custodian-recovery-key
 Join with a custodian recovery key
+preflight-join-with-custodian-recovery-key
+Preflight join with a custodian recovery key
 remove-custodian-recovery-key
 Remove a custodian recovery key
 create-inheritance-key
 Create an inheritance key
 join-with-inheritance-key
 Join with an inheritance key
+preflight-join-with-inheritance-key
+Preflight join with an inheritance key
 remove-inheritance-key
 Remove an inheritance key
 pairme
@@ -351,6 +368,8 @@ successful removal of inheritance key
 bad base64 data for wrappingKey
 bad base64 data for wrappedKey
 failed to create OTInheritanceKey: %s
+preflight joinWithInheritanceKey failed: %s
+successful preflight join from inheritance key
 joinWithInheritanceKey failed: %s
 successful join from inheritance key
 v24@?0@"OTInheritanceKey"8@"NSError"16
@@ -379,6 +398,8 @@ bad format for custodianUUID
 remove custodian recovery key failed: %s
 successful removal of custodian recovery key
 failed to create OTCustodianRecoveryKey: %s
+preflightJoinWithCustodianRecoveryKey failed: %s
+successful preflight join from custodian recovery key
 joinWithCustodianRecoveryKey failed: %s
 successful join from custodian recovery key
 v24@?0@"OTCustodianRecoveryKey"8@"NSError"16
@@ -429,6 +450,7 @@ included
     Self: 
 dynamicInfo
 self
+custodian_recovery_keys
 peerID
 peers
 contextDump
@@ -449,7 +471,10 @@ fetched record id: %s
 fetchAllEscrowRecords failed: %s
 fetchEscrowRecords failed: %s
     Peer:  %s; further information missing
+    CRK: 
     Peer: 
+%s%s uuid: %s kind: %s
+kind
 %s%s hw:'%s' name:'%s' serial: '%s' os:'%s' epoch:%d
 os_version
 serial_number
@@ -474,7 +499,12 @@ operation
 v16@?0@"NSObject<OS_xpc_object>"8
 success
 error
+CKRetryAfter
+CKErrorDomain
+CKInternalErrorDomain
+com.apple.security.trustedpeers.container
 findOptimalBottleIDsWithContextData failed to fetch bottles
 findOptimalBottleIDsWithContextData errored: %@
 findOptimalBottleIDsWithContextData succeeded: %@, %@
 otpaird connection invalid (daemon unloaded?)
+zPLR

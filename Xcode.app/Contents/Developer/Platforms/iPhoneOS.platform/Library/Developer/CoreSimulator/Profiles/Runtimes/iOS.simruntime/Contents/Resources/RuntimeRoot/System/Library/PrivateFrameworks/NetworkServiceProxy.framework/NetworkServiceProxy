@@ -1,10 +1,8 @@
 @(#)PROGRAM:NetworkServiceProxy  PROJECT:NetworkServiceProxy-1
-!$'*-
 .A13NPFrameStream
 11FrameStream
 N6Socket6ErrorsE
 6Writer
-&&&&
 N3Log6StderrE
 N3Log8AppenderE
 N3Log8DateTimeE
@@ -29,7 +27,6 @@ N3AIO5EventE
 N6Client5HelloE
 8Datagram
 N6Client5QueryE
- #&),/258;>ADGJMPSVY\_behknqtwz}
 kESSRTT
 kESSIsSelected
 kESSRank
@@ -103,6 +100,8 @@ resolvers
 maxTokenNum
 fallbackPathWeights
 regionId
+bootstrapResolver
+dnsProbe
 NetworkServiceProxy
 TokenAgent
 should
@@ -147,14 +146,15 @@ B16@?0@"NEFileHandle"8
 com.apple.networkserviceproxy.reportErrorForAgent
 -[NSPPrivacyProxyNetworkRegistration resetProxyAgent]
 MultiHop
--[NSPPrivacyProxyMultiHopNetworkRegistration setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:fallbackAgentUUID:shouldFailOpen:allowGeohash:]
+-[NSPPrivacyProxyMultiHopNetworkRegistration setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:fallbackAgentUUID:shouldFailOpen:allowGeohash:enableDNSFilteringHint:fallbackProxyConfigHash:]
 proxy-authorization
 PrivacyToken token=
 sec-ch-geohash
+sec-ch-filter-dns
 SingleHop
--[NSPPrivacyProxySingleHopNetworkRegistration setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:fallbackAgentUUID:shouldFailOpen:]
+-[NSPPrivacyProxySingleHopNetworkRegistration setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:fallbackAgentUUID:shouldFailOpen:fallbackProxyConfigHash:]
 MultiHopFallback
--[NSPPrivacyProxyMultiHopFallbackNetworkRegistration setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:shouldFailOpen:allowGeohash:]
+-[NSPPrivacyProxyMultiHopFallbackNetworkRegistration setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:shouldFailOpen:allowGeohash:enableDNSFilteringHint:]
 SingleHopFallback
 -[NSPPrivacyProxySingleHopFallbackNetworkRegistration setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:shouldFailOpen:]
 Wi-Fi
@@ -398,6 +398,7 @@ https://mask-api.icloud.com/v1_1/fetchConfigFile
 https://mask-api.icloud.com/v1_2/fetchConfigFile
 https://mask-api.icloud.com/v1_3/fetchConfigFile
 https://mask-api.icloud.com/v1_4/fetchConfigFile
+https://mask-api.icloud.com/v1_5/fetchConfigFile
 ConfigurationFetchPath
 HTTPCode
 NSURLErrorCode
@@ -491,6 +492,7 @@ USE_WITHOUT_PROXY
 USE_OTHER_NETWORK
 prefs:root=WIFI
 v12@?0B8
+CELLULAR_WARNING_TITLE
 CELLULAR_WARNING
 CELLULAR_SETTINGS
 prefs:root=MOBILE_DATA_SETTINGS_ID&path=CELLULAR_DATA_OPTIONS
@@ -967,13 +969,15 @@ proxyTokenFetchRetryDate
 proxyTokenUseDefaultInterface
 proxyTokenSubscriber
 proxyTokenReportTokenFetchOutage
+com.apple.networkserviceproxy.removeExpiredTokens
+com.apple.networkserviceproxy.flushProxyTokens
 com.apple.networkserviceproxy.tokenManagerRefreshPool
+v16@?0@"NSString"8
 -[NSPProxyTokenInfo cacheTokens:expirationTime:]
 com.apple.networkserviceproxy.checkCachedTokenCount
-com.apple.networkserviceproxy.tokenManagerPathChange
 Retry-After
 com.apple.networkserviceproxy.tokenFetchFailureWithHttpStatusCode
--[NSPProxyTokenInfo requestTokensWithCompletionHandler:]
+-[NSPProxyTokenInfo requestTokensWithAccessToken:completionHandler:]
 com.apple.networkserviceproxy.tokenRateLimited
 com.apple.networkserviceproxy.tokenInfoInvalid
 X-Apple-Client-Action
@@ -1027,6 +1031,7 @@ NSPPrivacyProxyAgentManager.m
 -[NSPProxyPath proxyPathIsValid:proxyPathList:]
 -[NSPProxyPath matchIngress:]
 -[NSPProxyPath matchEgress:]
+-[NSPQuicProxyPath initWithDelegate:ingressProxy:egressProxy:proxyPathWeight:allowFallback:allowFailOpen:geohashSharingEnabled:networkCharacteristics:]
 -[NSPQuicProxyPath setupSingleHopProxyRegistrations]
 -[NSPQuicProxyPath setupMultiHopProxyRegistrations]
 -[NSPQuicProxyPath resetSingleHopProxyAgent]
@@ -1046,6 +1051,9 @@ Probing active
 Probe count
 Probe success count
 Probe failed count
+Probe redirected count
+Probe server error count
+Probe connected count
 proberName
 proberProxy
 proberProbeCount
@@ -1056,10 +1064,15 @@ proberLinkQuality
 proberNextProbeDate
 proberProbeSuccessCount
 proberProbeFailedCount
+proberProbeRedirectedCount
+proberProbeServerErrorCount
+proberProbeConnectedCount
 com.apple.networkserviceproxy.setupProbeTimerFired
 com.apple.networkserviceproxy.agentProbeTimerFired
 com.apple.networkserviceproxy.probeFailedReport
 com.apple.networkserviceproxy.probeSuccessReport
+com.apple.networkserviceproxy.probeRedirected
+com.apple.networkserviceproxy.probeServerError
 com.apple.networkserviceproxy.sendProbe
 com.apple.networkserviceproxy.probePathChange
 +[NSPPrivacyProxyAgentManager proxyMatch:proxy2:]
@@ -1094,6 +1107,7 @@ proxyAgentNetworkCharacteristics
 proxyAgentUseDefaultInterface
 proxyAgentSubscriber
 proxyAgentGeohashSharingEnabled
+proxyAgentDNSFilteringHintEnabled
 proxyAgentNetworkProxiesRotated
 proxyAgentNetworkFallbackProxiesRotated
 proxyAgentProxiesRotated
@@ -1211,6 +1225,8 @@ Proxy Traffic
 Configuration Fetch Date
 Cloud Subscription Check Enabled
 Proxy Account Type
+User preferred Tier
+Trial Config Version
 resurrectionDate
 Etag
 ProxyTrafficState
@@ -1220,6 +1236,8 @@ PrivacyProxyConfigurationServerEnabled
 PrivacyProxyConfigurationServerHost
 UserTier
 ProxyAccountType
+UserPreferredTier
+TrialConfigVersion
 NSPDefaults
 /System/Library/NetworkServiceProxy
 diskVersion
@@ -1369,12 +1387,13 @@ Privacy Token Manager
 PrivacyProxyTokenFetch
 -[NSPPrivacyTokenManager generateRandomTokens:]
 -[NSPPrivacyTokenManager generateTokensUsingTokenBlinder:tokenCount:]
--[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:completionHandler:]
+-[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:]
 POST
 <%@> <%@;%@;%@;internal>
 <%@> <%@;%@;%@>
 X-Mask-Client-Info
 X-Mask-User-Tier
+X-Mask-Subscription-Token
 True-Client-Ip
 x-apple-request-uuid
 v36@?0B8@"NSError"12@"NSHTTPURLResponse"20@"NSData"28
@@ -1503,6 +1522,7 @@ Current time after valid time
 Certificate not valid before yr %d, mon %d, days %d, hours %d, min %d
 Certificate not valid after yr %d, mon %d, days %d, hours %d, min %d
 Detected true client ip address in preferences file: %{public}@
+Mach-O UUID for process PID=%d is %@
 Read the header of a %u byte packet
 Failed to allocate %u bytes to hold the current packet
 Read part of a header (%lu bytes)
@@ -1517,7 +1537,6 @@ Read part of a packet (%lu bytes)
 %@ reporting captive probe result
 %@ failed to perform captive probe, error: %@
 %@ failed to receive expected response from the captive probe server
-%@ aborting captive probe
 %@ HTTP response has status code: [%ld]
 %@ HTTP response has 'Location' header
 %@ received HTTP redirect from the network
@@ -1617,7 +1636,6 @@ Failed to remove status manager info from preference file
 Removed status manager info from preference file
 Failed to open %@
 Setting service status %@, previous service status %@
-Current status %@ ignore new service status %@
 Posted notification "%@"
 Failed to post notification "%@": %@
 %s called with null networkStatus
@@ -1739,7 +1757,6 @@ Extended validation for %@ is not enabled
 SecTrustEvaluateAsyncWithError failed with %@
 Ignoring invalid %@ TLS cert
 SecTrustEvaluateAsync returned an error: %d
-Mach-O UUID for process PID=%d is %@
 %@ UUIDs for %@ - %@
 %@ failed to get UUIDs for WebSheet/CNA
 %@ failed to get UUIDs for captiveagent
@@ -1992,6 +2009,7 @@ Proxy Token Info : %@:%@
 self.tokenCount < tokenInfo.tokens.count for %@
 Cleaned up %lu expired tokens for %@
 Proxy %@, hit low water mark
+Flushing tokens for %@
 %s called with null (tokens.count > 0)
 Cache %lu tokens for proxy %@, expiration %@
 adding %lu tokens to token agent[%@]
@@ -2007,7 +2025,7 @@ ignoring token fetch for %@[%@], token count %lu
 Fetch tokens for %@[%@] on %@
 Token fetch successful for %@[%@]
 Token fetch failed for %@[%@] with too many requests
-Token fetch failed for %@[%@] with %lu
+Token fetch failed for %@[%@] with %lu, error %@
 Received switch proxy from server for %@[%@]
 Failed to convert from PID (%d) to process name
 Received error (%d) from %s for %@ agent
@@ -2039,6 +2057,7 @@ Probe[%@] failed to receive expected response
 Probe[%@] received response %ld
 Reset probe[%@] timer
 Retry probing[%@] on network change
+Probe[%@] connected
 %s called with null proxy1
 %s called with null proxy2
 %s called with null proxy1.proxyURL
@@ -2086,8 +2105,8 @@ Token for Fallback[%@] fetched %@
 %s called with null (proxyInfoArray.count > 0)
 %s called with null proxyPathList
 deferring setting up of proxy agent until %@
-Quic proxy path (%@-%@) is not valid
 Fallback proxy path (%@-%@) is not valid
+Quic proxy path (%@-%@) is not valid
 Candidate Quic proxy path (%@-%@) is not valid
 Candidate Fallback proxy path (%@-%@) is not valid
 %@: token cache low water mark hit
@@ -2118,9 +2137,14 @@ ignoring connection refused error, path status %ld reporting interface %@ primar
 ignoring DNS timeout error, path status %ld link quality %@ reporting interface %@ primary interface %@ last path unsatisfied date %@, last interface change date %@
 ignoring dns blocked error, path status %ld reporting interface %@ primary interface %@ last path unsatisfied date %@, last interface change date %@
 Quic proxy multihop path is reporting egress proxy error
-Fallback proxy multihop path is reporting error
+Fallback proxy multihop path is reporting egress proxy error
+Quic proxy multihop path is reporting origin proxy error
+Fallback proxy multihop path is reporting origin proxy error
 Proxy path probe successful
 Direct path probe successful %lu times
+Direct path probe failed but connected to the server %lu times
+Direct path probe redirected
+Direct path probe received server error
 Updating userevent agent data
 remove userevent agent data
 archivedDataWithRootObject failed with error: %@
@@ -2243,8 +2267,11 @@ didFailWithError with error: %@
 Token low water mark hit for %@ agent
 %s called with null self.tokenAgentRegistration
 %s called with null self.tokenAgent
-Updated %@ token agent (%@)
-Registered %@ token agent (%@)
+Updating %@ token agent (%@)
+Failed to update %@ token agent (%@)
+Registering %@ token agent (%@)
+Failed to register %@ token agent (%@)
+Failed to set low water mark(%lu) on %@ token agent (%@)
 Un-registering token agent with UUID %@
 %s called with null tokenFetchURL
 %s called with null (authenticationType != NSPPrivacyProxyAuthenticationInfo_AuthenticationType_UNKNOWN)
@@ -2370,6 +2397,7 @@ NSPPrivacyProxyAgentManager
 NSPProxyTokenDelegate
 NSPProxyPathDelegate
 NSPProberDelegate
+NSPQUICProxyPathDelegate
 NSPConfigurationSignatureInfo
 NSPConfiguration
 PrivacyProxyNetworkStatus
@@ -2701,6 +2729,8 @@ clearFallbackPathWeights
 fallbackPathWeightsAtIndex:
 addFallbackPathWeights:
 setRegionId:
+setBootstrapResolver:
+setDnsProbe:
 policyTierMapType
 proxiesType
 pathWeightsType
@@ -2712,6 +2742,8 @@ setDisableUntil:
 setHasDisableUntil:
 hasDisableUntil
 hasRegionId
+hasBootstrapResolver
+hasDnsProbe
 data
 version
 setVersion:
@@ -2731,8 +2763,12 @@ setMaxTokenNum:
 fallbackPathWeights
 setFallbackPathWeights:
 regionId
+bootstrapResolver
+dnsProbe
 _disableUntil
 _authInfo
+_bootstrapResolver
+_dnsProbe
 _fallbackPathWeights
 _maxTokenNum
 _pathWeights
@@ -2754,6 +2790,8 @@ TI,N,V_maxTokenNum
 T@"NSMutableArray",&,N,V_fallbackPathWeights
 TB,R,N
 T@"NSString",&,N,V_regionId
+T@"NSPPrivacyProxyResolverInfo",&,N,V_bootstrapResolver
+T@"NSString",&,N,V_dnsProbe
 setActive:
 setKernelActivated:
 setUserActivated:
@@ -2761,6 +2799,8 @@ setVoluntary:
 setAgentUUID:
 setAgentDescription:
 proxyConfiguration
+configurationHash
+appendBytes:length:
 setProxyConfiguration:
 delegate
 reportErrorForAgent:error:withOptions:
@@ -2814,11 +2854,14 @@ TB,N,GisNetworkProvider
 nexusProvider
 TB,N,GisNexusProvider
 initWithDelegate:uuid:agentDesc:
+setConfigurationHash:
 setDelegate:
 _proxyConfiguration
+_configurationHash
 _delegate
 T@"NSObject<NSPPrivacyProxyConfigAgentDelegate>",W,V_delegate
 T@"NSObject<OS_nw_proxy_config>",&,V_proxyConfiguration
+T@"NSData",&,V_configurationHash
 T@"NSString",C,N,VagentDescription
 T@"NSUUID",C,N,VagentUUID
 TB,N,GisActive,Vactive
@@ -3020,6 +3063,7 @@ registerNetworkAgent:
 resetProxyConfigAgentFileHandle
 unregisterNetworkAgent
 resetError
+dataWithBytes:length:
 class
 self
 performSelector:
@@ -3044,6 +3088,7 @@ initWithAgentUUID:agentDescription:delegate:
 networkRegistrationDescription
 resetProxyAgent
 teardownProxyAgent
+proxyConfigurationHash
 setProxyConfigAgent:
 setProxyConfigAgentRegistration:
 _proxyConfigAgent
@@ -3052,11 +3097,12 @@ T@"<NSPPrivacyProxyNetworkRegistrationDelegate>",W,V_delegate
 T@"NSPPrivacyProxyConfigAgent",&,N,V_proxyConfigAgent
 T@"NWNetworkAgentRegistration",&,N,V_proxyConfigAgentRegistration
 T@"NSObject<OS_nw_proxy_config>",&,N,V_proxyConfiguration
+T@"NSData",&,N,V_configurationHash
 getUUIDBytes:
 initWithAgentUUID:delegate:
-setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:fallbackAgentUUID:shouldFailOpen:allowGeohash:
-setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:fallbackAgentUUID:shouldFailOpen:
-setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:shouldFailOpen:allowGeohash:
+setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:fallbackAgentUUID:shouldFailOpen:allowGeohash:enableDNSFilteringHint:fallbackProxyConfigHash:
+setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:fallbackAgentUUID:shouldFailOpen:fallbackProxyConfigHash:
+setProxyAgentConfiguration:secondProxyHopURL:firstProxyHopKeyArray:secondProxyHopKeyArray:ingressTokenAgentUUID:egressTokenAgentUUID:shouldFailOpen:allowGeohash:enableDNSFilteringHint:
 setProxyAgentConfiguration:proxyKeyArray:tokenAgentUUID:shouldFailOpen:
 type
 initWithFormat:
@@ -3082,7 +3128,6 @@ stringByReplacingOccurrencesOfString:withString:options:range:
 componentsSeparatedByString:
 endpointFromString:defaultPortString:
 interface
-appendBytes:length:
 pathType
 getFallbackReasonDescription:
 fallbackReasonCategory
@@ -3114,6 +3159,7 @@ hashObject:withClassPrefixWhitelist:
 initWithUTF8String:
 getInterfaceTypeString:
 copyDataHexString:
+initWithUUIDBytes:
 copyDataFromKeychainWithIdentifier:accountName:
 saveDataToKeychain:withIdentifier:accountName:
 removeDataFromKeychainWithIdentifier:
@@ -3137,6 +3183,8 @@ certificateDateIsValid:
 postNotification:value:
 copyTrueClientIPAddressFromPreferences
 stringFromLinkQualityValue:
+machoUUIDFromPID:
+pidFromAuditToken:
 setFallbackReason:
 logInternalError:context:
 exceptionWithName:reason:userInfo:
@@ -3247,7 +3295,6 @@ setDohURL:
 setObliviousDoHConfig:
 getErrorFromDict:
 initWithDomain:code:userInfo:
-dataWithBytes:length:
 initWithData:
 serialize
 setCurrentConfiguration:withCompletionHandler:
@@ -3646,22 +3693,24 @@ encodeInt64:forKey:
 setNetworkStatuses:
 setDetails:
 setServiceStatusOnTimeline:
-initWithSubscriber:delegate:
+initWithUserTier:effectiveUserTier:delegate:
 initForReadingFromData:error:
 initRequiringSecureCoding:
-subscriber
+effectiveTier
 serviceStatusEndTime
 networkType
 defaultWorkspace
 openSensitiveURL:withOptions:
-setSubscriber:
+setEffectiveTier:
 setServiceStatusEndTime:
 removeObject:
 setServiceStatusStartTime:
 saveToPreferences
 serviceStatusString:
+details
 postNotification
 showNotificationWithHeader:message:actionURL:callbackQueue:callbackHandler:
+isEffectiveTierSubscriber
 reportServiceStatus:title:message:serviceStatusDetails:
 removeObjectsInArray:
 networkStatuses
@@ -3677,11 +3726,11 @@ setUserNotification:
 disableCellularNetwork:
 disableInterface:displayName:type:
 removeFromPreferences
-initFromPreferencesWithSubscriber:delegate:
+initFromPreferencesWithUserTier:effectiveUserTier:delegate:
 publishDailyServiceStatus
 publishDailyNetworkStatus
 openiCloudSettings
-handleTierChange:
+handleEffectiveUserTierChange:
 reportServiceActive
 reportServiceDisabled
 reportServiceOutage
@@ -3699,13 +3748,15 @@ reportBlockedOnCellularName:
 reportActiveOnInterfaceName:displayName:type:
 reportDisabledOnInterfaceName:displayName:type:
 reportBlockedOnInterfaceName:displayName:type:
-_subscriber
+setUserTier:
 _serviceStatus
 _serviceStatusTimeline
 _diskVersion
 _generation
 _userNotification
 _networkStatusTimeline
+_userTier
+_effectiveTier
 T@"NSObject<NSPServiceStatusManagerDelegate>",W,V_delegate
 Tq,R,V_diskVersion
 TQ,N,V_generation
@@ -3713,7 +3764,8 @@ T@"PrivacyProxyServiceStatus",&,V_serviceStatus
 T@"NSPUserNotification",&,V_userNotification
 T@"NSMutableArray",&,V_serviceStatusTimeline
 T@"NSMutableArray",&,V_networkStatusTimeline
-TB,V_subscriber
+TQ,V_userTier
+TQ,V_effectiveTier
 hasDohURL
 hasObliviousDoHConfig
 setHasWeight:
@@ -4082,7 +4134,6 @@ copyExecutableConditions
 numberWithInt:
 initWithUnsignedLongLong:
 initWithUnsignedInt:
-initWithUUIDBytes:
 configurationIdentifier
 UUID
 initWithNetworkAgentRegistration:sessionType:configurationIdentifier:agentUUID:
@@ -4250,6 +4301,8 @@ initWithObjects:count:
 readMultipleFromConnection
 writeDatagrams:sentByEndpoints:completionHandler:
 writeData:withCompletionHandler:
+connectionError
+closeWriteWithError:
 writeMultipleToConnection:count:
 readDatagramsWithCompletionHandler:
 writeDataToConnection:
@@ -4259,9 +4312,6 @@ sourceAppAuditToken
 remoteHostname
 port
 copyCEndpoint
-connectionError
-closeWriteWithError:
-closeReadWithError:
 setConnectionError:
 setCurrentState:
 startSendReceiveLoop
@@ -4375,8 +4425,6 @@ skipWithOrder:
 machoUUIDFromSigningID:
 createPolicyWithOrder:policyResult:machOUUID:remotePort:protocol:otherPolicyConditions:uidRequired:
 arrayWithObjects:count:
-netAgentUUID:
-fallbackTraffic
 addDNSPolicyWithOrder:toArray:machOUUID:
 clientFlags:
 setNegative:
@@ -4391,6 +4439,7 @@ createAccountIDBasedPolicies:accountIdentifier:platformBinary:uidRequired:
 localNetworks
 requiredAgentDomain:agentType:
 multiHopProxyAgentUUID
+netAgentUUID:
 routeRuleWithAction:forType:
 setNetworkAgentUUID:
 routeRules:
@@ -4399,7 +4448,6 @@ controlUnit
 setControlUnit:
 allowsUnsafeSocketAccess
 usesModernNetworkAPI
-machoUUIDFromPID:
 createRemovalPoliciesForCaptivePlugins:
 createRemovalPoliciesForSystemComponents
 policyMaskFromProxyPolicy:
@@ -5236,13 +5284,14 @@ tokenRegistration
 teardownTokenAgent
 ingressTokenAgentUUID
 setTokenFetchRetryInterval:
-requestTokensWithCompletionHandler:
+refreshTokenPool:
 tokensFromKeychain
 addTokensToAgent
 tokenFetchRetryAttempt
 tokenFetchRetryOnNetworkChange
 tokenFetchRetryDate
 useDefaultInterface
+subscriber
 reportTokenFetchOutage
 setProxyInfo:
 tokenInfoList
@@ -5254,6 +5303,7 @@ tokenPath
 setTokenPath:
 tokenRequestPending
 setUseDefaultInterface:
+setSubscriber:
 setReportTokenFetchOutage:
 tokenFetchSuccessCount
 setTokenFetchSuccessCount:
@@ -5272,6 +5322,8 @@ setBadTokenCount:
 missingTokenCount
 setMissingTokenCount:
 tokenLowWaterMarkReached:
+requestTokensWithAccessToken:completionHandler:
+requestAccessToken:
 registerTokenAgent:
 removeExpiredTokens
 addToken:
@@ -5290,18 +5342,20 @@ tokenInfoInvalid:
 switchProxy:
 tokenFetchFailureWithHttpStatusCode:error:
 reportTokenFetchFailure:statusCode:
-fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:completionHandler:
+fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:
 pathForClientID:
 flushTokens
+flushProxyTokens
 reportErrorForTokenRegistration:error:withOptions:
 initWithDelegate:proxyInfo:path:subscriber:useDefaultInterface:
 setup
-refreshTokenPool:
 handlePathChange:
+handleTierChange:
 tokenFetchActive
 _tokenRequestPending
 _tokenFetchRetryOnNetworkChange
 _useDefaultInterface
+_subscriber
 _reportTokenFetchOutage
 _proxyInfo
 _tokenInfoList
@@ -5431,6 +5485,8 @@ proxyPathIsValid:proxyPathList:
 matchIngress:
 matchEgress:
 handleNetworkCharacteristicsChange:
+singleHopConfigurationHash
+multiHopConfigurationHash
 _allowFallback
 _allowFailOpen
 _singleHopRegistered
@@ -5458,16 +5514,26 @@ T@"NSPProxyAgentNetworkStatistics",&,N,V_networkSingleHopAgentStatistics
 T@"NSPProxyAgentNetworkStatistics",&,N,V_networkMultiHopAgentStatistics
 singleHopProxyAgentUUID
 singleHopFallbackProxyAgentUUID
+quicProxyPathDelegate
+singleHopFallbackProxyConfigHash:
 singleHopAgentRegistered:
 multiHopFallbackProxyAgentUUID
+dnsFilteringHintEnabled
+multiHopFallbackProxyConfigHash:
 multiHopAgentRegistered:
 proxiesMatch:proxyPathList:ingressProxy:egressProxy:pathWeight:supportsFallback:
 enableFallback:
+setQuicProxyPathDelegate:
+_quicProxyPathDelegate
+T@"<NSPQUICProxyPathDelegate>",W,V_quicProxyPathDelegate
 initWithIngressProxy:egressProxy:proxyPathWeight:
 proxyPathReady
 probingActive
 probeSuccessCount
 probeFailedCount
+probeRedirectedCount
+probeServerErrorCount
+probeConnectedCount
 proxyProber
 probeConnectionTimeout
 probeOnNetworkChange
@@ -5486,15 +5552,23 @@ setLinkQuality:
 setNextProbeDate:
 setProbeSuccessCount:
 setProbeFailedCount:
+setProbeRedirectedCount:
+setProbeServerErrorCount:
+setProbeConnectedCount:
 set_sourceApplicationSecondaryIdentifier:
 setProbeRetryTimerWithRetryInterval:
 sendProbe:
 setUserEventAgentProberParameters
 probeFailed:
 probeSuccess:
+probeRedirected:
+probeServerError:
 probeFailed
 probeSuccess
+probeRedirected
+probeServerError
 setProbeParametersForLinkQuality
+connectEndDate
 initWithDelegate:probeName:linkQuality:path:proxyProber:
 startProbing
 handleLinkQualityChange:
@@ -5508,6 +5582,9 @@ _probeConnectionTimeout
 _nextProbeDate
 _probeSuccessCount
 _probeFailedCount
+_probeRedirectedCount
+_probeServerErrorCount
+_probeConnectedCount
 T@"<NSPProberDelegate>",W,V_delegate
 T@"NSString",&,N,V_name
 T@"NSURLSession",&,N,V_probeSession
@@ -5522,6 +5599,9 @@ T@"NWPath",&,N,V_path
 TB,N,V_probePending
 TQ,N,V_probeSuccessCount
 TQ,N,V_probeFailedCount
+TQ,N,V_probeRedirectedCount
+TQ,N,V_probeServerErrorCount
+TQ,N,V_probeConnectedCount
 TB,N,V_proxyProber
 isEqualToArray:
 proxyMatch:proxy2:
@@ -5539,6 +5619,7 @@ networkFallbackProxiesRotated
 proxiesRotated
 proxyPathProber
 directPathProber
+setDnsFilteringHintEnabled:
 proxyArray
 proxyPathList
 fallbackProxyPathList
@@ -5584,6 +5665,8 @@ setProxyPathEnumeratorRestoreTimerInterval
 updateGeohashSharingPreference:
 setupCandidateQuicProxyPath
 setupCandidateFallbackProxyPath
+networkSignatureChanged
+resetProxyErrors
 updateProxyInfo:proxyPathList:fallbackProxyPathList:
 alternateEgressProxyExists:proxyPathEnumerator:
 nextProxyPath:
@@ -5620,11 +5703,13 @@ connectionRefusedProxyPath:interface:
 dnsTimeoutProxyPath:interface:
 dnsBlockedProxyPath:interface:errorCode:
 egressProxyErrorProxyPath:interface:errorCode:
+originProxyErrorProxyPath:interface:errorCode:
 connectionErrorsProxyPath:interface:errorCode:
 sendRTCReportWithFailureType:errorCode:url:
 proberInterface
 proxyConnectivityActive
 setProberInterface:
+proxyConnectivityOutage
 setIngressProxyURL:
 setEgressProxyURL:
 setCachedIngressToken:
@@ -5663,9 +5748,9 @@ proxyMatchProxyInfoArray:proxy:
 initWithDelegate:
 setupWithPath:subscriber:geohashSharingEnabled:linkQuality:
 handleConfigChange
-resetProxyErrors
 useDefaultNetworkInterface:
 overridePreferredProxy:
+updateDNSFilteringHint:
 isMultiHopProxyAgentRegistered
 isSingleHopProxyAgentRegistered
 isMultiHopFallbackProxyAgentRegistered
@@ -5725,6 +5810,7 @@ TB,N,V_proxyConnectivityCheckActive
 TQ,N,V_networkProxiesRotated
 TQ,N,V_networkFallbackProxiesRotated
 TQ,N,V_proxiesRotated
+TB,N,VdnsFilteringHintEnabled
 signatureAlgorithm
 setSignatureAlgorithm:
 _signatureAlgorithm
@@ -5736,6 +5822,8 @@ etag
 geohashSharingEnabledStatus
 proxyAccountType
 proxyAccountTypeToString:
+userPreferredTier
+trialConfigVersion
 objectForInfoDictionaryKey:
 initWithTimestamp:fromDictionary:waldoSource:
 loadBuiltinAppRulesFromDisk
@@ -5760,13 +5848,14 @@ setWaldoRevocationFailClosed:
 setConfigServerEnabled:
 initWithDictionary:copyItems:
 setPersistMetrics:
-setUserTier:
 setProxyTrafficState:
 setEtag:
 setConfigurationFetchDate:
 setCloudSubscriptionCheckEnabled:
 setGeohashSharingEnabledStatus:
 setProxyAccountType:
+setUserPreferredTier:
+setTrialConfigVersion:
 setConfigServerHost:
 configServerPort
 setConfigServerPort:
@@ -5808,12 +5897,13 @@ _waldoRevocationFailClosed
 _privacyProxyURLSession
 _edgeSets
 _persistMetrics
-_userTier
 _proxyTrafficState
 _configurationFetchDate
 _cloudSubscriptionCheckEnabled
 _geohashSharingEnabledStatus
 _proxyAccountType
+_userPreferredTier
+_trialConfigVersion
 T@"NSNumber",&,V_version
 T@"NSPConfiguration",&,V_defaults
 T@"NSNumber",C,V_enabled
@@ -5837,6 +5927,8 @@ T@"NSDate",C,V_configurationFetchDate
 T@"NSNumber",C,V_cloudSubscriptionCheckEnabled
 T@"NSNumber",&,N,V_geohashSharingEnabledStatus
 T@"NSNumber",&,N,V_proxyAccountType
+T@"NSNumber",&,N,V_userPreferredTier
+T@"NSNumber",&,N,V_trialConfigVersion
 networkStatusString
 networkTypeString
 _networkType
@@ -5844,7 +5936,6 @@ _networkName
 TQ,V_networkStatus
 Ti,V_networkType
 T@"NSString",&,V_networkName
-details
 _networkStatuses
 _details
 TQ,V_serviceStatus
@@ -6171,6 +6262,7 @@ v40@0:8Q16@24q32
 v24@0:8^v16
 @"NPTunnelFlow"
 @"NSPPrivacyProxyAuthenticationInfo"
+@"NSPPrivacyProxyResolverInfo"
 {?="disableUntil"b1"enabled"b1}
 B28@0:8i16@20
 @"NSData"16@0:8
@@ -6212,9 +6304,9 @@ v36@0:8@"NSPPrivacyProxyConfigAgent"16i24@"NSDictionary"28
 @"NSPPrivacyProxyConfigAgent"
 @"NWNetworkAgentRegistration"
 @32@0:8@16@24
-B80@0:8@16@24@32@40@48@56@64B72B76
-B52@0:8@16@24@32@40B48
-B72@0:8@16@24@32@40@48@56B64B68
+B92@0:8@16@24@32@40@48@56@64B72B76B80@84
+B60@0:8@16@24@32@40B48@52
+B76@0:8@16@24@32@40@48@56B64B68B72
 B44@0:8@16@24@32B40
 v40@0:8@16@24@32
 q24@0:8@16
@@ -6227,6 +6319,7 @@ B32@0:8@16@24
 B36@0:8@16@24B32
 q24@0:8^{__SecCertificate=}16
 v32@0:8@16Q24
+i48@0:8{?=[8I]}16
 ^i16@0:8
 i24@0:8Q16
 v32@0:8^i16Q24
@@ -6292,7 +6385,7 @@ v48@0:8q16q24@"NSString"32@?<v@?@"NSError">40
 @40@0:8@16q24q32
 @28@0:8i16Q20
 @"PrivacyProxyNetworkStatus"
-@28@0:8B16@20
+@40@0:8Q16Q24@32
 v48@0:8Q16@24@32@40
 B36@0:8Q16i24@28
 v36@0:8@16@24i32
@@ -6412,6 +6505,7 @@ v40@0:8@16@24Q32
 @"NSPProxyTokenInfo"
 @"NSPPrivacyProxyNetworkRegistration"
 @"NSPProxyAgentNetworkStatistics"
+@"<NSPQUICProxyPathDelegate>"
 @40@0:8@16@24Q32
 @48@0:8@16@24i32@36B44
 @"<NSPProberDelegate>"
@@ -6421,11 +6515,13 @@ v32@0:8@16q24
 v24@0:8@"NSPProxyTokenInfo"16
 v32@0:8@"NSPProxyTokenInfo"16d24
 v32@0:8@"NSString"16q24
+v24@0:8@?<v@?@"NSString">16
 v36@0:8i16@20@28
 v24@0:8@"NSPProxyPath"16
 v24@0:8@"NWInterface"16
 v36@0:8i16@"NWInterface"20@"NSPProxyPath"28
 v24@0:8@"NSPProber"16
+@"NSData"24@0:8@"NSPQuicProxyPath"16
 v36@0:8@16B24B28i32
 q20@0:8i16
 @36@0:8q16i24@28
@@ -6467,7 +6563,7 @@ v36@0:8@"NSPPrivacyProxyTokenAgent"16i24@"NSDictionary"28
 @"NSPPrivacyProxyTokenAgent"
 B32@0:8@16i24B28
 @32@0:8@16Q24
-v72@0:8@16@24@32@40@48Q56@?64
+v80@0:8@16@24@32@40@48Q56@64@?72
 v44@0:8@16i24@28@?36
 v24@0:8#16
 0123456789abcdef

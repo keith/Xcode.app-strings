@@ -38,6 +38,12 @@ Failed to fstat %s: [%d] %s
 %s size is 0 or is too big: %lu
 Failed to allocate %lu bytes
 Failed to read entire contents of %s, %ld != %lu: [%d] %s
+Not using the UUID cache because the current OS version (%s) does not equal the cache OS version (%s)
+Failed to get the current OS version, using the UUID cache
+Not using the UUID cache because the cache does not have an OS version
+Failed to get the size of the kern.osversion sysctl value: [%d] %s
+Failed to allocate %lu bytes for the version string
+Failed to get the kern.osversion sysctl value (%lu bytes): [%d] %s
 Falling back to %s
 Failed to fetch info with type %d: %s
 %s: empty array
@@ -638,13 +644,13 @@ NEFilterSource finishedLoadingWithDecisionHandler got inbound-data-completion re
 remediateWithDecisionHandler: dont expect remediation
 remediateWithDecisionHandler: could not establish connection to data provider
 NEFilterSource got remediation reply %@: %@
+(%u): %s
 (%u): data length %ld <= 0
 (%u): address has an invalid family %d
 (%u): address with family %d has an invalid length %d
 (%u): plugin wrote %ld bytes
 (%u): flow is closed for writes, cannot write %ld bytes of data
 (%u): Setting outbound interface to %s
-(%u): %s
 (%u): Failed to set SO_SNDBUF on the data control socket: %s
 (%u): getpeername failed on the data control socket: %s
 (%u): Destroying, client tx %u, client rx %u, kernel rx %u, kernel tx %u
@@ -1308,7 +1314,6 @@ Failed to create Create Child SA packet (initiate rekey)
 Failed to receive Create Child SA packet (initiate rekey)
 Failed to process Create Child SA packet (initiate rekey)
 Failed to generate IKE SA crypto values (initiate rekey)
-Rekeyed IKE SA
 %s called with null receivedRekeyIKESA
 IKE SA already rekeying, skipping (receive rekey)
 Failed to create valid IKE SA (receive rekey)
@@ -1319,6 +1324,7 @@ Failed to receive Rekey IKE Delete packet (receive rekey)
 Failed to process Create Child SA Delete packet (receive rekey)
 %@ Failed to create IKE Delete response packet
 Failed to generate IKE SA crypto values (receive rekey)
+Rekeyed IKE SA
 Re-sending previous MOBIKE request
 resend previos MOBIKE, failed to receive Informational packet again
 resend previos MOBIKE, failed to process Informational packet
@@ -1764,6 +1770,7 @@ Disconnected %@
 %s called with null sessionConfig
 %s called with null interfaceName
 %@ Already have a first child SA, ignoring request
+%@: Setting DPD timer for %llu seconds
 dispatch_source_create failed
 %s called with null newIKESA
 NEVirtualInterfaceCopyName failed
@@ -1850,6 +1857,10 @@ Resetting %@
 %@ Dequeueing %@
 %@ Session aborted, skip request %@
 bad request type %@
+Taking power assertion %@
+IOPMAssertionCreateWithName[%d] failed
+Releasing power assertion %@
+IOPMAssertionRelease[%d] failed
 UDP-NAT-T: Reading frame length %zu for SPI %04X
 UDP-NAT-T: Writing frame length %zu for SPI %04X
 IKE-TCP: Received invalid frame length %u
@@ -2557,26 +2568,6 @@ mach_timebase_info returned %u
 SCNetworkInterfaceSetExtendedConfiguration failed: %s
 Cannot set IPSec settings in service, interface is NULL
 Creating PPTP interface failed, protocol is no longer supported
-#*1>E
-&&&&
-<none>
-!$'*-03E
-"%(+.147:=@
-!$'2
-!$'*-
-rux{~
-"%(+.147:=@CFILORUX[^
-69<?BEHKNQTWZ]`cfilorux{~
-?BEHKNQ
-DGJMPSV
->ADGJMP
-!$'*-0369<
-?BEHKNQTWZZZZ]A
- "$&(*,.02468:<@@@@>
-8888
-!$'*
-!$'*
-[]y<I@
 /var/mobile/Library/terminus/com.apple.necp_drop_dest.plist
 /var/tmp/com.apple.neutil.necp_drop_dest.plist
 com.apple.networkextension.disable-nexus
@@ -2691,10 +2682,12 @@ SourceAppSigningIdentifier
 file-read-data
 /Library/Preferences/com.apple.networkextension.uuidcache.plist
 file-read-metadata
+os-version
 uuid-mappings
 B24@?0Q8^v16
 B24@?0r*8^v16
 bundle-id-mappings
+kern.osversion
 com.apple.nesessionmanager
 com.apple.nesessionmanager.info
 drop_all_feature_always_on_vpn
@@ -4480,6 +4473,8 @@ MOBIKE
 NewChild
 DeleteChild
 DeleteIKE
+com.apple.networkextension[%@ %@ (%p)]
+PreventUserIdleSystemSleep
 rekey IKE
 rekey child context with child id %u
 %llu private notifies with %u retries at %llums
@@ -5829,6 +5824,8 @@ encryptionLevel
 %*s}
 %*s%@ = %lld
 %%-%ds
+<none>
+[]y<I@
 NETrie
 NENetworkRule
 NEConfigurationValidating
@@ -10271,8 +10268,8 @@ setDatabaseSession:
 uninstallAllChildSAs
 ikeLifetimeTimer
 setIkeLifetimeTimer:
-dpdTimer
-setDpdTimer:
+dpdDispatchTimer
+setDpdDispatchTimer:
 sendTimer
 setSendTimer:
 databaseSAs
@@ -10319,8 +10316,10 @@ initWithRekeyChildID:
 initWithDeleteChildID:
 startDPDTimer
 initWithPrivateNotifies:maxRetries:retryIntervalMilliseconds:callbackQueue:callback:
+setPreventSleepUntilFinished:
 initWithChildSA:
 cancelDPDTimer
+dpdTimerFired
 startIKELifetimeTimer
 receiveTimer
 setReceiveTimer:
@@ -10401,6 +10400,7 @@ unestablishConfiguration
 uninstallChildSA:
 pendingRequestContexts
 setPendingRequestContexts:
+takePowerAssertionIfNeededWithSession:
 sendPendingRequestContext
 setRequestInitiator:
 setHasOutboundRequestInFlight:
@@ -10459,7 +10459,7 @@ _receivedReplies
 _receivedInitiatorFragments
 _receivedResponderFragments
 _ikeLifetimeTimer
-_dpdTimer
+_dpdDispatchTimer
 _childSAs
 _sendTimer
 _receiveTimer
@@ -10489,7 +10489,7 @@ TS,V_initiatorFragmentCount
 TS,V_responderFragmentCount
 Ti,V_lastReceivedMessageID
 T@"NSObject<OS_dispatch_source>",&,V_ikeLifetimeTimer
-T@"NSObject<OS_dispatch_source>",&,V_dpdTimer
+T@"NSObject<OS_dispatch_source>",&,V_dpdDispatchTimer
 T@"NSMutableArray",&,V_childSAs
 T@"NSObject<OS_dispatch_source>",&,V_sendTimer
 T@"NSObject<OS_dispatch_source>",&,N,V_receiveTimer
@@ -10519,11 +10519,23 @@ T@?,C,V_shortDPDEventBlock
 T@?,C,V_redirectEventBlock
 T@?,C,V_privateNotifyStatusEvent
 setRequestType:
+setPowerAssertionID:
+releasePowerAssertionIfNeeded
 requestInitiator
+preventSleepUntilFinished
+setPowerAssertionName:
+powerAssertionID
+powerAssertionName
 _requestInitiator
+_preventSleepUntilFinished
 _requestType
+_powerAssertionID
+_powerAssertionName
 Ti,N,V_requestType
 TB,N,V_requestInitiator
+TB,N,V_preventSleepUntilFinished
+T@"NSString",&,N,V_powerAssertionName
+TI,N,V_powerAssertionID
 TI,N,V_childID
 setPrivateNotifies:
 setMaxRetries:
@@ -11459,6 +11471,7 @@ signingIdentifier:
 packetFilterTags:
 schemeUsingPort:
 setNegative:
+addPolicy:storeLocally:
 removePolicyWithID:
 removeAllPolicies
 createPacketChannelWithCompletionHandler:
@@ -11712,7 +11725,6 @@ lastSendMessageID
 setLastSendMessageID:
 copyTLVForBytes:messageLength:type:includeHeaderOffset:n:
 setInternalPriority:
-addPolicy:storeLocally:
 getTLVtypeForBytes:includeHeaderOffset:nextTLVOffset:
 appendToStringAtColumnWithContent:column:content:appendAsNewLine:addNewLine:
 isTLVValid:cursorCurrent:totalLength:
