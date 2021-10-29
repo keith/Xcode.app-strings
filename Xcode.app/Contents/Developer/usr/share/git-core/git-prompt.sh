@@ -355,8 +355,8 @@ if [ "true" = "$inside_worktree" ] &&
 then
 return $exit
 local sparse=""
-if [ -z "${GIT_PS1_COMPRESSSPARSESTATE}" ] &&
-   [ -z "${GIT_PS1_OMITSPARSESTATE}" ] &&
+if [ -z "${GIT_PS1_COMPRESSSPARSESTATE-}" ] &&
+   [ -z "${GIT_PS1_OMITSPARSESTATE-}" ] &&
    [ "$(git config --bool core.sparseCheckout)" = "true" ]; then
 sparse="|SPARSE"
 local r=""
@@ -442,7 +442,7 @@ if [ -n "${GIT_PS1_SHOWUNTRACKEDFILES-}" ] &&
    git ls-files --others --exclude-standard --directory --no-empty-directory --error-unmatch -- ':/*' >/dev/null 2>/dev/null
 then
 u="%${ZSH_VERSION+%}"
-if [ -n "${GIT_PS1_COMPRESSSPARSESTATE}" ] &&
+if [ -n "${GIT_PS1_COMPRESSSPARSESTATE-}" ] &&
    [ "$(git config --bool core.sparseCheckout)" = "true" ]; then
 h="?"
 if [ -n "${GIT_PS1_SHOWUPSTREAM-}" ]; then

@@ -24,7 +24,7 @@ our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
 BEGIN {
 CGI->compile() if $ENV{'MOD_PERL'};
-our $version = "2.30.1 (Apple Git-130)";
+our $version = "2.32.0 (Apple Git-132)";
 our ($my_url, $my_uri, $base_url, $path_info, $home_link);
 sub evaluate_uri {
 our $cgi;
@@ -462,6 +462,13 @@ our %feature = (
 'sub' => \&feature_extra_branch_refs,
 'override' => 0,
 'default' => []},
+# Redact e-mail addresses.
+# To enable system wide have in $GITWEB_CONFIG
+# $feature{'email-privacy'}{'default'} = [1];
+'email-privacy' => {
+'sub' => sub { feature_bool('email-privacy', @_) },
+'override' => 1,
+'default' => [0]},
 sub gitweb_get_feature {
 my ($name) = @_;
 return unless exists $feature{$name};
@@ -2601,6 +2608,11 @@ $date{'iso-tz'} = sprintf("%04d-%02d-%02d %02d:%02d:%02d %s",
                           1900+$year, $mon+1, $mday,
                           $hour, $min, $sec, $tz);
 return %date;
+sub hide_mailaddrs_if_private {
+my $line = shift;
+return $line unless gitweb_check_feature('email-privacy');
+$line =~ s/<[^@>]+@[^>]+>/<redacted>/g;
+return $line;
 sub parse_tag {
 my $tag_id = shift;
 my %tag;
@@ -2616,7 +2628,7 @@ $tag{'type'} = $1;
 } elsif ($line =~ m/^tag (.+)$/) {
 $tag{'name'} = $1;
 } elsif ($line =~ m/^tagger (.*) ([0-9]+) (.*)$/) {
-$tag{'author'} = $1;
+$tag{'author'} = hide_mailaddrs_if_private($1);
 $tag{'author_epoch'} = $2;
 $tag{'author_tz'} = $3;
 if ($tag{'author'} =~ m/^([^<]+) <([^>]*)>/) {
@@ -2653,7 +2665,7 @@ $co{'tree'} = $1;
 } elsif ((!defined $withparents) && ($line =~ m/^parent ($oid_regex)$/)) {
 push @parents, $1;
 } elsif ($line =~ m/^author (.*) ([0-9]+) (.*)$/) {
-$co{'author'} = to_utf8($1);
+$co{'author'} = hide_mailaddrs_if_private(to_utf8($1));
 $co{'author_epoch'} = $2;
 $co{'author_tz'} = $3;
 if ($co{'author'} =~ m/^([^<]+) <([^>]*)>/) {
@@ -2662,7 +2674,7 @@ $co{'author_email'} = $2;
 } else {
 $co{'author_name'} = $co{'author'};
 } elsif ($line =~ m/^committer (.*) ([0-9]+) (.*)$/) {
-$co{'committer'} = to_utf8($1);
+$co{'committer'} = hide_mailaddrs_if_private(to_utf8($1));
 $co{'committer_epoch'} = $2;
 $co{'committer_tz'} = $3;
 if ($co{'committer'} =~ m/^([^<]+) <([^>]*)>/) {
@@ -2694,9 +2706,10 @@ $co{'title_short'} = chop_str($title, 50, 5);
 last;
 if (! defined $co{'title'} || $co{'title'} eq "") {
 $co{'title'} = $co{'title_short'} = '(no commit message)';
-# remove added spaces
+# remove added spaces, redact e-mail addresses if applicable.
 foreach my $line (@commit_lines) {
 $line =~ s/^    //;
+$line = hide_mailaddrs_if_private($line);
 $co{'comment'} = \@commit_lines;
 my $age = time - $co{'committer_epoch'};
 $co{'age'} = $age;
@@ -5708,7 +5721,8 @@ $next_link =
 $cgi->a({-href => href(-replay=>1, page=>$page+1),
          -accesskey => "n", -title => "Alt-n"}, "next");
 my $patch_max = gitweb_get_feature('patches');
-if ($patch_max && !defined $file_name) {
+if ($patch_max && !defined $file_name &&
+!gitweb_check_feature('email-privacy')) {
 if ($patch_max < 0 || @commitlist <= $patch_max) {
 $paging_nav .= " &sdot; " .
 $cgi->a({-href => href(action=>"patches", -replay=>1)},
@@ -5756,7 +5770,8 @@ $cgi->a({-href => href(action=>"commit",
         esc_html(substr($_, 0, 7)));
 } @$parents ) .
 ')';
-if (gitweb_check_feature('patches') && @$parents <= 1) {
+if (gitweb_check_feature('patches') && @$parents <= 1 &&
+!gitweb_check_feature('email-privacy')) {
 $formats_nav .= " | " .
 $cgi->a({-href => href(action=>"patch", -replay=>1)},
 "patch");
@@ -5999,7 +6014,8 @@ if ($format eq 'html') {
 $formats_nav =
 $cgi->a({-href => href(action=>"commitdiff_plain", -replay=>1)},
         "raw");
-if ($patch_max && @{$co{'parents'}} <= 1) {
+if ($patch_max && @{$co{'parents'}} <= 1 &&
+!gitweb_check_feature('email-privacy')) {
 $formats_nav .= " | " .
 $cgi->a({-href => href(action=>"patch", -replay=>1)},
 "patch");

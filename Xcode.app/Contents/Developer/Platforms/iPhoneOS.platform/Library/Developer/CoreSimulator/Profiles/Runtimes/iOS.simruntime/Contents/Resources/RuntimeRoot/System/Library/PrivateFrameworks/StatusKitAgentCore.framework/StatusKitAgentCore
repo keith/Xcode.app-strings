@@ -40,16 +40,22 @@ com.apple.StatusKit.publish.types
 com.apple.StatusKit.publish.allTypes
 <%@ PID=%ld>
 SKAStatusPublishingServiceClientConnection
+com.apple.StatusKitAgent
+lastPublishTime
+rapidPublishCount
 com.apple.StatusKitAgent.PublishingManager
 com.apple.statuskit.pendingPublish
 v24@?0@"NSString"8@"NSError"16
 shared-channels-stale-publish-wait-time-seconds
 shared-channels-rate-limit-wait-time-seconds
 shared-channels-request-retry-count
+shared-channels-client-rate-limit-max-rapid-publishes
+shared-channels-client-rate-limit-rapid-publish-time-seconds
 SKAStatusPublishingManager
 Could not find or create a channel to publish status of type "%@".
 Status Publish Request %@ created at %@ is not newer than existing status %@ at %@
 Status Publish Request has the same status unique identifier as existing status: %@
+Status Publish Request has been rate-limtited
 <%@: %p; identifier = "%@"; personal = %ld, decomissioned = %ld, statusType = "%@"; dateCreated = "%@">;
 SKADatabaseChannel
 %@_%p
@@ -100,8 +106,9 @@ SKADatabaseReceivedInvitation
 com.apple.gs.sharedchannels.auth
 lastReauthTime
 reauthCount
-com.apple.StatusKitAgent
 v24@?0@"NSDictionary"8@"NSError"16
+shared-channels-reauth-max-count
+shared-channels-reauth-backoff-time-seconds
 SKAAccountProvider
 channel_id
 channel_token
@@ -175,6 +182,8 @@ v32@?0@"Channel"8Q16^B24
 SKADatabaseManager
 datePublished
 uniqueIdentifier
+%02lx
+%02x
 invitedHandle
 channel
 SKASystemMonitor
@@ -212,6 +221,9 @@ Failed to extract status payload, ratchet index is missing: %@
 Failed to extract status payload, ratchet index is an invalid number: %@
 Successfully decrypted status payload
 Failed to decrypt status payload
+Finding most recent incoming ratchet for personal channel from %ld outgoing ratchets.
+Finding most recent incoming ratchet for non personal channel using incoming ratchet state from %ld received invitations.
+Unable to find most recent incoming ratchet for channel: %@
 Error serializing status envelope dictionary: %@
 Error deserializing status envelope data as dictionary: %@
 Request to invite handles contains no valid handles to invite. InvitedHandles: %@
@@ -298,6 +310,7 @@ XPC Error (synchronous): %{public}@
 Deallocing {pointer: %p}
 Client is not entitled for any status types
 Client is not entitled to publish status of type %{public}@
+Client is currently rate-limited.  Enqueing requests as pending publish.
 Publishing status unique identifier: %@ to channel: %@
 Error publishing status with the channel manager: %@
 Attempting reauth to resolve error
@@ -324,6 +337,9 @@ No pending publish requests
 Publish requested for reason: %lu
 Dropping status publish request, a status with unique identifier %@ has already been published. PublishRequest: %@
 Dropping status publish request, existing status %@ was created at %@, publish request %@ from %@ is not newer.
+In window for rate limit backoff.  We'll be free again at %@
+We've left the rate-limit backoff window.
+Incrementing rapid publish counter.
 Deleting pending publish request with ID: %@ because it is older than newly received publish request with ID %@
 Creating new pending status publish request for status unique identifier: %@
 Pending status publish request already exists for status unique identifier: %@
@@ -340,6 +356,8 @@ Publish was rejected because we've hit a rate limit.
 Server bag indicates our pending publish request delay time should be %.2f
 Server bag indicates our rate limit delay time should be %.2f
 Server bag indicates our max retry count should be %lu
+Server bag indicates our max rapid publishes should be %lu
+Server bag indicates our rapid publish timescale should be %lu
 Failed to create currentOutgoingRatchet due to invalid data. Error: %@
 Initializing messaging provider with service %@ and delegate %@
 Keysharing has been disabled by the server! Not initializing messaging service
@@ -357,6 +375,8 @@ Received didHintCheckingTransportLogWithReason
 Resolved default caller ID: %@
 Unable to determine default caller ID among URIs: %@
 Keysharing has been disabled in the server bag!
+Publishing service client connection was interrupted: %@
+Publishing service client connection was invalidated: %@
 Received request to publish status: %@
 Rejecting publish request, client is not entitled
 Account is not StatusKit capable
@@ -426,15 +446,24 @@ Received request to release persistent subscription assertion for subscriptionId
 Client is not entitled to release persistent subscription assertion for status type: %@
 Error releasing persistent subscription assertion for subscriptionIdentifier: %@ statusTypeIdentifier: %@ error: %@
 Successfully released persistent subscription assertion for subscriptionIdentifier: %@ statusTypeIdentifier: %@
-Received request for subscription validation token for handle "%@" statusTypeIdentifier: %@
+Received request for subscription and encryption validation token for handle "%@" statusTypeIdentifier: %@
 Found channel %@ matching handle: %@
 Did not find a channel matching handle: "%@". Returning empty string to indicate no match.
 Received request for validate token "%@" from handle "%@" for statusTypeIdentifier: %@
-Attempting to validate token "%@" against personal channel %@
-Sender "%@" asked us to verify that we do not have a personal channel, but we do have channel %@. Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
-Sender "%@" has supplied a valid validation token
-Sender "%@" has supplied a validation token "%@", that does not match our current personal channel identifier "%@". Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
+Validating tokens against personal channel: %@
+Received invalid validity for subscription channel validation. Not validating encryption token.
 Sender "%@" asked us to verify that we do not have a personal channel, and they are correct
+Sender "%@" asked us to verify a channel validation token, but we don't have a personal channel, this device may be out of sync, returning unknown
+Attempting to validate subscription channel token "%@" against personal channel with identifier "%@"
+Sender "%@" asked us to verify that we do not have a personal channel, but we do have channel %@. Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
+Sender "%@" has supplied a valid subscription channel validation token
+Sender "%@" has supplied a subscription channel validation token "%@", that does not match our current personal channel identifier "%@". Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
+Attempting to validate encryption token "%@" against personal channel %@
+Sender "%@" provided encryption validation token "%@", but we do not have a local value to validate against. Returning valid.
+Sender "%@" provided an nil encryption validation token, but we expected "%@". For backward compatibility, we assume nil means they are on an older OS and we should not fail validation. Returning valid.
+Sender "%@" provided an empty encryption validation token, but we expected "%@". Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
+Sender "%@" has supplied a valid encryption validation token. Provided: "%@" Expected: "%@"
+Sender "%@" has supplied an encryptoin validation token "%@", that does not match our expected value "%@". Informing client that validation token is invalid, allowing them to re-invite the sender, if appropriate.
 Validated subscriptionIdentifier: %@ statusTypeIdentifier: %@
 Failed to validate. subscriptionIdentifier: %@ does not match statusTypeIdentifier: %@
 Failed to validate subscriptionIdentifier: %@ statusTypeIdentifier: %@
@@ -475,6 +504,7 @@ Failed to subscribe to channel: %@ Error: %@
 Failed to create incomingRatchet due to invalid data. Error: %@
 Unable to fetch system account! Likely no iCloud account signed in.
 Unable to fetch JWT token!
+Fetched token hash:%@
 Reauth has hit rate limit.  Not attempting.
 Unable to fetch account store!
 Unable to fetch system account! Likely no iCloud account signed in. Error: %@
@@ -484,6 +514,8 @@ Auth refresh failed with error: %@
 Fetching primary iCloud account
 Primary iCloud account determined: %@
 Failed to find primary iCloud account
+Server bag indicates our max reauth count should be %lu
+Server bag indicates our reauth backoff time should be %lu
 Received did leave first unlock notification.
 Initializing APS connection.
 Deferring connection initialization as device is before first unlock.
@@ -563,6 +595,8 @@ Rejected XPC connection from PID %ld for publishing service. Client is not entit
 Accepted XPC connection from PID %ld for publishing service
 Rejected XPC connection from PID %ld for subscription service. Client is not entitled for any subscription service.
 Accepted XPC connection from PID %ld for subscription service
+Subscription service client was invalidated. Removing client: %@
+Publishing service client was invalidated. Removing client: %@
 Could not find channel matching changed channelIdentifier: %@
 Could not find any database channel matching changed channelIdentifiers
 Incoming message received. Service: %@ senderID: %@ guid: %@
@@ -737,6 +771,7 @@ IDSServiceDelegate
 SKAMessagingProviding
 SKAStatusPublishingServiceClient
 SKStatusPublishingDaemonProtocol
+SKAStatusPublishingServiceClientConnectionLifecycleDelegate
 SKAStatusSubscriptionServiceClient
 SKStatusSubscriptionDaemonProtocol
 SKAClientConnectionRepresentable
@@ -777,6 +812,8 @@ SKAChannelManagingDelegate
 SKAStatusReceivingManagingDelegate
 SKADatabaseManagingDelegate
 SKAInvitationManagingDelegate
+SKAStatusPublishingServiceClientDelegate
+SKAStatusSubscriptionServiceClientDelegate
 SKADatabaseRemovedUser
 SKADatabaseProvider
 SKADatabaseProviding
@@ -836,6 +873,11 @@ ska_dataFrombase64EncodedStringForKey:
 ska_numberForKey:
 integerValue
 _decryptPayload:withRatchetIndex:signatureData:channel:
+_mostRecentIncomingRatchetForChannel:
+signingKeyIdentifier
+ska_hexString
+length
+substringToIndex:
 dataWithPropertyList:format:options:error:
 propertyListWithData:options:format:error:
 isEqual:
@@ -864,6 +906,7 @@ T@"NSString",R,C
 encodeStatusPayload:statusUniqueIdentifier:dateCreated:currentServerTime:channel:
 extractEnvelopeFromStatusEnvelopeData:
 decryptStatusPayloadFromStatusEnvelopeData:channel:
+encryptionValidationTokenForChannel:
 initWithDatabaseManager:invitationManager:
 databaseManager
 invitationManager
@@ -910,7 +953,6 @@ existingInvitedUsersForPersonalChannel:databaseContext:
 chainKey
 signingKey
 initWithIndex:chainKey:signingKey:error:
-length
 invitedSKHandle
 senderSKHandle
 invitationPayload
@@ -1050,7 +1092,10 @@ daemonDelegateXPCInterface
 setRemoteObjectInterface:
 _setQueue:
 processIdentifier
+connectionLifecycleDelegate
+publishingServiceClientConnectionWasInterrupted:
 setInterruptionHandler:
+publishingServiceClientConnectionWasInvalidated:
 setInvalidationHandler:
 resume
 xpcConnection
@@ -1063,19 +1108,29 @@ sk_booleanValueForEntitlement:
 _connection:isEntitledForPublishingWithStatusTypeIdentifier:
 containsObject:
 clientIsEntitledForAtLeastOnePublishingServiceType:
-initWithXPCConnection:queue:delegate:
+initWithXPCConnection:queue:daemonProtocolDelegate:connectionLifecycleDelegate:
 asynchronousRemoteDaemonDelegateWithErrorHandler:
 synchronousRemoteDaemonDelegateWithErrorHandler:
 clientIsEntitledForPublishingWithStatusTypeIdentifier:
 setXpcConnection:
+setConnectionLifecycleDelegate:
 _xpcConnection
+_connectionLifecycleDelegate
 T@"NSXPCConnection",&,N,V_xpcConnection
+T@"<SKAStatusPublishingServiceClientConnectionLifecycleDelegate>",W,N,V_connectionLifecycleDelegate
 Ti,R
+clientIsRateLimited
+ensurePendingPublishRequestExistsWithPublishRequest:forStatusTypeIdentifier:databaseContext:
+_rateLimitDelayTime
+publishPendingRequestsWithDelay:
+_errorForRateLimit
 _publishStatusRequest:statusTypeIdentifier:afterTime:isPendingPublish:completion:
 _removePendingPublishRequestsForStatusTypeIdentifier:olderThanRequest:databaseContext:
 internalWorkQueue
-ensurePendingPublishRequestExistsWithPublishRequest:forStatusTypeIdentifier:databaseContext:
+_shouldClientRateLimit
+setClientIsRateLimited:
 _shouldAllowPublishForPublishRequest:onChannel:error:
+_markPublishAttempt
 statusPayload
 serverTime
 encryptionManager
@@ -1085,7 +1140,6 @@ isSecondaryDeviceRepublish
 userInfo
 objectForKey:
 doubleValue
-publishPendingRequestsWithDelay:
 _shouldAbandonRequestForError:
 _removePendingPublishRequestWithUniqueIdentifier:databaseContext:
 _shouldRollChannelForError:
@@ -1109,6 +1163,11 @@ uniqueIdentifier
 _errorForDuplicateStatusPublishRequestWithIdentifier:
 compare:
 _errorForStatusPublishRequestWithIdentifier:requestedStatusCreationDate:isOlderThanExistingStatus:existingStatusCreationDate:
+_maxRapidPublishes
+intValue
+dateByAddingTimeInterval:
+_rapidPublishesTimescale
+numberWithInt:
 existingPendingPublishRequestsForStatusTypeIdentifier:withDatabaseContext:
 existingPendingPublishRequestForUniqueIdentifier:withDatabaseContext:
 createPendingPublishRequestWithUniqueIdentifier:dateCreated:payloadData:statusTypeIdentifier:databaseContext:
@@ -1119,17 +1178,18 @@ publishStatusRequest:statusTypeIdentifier:afterTime:isPendingPublish:completion:
 removePendingPublishRequestsForStatusTypeIdentifier:olderThanRequest:
 publishPendingRequestForReason:
 initWithDatabaseManager:channelManager:accountProvider:encryptionManager:invitationManager:
-_rateLimitDelayTime
 setEncryptionManager:
 setInvitationManager:
 setInternalWorkQueue:
 _pendingRequestScheduled
+_clientIsRateLimited
 _encryptionManager
 _internalWorkQueue
 T@"<SKAStatusEncryptionManaging>",&,N,V_encryptionManager
 T@"<SKAInvitationManaging>",&,N,V_invitationManager
 T@"NSObject<OS_dispatch_queue>",&,N,V_internalWorkQueue
 TB,V_pendingRequestScheduled
+TB,V_clientIsRateLimited
 initWithChannelToken:identifier:personal:decomissioned:currentOutgoingRatchetState:dateCreated:statusType:invitedUsers:
 isDecomissioned
 currentOutgoingRatchetState
@@ -1214,6 +1274,7 @@ _serviceIdentifier
 T@"IDSService",&,N,V_service
 T@"NSString",&,N,V_serviceIdentifier
 T@"<SKAMessagingProvidingDelegate>",W,N,V_delegate
+publishingServiceClientWasInvalidated:
 clientConnection
 _missingEntitlmentErrorForStatusTypeIdentifier:
 _accountNotCapableError
@@ -1247,7 +1308,7 @@ inviteHandles:fromSenderHandle:withInvitationPayload:statusTypeIdentifier:comple
 removeInvitedHandles:statusTypeIdentifier:completion:
 removeAllInvitedHandlesFromPersonalChannelWithStatusTypeIdentifier:completion:
 registerForDelegateCallbacksWithStatusTypeIdentifier:completion:
-initWithXPCConnection:queue:databaseManager:invitationManager:publishingManager:channelManager:
+initWithXPCConnection:queue:delegate:databaseManager:invitationManager:publishingManager:channelManager:
 statusTypeIdenfifier
 setClientConnection:
 databaseProvider
@@ -1263,6 +1324,7 @@ _databaseProvider
 _publishingManager
 _queue
 T@"SKAStatusPublishingServiceClientConnection",&,N,V_clientConnection
+T@"<SKAStatusPublishingServiceClientDelegate>",W,N,V_delegate
 T@"<SKADatabaseProviding>",&,N,V_databaseProvider
 T@"SKAInvitationManager",&,N,V_invitationManager
 T@"<SKAStatusPublishingManaging>",&,N,V_publishingManager
@@ -1270,7 +1332,6 @@ TB,N,V_accountIsStatusKitCapable
 TB,N,V_accountCheckCompleted
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 T@"NSString",R,C,N,V_statusTypeIdenfifier
-initWithXPCConnection:queue:daemonProtocolDelegate:connectionLifecycleDelegate:
 channelMatchesClientStatusTypeIdentifier:
 _subscriptionMetadataForChannel:
 subscriptionStateChangedForSubscriptions:completion:
@@ -1286,6 +1347,7 @@ invitation
 skInvitationPayload
 initWithStatusPayload:statusUniqueIdentifier:datePublished:dateCreated:dateReceived:invitationPayload:
 releaseAllTransientSubscriptionAssertionsAssociatedWithClient:completion:
+subscriptionServiceClientWasInvalidated:
 clientIsEntitledForSubscriptionWithStatusTypeIdentifier:
 existingChannelForHandle:statusTypeIdentifier:databaseContext:
 allExistingChannelsForStatusTypeIdentifier:includingPersonalChannel:databaseContext:
@@ -1300,7 +1362,11 @@ retainTransientSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifi
 releaseTransientSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifier:client:completion:
 retainPersistentSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifier:applicationIdentifier:completion:
 releasePersistentSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifier:applicationIdentifier:completion:
-substringToIndex:
+initWithSubscriptionValidationToken:encryptionValidationToken:
+subscriptionValidationToken
+validatePersonalChannel:matchesSubscriptionValidationToken:fromSender:
+encryptionValidationToken
+validatePersonalChannel:matchesEncryptionValidationToken:fromSender:
 hasPrefix:
 _genericMissingSubscriptionEntitlmentError
 subscriptionMetadataForHandle:statusTypeIdentifier:completion:
@@ -1312,17 +1378,18 @@ subscriptionMetadataForPersonalSubscriptionWithStatusTypeIdentifier:completion:
 retainTransientSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifier:completion:
 releaseTransientSubscriptionAssertionForSubscriptionIdentifier:statusTypeIdentifier:completion:
 deleteSubscriptionWithIdentifier:statusTypeIdentifier:completion:
-subscriptionValidationTokenForHandle:statusTypeIdentifier:completion:
-validatePersonalStatusSubscriptionMatchesSubscriptionValidationToken:fromSender:statusTypeIdentifier:completion:
+subscriptionValidationTokensForHandle:statusTypeIdentifier:completion:
+validatePersonalStatusSubscriptionMatchesSubscriptionValidationTokens:fromSender:statusTypeIdentifier:completion:
 subscriptionServiceClientConnectionWasInvalidated:
 subscriptionServiceClientConnectionWasInterrupted:
-initWithXPCConnection:queue:databaseManager:subscriptionManager:encryptionManager:
+initWithXPCConnection:queue:delegate:databaseManager:subscriptionManager:encryptionManager:
 handleRemoteDatabaseChangeForChannels:
 handleReceivedStatusUpdate:onChannel:
 handleReceivedInvitationForChannel:
 setSubscriptionManager:
 _subscriptionManager
 T@"SKAStatusSubscriptionServiceClientConnection",&,N,V_clientConnection
+T@"<SKAStatusSubscriptionServiceClientDelegate>",W,N,V_delegate
 T@"<SKAStatusSubscriptionManaging>",&,N,V_subscriptionManager
 existingStatusForUniqueIdentifier:databaseContext:
 createStatusWithUniqueIdentifier:dateCreated:datePublished:dateReceived:dateExpired:rawData:channelIdentifier:databaseContext:
@@ -1443,6 +1510,7 @@ dateWithTimeIntervalSince1970:
 ska_dictionaryForKey:
 _primarySystemiCloudAccountWithError:
 aida_tokenWithExpiryCheckForService:
+ska_sha256Hash
 _shouldAttemptReauth
 _markReauthAttempt
 setAuthenticationType:
@@ -1452,8 +1520,12 @@ aida_alternateDSID
 setAltDSID:
 authenticateWithContext:completion:
 aida_accountForPrimaryiCloudAccount
-intValue
-numberWithInt:
+_maxReauthCount
+_authResetTime
+tokenFetchQueue
+setTokenFetchQueue:
+_tokenFetchQueue
+T@"NSObject<OS_dispatch_queue>",&,N,V_tokenFetchQueue
 hasChannelId
 hasChannelToken
 _channelId
@@ -1636,6 +1708,8 @@ _publishingServiceListener:shouldAcceptNewConnection:
 _subscriptionServiceListener:shouldAcceptNewConnection:
 clientIsEntitledForAtLeastOneSubscriptionServiceType:
 subscriptionServiceConnectedClients
+removeObject:
+publishingServiceConnectedClients
 _kettleFeatureEnabled
 donateReceivedStatusToBiomeOnChannel:
 _shouldDonateToBiomeForStatusTypeIdentifier:
@@ -1646,7 +1720,6 @@ source
 sendEvent:
 standardUserDefaults
 initWithStatusPayload:isScheduledRequest:
-dateByAddingTimeInterval:
 cleanupDecommisionedChannelsWithDatabaseContext:
 listener:shouldAcceptNewConnection:
 databaseDidReceiveRemoteChangesForChannels:
@@ -1657,7 +1730,6 @@ publishingServiceListener
 setPublishingServiceListener:
 publishingServiceConnectionQueue
 setPublishingServiceConnectionQueue:
-publishingServiceConnectedClients
 setPublishingServiceConnectedClients:
 subscriptionServiceListener
 setSubscriptionServiceListener:
@@ -1787,11 +1859,8 @@ sortDescriptorForDateInvitationCreatedOrderedAscending:
 sortDescriptorForSenderHandleOrderedAscending:
 dateGeneratedKeyPath
 ska_appearsToBeEmail
-connectionLifecycleDelegate
 _connection:isEntitledForSubscriptionWithStatusTypeIdentifier:
 clientIsEntitledForAtLeastOneSubscriptionServiceType
-setConnectionLifecycleDelegate:
-_connectionLifecycleDelegate
 T@"<SKAStatusSubscriptionServiceClientConnectionLifecycleDelegate>",W,N,V_connectionLifecycleDelegate
 applicationIdentifierKeyPath
 predicateForApplicationIdentifier:
@@ -1874,6 +1943,9 @@ sortDescriptorForDatePublishedAscending:
 valueForEntitlement:
 _applicationIdentifier
 T@"NSString",R,N,V_applicationIdentifier
+bytes
+initWithCapacity:
+appendFormat:
 _payloadData
 _statusUniqueIdentifier
 _retryCount
@@ -1882,12 +1954,13 @@ T@"NSData",R,N,V_payloadData
 T@"NSString",R,C,N,V_statusUniqueIdentifier
 Tq,R,N,V_retryCount
 containsString:
+UTF8String
+stringWithCapacity:
 invitedHandleKeyPath
 channelKeyPath
 initWithOptions:capacity:
 _updateLockState
 _listenForKeyBagChangeNotifications
-removeObject:
 _deviceStillUnderFirstLock
 _deliverNotificationSelectorToListeners:
 performSelectorOnMainThread:withObject:waitUntilDone:
@@ -1932,6 +2005,7 @@ B24@0:8@"Protocol"16
 @"NSData"56@0:8@"SKStatusPayload"16@"NSString"24@"NSDate"32@"NSDate"40@"SKADatabaseChannel"48
 @"SKAStatusUnencryptedEnvelope"24@0:8@"NSData"16
 @"SKADecryptedStatusPayload"32@0:8@"NSData"16@"SKADatabaseChannel"24
+@"NSString"24@0:8@"SKADatabaseChannel"16
 @44@0:8@16S24@28@36
 @44@0:8@16@24S32@36
 v16@0:8
@@ -1976,9 +2050,9 @@ i24@0:8@16
 @"NSString"
 {?="channelOwnershipType"b1}
 B32@0:8@16@24
-@40@0:8@16@24@32
 @24@0:8@?16
 @"NSXPCConnection"
+@"<SKAStatusPublishingServiceClientConnectionLifecycleDelegate>"
 v52@0:8@16@24d32B40@?44
 v32@0:8@16@24
 v24@0:8q16
@@ -2025,6 +2099,7 @@ v32@0:8@"SKHandle"16@?<v@?B>24
 B24@0:8@"SKHandle"16
 @"<SKAMessagingProvidingDelegate>"16@0:8
 v24@0:8@"<SKAMessagingProvidingDelegate>"16
+@40@0:8@16@24@32
 v32@0:8@16q24
 @"<SKAMessagingProvidingDelegate>"
 @"IDSService"
@@ -2033,11 +2108,13 @@ v32@0:8@"NSString"16@?<v@?@"NSArray"@"NSError">24
 v48@0:8@"SKHandle"16@"SKHandle"24@"NSString"32@?<v@?B@"NSError">40
 v56@0:8@"NSArray"16@"SKHandle"24@"SKInvitationPayload"32@"NSString"40@?<v@?@"NSError">48
 v40@0:8@"NSArray"16@"NSString"24@?<v@?@"NSError">32
-@64@0:8@16@24@32@40@48@56
+v24@0:8@"SKAStatusPublishingServiceClientConnection"16
+@72@0:8@16@24@32@40@48@56@64
 v24@0:8@?16
 d32@0:8@16d24
 d24@0:8@16
 @"SKAStatusPublishingServiceClientConnection"
+@"<SKAStatusPublishingServiceClientDelegate>"
 @"<SKADatabaseProviding>"
 @"SKAInvitationManager"
 @"<SKAStatusPublishingManaging>"
@@ -2048,11 +2125,14 @@ v40@0:8@"NSString"16@"NSString"24@?<v@?@"NSArray"@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"SKStatusSubscriptionMetadata"@"NSError">24
 v40@0:8@"NSString"16@"NSString"24@?<v@?@"NSError">32
 v48@0:8@"NSString"16@"NSString"24@"NSString"32@?<v@?@"NSError">40
-v40@0:8@"SKHandle"16@"NSString"24@?<v@?@"NSString"@"NSError">32
-v48@0:8@"NSString"16@"SKHandle"24@"NSString"32@?<v@?q@"NSError">40
+v40@0:8@"SKHandle"16@"NSString"24@?<v@?@"SKSubscriptionValidationTokens"@"NSError">32
+v48@0:8@"SKSubscriptionValidationTokens"16@"SKHandle"24@"NSString"32@?<v@?q@"NSError">40
 v24@0:8@"SKAStatusSubscriptionServiceClientConnection"16
+@64@0:8@16@24@32@40@48@56
+q40@0:8@16@24@32
 B40@0:8@16@24@32
 @"SKAStatusSubscriptionServiceClientConnection"
+@"<SKAStatusSubscriptionServiceClientDelegate>"
 @"<SKAStatusSubscriptionManaging>"
 v56@0:8@"NSData"16@"NSString"24@"NSDate"32@"NSDate"40@"NSDate"48
 @"<SKAStatusReceivingManagingDelegate>"
@@ -2069,7 +2149,6 @@ v24@0:8@"NSArray"16
 v20@0:8I16
 I16@0:8
 {?="retryIntervalSeconds"b1"status"b1}
-@72@0:8@16@24@32@40@48@56@64
 @"NSDate"
 @24@0:8^@16
 @"NSString"24@0:8^@16
@@ -2111,6 +2190,8 @@ v40@0:8@"<SKAStatusReceivingManaging>"16@"SKADatabaseStatus"24@"SKADatabaseChann
 v32@0:8@"<SKADatabaseManaging>"16@"SKADatabaseChannel"24
 v40@0:8@"<SKAInvitationManaging>"16@"SKADatabaseReceivedInvitation"24@"SKADatabaseChannel"32
 v32@0:8@"<SKAInvitationManaging>"16@"SKADatabaseChannel"24
+v24@0:8@"SKAStatusPublishingServiceClient"16
+v24@0:8@"SKAStatusSubscriptionServiceClient"16
 @"NSXPCListener"
 @"NSMutableArray"
 @"<SKAStatusReceivingManaging>"

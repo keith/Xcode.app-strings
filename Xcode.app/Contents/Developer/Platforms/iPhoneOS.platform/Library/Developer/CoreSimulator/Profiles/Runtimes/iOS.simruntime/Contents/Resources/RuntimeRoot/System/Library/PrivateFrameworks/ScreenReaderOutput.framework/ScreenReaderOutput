@@ -164,6 +164,7 @@ BrailleDisplayState
 BrailleDisplayIsPrimary
 BrailleDisplayPostsKeyboardEvents
 BrailleDisplayBrailleInputMode
+BrailleDisplayCanvasDescriptor
 com.apple.Accessibility
 ScreenReaderOutput
 ScreenReaderOutput.Braille
@@ -227,6 +228,26 @@ IOHIDDevice
 Transport
 Bluetooth
 SerialNumber
+height
+width
+cellHeight
+cellWidth
+hasConsistentHorizontalPinSpacing
+hasConsistentVerticalPinSpacing
+verticalPinSpacing
+horizontalPinSpacing
+interCellHorizontalSpacing
+interCellVerticalSpacing
+skipPinBetweenCellsHorizontally
+skipPinBetweenCellsVertically
+pinHeightStyle
+detentCount
+SCRO2DBrailleException
+use of %@ is not allowed
+Displays with variable vertical pin spacing are not yet supported.
+Displays with variable horizontal pin spacing are not yet supported.
+Subclasses of %@ must implement %@
+Unexpected pinHeightStyle: %ld
 plist
 6dot.mobile.commands
 8dot.mobile.commands
@@ -302,6 +323,7 @@ VOTEventCommandPreviousDifferentElement
 Client
 BrailleCommands-%@
 com.apple.VoiceOverTouch
+%@-mobile
 SCROScriptClient_scriptRunner
 Screen Reader Script Server: NOT AVAILABLE
 SCROScriptClient.m
@@ -342,6 +364,10 @@ Testing match for %@
 Could not register for serial publish notification
 IOMainPort returned %d
 IOServiceGetMatchingServices returned %d
+Auto detect dot pad: %@
+Stop autodetecting ble: %@
+Autodetect ble: %@
+Checking periperhal %@
 Error opening serial port %s - %s(%d).
 Error setting TIOCEXCL on %s - %s(%d).
 Error clearing O_NONBLOCK %s - %s(%d).
@@ -359,7 +385,9 @@ Error getting handshake lines %s - %s(%d).
 Handshake lines currently set to %d
 Error setting read latency %s - %s(%d).
 Set state: %d for display %{public}@
-Made braille display %{private}@ from identifier %{public}@
+Starting auto detecting: %@
+Starting auto detect
+Made braille display %@ from identifier %{public}@ %@
 Driver did load: %d %{public}@
 Current display state: %d
 Display failed load: %{public}@
@@ -401,6 +429,8 @@ SCROBrailleDisplayCommandDispatcherDelegate
 SCROBrailleDriverDelegate
 BRLTBrailleStateManagerDelegate
 SCROBrailleDisplayAutoDetector
+CBCentralManagerDelegate
+CBPeripheralDelegate
 SCROBrailleDisplayHistory
 SCROBrailleDisplayManagedQueue
 SCROBrailleDisplayManagerStatus
@@ -438,6 +468,10 @@ SCROHandlerProtocol
 SCROIOElement
 SCROIOHIDElement
 SCROIOHIDElementProtocol
+SCRO2DPin
+SCRO2DBrailleCanvasDescriptor
+SCRO2DBrailleCanvas
+SCRO2DBrailleCanvasDebugging
 SCROMobileBrailleDisplayInputManagerCacheObject
 SCROMobileBrailleDisplayInputManager
 SCROBrailleDisplayInputManagerProtocol
@@ -502,6 +536,7 @@ handleFailedToLoadBluetoothDevice:
 handleBrailleTableFailedToLoad:
 handleDisplayModeChanged:
 handleBrailleDisplayCopyStringToClipboard:
+handleTactileGraphicsCanvasDidChange:
 _registerDelegate
 setHandlerValue:forKey:
 numberWithBool:
@@ -546,6 +581,7 @@ setKeepConnectionAlive:
 keepConnectionAlive
 delegate
 loadDisplayWithBluetoothDeviceAddress:
+loadTactileGraphicsDisplayWithBLEIdentifier:
 removeDisplayWithBluetoothDeviceAddress:
 setTableIdentifier:
 setAlwaysUsesNemethCodeForTechnicalText:
@@ -580,6 +616,7 @@ setAutoAdvanceEnabled:
 autoAdvanceEnabled
 setAutoAdvanceDuration:
 autoAdvanceDuration
+setTactileGraphicsImageData:
 displayMode
 persistentKeyModifiers
 setPersistentKeyModifiers:
@@ -841,6 +878,8 @@ statusSize
 setMainCells:length:
 setStatusCells:length:
 setBrailleDriverDelegate:
+canvas
+displayCanvas
 instancesRespondToSelector:
 brailleDriverBundleWithIdentifier:
 principalClass
@@ -865,19 +904,22 @@ removeObserver:
 newLineDescriptor
 identifier
 _beginAutoAdvanceIfEnabled
+eventWithType:data:data2:data3:
+enqueueEvent:
+imageData
 autoAdvanceTimer
 eventWithType:data:
-enqueueEvent:
 scheduledTimerWithTimeInterval:repeats:block:
 setAutoAdvanceTimer:
 dictionaryWithCapacity:
 setObject:forKey:
 transport
 numberWithUnsignedInteger:
-eventWithType:data:data2:data3:
+descriptor
 tokenForRouterIndex:location:appToken:
 type
 _setBrailleFormatterHandler:
+_setTactileGraphicsImageDataHandler:
 _statusDisplayHandler:
 _aggregatedStatusHandler:
 _setDelegateWantsDisplayCallbackHandler:
@@ -911,6 +953,7 @@ appendFormat:
 sharedInstance
 brailleSubstitutionForType:withLanguage:
 _setBrailleFormatter:
+setImageData:
 _unpauseInput
 _processKeyEvents:
 _inputPaused
@@ -1038,6 +1081,7 @@ ioElement
 token
 setInputAllowed:
 configuration
+canvasDescriptor
 requestFlushLine
 beginUpdates
 endUpdates
@@ -1106,6 +1150,7 @@ T@"NSTimer",&,N,V_autoAdvanceTimer
 TB,N,V_inputAllowed
 TB,N,V_automaticBrailleTranslationEnabled
 Td,N,V_autoAdvanceDuration
+T@"NSData",&,N
 Ti,N,V_inputContractionMode
 Ti,N,V_outputContractionMode
 TB,N,V_inputShowEightDot
@@ -1128,6 +1173,7 @@ sortedArrayUsingComparator:
 _driverBundleIdentifiers
 _autodetectIOServices:
 _initializeAutodetectSerialPorts:
+_autodetectDotPad:
 UTF8String
 appendBytes:length:
 _serialDataMatchesDriver:driverBundleIdentifiers:fileDescriptor:
@@ -1141,16 +1187,59 @@ processInfo
 processName
 hasPrefix:
 _openSerialPortService:sortedDriverBundleIdentifiers:
+initWithDelegate:queue:
+removeObject:
+centralManager
+retrieveConnectedPeripheralsWithServices:allowAll:
+UUIDString
+containsObject:
+state
+stopScan
+dictionaryWithObjects:forKeys:count:
+scanForPeripheralsWithServices:options:
 sharedDetector
 initialize
+centralManagerDidUpdateState:
+centralManager:willRestoreState:
+centralManager:didDiscoverPeripheral:advertisementData:RSSI:
+centralManager:didConnectPeripheral:
+centralManager:didFailToConnectPeripheral:error:
+centralManager:didDisconnectPeripheral:error:
+centralManager:connectionEventDidOccur:forPeripheral:
+centralManager:didUpdateANCSAuthorizationForPeripheral:
+peripheralDidUpdateName:
+peripheral:didModifyServices:
+peripheralDidUpdateRSSI:error:
+peripheral:didReadRSSI:error:
+peripheral:didDiscoverServices:
+peripheral:didDiscoverIncludedServicesForService:error:
+peripheral:didDiscoverCharacteristicsForService:error:
+peripheral:didUpdateValueForCharacteristic:error:
+peripheral:didWriteValueForCharacteristic:error:
+peripheral:didUpdateNotificationStateForCharacteristic:error:
+peripheral:didDiscoverDescriptorsForCharacteristic:error:
+peripheral:didUpdateValueForDescriptor:error:
+peripheral:didWriteValueForDescriptor:error:
+peripheralIsReadyToSendWriteWithoutResponse:
+peripheral:didOpenL2CAPChannel:error:
 copyWithZone:
 isAutoDetectEnabled
 detectDisplays
 stopDetectingDisplays
+removeAutodetectBLEIdentifier:
+addAutodetectBLEIdentifier:
+setCentralManager:
+queue
+setQueue:
 _serialSource
 _isDetectingDisplays
 _notificationPort
 _iteratorDict
+_bleIdentifiers
+_centralManager
+_queue
+T@"CBCentralManager",&,V_centralManager
+T@"NSObject<OS_dispatch_queue>",&,V_queue
 postNotificationName:object:userInfo:
 initWithString:attributes:
 appendAttributedString:
@@ -1222,11 +1311,11 @@ enumerateAttribute:inRange:options:usingBlock:
 addText:overrideText:language:selection:token:focus:technical:isEditableText:paddingRange:editingString:
 _enumerateActiveDisplays:
 _deviceConnectedHandler:
+_startAutodetectingTactileGraphics
 removeObserver:name:object:
 _addDetectedIOElement:withDriverIdentifier:
 _eventQueue_addDetectedIOElement:withDriverIdentifier:
 _loadNextDriverForIOElement:
-containsObject:
 arrayWithObject:
 _eventQueue_loadNextDriverForIOElement:
 ioObject
@@ -1245,7 +1334,6 @@ configureWithDriverConfiguration:
 performSelectorOnMainThread:withObject:waitUntilDone:
 _loadStealthDisplay
 _eventQueue_brailleDriverDisconnected:
-removeObject:
 setUIDisplayMode
 handleBrailleDriverDisconnected
 _eventQueue_brailleDisplay:isSleeping:
@@ -1268,7 +1356,7 @@ setAnyUnread:
 addText:selection:token:focus:technical:isEditableText:
 _eventQueue_doSetDisplayMode:
 setStatusText:
-setLineOffset:
+setBrailleLineOffset:stringLineOffset:
 setAppToken:
 tokenizeString:intoFormatter:selection:
 _eventQueue_resetAlertTimer
@@ -1298,6 +1386,7 @@ _eventQueue_setAutomaticBrailleTranslationEnabled:
 _eventQueue_setWordWrapEnabled:
 _eventQueue_setAutoAdvanceEnabled:
 _eventQueue_setAutoAdvanceDuration:
+_eventQueue_setTactileGraphicsImageData:
 _eventQueue_setInputContractionMode:
 _eventQueue_setPersistentKeyModifiers:
 _eventQueue_showDotsSevenAndEight:
@@ -1317,6 +1406,7 @@ _eventQueue_resetEditingManager
 _eventQueue_refreshEightDotEnabledOnDisplays
 _enableAutoDetect
 loadBluetoothDriverWithAddress:
+loadBLEDriverWithIdentifier:
 removeBluetoothDriverWithAddress:
 _resetBluetoothReconnectionTimer
 _blankOutDisplaysInQueue:
@@ -1342,6 +1432,7 @@ _lineDescriptorDisplayCallbackEnabled
 _automaticBrailleTranslation
 _uiStringCachedLineOffset
 _uiEditingCachedString
+_imageData
 _displayModeStack
 _history
 _mainString
@@ -1374,13 +1465,13 @@ enumerateObjectsUsingBlock:
 _processQueue
 _queueLock
 _queueSource
-_queue
 _brailleEventQueue
 _target
 initWithDelegate:translationDelegate:
 setInputTranslationMode:
 setOutputTranslationMode:
 lineFocus
+setLineOffset:
 addText:language:selection:token:focus:isEditableText:
 addText:overrideText:language:selection:token:focus:technical:isEditableText:
 stringByReplacingCharactersInRange:withString:
@@ -1401,6 +1492,7 @@ emptyEditingScriptString
 translate:
 printBrailleForText:language:mode:textPositionsRange:locations:
 bits
+_brailleRangeForTextRange:textPositions:brailleLength:
 addText:language:selection:token:focus:technical:isEditableText:
 hasPlaceholderText
 clearPlaceholderForEditing
@@ -1445,9 +1537,9 @@ handlePerformActionForKey:trusted:
 initWithKey:object:
 callbackDelegate
 postToHandler:
-dictionaryWithObjects:forKeys:count:
 setIsAtomic:
 initWithBrailleDisplayManager:
+handleTacticalGraphicsCanvasDidChange:
 _brailleDisplayManager
 _wantsInputCallbacks
 _wantsDidDisplayCallbacks
@@ -1512,6 +1604,7 @@ _pendingBraille
 T@"NSString",R,N,V_pendingBraille
 T@"NSArray",R,N,V_modifiers
 initWithCharacters:length:
+imageCanvas
 _updateOffsets
 isEqualToData:
 getBytes:length:
@@ -1609,6 +1702,7 @@ _statusData
 _lineBuffer
 _virtualStatus
 _brailleFormatter
+_supportsCanvas
 _isSingleLetterInputOn
 _isTextSearchModeOn
 _editableFieldInterruptedByAlert
@@ -1654,7 +1748,6 @@ _lookup
 _linguisticTagger
 _taggerLock
 loadTranslatorWithServiceIdentifier:forUnitTesting:
-queue
 translationService
 serviceIdentifier
 serviceForIdentifier:loopback:
@@ -1666,7 +1759,6 @@ initWithLanguage:mode:partial:useTechnicalTable:textPositionsRange:
 brailleForText:parameters:withReply:
 textForBraille:parameters:withReply:
 T@"SCROBrailleTranslationManager",R
-setQueue:
 _tableSupportsContractedBraille
 _tableSupportsEightDotBraille
 _alwaysUsesNemethCodeForTechnicalText
@@ -1764,6 +1856,99 @@ _ioObject
 Ti,N,V_identifier
 hidDevice
 _hidDevice
+initWithX:y:style:
+setState:
+style
+_state
+_style
+TQ,R,V_x
+TQ,R,V_y
+T(?=Qf),V_state
+TQ,R,V_style
+decodeDoubleForKey:
+cellHeight
+cellWidth
+hasConsistentHorizontalPinSpacing
+hasConsistentVerticalPinSpacing
+verticalPinSpacing
+encodeDouble:forKey:
+horizontalPinSpacing
+interCellHorizontalSpacing
+interCellVerticalSpacing
+skipPinBetweenCellsHorizontally
+skipPinBetweenCellsVertically
+pinHeightStyle
+detentCount
+numberOfTextLinesAvailable
+numberOfGraphicsLinesAvailableForTextLines:
+height
+setHeight:
+width
+setWidth:
+setCellHeight:
+setCellWidth:
+setHasConsistentHorizontalPinSpacing:
+setHasConsistentVerticalPinSpacing:
+setVerticalPinSpacing:
+setHorizontalPinSpacing:
+setInterCellHorizontalSpacing:
+setInterCellVerticalSpacing:
+setSkipPinBetweenCellsHorizontally:
+setSkipPinBetweenCellsVertically:
+setPinHeightStyle:
+setDetentCount:
+_hasConsistentHorizontalPinSpacing
+_hasConsistentVerticalPinSpacing
+_skipPinBetweenCellsHorizontally
+_skipPinBetweenCellsVertically
+_height
+_width
+_cellHeight
+_cellWidth
+_verticalPinSpacing
+_horizontalPinSpacing
+_interCellHorizontalSpacing
+_interCellVerticalSpacing
+_pinHeightStyle
+_detentCount
+TQ,N,V_height
+TQ,N,V_width
+TQ,N,V_cellHeight
+TQ,N,V_cellWidth
+TB,N,V_hasConsistentHorizontalPinSpacing
+TB,N,V_hasConsistentVerticalPinSpacing
+Td,N,V_verticalPinSpacing
+Td,N,V_horizontalPinSpacing
+Td,N,V_interCellHorizontalSpacing
+Td,N,V_interCellVerticalSpacing
+TB,N,V_skipPinBetweenCellsHorizontally
+TB,N,V_skipPinBetweenCellsVertically
+TQ,N,V_pinHeightStyle
+TQ,N,V_detentCount
+_fullyDownPinState
+_pinForX:y:
+_blitText
+_clearCells
+_blitBMP
+_numberOfTextLines
+dataWithBytes:length:
+_updateTextCells
+setPinState:forX:y:
+_canBlitCellAtX:y:
+_blitCell:AtX:y:
+_fullyUpPinState
+_updateCells
+initWithCanvasDescriptor:
+supportsBrailleText
+pinStateForX:y:
+setNumberOfTextLines:
+_textDisplayHeight
+setBrailleText:length:
+_pins
+_brailleTextData
+_descriptor
+T@"SCRO2DBrailleCanvasDescriptor",R,V_descriptor
+debugAsciiCanvas
 setModelIdentifier:
 setBrailleInputMode:
 setDriverIdentifier:
@@ -1901,6 +2086,7 @@ B32@0:8r*16q24
 i24@0:8@"<SCROIOElementProtocol>"16
 @"NSArray"16@0:8
 v24@0:8@"<SCROBrailleDriverDelegate>"16
+@"SCRO2DBrailleCanvas"16@0:8
 @40@0:8@16@24@32
 v32@0:8@16@24
 @"<SCROBrailleDisplayInputManagerProtocol>"16@0:8
@@ -1933,10 +2119,29 @@ v24@0:8@?16
 @"NSMutableArray"
 @"SCROBrailleDisplayInput"
 @"NSTimer"
+v48@0:8@16@24@32@40
+v40@0:8@16@24@32
+v40@0:8@16q24@32
+v24@0:8@"CBCentralManager"16
+v32@0:8@"CBCentralManager"16@"NSDictionary"24
+v48@0:8@"CBCentralManager"16@"CBPeripheral"24@"NSDictionary"32@"NSNumber"40
+v32@0:8@"CBCentralManager"16@"CBPeripheral"24
+v40@0:8@"CBCentralManager"16@"CBPeripheral"24@"NSError"32
+v40@0:8@"CBCentralManager"16q24@"CBPeripheral"32
+v24@0:8@"CBPeripheral"16
+v32@0:8@"CBPeripheral"16@"NSArray"24
+v32@0:8@"CBPeripheral"16@"NSError"24
+v40@0:8@"CBPeripheral"16@"NSNumber"24@"NSError"32
+v40@0:8@"CBPeripheral"16@"CBService"24@"NSError"32
+v40@0:8@"CBPeripheral"16@"CBCharacteristic"24@"NSError"32
+v40@0:8@"CBPeripheral"16@"CBDescriptor"24@"NSError"32
+v40@0:8@"CBPeripheral"16@"CBL2CAPChannel"24@"NSError"32
 B36@0:8@16@24i32
 @"NSObject<OS_dispatch_source>"
 ^{IONotificationPort=}
 @"NSMutableDictionary"
+@"CBCentralManager"
+@"NSObject<OS_dispatch_queue>"
 B24@0:8q16
 @24@0:8i16B20
 v28@0:8@16i24
@@ -1967,7 +2172,6 @@ B32@0:8@16@24
 v32@0:8@16B24B28
 v24@0:8B16i20
 {_NSRange=QQ}24@0:8Q16
-@"NSObject<OS_dispatch_queue>"
 @"SCROBrailleDisplayManagedQueue"
 @"SCROBrailleDisplay"
 @"SCROBrailleFormatter"
@@ -1990,10 +2194,10 @@ v56@0:8@16^{_NSRange=QQ}24q32^{_NSRange=QQ}40B48B52
 v64@0:8@16@24^{_NSRange=QQ}32q40^{_NSRange=QQ}48B56B60
 v72@0:8@16@24@32^{_NSRange=QQ}40q48^{_NSRange=QQ}56B64B68
 v96@0:8@16@24@32^{_NSRange=QQ}40q48^{_NSRange=QQ}56B64B68{_NSRange=QQ}72@88
+v32@0:8@16q24
 @"BRLTBrailleStateManager"
 @"<BRLTBrailleStateManagerDelegate>"
 @"BRLTScriptString"
-v48@0:8@16@24@32@40
 v24@0:8@"NSArray"16
 v48@0:8{_NSRange=QQ}16@"NSString"32Q40
 v28@0:8@"NSString"16B24
@@ -2005,7 +2209,7 @@ i24@0:8i16B20
 i32@0:8@16i24B28
 i40@0:8^@16i24@28B36
 @"SCROBrailleDisplayManager"
-{?="didDisplay"B"keypress"B"userEventOccured"B"replaceTextRange"B"keyWillMem"B"keymem"B"panLeft"B"panRight"B"showPreviousAnnouncement"B"showNextAnnouncement"B"configChanged"B"playDisplayConnectionSound"B"playBorderHitSound"B"playCommandNotSupportedSound"B"bluetoothDisplayLoadFailed"B"tableLoadFailed"B"displayModeChanged"B"copyStringToClipboard"B"startEditing"B"insertUntranslatedText"B"deleteUntranslatedText"B}
+{?="didDisplay"B"keypress"B"userEventOccured"B"replaceTextRange"B"keyWillMem"B"keymem"B"panLeft"B"panRight"B"showPreviousAnnouncement"B"showNextAnnouncement"B"configChanged"B"playDisplayConnectionSound"B"playBorderHitSound"B"playCommandNotSupportedSound"B"bluetoothDisplayLoadFailed"B"tableLoadFailed"B"displayModeChanged"B"copyStringToClipboard"B"tacticalGraphicsCanvasDidChange"B"startEditing"B"insertUntranslatedText"B"deleteUntranslatedText"B}
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 v48@0:8q16q24q32@40
@@ -2045,6 +2249,17 @@ i28@0:8@16i24
 i32@0:8^@16i24B28
 ^v16@0:8
 ^{__IOHIDDevice=}
+@40@0:8Q16Q24Q32
+(?=Qf)16@0:8
+v24@0:8(?=Qf)16
+(?="detent"Q"height"f)
+@32@0:8Q16Q24
+v40@0:8(?=Qf)16Q24Q32
+(?=Qf)32@0:8Q16Q24
+v32@0:8r*16Q24
+B32@0:8Q16Q24
+v36@0:8C16Q20Q28
+@"SCRO2DBrailleCanvasDescriptor"
 @"NSBundle"
 @"NSString"24@0:8@"SCROBrailleKey"16
 @28@0:8@16i24

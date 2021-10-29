@@ -63,10 +63,12 @@ v24@?0@"NSData"8@"NSError"16
 -[DMCEnrollmentFlowController _askForUserConsentWithProfileData:managedAppleID:]_block_invoke_2
 v12@?0B8
 v28@?0@"NSString"8B16@"NSError"20
--[DMCEnrollmentFlowController _createRMAccountIfNeededWithUsername:existingRMAccountID:enrollmentType:enrollmentMethod:isRenewalFlow:]_block_invoke_2
+-[DMCEnrollmentFlowController _createRMAccountIfNeededWithSignInUserIdentifier:assignedMAID:existingRMAccountID:enrollmentType:enrollmentMethod:isRenewalFlow:]_block_invoke_2
 v20@?0B8@"NSError"12
 v16@?0@"ACAccount"8
--[DMCEnrollmentFlowController _promoteiCloudWithAltDSID:enrollmentMethod:]_block_invoke
+-[DMCEnrollmentFlowController _requestiCloudSignInConfirmation]_block_invoke
+-[DMCEnrollmentFlowController _promoteiCloudWithAltDSID:]_block_invoke
+-[DMCEnrollmentFlowController _askForRestoreChoiceWithMAID:personaID:]_block_invoke
 PromptForUsername
 PreflightEnrollment
 FetchServiceURL
@@ -90,6 +92,8 @@ UpdateRMAccountForReauth
 UpdateAccountsForMDMUserEnrollment
 ReauthenticationComplete
 PromoteiCloud
+RequestiCloudSignInConfirmation
+Restore
 DMC_DUPLICATE_ACCOUNT_EXISTS
 ORGANIZATION_UNKNOWN
 ERROR_PROFILE_ENROLLMENT_MODE_INVALID
@@ -119,17 +123,6 @@ UnenrollWithMDMServer
 AssociatedKeyAppleIDContext
 v32@?0@"NSString"8@16^B24
 %@="%@"
-RESTORE_ERROR_COULD_NOT_GET_SNAPSHOT_LIST
-v24@?0@"NSArray"8@"NSError"16
-RESTORE_ERROR_COULD_NOT_ASK_USER_TO_APPROVE_SNAPSHOT
-RESTORE_ERROR_COULD_NOT_GET_APP_LIST_FROM_SNAPSHOT
-v24@?0@"NSSet"8@"NSError"16
-RESTORE_ERROR_COULD_NOT_CHOOSE_CONFLICT_ACTION
-RESTORE_ERROR_USER_CANCELED_ENROLLMENT
-RESTORE_ERROR_INTERNAL_ERROR
-v24@?0q8@"NSError"16
-RESTORE_ERROR_RESTORE_COULD_NOT_START
-v16@?0@"NSError"8
 Exchanging MAID for bearer token...
 Exchange MAID for bearer token finished with data: %lu bytes, response: %{public}@
 Failed to exchange for bearer token with error: %{public}@
@@ -177,6 +170,8 @@ Update MDM User Enrollment managedAppleID: %{public}@, profileIdentifier: %{publ
 Failed: %lu feature is not supported
 Will perform enrollment step: %{public}@
 %s (L: %d): Current persona ID: %{public}@, type: %{public}@
+The core part of the enrollment flow is done. Cleaning up disk values...
+Clean up local stored stuffs
 Enrollment flow completed!
 Enrollment flow terminated with error: %{public}@, canceled: %d
 Cleaning up dirty state...
@@ -235,16 +230,6 @@ No profile identifier from the RM account!
 No iCloud account found!
 Missing short-lived token details for RM account: altDSID: %{public}@, token: %{public}@
 Missing long-lived token details for RM account: dsid: %{public}@, token: %{public}@
-managed restore skipped because no restorable snapshots are available
-managed restore failed because user could not be asked to approve snapshot: %{public}@
-managed restore skipped because user said no to the offered snapshot
-managed restore failed because list of app bundle identifers in snapshot was not available: %{public}@
-managed restore, no apps conflict, automatically continuing restore
-managed restore failed user could not choose conflict action: %{public}@
-managed restore, user canceled enrollment
-managed restore, user will enroll without restore
-managed restore, user wants to restore and skip conflicting apps
-managed restore, starting restore, skipping apps [%s]
 softlink:r:path:/System/Library/PrivateFrameworks/AuthKit.framework/AuthKit
 DMCAuthenticationHelper
 DMCEnrollmentDirtyState
@@ -255,7 +240,6 @@ DMCUnenrollmentFlowController
 DMCMAIDAuthenticator
 DMCHTTPAuthenticator
 NSObject
-DMCRFRestoreFlow
 stringWithFormat:
 regularExpressionWithPattern:options:error:
 length
@@ -414,9 +398,9 @@ dmc_bearerReauthURL
 dmc_personaIdentifier
 setPersonaID:
 setRmAccountIdentifier:
-username
-setUsername:
 setUserAuthURL:
+dmc_signInUserIdentifier
+setUsername:
 setNoCompletionScene:
 _BYOD_reauthSteps
 isUserEnrollmentShowsManagedAccountEnabled
@@ -430,10 +414,13 @@ currentPersonaTypeString
 _stepsWithUI
 numberWithUnsignedInteger:
 setHasExecutedUIStep:
+_postEnrollmentSteps
+_workerQueue_stopMonitorAndEmptyDiskValues
 enrollmentType
 isRenewalFlow
 isPostRestoration
 _preflightEnrollmentWithEnrollmentType:isRenewalFlow:isPostRestoration:
+username
 _askForUsernameWithDefaultUsername:
 _fetchServiceURLWithUsername:
 serviceURL
@@ -455,12 +442,11 @@ _exchangeMAIDForBearerTokenWithRMAccountIdentifier:userAuthURL:machineInfo:ancho
 authToken
 _fetchEnrollmentProfileFromServiceURL:authToken:enrollmentMethod:machineInfo:anchorCertificateRefs:
 _askForUserConsentWithProfileData:managedAppleID:
-_createRMAccountIfNeededWithUsername:existingRMAccountID:enrollmentType:enrollmentMethod:isRenewalFlow:
-_isBYODWithAppleMAID
-_updateRMAccountWithIdentifier:authenticationResults:isBYODWithAppleMAID:
+_createRMAccountIfNeededWithSignInUserIdentifier:assignedMAID:existingRMAccountID:enrollmentType:enrollmentMethod:isRenewalFlow:
+_updateRMAccountWithIdentifier:authenticationResults:enrollmentMethod:
 profileIdentifier
 organizationName
-_updateRMAccountWithIdentifier:authToken:profileIdentifier:organizationName:personaID:isBYODWithAppleMAID:
+_updateRMAccountWithIdentifier:authToken:profileIdentifier:organizationName:personaID:enrollmentMethod:
 _updateRMAccountWithIdentifier:authToken:personaID:
 isProfileLocked
 friendlyName
@@ -468,14 +454,16 @@ _correlateMAIDWithAltDSID:withRMAccount:isProfileLocked:organizationName:friendl
 _installEnrollmentProfile:devicePasscode:personaID:rmAccountIdentifier:
 _updateAccountsWithRMIdentifier:managedAppleID:profileIdentifier:organizationName:personaID:
 _reauthenticationCompleteWithRMIdentifier:
-_promoteiCloudWithAltDSID:enrollmentMethod:
+_requestiCloudSignInConfirmation
+_promoteiCloudWithAltDSID:
+_askForRestoreChoiceWithMAID:personaID:
 _commonStepsForEnrollmentType:
+stopEnrollmentFlowMonitor
+_writeDirtyStateToDisk:
+_workerQueue_cleanupCachedValues
 noCompletionScene
 presenter
 showEnrollmentCompletionScene
-stopEnrollmentFlowMonitor
-_writeDirtyStateToDisk:
-_cleanupStoredValues
 enrollmentCompletionHandler
 hasExecutedUIStep
 restartIfFail
@@ -486,7 +474,7 @@ showEnrollmentFailure:
 dismissEnrollmentScene
 removePersona:error:
 removeProfileWithIdentifier:async:
-dmc_removeAccountsWithAltDSID:asynchronous:
+dmc_removeMAIDRelatedAccountsWithAltDSID:asynchronous:
 dmc_removeAccountWithIdentifier:asynchronous:
 setDevicePasscode:
 setDirtyState:
@@ -532,6 +520,7 @@ installEnrollmentProfile:devicePasscode:personaID:rmAccountIdentifier:completion
 accountWithIdentifier:
 dmc_enrollmentMethod
 dmc_createManagementAccountWithStore:
+dmc_setSignInUserIdentifier:
 dmc_setEnrollmentType:
 dmc_setEnrollmentMethod:
 saveAccount:withCompletionHandler:
@@ -555,10 +544,11 @@ dmc_iCloudAccountWithUsername:
 _createMissingAppleAccountForUserEnrollmentError
 aa_altDSID
 reauthenticationComplete
+requestiCloudSignInConfirmationWithCompletionHandler:
 dmc_iCloudAccountForRemoteManagingAccountWithAltDSID:
 dmc_accountQuotaString
 showiCloudPromotionPageWithiCloudQuotaString:completionHandler:
-requestiCloudSignInConfirmationWithCompletionHandler:
+suggestRestoreForAccountWithUsername:personaID:completionHandler:
 notificationNameForApplicationWillTerminate
 defaultCenter
 _receivedApplicationWillTerminateNotification:
@@ -727,41 +717,6 @@ setTimeZone:
 setFormatOptions:
 stringValue
 stringFromDate:
-snapshotSource
-completion
-_handleSnapshots:
-fetchRestorableSnapshotsWithCompletion:
-interactionClient
-DMCVerboseDescription
-_checkSnapshotForConflictingApps:
-doesUserWantToRestoreSnapshot:completion:
-_restoreSnapshotNoConflicts:
-_compareAppsOnDeviceToAppBundleIdentifiers:fromSnapshot:
-fetchAppBundleIDsForSnapshot:completion:
-deviceEnvironment
-installedAppBundleIdentifiers
-_intersectionOfSet:set:
-allObjects
-_restoreSnapshot:skippingApps:
-userActionDesiredWhenAppsConflict:completion:
-intersectSet:
-_appBundleIdentifiersSetDebugDescription:
-UTF8String
-startRestoreForSnapshot:excludingAppBundleIdentifiers:completion:
-initWithSnapshotSource:interactionClient:deviceEnvironment:completion:
-startManagedRestoreWorkflow
-setSnapshotSource:
-setInteractionClient:
-setDeviceEnvironment:
-setCompletion:
-_snapshotSource
-_interactionClient
-_deviceEnvironment
-_completion
-T@"<DMCRFSnapshotSource>",&,N,V_snapshotSource
-T@"<DMCRFInteractionClient>",&,N,V_interactionClient
-T@"<DMCRFDeviceEnvironment>",&,N,V_deviceEnvironment
-T@?,C,N,V_completion
 Q32@0:8@16^@24
 v48@0:8@16@24@32@?40
 @16@0:8
@@ -793,19 +748,18 @@ v60@0:8@16@24Q32@40B48B52B56
 v44@0:8@16Q24@32B40
 v48@0:8@16@24@32@40
 v56@0:8@16@24Q32@40@48
-v52@0:8@16@24Q32Q40B48
-v36@0:8@16@24B32
-v60@0:8@16@24@32@40@48B56
+v60@0:8@16@24@32Q40Q48B56
+v40@0:8@16@24Q32
+v64@0:8@16@24@32@40@48Q56
 v40@0:8@16@24@32
 v60@0:8@16@24B32@36@44@52
 v56@0:8@16@24@32@40@48
-v32@0:8@16Q24
 B24@0:8Q16
-B16@0:8
 B40@0:8@16Q24^@32
 B32@0:8@16Q24
 @?16@0:8
 v24@0:8@?16
+B16@0:8
 v20@0:8B16
 @"NSString"
 @"DMCEnrollmentDirtyState"
@@ -832,7 +786,3 @@ B24@0:8@"Protocol"16
 B32@0:8@16^@24
 B32@0:8@"NSMutableURLRequest"16^@24
 B32@0:8@"NSURLSessionTask"16^@24
-@48@0:8@16@24@32@?40
-@"<DMCRFSnapshotSource>"
-@"<DMCRFInteractionClient>"
-@"<DMCRFDeviceEnvironment>"

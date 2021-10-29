@@ -506,6 +506,10 @@ ENCRYPTION_FORMAT_2_PLATFORM_VERSION = {
   "iphoneos" => Gem::Version.new(13),
   "watchos" => Gem::Version.new(6),
   "appletvos" => Gem::Version.new(13),
+SWIFT_CONCURRENCY_NATIVE_SUPPORT_VERSION = {
+  "iphoneos" => Gem::Version.new(15),
+  "watchos" => Gem::Version.new(8),
+  "appletvos" => Gem::Version.new(15),
 OPTIONS = OpenStruct.new()
 OPTIONS.thinDevices = []
 OPTIONS.skipThinDevices = []
@@ -1146,7 +1150,11 @@ class FSMachOFileNode < FSFileNode
     thinArch = nil
     if thinningContext.traits && self.shouldThin
       if thinningContext.traits.hasSwiftRuntime && self.isSwiftRuntimeDylib
-        return
+        if self.isSwiftConcurrencyDylib && !thinningContext.traits.supportsSwiftConcurrencyNatively
+          # process this as normal instead of thinning the lib
+        else
+          return
+        end
       end
       thinArch = thinningContext.traits.preferredArch
     elsif self.platform.identifier == "watchos" && thinningContext.mainTraits && !thinningContext.mainTraits.supportsEmbeddedUniversalWatchApp
@@ -1182,6 +1190,9 @@ class FSMachOFileNode < FSFileNode
   end
   def isSwiftRuntimeDylib
     return isDylib && self.name =~ /libswift.*\.dylib/
+  end
+  def isSwiftConcurrencyDylib
+    return isDylib && self.name == "libswift_Concurrency.dylib"
   end
   # After we've recompiled each image, where do we store the universal reassembled MachO?
   def universalReassemblyPath(ipa, options)
@@ -1345,7 +1356,7 @@ class FSBundleDirectoryNode < FSDirectoryNode
     # Modify the thinning traits to account for iPhone-only apps in compatibility mode on iPads.
     if thinningContext.traits and thinningContext.traits.artworkDevIdiom == "pad" and self.supportedIdioms == ["phone"]
       # It's an iPhone-only app being thinned for iPad.  We do some magic on the thinning traits to reflect the compatibility environment.
-      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedWatchApp, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime, thinningContext.traits.supportsEncryptionFormat2, thinningContext.traits.coalescingGroup).freeze
+      traits = ThinningTraits.new(thinningContext.traits.deploymentTarget, thinningContext.traits.passDeploymentTargetToAssetutil, thinningContext.traits.preferredArch, "phone", thinningContext.traits.artworkHostedIdioms, 2, 0, thinningContext.traits.artworkDisplayGamut, thinningContext.traits.artworkDynamicDisplayMode, thinningContext.traits.devPerfMemoryClass,thinningContext.traits.gfxFeatureSetClass, thinningContext.traits.gfxFeatureSetFallbacks, thinningContext.traits.featuresToRemove, thinningContext.traits.supportsEmbeddedWatchApp, thinningContext.traits.supportsEmbeddedUniversalWatchApp, thinningContext.traits.hasSwiftRuntime, thinningContext.traits.supportsEncryptionFormat2, thinningContext.traits.coalescingGroup, thinningContext.traits.supportsSwiftConcurrencyNatively).freeze
       thinningContext = ThinningContext.new(traits, traits, thinningContext.variants, thinningContext.outputIPAPath, thinningContext.bitcodeContext, thinningContext.inputOutputMap)
       log { "#{"  "*level}  (adjusting thinning traits to #{thinningContext.traits} for an iPhone-only app on an iPad)" }
     end
@@ -2628,7 +2639,8 @@ class ThinningTraits
   attr_accessor :hasSwiftRuntime
   attr_accessor :supportsEncryptionFormat2
   attr_accessor :coalescingGroup
-  def initialize(deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, supportsEncryptionFormat2, coalescingGroup)
+  attr_accessor :supportsSwiftConcurrencyNatively
+  def initialize(deploymentTarget, passDeploymentTargetToAssetutil, preferredArch, artworkDevIdiom, artworkHostedIdioms, artworkScaleFactor, artworkDevSubtype, artworkDisplayGamut, artworkDynamicDisplayMode, devPerfMemoryClass, gfxFeatureSetClass, gfxFeatureSetFallbacks, featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, supportsEncryptionFormat2, coalescingGroup, supportsSwiftConcurrencyNatively)
     deploymentTarget.assert_kind_of(Gem::Version)
     @deploymentTarget = deploymentTarget
     @passDeploymentTargetToAssetutil = passDeploymentTargetToAssetutil
@@ -2648,6 +2660,7 @@ class ThinningTraits
     @hasSwiftRuntime = hasSwiftRuntime
     @supportsEncryptionFormat2 = supportsEncryptionFormat2
     @coalescingGroup = coalescingGroup
+    @supportsSwiftConcurrencyNatively = supportsSwiftConcurrencyNatively
   end
   def artworkDynamicDisplayMode_1080pSDR
     return "1080pSDR"
@@ -2694,6 +2707,7 @@ class ThinningTraits
       hasSwiftRuntime: hasSwiftRuntime,
       supportsEncryptionFormat2: supportsEncryptionFormat2,
       coalescingGroup: coalescingGroup,
+      supportsSwiftConcurrencyNatively: supportsSwiftConcurrencyNatively
     }.reject { |k, v| v.nil? }
   end
   # [(assetutilFlagName: String, traitsPropertyName: Symbol, traitsPropertyValueTransformer: Any -> String)]
@@ -2737,7 +2751,7 @@ class ThinningTraits
   end
   # Return a copy of self where traits which affect assetutil have been taken from `other`
   def take_assetutil_traits(other)
-    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedWatchApp, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime, self.supportsEncryptionFormat2, self.coalescingGroup).freeze
+    return ThinningTraits.new(other.deploymentTarget, other.passDeploymentTargetToAssetutil, self.preferredArch, other.artworkDevIdiom, other.artworkHostedIdioms, other.artworkScaleFactor, other.artworkDevSubtype, other.artworkDisplayGamut, other.artworkDynamicDisplayMode, other.devPerfMemoryClass, other.gfxFeatureSetClass, other.gfxFeatureSetFallbacks, self.featuresToRemove, self.supportsEmbeddedWatchApp, self.supportsEmbeddedUniversalWatchApp, self.hasSwiftRuntime, self.supportsEncryptionFormat2, self.coalescingGroup, self.supportsSwiftConcurrencyNatively).freeze
   end
   # { assetutilFlag: String => assetutilValue: String ]
   def to_assetutil_dict
@@ -2908,7 +2922,7 @@ def bestTraitsForBundle(bundle, traits, device)
     end
   end
   # If we get this far, we create a (possibly downshifted)
-  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, traits.supportsEncryptionFormat2, traits.coalescingGroup).freeze, nil
+  return ThinningTraits.new(traits.deploymentTarget, traits.passDeploymentTargetToAssetutil, bestArch, traits.artworkDevIdiom, traits.artworkHostedIdioms, traits.artworkScaleFactor, traits.artworkDevSubtype, bestArtworkDisplayGamut, traits.artworkDynamicDisplayMode, traits.devPerfMemoryClass, traits.gfxFeatureSetClass, traits.gfxFeatureSetFallbacks, traits.featuresToRemove, supportsEmbeddedWatchApp, supportsEmbeddedUniversalWatchApp, hasSwiftRuntime, traits.supportsEncryptionFormat2, traits.coalescingGroup, traits.supportsSwiftConcurrencyNatively).freeze, nil
 # :: [ThinningTraits: [ThinningVariant]]
 def makeThinningTraitsToThinningVariantsMap(bundle, thinDevices, skipThinDevices, ipa)
   # We ask the bundle to figure out the supported platform; we are unable to proceed if we can't determine it.
@@ -3097,6 +3111,12 @@ class Platform
     raise "Could not find encryption format 2 version for platform #{identifier}" if result.nil?
     return result
   end
+  # :: Gem:Version. Which OS version introduced support for this?
+  def nativeSwiftConcurrencySupportVersion()
+    result = SWIFT_CONCURRENCY_NATIVE_SUPPORT_VERSION[identifier]
+    raise "Could not find native Swift concurrency support version for platform #{identifier}" if result.nil?
+    return result
+  end
   def initialize(platformIdent, mainPath, sdkPath)
     # Record the basic information.
     @identifier = platformIdent
@@ -3154,6 +3174,7 @@ class Platform
           supportsEmbeddedWatchApp = traitsRow['ArtworkDeviceIdiom'] == "phone" && deploymentTarget < OPTIONS.iOSVersionWithWatchThinning
           supportsEmbeddedUniversalWatchApp = supportsEmbeddedWatchApp && deploymentTarget >= Gem::Version.new("12")
           supportsEncryptionFormat2 = if OPTIONS.supportEncryptionFormat2 then deploymentTarget >= encryptionFormat2IntroducedInVersion else false end
+          supportsSwiftConcurrencyNatively = deploymentTarget >= nativeSwiftConcurrencySupportVersion
           traits = ThinningTraits.new(deploymentTarget,
                                       passDeploymentTargetToAssetutil,
                                       architecture,
@@ -3171,7 +3192,8 @@ class Platform
                                       supportsEmbeddedUniversalWatchApp,
                                       hasSwiftRuntime,
                                       supportsEncryptionFormat2,
-                                      nil # coalescingGroup
+                                      nil, # coalescingGroup
+                                      supportsSwiftConcurrencyNatively
                                      )
           variant = ThinningVariant.new(device, traits)
           OPTIONS.coalescingGroups.each_with_index do |g,i|

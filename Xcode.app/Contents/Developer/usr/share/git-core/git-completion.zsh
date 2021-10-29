@@ -173,7 +173,7 @@ _requested all-commands && __git_zsh_cmd_all
 let _ret || break
 done
 (arg)
-local command="${words[1]}" __git_dir
+local command="${words[1]}" __git_dir __git_cmd_idx=1
 if (( $+opt_args[--bare] )); then
 __git_dir='.'
 else

@@ -222,7 +222,6 @@ com.apple.profiles
 profileCount
 MCUI bundle controller dealloc'd
 MCUI bundle controller unloading
-MCUI bundle controller unpairing from watch
 MCUI bundle controller not returning a specifier because Device Management is hidden
 MCUI bundle controller returning PSSpecifier named '%@' with user info: %@
 MCUI bundle controller returning a nil PSSpecifier
@@ -340,6 +339,7 @@ PROFILE_UPDATE_PROFILE
 MCProfileViewController could not build a table cell at indexPath: %@
 MCProfileViewController could not find a detail view controller for RM configuration at path: %@
 PROFILE_REENROLL_INFO
+Error: MCProfileViewController elevated payloads %@ does not have index: %ld
 MCProfileViewController does not support a MCProfileDetailsMode for MCUIPayloadInfoType %ld
 MCProfileViewController could not build a profile table cell at indexPath: %@
 BLOB_DETAILS
@@ -362,6 +362,7 @@ MCUIImage
 MCProfileTitlePageView
 MCItemDetailsSummaryCell
 MCProfileTitlePageViewModel
+DMCRFInteractionClient
 MCInteractionDelegate
 MCUIAdditions
 MCUIMISDenylistSettingsDetailController
@@ -404,6 +405,7 @@ MCNewCertificateDetailsViewController
 MCProfileTitlePageViewController
 MCProfileTitlePageViewModelDelegate
 MCProfileQuestionsControllerDelegate
+DMCEnrollmentFlowRestoreViewControllerDelegate
 MCUIDismissalAwareViewController
 MCProfileDetailsCell
 MCCertificatePropertiesInfo
@@ -567,6 +569,7 @@ networkUsageChanged:
 observeLaunchProhibitedApps
 deviceManagementPolicyDidChange:
 applicationsDidChangePersonas:
+databaseWasRebuilt
 allDeviceManagementOutMDMProfileInfo:outConfigurationProfilesInfo:outUninstalledProfilesInfo:outEnterpriseAppSigners:outFreeDevAppSigners:outBlockedApplications:
 isProfileSectionEmpty
 appSignerCount
@@ -986,6 +989,13 @@ _continueInstallAfterPresentingWarnings
 _handleMAIDSignInRequestWithAccountID:personaID:connection:
 _handleUserInputRequest:
 informQuestionViewControllerOfPreflightResult:profileConnection:
+setManagedAppleID:
+respondToManagedRestoreRequest:error:isCancelled:
+managedAppleID
+allObjects
+promptForManagedRestoreWithManagedAppleID:snapshot:conflictingApps:completionHandler:
+doesUserWantToRestoreSnapshot:withConflictingApps:completion:
+profileConnection:didRequestManagedRestoreWithManagedAppleID:personaID:
 initWithProfile:profileData:
 UIProfile
 accountIdentifier
@@ -996,12 +1006,14 @@ setUIProfile:
 _isInstallingProfile
 _serialQueue
 _UIProfile
+_managedAppleID
 _personaID
 _cleanupTask
 T@"NSObject<OS_dispatch_queue>",&,N,V_serialQueue
 TB,N,V_isInstallingProfile
 T@"MCUIProfile",&,N,V_UIProfile
 T@"NSString",C,N,V_pin
+T@"NSString",C,N,V_managedAppleID
 T@"NSString",C,N,V_personaID
 T@?,C,N,V_cleanupTask
 T@"UIViewController<MCProfileTitlePageViewModelDelegate>",W,N,V_delegate
@@ -1656,6 +1668,9 @@ setQuestionsDelegate:
 profileConnectionDidFinishPreflightWithError:
 setAuthenticationPreparationHandler:
 setAuthenticationCompletionHandler:
+setRestoreCompletionHandler:
+initWithDelegate:managedAppleID:restoreSnapshot:conflictingApps:
+topViewController
 openSensitiveURL:withOptions:
 _showAlertForInstallError:
 isUserInteractionEnabled
@@ -1663,9 +1678,11 @@ passcodeCompletionHandler
 userInputCompletionHandler
 authenticationCompletionHandler
 authenticationPreparationHandler
+restoreCompletionHandler
 setCurrentQuestionsController:
 questionsController:didFinishWithResponses:
 questionsControllerIsDisplayedInSheet:
+restoreViewController:didReceiveUserAction:
 viewControllerHasBeenDismissed
 initWithCoder:
 defaultView
@@ -1685,6 +1702,7 @@ _passcodeCompletionHandler
 _authenticationCompletionHandler
 _authenticationPreparationHandler
 _userInputCompletionHandler
+_restoreCompletionHandler
 T@"MCProfileTitlePageViewModel",&,N,V_viewModel
 T@"MCProfileTitlePageView",&,N,V_profileTitlePageView
 Td,N,V_metaDataSectionHeight
@@ -1696,6 +1714,7 @@ T@?,C,N,V_passcodeCompletionHandler
 T@?,C,N,V_authenticationCompletionHandler
 T@?,C,N,V_authenticationPreparationHandler
 T@?,C,N,V_userInputCompletionHandler
+T@?,C,N,V_restoreCompletionHandler
 setAccessoryType:
 isManagedAppPayload
 appIconForTableCell
@@ -1977,8 +1996,6 @@ payloads
 isInstalledMDMProfile
 payloadsOfKindOfClass:
 assignedManagedAppleID
-managedAppleID
-setManagedAppleID:
 setFinalInstallationWarningStyle:
 showManagedPayloads
 managedAppIDs
@@ -2025,7 +2042,6 @@ byodInfoSections
 payloadInfoSectionSummaries
 _showManagedPayloads
 _finalInstallationWarningStyle
-_managedAppleID
 _elevatedPayloadTypes
 _accountSections
 _managedAppSections
@@ -2037,7 +2053,6 @@ _payloadInfoSectionSummaries
 TB,N,V_showManagedPayloads
 Tq,N,V_finalInstallationWarningStyle
 T@"MCProfile",R,N,V_profile
-T@"NSString",C,N,V_managedAppleID
 T@"NSArray",R,N,V_elevatedPayloadTypes
 T@"NSArray",R,N,V_accountSections
 T@"NSArray",R,N,V_managedAppSections
@@ -2060,7 +2075,6 @@ T@"NSAttributedString",C,N
 isRunningInBridge
 _initWithDataManager:
 initWithParentListController:
-_watchUnpaired:
 appearanceWhenContainedInInstancesOfClasses:
 setSeparatorColor:
 setSectionIndexColor:
@@ -2072,7 +2086,6 @@ synchronize
 integerForKey:
 setInteger:forKey:
 _reloadTopLevelSpecifier
-invalidate
 dataManager
 _detailsFromSpecifier:
 _updateTopLevelSpecifier
@@ -2090,14 +2103,11 @@ unload
 specifiersWithSpecifier:
 setDataManager:
 parentController
-setNanoDomainAccessor:
 _dataManager
 _parentController
 _specifier
-_nanoDomainAccessor
 T@"PSListController",W,N,V_parentController
 T@"PSSpecifier",&,N,V_specifier
-T@"NPSDomainAccessor",&,N,V_nanoDomainAccessor
 T@"<MCUIDataManagerProtocol>",&,N,V_dataManager
 TQ,N
 consentDelegate
@@ -2617,6 +2627,8 @@ v24@0:8B16B20
 {CGSize=dd}32@0:8{CGSize=dd}16
 v24@0:8d16
 d16@0:8
+v40@0:8@16@24@?32
+v40@0:8@"<DMCRFSnapshot>"16@"NSSet"24@?<v@?B@"NSError">32
 v32@0:8@"MCProfileConnection"16@"NSArray"24
 v40@0:8@"MCProfileConnection"16@"NSString"24@"NSString"32
 v40@0:8@"MCProfileConnection"16@"NSString"24@"NSError"32
@@ -2631,7 +2643,6 @@ v48@0:8@16@24@32@?40
 @"UIViewController<MCProfileTitlePageViewModelDelegate>"
 @"MCUIProfile"
 v40@0:8@16q24@?32
-v40@0:8@16@24@?32
 v36@0:8@16B24@?28
 v24@0:8@"NSString"16
 v40@0:8@"DevicePINController"16@"NSString"24@?<v@?B>32
@@ -2719,11 +2730,13 @@ v36@0:8B16B20B24@28
 v24@0:8@?<v@?B@"NSString">16
 v32@0:8@"NSArray"16@?<v@?@"NSArray"B>24
 v32@0:8@"NSError"16@"MCProfileConnection"24
+v48@0:8@"NSString"16@"<DMCRFSnapshot>"24@"NSArray"32@?<v@?B>40
 v40@0:8@"AKAppleIDAuthenticationInAppContext"16@?<v@?@?<v@?>>24@?<v@?@"NSMutableDictionary"@"NSError"B>32
 v36@0:8B16B20B24@"NSError"28
 v24@0:8@"MCInstallProfileQuestionViewController"16
 v32@0:8@"MCInstallProfileQuestionViewController"16@"NSArray"24
 B24@0:8@"MCInstallProfileQuestionViewController"16
+v28@0:8@"DMCEnrollmentFlowRestoreViewController"16B24
 @"MCProfileTitlePageViewModel"
 @"MCProfileTitlePageView"
 @"MCProfileTitlePageMetaDataSectionAnimationController"
@@ -2755,7 +2768,6 @@ v40@0:8#16@24@32
 @"<MCUIDataManagerProtocol>"
 @"PSListController"
 @"PSSpecifier"
-@"NPSDomainAccessor"
 @"<MCInstallationConsentDelegate>"
 @"NSAttributedString"
 d24@0:8Q16

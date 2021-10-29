@@ -82,6 +82,7 @@ FHSmartFeatureCompoundTypePointsOfInterest
 FHSmartFeatureCompoundTypeEventTagging
 FHSmartFeatureCompoundTypeRelatedMerchants
 FHSmartFeatureCompoundTypeSoldProducts
+FHSmartFeatureCompoundTypeRecurringChange
 featureLabel
 featureRank
 eventIdentifiers
@@ -133,11 +134,11 @@ Successfully performed operation
 Failed to perform
 -[FinHealthDatabaseManager computeRecurringClassesForTransactions]
 v16@?0@"FHTransaction"8
+v16@?0@"NSArray"8
 @"NSDictionary"8@?0
 v32@?0@"FHAggregateFeature"8Q16^B24
 v32@?0@"FHSmartCompoundFeatureRankedValue"8Q16^B24
 v32@?0@"FHSmartCompoundFeature"8Q16^B24
-v16@?0@"NSArray"8
 %@ :%lu
 -[FinHealthStateController insertOrUpdateTransaction:]
 B24@?0@8@"NSDictionary"16
@@ -229,9 +230,10 @@ select * from transactions limit %d, %d
 select * from transactions t where t.t_identifier == %@ order by t_date desc limit %d
 select * from transactions t where t_fh_internal_state == %d order by t_date desc limit %d offset %d
 select * from transactions t where t_date >= %d and t_date <= %d order by t_date desc limit %d
+select t.t_identifier, ifnull(h.t_heuristics_score, -1) from transactions t left join features_heuristics h on t.t_identifier == h.t_identifier order by t.m_displayname asc, t.t_date limit %d
 select * from transactions where m_detailed_category == %@ order by t_date desc
 insert into transactions (t_identifier, t_fh_internal_state) values (%@, %d)
-update transactions set t_source_identifier = %@, t_amount = %d, t_currencycode = %@, t_timezone = %d, t_date = %d, t_status = %d, t_status_changed_date = %d, t_source = %d, t_type = %d, a_type = %d, t_fh_internal_state = %d, m_merchant_identifier = %@, m_industrycode = %d, m_category = %d, m_detailed_category = %@, m_displayname = %@, m_country = %@, m_maps_merchant_id = %@, m_maps_merchant_result_id = %d, m_maps_merchant_brand_id = %@, m_maps_merchant_brand_result_id = %d, lat = %f, long = %f, v_accuracy = %f, h_accuracy = %f where t_identifier == %@
+update transactions set t_source_identifier = %@, t_amount = %d, t_currencycode = %@, t_timezone = %@, t_date = %d, t_status = %d, t_status_changed_date = %d, t_source = %d, t_type = %d, a_type = %d, t_fh_internal_state = %d, m_merchant_identifier = %@, m_industrycode = %d, m_category = %d, m_detailed_category = %@, m_displayname = %@, m_country = %@, m_maps_merchant_id = %@, m_maps_merchant_result_id = %d, m_maps_merchant_brand_id = %@, m_maps_merchant_brand_result_id = %d, lat = %f, long = %f, v_accuracy = %f, h_accuracy = %f where t_identifier == %@
 select sch_version_id, sch_upgrade_status from fh_schema order by sch_id desc limit %d;
 select sch_getall_status from fh_schema where sch_version_id == %d;
 update fh_schema set sch_getall_status = %d where sch_version_id == %d
@@ -279,7 +281,7 @@ FinHealthBaseExpensiveClassifier
 com.apple.FinHealth.stats
 type
 run_time
-select f.t_identifier, t_features, t_compound_features, locale, t_mark_for_delete, ifnull(t.m_displayname, "-") as m_displayname, t_date from transaction_features f inner join transactions t on t.t_identifier = f.t_identifier limit %d
+select f.t_identifier, ifnull(t_features, ''), ifnull(t_compound_features, ''), locale, t_mark_for_delete, ifnull(t.m_displayname, "-") as m_displayname, t_date from transaction_features f inner join transactions t on t.t_identifier = f.t_identifier limit %d
 FHMerchantSmartFeatures
 FHAmountSmartFeatures
 FHDateTimeSmartFeatures
@@ -742,7 +744,6 @@ lowercaseString
 stringByTrimmingCharactersInSet:
 init:multiThreadingEnabled:
 setSqliteErrorHandler:
-busyHandler
 setBusyHandler:
 setDateFormat:
 _createDataDirectory
@@ -762,10 +763,10 @@ transactionStatusChangedDate
 mapsMerchantID
 mapsMerchantBrandID
 merchantDetailedCategory
-transactionSourceIdentifier
-currencyCode
 timeZone
 secondsFromGMT
+transactionSourceIdentifier
+currencyCode
 transactionStatus
 transactionSource
 transactionType
@@ -828,8 +829,6 @@ setIdentifier:
 setTransactionSourceIdentifier:
 setAmountFromDatabase:
 setCurrencyCode:
-timeZoneForSecondsFromGMT:
-setTimeZone:
 setTransactionStatus:
 setTransactionStatusChangedDate:
 setTransactionSource:
@@ -850,6 +849,8 @@ setUniqHistogramKey:
 doubleAtIndex:
 initWithCoordinate:altitude:horizontalAccuracy:verticalAccuracy:timestamp:
 setLocation:
+timeZoneForSecondsFromGMT:
+setTimeZone:
 _hasDeterministicRealtime:
 _computeAllAggregateFeaturesWithTransactionId:
 _createFeatureResponseFromFeatures:compoundFeatures:locale:forTxnID:
@@ -883,6 +884,11 @@ uniqHistogramKey
 arrayByAddingObject:
 streamTransactionsByInternalState:internalState:onTransaction:
 _rmseValue:
+lastObject
+streamGenericSQLFetch:predicate:sqlFetchQuery:
+reconstructCompoundFeaturesForTransaction:
+initWithDictionary:
+setSmartCompoundFeatures:
 delegate
 class
 self
@@ -917,7 +923,6 @@ aggregateFeaturesWithProcessingWindow
 compoundFeatures
 compoundFeatureKey
 rankedValues
-streamGenericSQLFetch:predicate:sqlFetchQuery:
 getDateFormatter
 _updateAggregateTablesSchema
 init:
@@ -940,7 +945,6 @@ deleteAllFeatureRecordsForTransaction:
 deleteAllRecordsInTransactions:
 updateGetAllStatus:
 shouldCallGetAllTransactions
-reconstructCompoundFeaturesForTransaction:
 featuresForTransaction:
 computeAllAggregateFeatures
 unsafeRemoveAllEntriesFromTable:
@@ -979,12 +983,10 @@ _insertOrUpdateTransactionPostDirtyState:
 _processAggregateFeaturesWithHardReset:
 _checkEventDeletion
 setPastTimeRangesToRetagEvents:
-lastObject
 compoundFeaturesForTransaction:
 featuresForTransaction:bypassMapService:
 predicateWithBlock:
 addEntriesFromDictionary:
-setSmartCompoundFeatures:
 evaluateEventTagging:bypassMapService:completion:
 _excludeRecurringFromEventTaggingCandidates:
 _tagFlightTransactionsWithTripEvents
@@ -1097,7 +1099,6 @@ stringWithUTF8String:
 substringFromIndex:
 initWithArray:
 FHMerchantCategoryFromString:
-initWithDictionary:
 initWithJsonString:
 toJson:
 amountFromDatabase
@@ -1195,19 +1196,17 @@ setString:
 substringWithRange:
 enumerateTagsInRange:unit:scheme:options:usingBlock:
 containsString:
-currentCalendar
-hour
 categoriesExpansionDict
 hasPrefix:
 subarrayWithRange:
 categoriesLocalizationDict
 _tokenize:shouldLemmatize:
 applyCategoryHeuristics:detailedCategory:
-applyTimingHeuristics:detailedCategory:transactionDate:
+applyTimingHeuristics:detailedCategory:dateHour:
 sortUsingComparator:
 _modelsLoaded
 neighborsForText:completion:
-semanticTagsForMerchant:detailedCategory:transactionDate:completion:
+semanticTagsForMerchant:detailedCategory:dateHour:completion:
 nlModel
 stopWords
 _nlEmbedding
@@ -1239,6 +1238,8 @@ setConnection:
 T@"NSXPCConnection",&,N,V_connection
 andPredicateWithSubpredicates:
 eventIdentifier
+currentCalendar
+hour
 setHour:
 setMinute:
 setSecond:
@@ -1461,12 +1462,10 @@ createSchemaVersionRecord: %@
 Aggreagate tables are out of date. Drop and re-create
 Schema before change:
 Schema after change:
-Sqlite request %{public}@ failed on %{public}@:
-Sqlite error start %s
-Sqlite [no statement available] failed on %{public}@:
-Sqlite error: [%{public}@]
-Sqlite error end %s
-Database is locked, retrying. _countOfErrors :%lu, %s
+Sqlite [no statement available] failed on %{public}@:, %s
+Sqlite error: [%{public}@], %s
+Exhautsed all retries :%lu, %s
+Database is locked, retrying. _retries :%lu, %s
 dbUrl: %@
 Failed to parse smartCompoundFeaturesDictionaryForJson: %@
 Distinct event ranked values: %@
@@ -1481,6 +1480,9 @@ error %@
 %s merchantsWithSignificantCount %@
 FHInsertOrUpdateIntoFeaturesHeuristics failed for %@
 FHInsertIntoFeaturesPredictedRealTime failed for %@
+previousPreComputedRmseValue: %f
+currentTransactionId: %@, changeInAmount: %@
+insertSuccess: %d smartFeatureValues: %@
 isEligibleForSchemaMigration: %@
 Skipping CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu
 Performing CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu

@@ -129,6 +129,9 @@ NRDevicePropertyLocalPairingDataStorePath
 NRDevicePropertyPairingID
 kSYDictionaryObjectSyncIDKey
 Change
+access_changed_event
+com.apple.private.tcc.allow-or-regional-prompt
+.overridable
 tccd_sync_do_update_from_RequestAccessAction
 v16@?0^{sqlite3_stmt=}8
 SELECT auth_value, auth_version FROM access WHERE service = ? AND client = ? AND client_type = ?
@@ -175,8 +178,11 @@ com.apple.sockpuppet.applications.updated
 com.apple.language.changed
 v12@?0i8
 Access to service %@ changed.
+%@ authorization changed for assumed identity %@
 Failed to update database %@ from %@
 kTCCServiceExposureNotification
+explicitly
+implicitly
 Requestor: %@ is not entitled to check access for accessor %@
 com.apple.private.tcc.allow
 SELECT NULL FROM access_overrides WHERE service = ?
@@ -226,14 +232,16 @@ last_modified
 bundle_id
 bundle
 path
+com.apple.private.tcc.allow-or-regional-prompt.overridable
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 DELETE FROM access_overrides WHERE service = ?
-SELECT client, client_type FROM access WHERE service = ?
+SELECT client, client_type, auth_value FROM access WHERE service = ?
 kTCCServiceAll
 SELECT service, client, client_type FROM access
 DELETE FROM access
 SELECT service, client FROM access WHERE client LIKE '%@%@' AND client_type = %d
 DELETE FROM access WHERE client LIKE '%@%@' AND client_type = %d
+SELECT client, client_type FROM access WHERE service = ?
 DELETE FROM access WHERE service = ?
 SELECT NULL FROM access WHERE service = ? AND client = ? AND client_type = ?
 DELETE FROM access WHERE service = ? AND client = ? AND client_type = ?
@@ -333,9 +341,25 @@ Invalid
 Valid
 SELECT DISTINCT service FROM access WHERE client = ? AND client_type = ?
 bundleIDs
+events
+assumed_identity_monitor
+<%@: token=%llu, state=%s, csid=%@>
+<%@: token=%llu, state=%s>
+v20@?0@"NSString"8B16
+Initial
+Pending
+Passed
 Unexpected verifier tyype (%ld) on iOS
 , V:'%@'
 , ID:%lld
+<%@: bundleID=%@, version=%@, path=%@>
+CFBundleVersion
+NSExtension
+NSExtensionPointIdentifier
+LSUIElement
+WKApplication
+WKWatchOnly
+WKRunsIndependentlyOfCompanionApp
 Unused
 accessor: ([%d.%d], %d)
 , responsible: ([%d.%d], %d)
@@ -347,9 +371,12 @@ client_type
 bundle_url
 -[TCCDAccessIdentity initWithMessage:]
 -[TCCDAccessIdentity initWithIdentifier:type:executableURL:SDKVersion:platformType:]
-NSExtension
-NSExtensionPointIdentifier
+type
+value
+<%@: identifier=%@, client_type=%u>
 com.apple.widgetkit-extension
+Invalid identity type %@
+Invalid identifier type: identifiers should be strings, got %@: %@
 truncated
 com.apple.tcc.access.changed
 com.apple.tcc.db_queue
@@ -403,6 +430,7 @@ error using asprintf() for db_path in _create_database
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS NEW_access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE)
+kTCCServiceAppleEvents
 (null)
 SELECT count(*) FROM NEW_access WHERE service = ? AND client = ? AND client_type = ? AND indirect_object_identifier = ?
 INSERT INTO NEW_access   (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -419,7 +447,17 @@ com.appleinternal.health.Lime.
 com.appleinternal.health.Lime
 com.apple.Research.study.
 com.apple.Research
+green-tea
+event_type
+<%@: type=%s, service=%@, identifier_type=%s, identifier=%@>
 Unknown
+Create
+Modify
+Delete
+Bundle ID
+Path
+Hosted UUID
+FileProvider ID
 Limited
 <Unspported Authorization Right value>
 User Consent
@@ -429,9 +467,10 @@ MDM Policy
 App Type Policy
 <Unspported Authorization Reason value>
 %@ (%@)
-WKApplication
-WKWatchOnly
-WKRunsIndependentlyOfCompanionApp
+Bundled-based
+not entitled
+entitled with allow-prompting
+entitled with allow-or-regional-prompt
 com.apple.mobileinstallation.companion_placeholder
 com.apple.private.tcc.
 com.apple.private.tcc.manager
@@ -442,6 +481,9 @@ com.apple.private.tcc.manager.compute-indirect-object-identity
 com.apple.private.tcc.manager.service-descriptions
 com.apple.private.tcc.manager.check-by-audit-token
 com.apple.private.tcc.manager.get-identity-for-credential
+com.apple.private.attribution.implicitly-assumed-identity
+com.apple.private.attribution.explicitly-assumed-identities
+com.apple.private.tcc.kill-on-assumed-identity-authorization-change
 kTCCErrorDomain
 confstr failed to get directory
 confstr failed to create directory
@@ -466,6 +508,7 @@ indirect_object_token
 %s={NULL}
 %s={<unknown type!>}
 target_csreq
+%s={<redacted>}
 %s=%@
 B24@?0r*8@"NSObject<OS_xpc_object>"16
 "%s"
@@ -534,7 +577,6 @@ OVERRIDES
 POLICIES
 ACTIVE_POLICIES
 tccd database
-INSERT OR REPLACE INTO access   (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 -[TCCDServer updateAuthorizationRecordFromContext:forResult:syncedUpdate:]
 SELECT    id, uuid, display FROM    policies JOIN active_policy ON (policies.id = active_policy.policy_id) WHERE    active_policy.client_type = ? AND active_policy.client = ?
 %@:%@
@@ -552,7 +594,6 @@ TCCAccessReset
 check-by-audit-token
 %@.%@.%@
 /Library/Application Support/com.apple.TCC/SiteOverrides.plist
-sitePolicyOverridePath
 keys
 com.apple.tcc.AdhocSignatureCache
 UUID
@@ -567,13 +608,11 @@ AdhocSignatureCache
 kTCCServiceAddressBook
 NSContactsUsageDescription
 mh40711
-com.apple.security.personal-information.addressbook
 kTCCServiceContactsLimited
 kTCCServiceContactsFull
 kTCCServiceCalendar
 NSCalendarsUsageDescription
 mh43609
-com.apple.security.personal-information.calendars
 kTCCServiceReminders
 NSRemindersUsageDescription
 mchlcfc41e54
@@ -586,19 +625,16 @@ kTCCServiceLiverpool
 kTCCServiceUbiquity
 kTCCServicePhotos
 NSPhotoLibraryUsageDescription
-com.apple.security.personal-information.photos-library
 mchl325bd573
 kTCCServicePhotosAdd
 NSPhotoLibraryAddUsageDescription
 kTCCServiceCamera
 NSCameraUsageDescription
 device-camera
-com.apple.security.device.camera
 mchlf88b936b
 kTCCServiceMicrophone
 NSMicrophoneUsageDescription
 device-microphone
-com.apple.security.device.audio-input
 mchl7fa8e3cc
 kTCCServiceWillow
 NSHomeKitUsageDescription
@@ -679,10 +715,8 @@ kTCCServiceSystemPolicySysAdminFiles
 NSSystemAdministrationUsageDescription
 mchlccb25729
 kTCCServiceSystemPolicyDeveloperFiles
-kTCCServiceAppleEvents
 NSAppleEventsUsageDescription
 mchl108e1718
-com.apple.security.automation.apple-events
 kTCCServiceScreenCapture
 com.apple.dt.Xcode
 com.apple.TMHelperAgent
@@ -762,10 +796,7 @@ Auth
 AuthVersion
 Flags
 com.apple.tccd.policy-override
-bundleID
 Services
-Identifier
-IdentifierType
 CodeRequirement
 Comment
 StaticCode
@@ -773,13 +804,13 @@ AEReceiverIdentifier
 AEReceiverIdentifierType
 AEReceiverCodeRequirement
 AEReceiverCodeRequirementData
-CodeRequirementData
 TCCD_MSG_REQUEST_TYPE_KEY
 Refusing Request for missing function key.
 Failed to create Attribution Chain from message.
 Failed to create Requesting Process from message.
 Failed to create Accessing Process from message.
 Failed to create Responsible Process from message.
+TCCD_MSG_CREDENTIAL_ASSUMED_IDENTITY
 user_tccd_unavailable
 require_purpose
 preflight
@@ -799,15 +830,16 @@ com.apple.private.tcc.manager.access.delete
 com.apple.private.tcc.manager.service-override.modify
 com.apple.private.tcc.manager.expiration.read
 com.apple.private.tcc.manager.expiration.delete
-com.apple.private.tcc.allow-or-regional-prompt
-com.apple.private.tcc.allow-or-regional-prompt.overridable
 com.apple.private.tcc.allow-prompting
+com.apple.security.personal-information.addressbook
+com.apple.security.personal-information.calendars
+com.apple.security.personal-information.photos-library
+com.apple.security.device.camera
+com.apple.security.device.audio-input
+com.apple.security.automation.apple-events
 com.apple.developer.on-demand-install-capable
 tccd-config.plist
 method not valid on this platform.
--[TCCDPlatform applicationBundleWithBundleIdentifier:]
-TCCDPlatform.m
-appBundleURL != nil
 notified-of-denial
 set-from-preferences
 platform-binary-denied
@@ -816,7 +848,6 @@ set-from-daemon
 v1-upgrade-deny
 <Invalid Action>
 _ID_type
-CFBundleVersion
 _bundle_version
 com.apple.TCC.authorization_action
 action
@@ -842,21 +873,31 @@ problem_key
 do_not_cache
 auth_abort_description
 auth_abort_key
-event_type
+AssumedIdentityMonitorState
+com.apple.tcc.AssumedIdentityMonitor
+TCCDAssumedIdentityMonitor state
+TCCDEventPublisherQueue
 com.apple.tccd.events
-com.apple.private.tcc.events.subscriber
-events
 v28@?0I8Q12@"NSObject<OS_xpc_object>"20
+com.apple.private.tcc.events.subscriber
+Remove
+Initial Barrier
 <ID of InvalidCode>
-identifier=%@, pid=%d, auid=%d, euid=%d, 
+<%@: identifier=%@, pid=%d, auid=%d, euid=%d, 
 responsible_path=%@, 
-binary_path=%@
+binary_path=%@>
 /Library/Application Support/com.apple.TCC/MDMOverrides.plist
+sitePolicyOverridePath
 com.apple.TCC.configuration-profile-changed
 Authorization
+Identifier
+IdentifierType
+CodeRequirementData
+bundleID
 SELECT flags FROM access WHERE service = ? AND client = ? AND client_type = ?
 AllowStandardUserToSetSystemService
 UPDATE access SET flags = ? WHERE service = ? AND client = ? AND client_type = ?
+INSERT OR REPLACE INTO access   (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 SELECT service, client, client_type, flags FROM access WHERE flags & ?
 Receiver must not be the empty string.
 open() for F_GETPATH failed.
@@ -1290,9 +1331,13 @@ T@"NSObject<OS_os_transaction>",&,V_syncTransaction
 TB,R,V_isSyncingEnabled
 T@"TCCDMessageController",R,V_messageController
 logHandle
-initWithType:service:clientType:client:
+initWithEventType:service:subjectIdentifierType:subjectIdentifier:authValue:
 eventPublisher
 publish:
+ios_allowRegionalPrompt
+stringByAppendingString:
+accessingProcess
+hasEntitlement:containsService:options:
 platform
 serviceByName:
 initForSyncRequestForSubjectBundleIdentifier:service:
@@ -1332,14 +1377,19 @@ setPlatform:
 loadConfigurationDictionary
 cacheDirectory
 temporaryDirectory
-publisher
+sharedPublisher
 setEventPublisher:
+initWithStateDirectoryPath:
+setAssumedIdentityMonitor:
 purgeAllExpiredAccessEntries
 mainRunLoop
 isRevocable
 plugInKitPlugins
 bundleIdentifier
 bundleVersion
+assumedIdentityMonitor
+monitoredProcessesAssumingIdentityWithIdentifier:
+stopMonitoringProcess:
 queryCount
 setQueryCount:
 databaseAction
@@ -1359,17 +1409,21 @@ recordUpgradePolicy
 promptRightsMask
 setDatabaseAction:
 setReplyNoCacheAuthorization:
+isChinaSKUDevice
+initAssumedIdentityWithRequestContext:
+setSubjectIdentity:
+setPromptingPolicy:
+attributionChain
+boolValueForEntitlement:
+startMonitoringProcess:assumingIdentity:
+explicitlyAssumedIdentity
 promptingPolicy
 functionName
-attributionChain
 accessingProcessSpecified
 euid
 shouldAllowUnrestrictedCheckAuditToken
-accessingProcess
-hasEntitlement:containsService:options:
 hasParanoidSecurityPolicy
 initWithAttributionChain:preferMostSpecificIdentifier:
-setSubjectIdentity:
 registerWithApplicationResolverSubjectIdentity:processChain:
 isAvocadoWidget
 allowedForAvocadoWidget
@@ -1392,7 +1446,7 @@ doUpdateOfSubjectVerifierData
 resetStandardUserDefaults
 standardUserDefaults
 persistentDomainForName:
-evalutePolicyForUsageStringAndPromptingForClient:service:resultUsageString:
+evalutePolicyForUsageStringAndPromptingForClient:attributionChain:service:resultUsageString:
 setPromptingSemaphore:
 setPromptingSemaphoreHeld:
 displayName
@@ -1431,6 +1485,7 @@ v1AuthorizationUpgrade
 isAccessAllowedByDefault
 defaultAllowedIdentifiersList
 bundle
+localizedUsageDescriptionForKey:
 responsiblePID
 getSDKVersion:platformType:
 watchOS_minimumSDKVersionNumber
@@ -1438,16 +1493,15 @@ unsignedIntValue
 secondaryUsageDescriptionKeyName
 shouldUseADefaultDescriptionString
 initWithBundleIdentifier:allowPlaceholder:error:
+absoluteString
 entitlements
 objectForKey:ofClass:
-absoluteString
 prefixOfBundleIdentifiersToResetAfterResetOfAppBundleIdentifier:
 initWithRequestMessage:forServer:error:
 newErrorWithCode:format:
 populateReplyMessageToDeny:withError:
 populateReplyMessage:
 shouldIssueSandboxExtension
-stringByAppendingString:
 ios_useGenericSandboxExtension
 serviceAll
 applicationProxyForIdentifier:placeholder:
@@ -1466,6 +1520,23 @@ isNonAppBundleIdentifierValid:
 defaultWorkspace
 applicationIsInstalled:
 removalOfAppBundleIdentifierRequiresPruning:
+_publishPendingEvents
+checkEntitlementForSubscriber:completionHandler:
+sendEvent:toSubscriber:
+matches:
+_addPendingEvent:
+_checkEntitlement
+_sendEvent:
+initWithToken:filter:fromPublisher:
+token
+_filter
+_publisher
+_lock
+_state
+_pendingEvents
+_codeSigningIdentity
+_token
+TQ,R,N,V_token
 _fileProviderDomainID
 T@"NSString",R,V_fileProviderDomainID
 initWithIdentifier:type:
@@ -1487,6 +1558,39 @@ Tq,V_displayNamePolicyIdentifier
 Tq,V_verifierType
 T@"NSData",&,V_verifierData
 T@"TCCDAccessIdentity",R
+_servicesToSubjects
+bundleRecordWithBundleIdentifier:allowPlaceholder:error:
+initWithURL:
+dealloc
+initWithIdentifier:
+path
+bundlePath
+executableURL
+infoDictionary
+boolValue
+executablePath
+stringByResolvingRealPathWithError:
+bundleWithURL:
+bundleWithIdentifier:
+localizedInfoDictionary
+extensionPointIdentifier
+isLSUIElement
+isWatchOnly
+isRunsIndependentlyOfCompanionApp
+isPathTheMainExecutable:
+isPathContainedWithin:
+_cfBundle
+T@"NSString",R
+T@"NSURL",R
+T@"NSDictionary",R
+LSUIElement
+TB,R,GisLSUIElement
+watchKitApp
+TB,R,GisWatchKitApp
+watchOnly
+TB,R,GisWatchOnly
+runsIndependentlyOfCompanionApp
+TB,R,GisRunsIndependentlyOfCompanionApp
 initWithType:
 setType:
 type
@@ -1499,7 +1603,6 @@ appendBytes:length:
 _initIdentityCache
 _dataForAccessorAuditToken:responsbileAuditToken:
 _initWithAccessIdentity:
-bundleWithURL:
 localizedName
 responsibleProcess
 responsiblePath
@@ -1507,26 +1610,24 @@ informationForPlugInWithPid:
 bundleRecordForAuditToken:error:
 containingBundleRecord
 extensionPointRecord
-path
 fileURLWithPath:isDirectory:
 attributedBundleUsingOutermostBundle:computedStaticCodeRef:computedNonIdentifiableBundleURL:
 _makeDisplayNameBlockForURL:
 _deriveIdentityFromAttibutionChain:preferMostSpecificIdentifier:
 URLWithString:
-bundleForAppWithBundleIdentifier:
-executablePath
 appBundleURLContainingExecutableURL:
 fileURLWithPath:
 _updateFromAccessIdentity:
 policy_id
-bundlePath
+dictionaryValueForEntitlement:
+initWithIdentifier:type:executableURL:SDKVersion:platformType:
+_initExplicitlyAssumedIdentityFromRequestContext:
+_initImplicitlyAssumedIdentityFromRequestContext:
 targetPID
-infoDictionary
 isPlugInWithExtensionPointIdentifier:
 cachedAccessIdentityForAccessorAuditToken:responsbileAuditToken:
 cacheAccessIdentity:forAccessorAuditToken:responsbileAuditToken:
 initWithBundleIdentifier:isWK2Proxy:
-initWithIdentifier:type:executableURL:SDKVersion:platformType:
 attributionPath
 is_wk2_proxy
 plugin
@@ -1551,8 +1652,7 @@ T@"NSString",R,V_identifier
 T@"NSNumber",R,V_policy_id
 TB,R,V_is_wk2_proxy
 T@"NSString",R,V_path
-T@"NSBundle",R,V_bundle
-T@"NSString",R
+T@"TCCDBundle",R,V_bundle
 Ti,R,V_targetPID
 Ti,R,V_responsiblePID
 T@"NSDictionary",R,V_plugin
@@ -1568,7 +1668,6 @@ _indirectObject
 T@"TCCDService",&,V_serviceObject
 T@"TCCDAccessIndirectObject",&,V_indirectObject
 fileExistsAtPath:
-loadAndParse
 watchPlistChanges
 plistFilePath
 allowedParser:
@@ -1576,6 +1675,24 @@ watchedPath
 allowsInternalSecurityPolicies
 homeRelativePathToStateDirectory
 prepareForAbort
+accessObject
+initWithEventType:accessRecord:
+xpcObject
+eventType
+subjectIdentifierType
+subjectIdentifier
+authValue
+_eventType
+_service
+_subjectIdentifierType
+_subjectIdentifier
+_authValue
+TQ,R,V_eventType
+T@"TCCDService",R,N,V_service
+TQ,R,V_subjectIdentifierType
+T@"NSString",R,V_subjectIdentifier
+TQ,R,V_authValue
+T@"NSObject<OS_xpc_object>",R,C
 rightDescription
 reasonDescription
 reset
@@ -1583,7 +1700,7 @@ _right
 _reason
 TQ,N,V_right
 TQ,N,V_reason
-objectForInfoDictionaryKey:
+_isPromptingAllowedForSubjectAppBundle:attributionChain:service:
 URLByDeletingLastPathComponent
 companionApplicationIdentifier
 isStandaloneWatchApp
@@ -1592,8 +1709,6 @@ codeIdentity
 initWithCodeIdentity:
 _codeIdentity
 T@"TCCDCodeIdentity",&,V_codeIdentity
-isPathTheMainExecutable:
-isPathContainedWithin:
 newErrorWithCode:format:arguments:
 initWithFormat:locale:arguments:
 errorWithDomain:code:userInfo:
@@ -1601,8 +1716,6 @@ initWithUTF8String:
 setupTemporaryDirectoryForName:
 setupTemporaryDirectories
 createStateHandler
-macos_isSystemServer
-stringByResolvingRealPathWithError:
 userHomeDirectory
 setServer:
 stringFromErrorCode:
@@ -1610,7 +1723,6 @@ appendString:
 _indentForDepth:
 _descriptionForXPCObject:depth:
 _descriptionForXPCDictionary:depth:
-boolValueForEntitlement:
 hasEntitlement:containsServiceAllOrService:options:
 initWithIdentifier:authority:displayNamePolicyIdentifier:verifierType:verifierData:
 initWithFileProviderDomainID:
@@ -1630,7 +1742,6 @@ accessingProcessIsValid
 _evaluateForProcess:entitlementName:containsService:options:
 checkAllowEntitlementOnResponsibleProcess
 dataWithBytes:length:
-accessObject
 macos_compositionChildService
 setAccessObject:
 evaluateAccessToService:defaultAccessAllowed:by:checkCodeRequirements:authorizationResult:authorizationReason:subjectCodeIdentityDataResult:
@@ -1639,7 +1750,6 @@ timeIntervalSince1970
 fileProviderDomainID
 verifierType
 verifierData
-bytes
 flags
 dateWithTimeIntervalSince1970:
 descriptionForAuthorizationValue:reason:
@@ -1671,6 +1781,7 @@ _platform
 _logHandle
 _macos_compatibilityFileVnodeSource
 _eventPublisher
+_assumedIdentityMonitor
 T@"NSObject<OS_os_log>",&,N,V_logHandle
 T@"TCCDPlatform",&,N,V_platform
 TB,V_macos_isSystemServer
@@ -1681,10 +1792,9 @@ T@"NSObject<OS_dispatch_source>",&,V_macos_compatibilityFileVnodeSource
 TB,V_testDoComposition
 TB,V_generateBacktraceOnPrompt
 T@"TCCDEventPublisher",&,V_eventPublisher
+T@"TCCDAssumedIdentityMonitor",&,V_assumedIdentityMonitor
 numberWithLongLong:
 longLongValue
-useString:orReadFromDefaults:
-setPlistFilePath:
 URLByAppendingPathComponent:
 fileExistsAtPath:isDirectory:
 loadKeysFromDirectory
@@ -1724,6 +1834,7 @@ setMacos_pardonMissingUsage:
 setShouldIssueSandboxExtension:
 setMacos_helpAnchor:
 setMacos_hardenedRuntimeEntitlementName:
+setIos_allowRegionalPrompt:
 setShouldTreatAsDeprecated:
 setIsRevocable:
 setShouldDisableAlert:
@@ -1747,7 +1858,6 @@ setExternalName:
 setExpirySeconds:
 setExpireOnlyAllowedEntries:
 setSaveExpiredEntries:
-configurationDictionary
 requestAdditionalTextLocalizationKeyNameForServiceName:
 setRequestAdditionalTextLocalizationKey:
 setDisallowedOnPlatformSubtypeNameList:
@@ -1780,7 +1890,6 @@ setMacos_shouldAllowSameTeam:
 setCheckAllowEntitlementOnResponsibleProcess:
 allObjects
 sortedArrayUsingSelector:
-validOnPlatformNames
 shouldTreatAsDeprecated
 localizationKeyName:forServiceName:
 substringFromIndex:
@@ -1809,7 +1918,6 @@ macos_helpAnchor
 tvOS_minimumSDKVersionNumber
 iOS_minimumSDKVersionNumber
 authorizationRightsMask
-caseInsensitiveCompare:
 defaultDevelopmentAuthorizationValue
 bundleWithPath:
 requestTitleTextAfterV2UpgradeLocalizationKeyNameForServiceName:
@@ -1829,8 +1937,6 @@ ios_watchKitUserNotificationNumber
 setIos_watchKitUserNotificationNumber:
 ios_allowPromptFromAppClip
 setIos_allowPromptFromAppClip:
-ios_allowRegionalPrompt
-setIos_allowRegionalPrompt:
 macos_pardonMissingUsage
 macos_compositionPromoteChildAuthoriationToParent
 macos_shouldAllowSameTeam
@@ -1868,7 +1974,6 @@ _macos_hasIndirectObject
 _macos_shouldAllowSameTeam
 _platformAvailability
 _validOnPlatformNames
-_name
 _externalName
 _usageDescriptionKeyName
 _secondaryUsageDescriptionKeyName
@@ -2002,10 +2107,7 @@ orderedOverridePolicies
 _locked_evaluateAccessByIdentity:toService:withIndirectObjectIdentityIdentity:authorizationReason:
 setPolicyAccessByIdentifier:
 setPlistDictionary:
-plistDictionary
 loadPlist
-parsePlist
-policyAccessByIdentifier
 validateEntry:identifierType:codeRequirementString:serviceName:allowed:comment:
 parseCodeRequirements:
 watchedFileVnodeSource
@@ -2017,7 +2119,6 @@ T@"NSDictionary",&,VplistDictionary
 T@"NSMutableDictionary",&,VpolicyAccessByIdentifier
 T@"NSObject<OS_dispatch_source>",&,VwatchedFileVnodeSource
 T@"NSString",&,VplistFilePath
-setPromptingPolicy:
 setUsageStringPolicy:
 setRecordUpgradePolicy:
 setUserTccdUnavailable:
@@ -2026,6 +2127,7 @@ setFunctionName:
 setMessageIdentifier:
 setService:
 setAttributionChain:
+setExplicitlyAssumedIdentity:
 usageStringPolicy
 setPromptRightsMask:
 userTccdUnavailable
@@ -2034,9 +2136,9 @@ _promptingSemaphoreHeld
 _spiVersion
 _functionName
 _messageIdentifier
-_service
 _attributionChain
 _subjectIdentity
+_explicitlyAssumedIdentity
 _promptingPolicy
 _usageStringPolicy
 _recordUpgradePolicy
@@ -2049,6 +2151,7 @@ T@"NSString",&,N,V_messageIdentifier
 T@"TCCDService",&,N,V_service
 T@"TCCDAttributionChain",&,N,V_attributionChain
 T@"TCCDAccessIdentity",&,N,V_subjectIdentity
+T@"NSObject<OS_tcc_identity>",&,N,V_explicitlyAssumedIdentity
 TQ,N,V_promptingPolicy
 TQ,N,V_usageStringPolicy
 TQ,N,V_recordUpgradePolicy
@@ -2058,6 +2161,8 @@ TI,N,V_promptingSemaphoreHeld
 T@"NSObject<OS_dispatch_semaphore>",&,N,V_promptingSemaphore
 TQ,N,V_queryCount
 initWithName:
+arrayWithObjects:count:
+validOnPlatformNames
 setServicesByName:
 _configureServices
 servicesByName
@@ -2066,8 +2171,8 @@ absoluteURL
 bundleURLContainingExecutableURL:
 pathComponents
 pathExtension
+caseInsensitiveCompare:
 getResourceValue:forKey:error:
-boolValue
 stringForAnalyticsAction:
 updateAnalyticsEvent:fromIdentity:keyPrefix:
 allPlatformNames
@@ -2079,12 +2184,14 @@ sendMessageAsync:toTCCDForTargetUID:withReplyBlock:
 forwardMessage:toUserTCCDFromAttributionChain:forService:andMergeReplyInto:forConnnection:
 handleCompositionType:forParentService:forRequest:intoReply:
 evaluatePolicyForPromptingforService:byIdentity:attributionChain:
-applicationBundleWithBundleIdentifier:
 notifyUserOfDeniedAccessBy:forService:
 displayAlert:
+configurationDictionary
 mainSyncController
 setMainSyncController:
+_isChinaSKUDevice
 _configurationDictionary
+_name
 _server
 _mainSyncController
 _servicesByName
@@ -2094,6 +2201,7 @@ T@"NSDictionary",R,V_configurationDictionary
 T@"TCCDSyncController",&,V_syncController
 T@"TCCDMainSyncController",&,V_mainSyncController
 T@"NSDictionary",&,V_servicesByName
+TB,R,V_isChinaSKUDevice
 setError:
 servicePolicyAction
 servicePolicyActionDescription
@@ -2126,62 +2234,23 @@ TI,N,V_replyNoCacheAuthorization
 Tq,N,V_databaseAction
 TI,N,V_doUpdateOfSubjectVerifierData
 TI,N,V_databaseFlags
-event_type
-client
-xpcObject
-initWithType:accessRecord:
-setEvent_type:
-setClient_type:
-setClient:
-_event_type
-_client
-TQ,V_event_type
-T@"TCCDService",&,V_service
-Ti,V_client_type
-T@"NSString",&,V_client
-T@"NSObject<OS_xpc_object>",R,C
-handleEventWithAction:token:descriptor:
-handleError:
-logger
-streamName
-setReceivedInitialBarrier:
-pendingEvents
-sendEvent:
-addSubscriber:
-removeSubscriber:
-pendingSubscribers
+_loadState
+_createOSStateHandler
+getBytes:length:
+initWithAuditToken:responsiblePath:
+_serializeState
+_osStateDump
+_saveState
 removeObject:
-subscriberEntitlement
-subscribers
-pendingEventsLimit
-receivedInitialBarrier
-addPendingEvent:
-setLogger:
-setStreamName:
-setSubscriberEntitlement:
-setSubscribers:
-setPendingSubscribers:
-setPendingEvents:
-setPendingEventsLimit:
-setPublisher:
-_receivedInitialBarrier
-_logger
-_streamName
-_subscriberEntitlement
+_stateFilePath
+_assumedIdentityIdentifiersToProcesses
+_handleEventWithAction:token:descriptor:
+_handleError:
+_addSubscriber:withFilterCriteria:
+_removeSubscriber:
+initWithCriteria:
 _subscribers
-_pendingSubscribers
-_pendingEvents
-_pendingEventsLimit
-_publisher
-T@"NSObject<OS_os_log>",&,V_logger
-T@"NSString",&,V_streamName
-T@"NSString",&,V_subscriberEntitlement
-T@"NSMutableSet",&,V_subscribers
-T@"NSMutableSet",&,V_pendingSubscribers
-TB,V_receivedInitialBarrier
-T@"NSMutableArray",&,V_pendingEvents
-TQ,V_pendingEventsLimit
-T@"NSObject<OS_xpc_event_publisher>",&,V_publisher
+_receivedInitialBarrier
 setAuditToken:
 setPid:
 setAuid:
@@ -2191,12 +2260,11 @@ setEntitlements:
 identifierForInvalidCode
 setIdentifier:
 setBinaryPath:
-dealloc
 binaryPath
 auid
-initWithAuditToken:responsiblePath:
 initWithPID:responsiblePath:
 hasRuntimeValidationEnabled
+isPlatformBinary
 _haveIsPlatformBinary
 _isPlatformBinary
 _pid
@@ -2217,11 +2285,19 @@ TI,V_codesignStatus
 T@"NSString",&,V_binaryPath
 T@"NSString",R,V_responsiblePath
 MDMOverridesFilePath
+useString:orReadFromDefaults:
+setPlistFilePath:
+loadAndParse
+bytes
+policyAccessByIdentifier
 updateDatabaseForPolicyAuthorizationRecord:service:
 resetDatabaseFlagsForRecordsRemovedFromPreviousPolicy
 addOrUpdateRecordsForCurrentPolicy
+plistDictionary
 addEntriesFromDictionary:
+macos_isSystemServer
 updateDatabase
+parsePlist
 setIdentityType:
 _identityType
 Tq,V_identityType
@@ -2247,7 +2323,9 @@ T@"TCCDProcess",R,V_accessingProcess
 TB,R,V_responsibleProcessIsValid
 T@"TCCDProcess",R,V_responsibleProcess
 alerts
+isDisplayableForCondition:
 displayQueue
+display
 initWithAlerts:
 setAlerts:
 setDisplayQueue:
@@ -2263,8 +2341,6 @@ displayCountlimit
 setPersistentStateValue:
 persistentStateValue
 initWithCondition:platformName:service:displayPolicy:persistentStateType:displayCountlimit:configuration:
-isDisplayableForCondition:
-display
 setPersistentStateType:
 setCondition:
 setPlatformName:
@@ -2305,18 +2381,21 @@ TCCDSyncController
 SYServiceDelegate
 SYSessionDelegate
 SYChangeSerializer
+TCCDEventSubscriber
 TCCDAccessFileProviderDomainIndirectObject
 TCCDCodeIdentity
+TCCDEventFilter
+TCCDBundle
 TCCDAccessIndirectObject
 TCCDAccessIdentity
 TCCDDatabase
 TCCDAccessObject
 TCCDBinCompatPolicyOverride
 TCCDPlatformIOSFamily
+TCCDEvent
 TCCDAuthorizationRightState
 TCCDPlatformWatchOS
 TCCDAccessCodeIndirectObject
-TCCDAdditions
 TCCDServer
 TCCDSitePolicyOverride
 TCCDAdhocSignatureCache
@@ -2327,10 +2406,11 @@ TCCDPolicyOverrideProtected
 TCCDRequestContext
 TCCDPlatform
 TCCDRequestResult
-TCCDEvent
+TCCDAssumedIdentityMonitor
 TCCDEventPublisher
 TCCDProcess
 TCCDMDMPolicyOverride
+TCCDAdditions
 TCCDIdentity
 TCCDAttributionChain
 libTCCD
@@ -2456,8 +2536,13 @@ I16@0:8
 @"NSMapTable"
 @"NSMutableArray"
 @"NSObject<OS_os_transaction>"
+@40@0:8Q16@24@32
+@"TCCDEventFilter"
+@"TCCDEventPublisher"
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @56@0:8@16q24q32q40@48
 @"NSData"
+^{__CFBundle=}
 @32@0:8^{?=[8I]}16^{?=[8I]}24
 v40@0:8@16^{?=[8I]}24^{?=[8I]}32
 B28@0:8@16B24
@@ -2466,12 +2551,14 @@ B28@0:8@16B24
 B32@0:8^I16^I24
 {?=[8I]}16@0:8
 @"NSNumber"
-@"NSBundle"
+@"TCCDBundle"
 @"NSDictionary"
 {?="val"[8I]}
 @32@0:8@16@24
 @"TCCDService"
 @"TCCDAccessIndirectObject"
+@56@0:8Q16@24Q32@40Q48
+@32@0:8Q16@24
 @"TCCDCodeIdentity"
 @32@0:8q16@24
 @40@0:8q16@24[1{__va_list_tag=II^v^v}]32
@@ -2494,7 +2581,7 @@ B40@0:8@16@24^B32
 @"TCCDPlatform"
 @"NSObject<OS_os_log>"
 @"NSObject<OS_dispatch_source>"
-@"TCCDEventPublisher"
+@"TCCDAssumedIdentityMonitor"
 @32@0:8@16Q24
 @24@0:8^{__SecCode=}16
 v32@0:8@16^{__SecCode=}24
@@ -2507,6 +2594,7 @@ B32@0:8Q16Q24
 @"NSSet"
 @"NSArray"
 @"TCCDAlertManager"
+@"NSBundle"
 @72@0:8@16@24Q32Q40Q48@56Q64
 @24@0:8^{_NSZone=}16
 @"TCCDIdentity"
@@ -2523,21 +2611,19 @@ B64@0:8@16@24@32@40@48@56
 @40@0:8@16@24^@32
 @"TCCDAttributionChain"
 @"TCCDAccessIdentity"
+@"NSObject<OS_tcc_identity>"
 @28@0:8@16I24
 B36@0:8@16I24@?28
 v48@0:8q16@24@32@40
 q40@0:8@16@24@32
 v68@0:8q16@24@32@40Q48B56Q60
-Q40@0:8@16@24^@32
+Q48@0:8@16@24@32^@40
 @"TCCDServer"
 @"TCCDMainSyncController"
 v32@0:8q16@24
 @"NSError"
-@44@0:8Q16@24i32@36
-@32@0:8Q16@24
 v20@0:8i16
 v36@0:8I16Q20@28
-@"NSMutableSet"
 @"NSObject<OS_xpc_event_publisher>"
 @56@0:8{?=[8I]}16@48
 @28@0:8i16@20
@@ -2692,7 +2778,7 @@ Calling targetDeviceProximityChanged:NO
 Setting one-shot retryTestMaxRetry
 testSyncSet unsupported target: %s
 Testing handleMemoryPressureCritical
-access_changed_event: event_type=%lld, service=%@, client=%@, client_type=%d, kill_client=%d
+%s: event_type=%lld, service=%@, client=%@, client_type=%d, auth_value=%lld, kill_client=%d
 %{public}s an invalid client type: %d
 Handling sync change for Reset Access: %@
 Failed: Reset Access: %@
@@ -2725,13 +2811,18 @@ Unable to terminate_with_reason() %{public}s[%d]: %d (%{public}s) for service %{
 Terminating %{public}s[%d] because access to the %{public}@ service changed.
 Unable to kill %{public}@ (%d)
 Terminating plugin %{public}@ of %{public}@ because access to the %{public}@ service changed.
+Unable to terminate_with_reason() %{public}@ assuming identity %{public}s for %{public}@: %{darwin.errno}d
+Terminated %{public}@ assuming identity %{public}s because the assumed identity's %{public}@ authorization changed.
 AUTHREQ_ERROR: nil context.
 AUTHREQ_RESULT: msgID=%{public}@, authValue=%llu, authReason=%llu, authVersion=%llu, error=%{public}@,
 AUTHREQ_ERROR: msgID=%{public}@, nil result
 AUTHREQ_SIGNAL: msgID=%{public}@ signal prompting semaphore.
+Accessing process %{public}@ %{public}s assumed identity: %{public}@
+Ignoring assumed identity for authorization request it's not a bundle: %{public}@
 AUTHREQ_CTX: msgID=%{public}@, function=%@, service=%@, preflight=%{public}s, query=%llu, 
 AUTHREQ_ATTRIBUTION: msgID=%{public}@, attribution={%{public}@},
 requestor: %{public}@ is checking access for accessor %{public}@
+Granting %{public}@ access to %{public}@ via entitlement 'com.apple.private.tcc.allow-or-regional-prompt'
 Granting %{public}@ access to %{public}@ via entitlement 'com.apple.private.tcc.allow'
 Overridable entitlement policy: %{public}@ is Denied/Restricted access to %{public}@
 Overridable entitlement policy: %{public}@ is Allow access to %{public}@
@@ -2752,9 +2843,9 @@ Handling access request to %{public}@, from %{public}@, %{public}@
 %{public}@ is restricted by Parental Controls.
 Service kTCCServiceAccessibility does not allow prompting; returning Unknown
 Service %{public}@ does not allow prompting; returning denied.
-Usage String policy returns Denied.
-Usage String policy returns ReQuery.
-Usage String policy returns Unknown (usage: '%@'); will prompt on device.
+Usage String/Prompting policy returns Denied.
+Usage String/Prompting policy returns ReQuery.
+Usage String/Prompting policy returns Unknown (usage: '%@'); will prompt on device.
 Delaying prompt for %{public}@
 AUTHREQ_PROMPTING: msgID=%{public}@, service=%{public}@, subject=%{public}@, 
 allowButton: %@, denyButton: %@, limitedButton: %@
@@ -2765,7 +2856,6 @@ Using Localizable-D22 strings table
 Refusing authorization request for service %{public}@ and subject %{public}@ without %{public}@ key
 UserNotification response: 0x%lx; service %{public}@ and subject %{public}@
 Client %{public}@ is in Default Allow list for service %{public}@
-Failed to allocate _CFBundleCreateUnique()  client %{public}@
 Usage key:%s, client[%d](%s), usage string: '%@'
 No usage string found (key:%s) for client[%d] in bundle:%s
 Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x
@@ -2818,9 +2908,21 @@ prune_database() %{public}@ : %{public}s
 Pruned entries for %{public}@
 LS says %{public}@ was uninstalled but now we have found it is still installed.
 Deleted entries for %{public}@
+%{public}@ passed entitlement check
+%{public}@ failed entitlement check
+%{public}@ pendingEvents exceeded limit, removed oldest event
+Invalid filter: must be a dictionary, found %{public}@: %{public}@
+Invalid filter key: must be a string, found %{public}@: %{public}@
+Invalid filter key: must be the name of a TCC service, found %{public}@
+Invalid filter value: must be a boolean or an array, found %{public}@: %{public}@
+Invalid filter value: array must contain only strings, found %{public}@ in %{public}@: %{public}@
+_CFBundleCreateUnique failed for %{public}@
+bundleRecordWithBundleIdentifier failed for %{public}@: %{public}@
+%{public}@: Info.plist is missing or has invalid value for NSExtension key: %{public}@
+%{public}@: Info.plist is missing or has invalid value for NSExtensionPointIdentifier key: %{public}@
+Unable to resolve realpath of: %{public}@: %{public}@
 identityCache: evicting: %{public}@
 identityCache: adding: %{public}@ for %{public}@, idx: %lu
-failed to find app for bundle ID "%{public}@"
 IDENTITY_ATTRIBUTION: Responsible process's path is nil.
 IDENTITY_ATTRIBUTION: starting for: %{public}@
 %s: created replacement plugin dictionary %{public}@
@@ -2834,14 +2936,15 @@ Error: attributionChain.responsibleProcess.responsiblePath is nil
 %{public}s: failed to construct bundle for: %{public}@, URL: %{public}@, %{public}s
 %{public}s: self.bundle=%p, bundle:%{public}@; for: %{public}@, URL: %{public}@, %{public}s
 Error: executable path is nil
+Invalid implicitly assumed identity entitlement: %{public}@
+Invalid explicitly assumed identity entitlement: identities should be dictionaries, found %{public}@: %{public}@
+Invalid explicitly assumed identity entitlement: %{public}@
+Invalid explicitly assumed identity, requested identity %{public}@ not found in entitlement: %{public}@
 failed to get filesystem representation for %{public}@
 failed to get text offset for %{public}s[%d]: (#%d) %{public}s
-plugin_data missing value for NSExtensionPointIdentifier key: plugin_data=%{public}@
-plugin_data is not an NSDictionary: plugin_data=%{public}@
-plugin_info missing value for NSExtension key: plugin_info=%{public}@
-plugin_bundle missing infoDictionary: plugin_bundle=%{public}@
-plugin_path does not identify an accessible bundle directory: plugin_path=%{public}@
 _plugin missing PKManagerPlugInPathKey: _plugin=%{public}@, self=%{public}@
+pluginPath does not identify an accessible bundle directory: %{public}@
+Cannot map type string to TCC identity type: %{public}@
 failed to open "%{public}s": (#%d): %{public}s
 failed to read header from %{public}s: %{public}s;  (textoff: %llu, expected size: %lu, got: %zd)
 spooky magic for %{public}s (0x%x) at text offset: %lld
@@ -2871,6 +2974,7 @@ using database: %{public}s
 Dropping invalid v15 access row: service=%s, client=%s, client_type=%d, indirect_object_identifier=%s, allowed=%d, prompt_count=%d
 Dropping duplicate v15 access row: service=%s, client=%s, client_type=%d, indirect_object_identifier=%s, allowed=%d, prompt_count=%d
 Cannot construct Persistent State key name. type: %llu: %@
+%{public}s application prompting is %{public}s because: %{public}s.
 Watch app %@ is extensionless.
 Watch app %@ has no plugin and therefore has no NSExtension
 client.plugin[PKManagerPlugInPathKey] fails to create URL; plugin info: %{public}@
@@ -2892,7 +2996,6 @@ Prompting on the phone: TCCDSyncSession for requestAccessAction: %@
 localIdentifier: %{public}@ -> companionApplicationIdentifier: %{public}@
 localIdentifier: %{public}@ -> isStandaloneWatchApp Identifier: %{public}@
 localIdentifier: %{public}@ -> counterpartIdentifiers[0]: %{public}@
-Unable to resolve realpath of: %{public}@: %{public}@
 failed to realpath %{public}s: error=%{public}@
 Looking for boolean preference value: %{public}@
 Found boolean preference value: %{public}@=%{BOOL}d
@@ -2969,6 +3072,7 @@ Override: policyAccessByIdentifier[%@] = %@
 Override: watchPlistChanges: reloading (0x%lx): %{public}@
 Override: watchPlistChanges: watching: %{public}@
 Override: watchPlistChanges: failed to open(%{public}@, O_EVTONLY): %{darwin.errno}d 
+%{public}@ request specified explicitly assumed identity: %{public}@
 configurationDictionary:  found a config file at %{public}@ but could not get a plist from it: %{public}@
 Using config file at %{public}@: contents:
 %{public}@
@@ -2978,17 +3082,25 @@ Analytics Event preparing: %{public}@
 Analytics Event sending: %{public}@
 %{public}@
 Analytics is not availabe for Event: %{public}@
-Unexpected error from XPC event publisher for stream %{public}@: %s
-XPC event publisher for stream %{public}@ received xpc event with action %d and token %llu: %s
-Added pending subscriber (token=%lld)
-Received reply of invalid type from subscriber: token=%lld, type=%s, object=%s
-Pending subscriber (token=%lld, code_signing_identity=%s) was removed before entitlements check completed; cancelling subscription.
-Added subscriber (token=%lld, code_signing_identity=%s)
-Rejected subscriber (token=%lld, code_signing_identity=%s) without required %{public}@ entitlement
-pendingEvents exceeded pendingEventsLimit, removing oldest event
-XPC event publisher for stream %{public}@ sending event to %u clients: %@
-Failed to send event to XPC event stream %{public}@ for token %@: %s
-Have not yet received initial barrier; adding pending event: %@
+Serializing state failed: %{public}@
+Failed to load saved state from file %{public}@: %{public}@
+Failed to deserialize saved state: %{public}@
+Failed to remove file %{public}@: %{public}@
+Loaded saved state: %{public}@
+Failed to save state file %{public}@: %{public}@
+Can't monitor non-bundle assumed identity: %{public}@
+Started monitoring %{public}@ with assumed identity %{public}@
+Stopped monitoring %{public}@
+sem_open() failed: %{darwin.errno}d
+Received error: %s
+Received event: action=%{public}s, token=%llu, descriptor=%{public}s
+Received event: action=%{public}s, token=%llu
+Added subscriber %{public}@
+Received invalid reply %{public}s of type %{public}s from subscriber %{public}@
+Removed subscriber %{public}@
+Added pending event: %@
+Sending %{public}@ to %{public}@ failed with error: %{public}s
+Publishing %{public}@ to %lu subscribers: %{public}@
 Failed to get realpath of responsiblePath: %{public}@: %{public}@
 Unabled to get proc_pidpath(%d): (#%d) %{public}s
 Failed to get realpath of binaryPath: %{public}s: %{public}@
@@ -2999,6 +3111,7 @@ FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{public}@
 FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{darwin.errno}d
 %{public}@: Entitlement: %{public}@ is not of type Boolean/NSNumber as expected.
 %{public}@: Entitlement: %{public}@ is not of type NSArray as required.
+%{public}@: Entitlement: %{public}@ is not of type NSDictionary as required.
 Entitlement value type from: %{public}@ for: %{public}@, service: %{public}@) is not an array as expected.
 Composed entitlement check for (%{public}@, %{public}@) from: %{public}@ to parent: %{public}@
 MDMPolicyOverride: configuration profile changed; reloading.
@@ -3019,7 +3132,7 @@ BUNDLE_ATTRIBUTION: attributed bundle %{public}@ has no identifier and is not va
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241115</string>
+<string>20A241123</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleIdentifier</key>
@@ -3035,17 +3148,17 @@ BUNDLE_ATTRIBUTION: attributed bundle %{public}@ has no identifier and is not va
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
-<string>8.0</string>
+<string>8.3</string>
 <key>DTSDKBuild</key>
-<string>19R327</string>
+<string>19S5026b</string>
 <key>DTSDKName</key>
-<string>watchsimulator8.0.internal</string>
+<string>watchsimulator8.3.internal</string>
 <key>DTXcode</key>
 <string>1300</string>
 <key>DTXcodeBuild</key>
 <string>13A191</string>
 <key>MinimumOSVersion</key>
-<string>8.0</string>
+<string>8.3</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>4</integer>
@@ -3060,6 +3173,8 @@ BUNDLE_ATTRIBUTION: attributed bundle %{public}@ has no identifier and is not va
 <true/>
 <key>com.apple.frontboard.launchapplications</key>
 <true/>
+<key>com.apple.private.coreservices.canmaplsdatabase</key>
+<true/>
 <key>com.apple.private.ids.messaging</key>
 <array>
 <string>com.apple.private.alloy.tccd.sync</string>
@@ -3070,6 +3185,8 @@ BUNDLE_ATTRIBUTION: attributed bundle %{public}@ has no identifier and is not va
 <string>com.apple.private.alloy.tccd.sync</string>
 <string>com.apple.private.alloy.tccd.msg</string>
 </array>
+<key>com.apple.private.kernel.global-proc-info</key>
+<true/>
 <key>com.apple.private.security.storage.TCC</key>
 <true/>
 <key>com.apple.private.xpc.domain-extension.proxy</key>
@@ -3080,6 +3197,7 @@ BUNDLE_ATTRIBUTION: attributed bundle %{public}@ has no identifier and is not va
 <true/>
 </dict>
 </plist>
+zPLR
 zPLR
 zPLR
 zPLR

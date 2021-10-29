@@ -1,7 +1,8 @@
 ~J4r
 N@333333
 MbP?
-@(#)PROGRAM:securityd  PROJECT:Security-60157.12.1
+@(#)PROGRAM:securityd  PROJECT:Security-60157.60.6
+3333
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -674,8 +675,8 @@ octagon-cdp
 octagon-inheritance
 octagon-custodian-recovery
 Device is considered a limited peer, cannot remove inheritance key in Octagon
-v24@?0@"OTInheritanceKey"8@"NSError"16
 Device is considered a limited peer, cannot enroll recovery key in Octagon
+v24@?0@"OTInheritanceKey"8@"NSError"16
 Device is considered a limited peer, cannot remove recovery key in Octagon
 v24@?0@"OTCustodianRecoveryKey"8@"NSError"16
 malformed recovery key
@@ -1110,6 +1111,9 @@ sos-upgrade-to-ready
 Not in circle
 octagon-health
 octagon-trust-health-check
+Not performing health check, waiting for Class C Unlock
+OctagonEscrowMove
+OctagonEscrowMoveUnthrottled
 wait-for-sync-reply
 wait-for-sync
 No account settings have been set
@@ -1125,6 +1129,7 @@ contextID
 containerName
 v40@?0@"NSData"8@"NSString"16@"NSData"24@"NSError"32
 removeInheritanceKey-callback
+storeInheritanceKey-callback
 createInheritanceKey-callback
 removeCustodianRecoveryKey-callback
 createCustodianRecoveryKey-callback
@@ -1157,8 +1162,9 @@ currentSelf
 signingSPKIHash
 signingSPKI
 rpc-join
-preflight-custodian-recovery-key
+preflight-inheritance-recovery-key
 rpc-join-with-inheritance-key
+preflight-custodian-recovery-key
 rpc-join-with-custodian-recovery-key
 rpc-join-with-recovery-key
 rpc-join-with-bottle
@@ -1183,8 +1189,6 @@ octagon-icloud-account-available
 octagon-warm-escrowcache
 octagon-health-post-repair-cfu
 rpcHealthCheck
-OctagonEscrowMove
-OctagonEscrowMoveUnthrottled
 octagon-health-tph-trust-check
 octagon-health-securityd-trust-check
 octagon-fixup_check
@@ -1561,7 +1565,6 @@ no network
 not signed in
 device is locked
  Couldn't find CKRecord for ramp. Defaulting to not ramped in
-Received callback for released object
 RetryAfter
 FeatureVisible
 FeaturePromoted
@@ -1912,7 +1915,7 @@ Client explicitly specifies access group %@ but is only entitled for %@
 B16@?0^{sqlite3_stmt=}8
 B12@?0i8
 SELECT agrp FROM %@ WHERE rowid == %u
-SELECT agrp FROM %@ WHERE persistref == %@
+SELECT agrp FROM %@ WHERE persistref = ?
 application-identifier nor keychain-access-groups
 Client has neither %@ entitlements
 Non-API attributes present in query
@@ -2131,6 +2134,7 @@ OctagonEventTPHHealthCheckStatus
 OctagonEventAuthKitDeviceList
 OctagonEventEscrowMoveTriggered
 OctagonEventEscrowMoveRateLimited
+OctagonEventEscrowMoveTermsNeeded
 CKKSActivityOTFetchRampState
 OctagonActivityAccountAvailable
 OctagonActivityAccountNotAvailable
@@ -2147,6 +2151,8 @@ OctagonActivityJoinWithCustodianRecoveryKey
 OctagonActivityPreflightJoinWithCustodianRecoveryKey
 OctagonActivityRemoveCustodianRecoveryKey
 OctagonActivityCreateInheritanceKey
+OctagonActivityGenerateInheritanceKey
+OctagonActivityStoreInheritanceKey
 OctagonActivityJoinWithInheritanceKey
 OctagonActivityPreflightJoinWithInheritanceKey
 OctagonActivityRemoveInheritanceKey
@@ -2323,6 +2329,7 @@ followup
 recovery key
 repair
 confirm existing secret
+secure terms
 keybag-unlocked-dependency
 <CKKSLockStateTracker: %@ last:%@>
 locked
@@ -2840,6 +2847,7 @@ attributes
 eventName
 identity
 <TrustedPeersHelperIntendedTPPBSecureElementIdentity: %@>
+serializedReason
 triggerRequestTime
 uploadRetries
 uploadCompleted
@@ -2939,7 +2947,7 @@ v16@?0^v8
 retirement
 Public Key isn't available, this peer is in the circle, but invalid. The iCloud Password must be provided to keychain syncing subsystem to repair this.
 Security
-SOSDisablement
+SOSMonitorMode
 SOSDisable
 SOSEnable
 [SOS is monitoring]
@@ -3552,6 +3560,7 @@ OctagonFlagContainer
 OTSetRecoveryKeyOperation
 OTCreateCustodianRecoveryKeyOperation
 OTCreateInheritanceKeyOperation
+OTStoreInheritanceKeyOperation
 CKKS
 CKKSSelves
 CKKSActualPeer
@@ -4280,8 +4289,10 @@ joinWithCustodianRecoveryKey:contextID:custodianRecoveryKey:reply:
 preflightJoinWithCustodianRecoveryKey:contextID:custodianRecoveryKey:reply:
 removeCustodianRecoveryKey:contextID:uuid:reply:
 createInheritanceKey:contextID:uuid:reply:
-joinWithInheritanceKey:contextID:inheritanceKey:reply:
+generateInheritanceKey:contextID:uuid:reply:
 signIn:container:context:reply:
+storeInheritanceKey:contextID:ik:reply:
+joinWithInheritanceKey:contextID:inheritanceKey:reply:
 preflightJoinWithInheritanceKey:contextID:inheritanceKey:reply:
 removeInheritanceKey:contextID:uuid:reply:
 signOut:context:reply:
@@ -4511,7 +4522,7 @@ _stateMachine
 _lockStateTracker
 _onqueueNextStateMachineTransition:flags:pendingFlags:
 initWithLockStateTracker:
-triggerEscrowUpdateRPC:reply:
+triggerEscrowUpdateRPC:options:reply:
 storePrerecordsInEscrowRPC:
 setStateMachine:
 setForceIgnoreCloudServicesRateLimiting:
@@ -4529,9 +4540,12 @@ setTriggerRequestTime:
 UUIDString
 UUID
 saveToKeychain:
+setSerializedReason:
 setSerializedPrerecord:
 setHasCertCached:
 uploadCompleted
+setExpectedFederationID:
+setReason:
 loadAllFromKeychain:
 escrowAttemptedWithinLastSeconds:
 hasSerializedPrerecord
@@ -4699,10 +4713,11 @@ T@"EscrowRequestController",&,V_controller
 _controller
 request:
 triggerEscrowUpdate:error:
+triggerEscrowUpdate:options:error:
 fetchStatuses:
 pendingEscrowUpload:
 escrowCompletedWithinLastSeconds:
-triggerEscrowUpdate:reply:
+triggerEscrowUpdate:options:reply:
 cachePrerecord:serializedPrerecord:reply:
 fetchPrerecord:reply:
 fetchRequestWaitingOnPasscode:
@@ -5142,6 +5157,8 @@ stopWithEvent:result:
 startLogSystemMetricsForActivityNamed:
 preflightJoinWithInheritanceKey:reply:
 joinWithInheritanceKey:reply:
+rpcStoreInheritanceKeyWithIK:reply:
+rpcGenerateInheritanceKeyWithUUID:reply:
 rpcCreateInheritanceKeyWithUUID:reply:
 rpcRemoveCustodianRecoveryKeyWithUUID:reply:
 preflightJoinWithCustodianRecoveryKey:reply:
@@ -5206,10 +5223,13 @@ privateCloudDatabase
 moveToCheckTrustedState
 waitForReady:
 initWithContainer:sosAdapter:accountStateTracker:lockStateTracker:reachabilityTracker:personaAdapter:cloudKitClassDependencies:
-makeCKContainer:usePCS:
+makeCKContainer:
 forLiveCloudKit
 initAsEssential:
 resetManager:to:
+initWithContainerID:options:
+containerIDForContainerIdentifier:
+setBypassPCSEncryption:
 fillInError
 TB,V_fillInError
 T@"NSBlockOperation",&,V_startOperation
@@ -6241,6 +6261,8 @@ T@"OTInheritanceKey",&,V_ik
 setIk:
 recoveryKeyData
 initWithUUID:error:
+initWithIK:dependencies:
+proceedWithKeys:
 setExpectedSendSize:
 setExpectedReceiveSize:
 ckksIsCKErrorRecordChangedError
@@ -6616,7 +6638,7 @@ T@"NSString<OctagonStateString>",&,V_sosNotPresentState
 _sosNotPresentState
 initWithDependencies:intendedState:sosNotPresentState:errorState:
 setSosNotPresentState:
-retryableCuttlefishError
+isRetryable
 cStringUsingEncoding:
 T@"NSString",&,V_salt
 T@"NSString",&,V_recoveryKey
@@ -6729,6 +6751,7 @@ postRepairCFU:
 shouldPostConfirmPasscodeCFU:
 leaveTrust:
 postConfirmPasscodeCFU:
+processMoveRequest:error:
 setFollowupHandler:
 setPairingUUID:
 setAccountMetadataStore:
@@ -6753,6 +6776,8 @@ waitForState:wait:
 isPaused
 OctagonHealthSourceStates
 postFollowUp:error:
+moveToFederationAllowed:altDSID:error:
+intendedFederation
 addNullableSuccessDependency:
 inflightFetch
 zoneChangeFetcher
@@ -6999,9 +7024,6 @@ initWithContainer:reachabilityTracker:cloudkitDependencies:
 registerCKKSReceiver:
 initWithContainer:fetchClass:reachabilityTracker:
 addLockStateObserver:
-initWithContainerID:options:
-containerID
-setBypassPCSEncryption:
 TB,V_isInheritedAccount
 TI,R
 serializedRepresentation
@@ -7349,7 +7371,6 @@ T@"CKRecordZoneID",&,N,V_zoneID
 T@"NSString",&,N,V_recordName
 localSettingName
 T@"NSString",&,N,V_localSettingName
-T@"CKRecordID",&,N,V_recordID
 T@"CKKSAccountStateTracker",&,N,V_accountTracker
 T@"CKKSReachabilityTracker",&,N,V_reachabilityTracker
 Tq,V_accountStatus
@@ -7361,10 +7382,7 @@ retryAfter
 Td,V_retryAfter
 cachedFeatureAllowed
 TB,V_cachedFeatureAllowed
-featureName
-T@"NSString",R,N,V_featureName
 _cachedFeatureAllowed
-_featureName
 _database
 _zone
 _recordName
@@ -7603,7 +7621,6 @@ T@"NSData",&,N,V_permanentInfoSig
 T@"NSData",&,N,V_stableInfo
 T@"NSData",&,N,V_stableInfoSig
 initWithDependencies:intendedState:errorState:deviceInfo:peerID:permanentInfo:permanentInfoSig:stableInfo:stableInfoSig:
-proceedWithKeys:
 fixupOperation:
 initWithOperationDependencies:ckoperationGroup:
 fetchRecordsOperationClass
@@ -7788,6 +7805,7 @@ setFollowupEnd:
 setPostedCFUTypes:
 clearFollowUpWithContext:error:
 postFollowUpWithContext:error:
+contextForSecureTerms
 contextForConfirmExistingSecret
 contextForStateRepair
 contextForRecoveryKeyRepair
@@ -8104,8 +8122,10 @@ T@"NSSet",R,V_sourceStates
 T@"CKKSResultOperation<OctagonStateTransitionOperationProtocol>",R,V_transitionOperation
 _sourceStates
 _transitionOperation
+_isRetryableNSURLError
 _isCuttlefishError:
 _isCKServerInternalError
+_isRetryableAKError
 publickeyHash
 T@"NSData",&,V_publickeyHash
 publickey
@@ -8698,11 +8718,15 @@ TQ,N,V_uploadRetries
 hasTriggerRequestTime
 triggerRequestTime
 TQ,N,V_triggerRequestTime
+hasSerializedReason
+serializedReason
+T@"NSData",&,N,V_serializedReason
 _lastCloudServicesTriggerTime
 _lastEscrowAttemptTime
 _triggerRequestTime
 _uploadRetries
 _serializedPrerecord
+_serializedReason
 _certCached
 _uploadCompleted
 setCertCached:
@@ -8850,9 +8874,9 @@ primaryServiceIdentifier
 sharingPolicy
 accessibility
 URLForResource:withExtension:
-triggerCloudServicesPasscodeRequest:error:
+triggerCloudServicesPasscodeRequest:serializedReason:error:
 cert
-beginHSA2PasscodeRequest:uuid:error:
+beginHSA2PasscodeRequest:uuid:reason:error:
 T@"NSDate",&,V_date
 counter
 TI,V_counter
@@ -9535,6 +9559,7 @@ RateLimiter overloaded until %@
 Uploaded %d records with error %@
 failed to fetch records from keychain: %@
 Investigating a new escrow request
+Move requested to federation %@
 Retriggering an existing escrow request: %@
 escrowrequest: Unable to save modified request to keychain: %@
 Retriggering an existing escrow request complete
@@ -9698,6 +9723,10 @@ Rejecting a joinWithInheritanceKey RPC for container (%@) and context (%@): %@
 join with inheritance key %@ invoked for container: %@, context: %@
 octagon, join with inheritance key failed: %@
 join with inheritance key succeeded
+Rejecting a storeInheritanceKey RPC for container (%@) and context (%@): %@
+Storing Inheritance Key for container: %@, context: %@
+Rejecting a generateInheritanceKey RPC for container (%@) and context (%@): %@
+Generating Inheritance Key for container: %@, context: %@
 Rejecting a createInheritanceKey RPC for container (%@) and context (%@): %@
 Creating Inheritance Key for container: %@, context: %@
 Rejecting a removeCustodianRecoveryKey RPC for container (%@) and context (%@): %@
@@ -10164,11 +10193,12 @@ successfully created custodian recovery key
 octagon: failed to parse UUID from TPH: %@
 octagon: failed to create crk: %@
 Providing createCustodianRecoveryKey() records to %@
+octagon: failed to create inheritance key: %@
 octagon: Error create inheritance key: %@
 successfully created inheritance key
-octagon: failed to create inheritance key: %@
-create inheritance key, CDP: %@
-not storing inheritance key -- account is not in CDP
+octagon: Error store inheritance key: %@
+successfully stored inheritance key
+Providing storeCustodianRecoveryKey() records to %@
 CloudKit.framework appears to not be linked. Cannot enable CKKS (on pain of crash).
 reduce-rate-limiting is %@
 Ignoring kSecDbCKKSTransaction notification
@@ -10328,6 +10358,16 @@ waitForOctagonUpgrade: already ready, returning
 waitForOctagonUpgrade: in ready (after waiting), returning
 waitForOctagonUpgrade: fail to get to ready after timeout, attempting upgrade
 Beginning checking overall Octagon Trust
+currently waiting for class C unlock
+Skipping escrow move request (feature disabled)
+Unable to acquire EscrowRequest object: %@
+Failed to get altDSID: %@
+Skipping escrow move request (rate limited), posting follow up
+Secure terms not accepted, posting followup
+Triggered escrow move
+octagon-health: Unable to trigger escrow move: %@
+Posted secure terms followup
+octagon-health: Failed to post secure terms followup: %@
 octagon-health: CoreCDP confirm existing secret failed: %@
 failed to leave SOS circle: %@
 Successfully left SOS
@@ -10370,14 +10410,16 @@ Device is locked! pending initialization on unlock
 no account! returning clique status 'no account'
 No cloudkit account present
 Unknown cloudkit account status, returning cached trust value
+Inherited account -- should circuit to cached trust value
 error fetching trust status: %@
 trust status: %@
 TPPeerStatus is empty
 octagon: unable to persist clique trust state: %@
 updated account trust state: %@
 returning cached clique status: %@
-Returning an i remove inheritance key call: %@
+Returning remove inheritance key call: %@
 Returning an inheritance key call: %@
+octagon: failed to generate inheritance key: %@
 Returning a remove custodian recovery key call: %@
 Returning a create custodian recovery key call: %@
 Returning a set recovery key call: %@
@@ -10471,11 +10513,6 @@ Posting Escrow CFU
 Not posting confirm passcode CFU, already pending a prerecord upload
 Leaving Octagon and SOS trust
 Received escrow move request: %@
-Unable to acquire EscrowRequest object: %@
-Skipping escrow move request (rate limited)
-Skipping escrow move request (feature disabled)
-Unable to trigger escrow move: %@
-Triggered escrow move
 octagon-health: hit an error asking TPH for trust status: %@
 TPH says device is locked!
 TPH says we're trusted and in
@@ -10937,13 +10974,16 @@ notify_post %s returned: %u
 no tversion table, will setup a new database: %@
 database version is: 0x%08x : %d : %@
 UID: %d  EUID: %d
+upgr: failed to get persistent ref error: %@
+upgr: failed to get rowID error: %@
 inspecting item at row %lld in table %@, should add persistref uuid?: %@
 upgrading item persistentref at row id %lld
-set persistref %@ succeeded? %d: , potential error: %@
+upgr: failed to set persistentref for item:%@, error:%@
 phase3: failed to update item %@: %d, error: %@
+updated item %@: %d
+Failed to decode keychain item
 Bailing in phase 3 interaction not allowed: %@
 Bailing in phase 3 because AKS is unavailable: %@
-updated item %@: %d
 picked up rowid: %lld that needs a persistref
 skipping upgrade since minor is newer
 upgrade: error has been set but status is true
@@ -11532,15 +11572,15 @@ trigger backup for peers: %@ at %@
 Updated retired peer %@ in %@
 Error cleanup up after peer (%@): %@
 Reset backup ring %@ %s
-sosEvaluateIfNeeded - Turning on SOS since disablement is unavailable
+sosEvaluateIfNeeded - Turning on SOS since monitor mode is unavailable
 sosEvaluateIfNeeded - checking circle
-Disabling SOS since the account key isn't trusted
-Re-enabling SOS for circle change
-Disabling SOS for circle change
-Turning on SOS
-Turning off SOS
-SOSDisablement is not turned on for this platform
-No value found for SOSDisablement initializing to Enabled
+SOS is in monitor mode since the account key isn't trusted
+Putting SOS into active mode for circle change
+Putting SOS into monitor mode due to circle change
+Setting SOS to active
+Putting SOS into monitor mode
+SOSMonitorMode is not turned on for this platform
+No value found for SOSMonitorMode initializing to Active
 trigger a forced sync for %@
 Joining circles through piggyback (SOSAccountCopyCircleJoiningBlob)
 Bad data blob: piggyback (SOSAccountCopyCircleJoiningBlob)
@@ -12428,10 +12468,12 @@ v48@0:8@16@24@32@40
 @28@0:8i16@20
 @"EscrowRequestController"
 B32@0:8@"NSString"16^@24
+B40@0:8@"NSString"16@"NSDictionary"24^@32
 @"NSDictionary"24@0:8^@16
 B24@0:8d16
 @"<SecEscrowRequestable>"24@0:8^@16
-v32@0:8@"NSString"16@?<v@?@"NSError">24
+B40@0:8@16@24^@32
+v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSError">32
 v40@0:8@"NSString"16@"NSData"24@?<v@?@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"NSData"@"NSError">24
 v24@0:8@?<v@?@"NSString"@"NSError">16
@@ -12452,7 +12494,6 @@ v32@0:8d16@?24
 @"NSPersistentStoreCoordinator"
 @"NSManagedObjectContext"
 @36@0:8@16@24B32
-B40@0:8@16@24^@32
 @32@0:8q16@24
 @"SecCDKeychainItemType"
 @"SecCDKeychainAccessControlEntity"
@@ -12607,10 +12648,10 @@ B44@0:8@16B24@28^@36
 @"SECC2MPServerInfo"
 {?="reportFrequency"b1"reportFrequencyBase"b1"triggers"b1"metricType"b1}
 v24@0:8@?<v@?@"NSDictionary">16
+v32@0:8@"NSString"16@?<v@?@"NSError">24
 v32@0:8@"NSString"16@?<v@?@"NSArray"@"NSError">24
 v40@0:8@"NSString"16B24B28@?<v@?@"NSError">32
 v24@0:8@?<v@?@"NSString">16
-v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSError">32
 v56@0:8@"NSString"16@"CKKSExternalKey"24@"CKKSExternalKey"32@"NSArray"40@?<v@?@"NSError">48
 v36@0:8@"NSString"16B24@?<v@?@"CKKSExternalKey"@"NSArray"@"NSArray"@"NSError">28
 v48@0:8@"NSString"16@"NSArray"24@"NSArray"32@?<v@?@"NSError">40

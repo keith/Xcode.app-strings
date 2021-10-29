@@ -1,4 +1,4 @@
-@(#)PROGRAM:CloudServices  PROJECT:CloudServices-495.12.1
+@(#)PROGRAM:CloudServices  PROJECT:CloudServices-495.60.2
 0y10
 2001
 Apple Inc.1&0$
@@ -63,7 +63,7 @@ v24@?0@"NSDictionary"8@"NSError"16
 -[SecureBackup prepareHSA2EscrowRecordContents:reply:]
 +[SecureBackup daemonPasscodeRequestOpinion:]
 v20@?0I8@"NSError"12
--[SecureBackup beginHSA2PasscodeRequest:uuid:error:]
+-[SecureBackup beginHSA2PasscodeRequest:uuid:reason:error:]
 v24@?0@"SecureBackupBeginPasscodeRequestResults"8@"NSError"16
 v40@?0@"NSDictionary"8@"NSData"16@"NSData"24@"NSError"32
 CloudServices
@@ -96,6 +96,11 @@ NSOrderedSet
 NSSet
 NSString
 NSURL
+reason
+expectedFederationID
+UNKNOWN
+FEDERATION_MOVE
+(unknown: %i)
 errorDomain
 errorCode
 CloudServicesAnalytics
@@ -109,6 +114,7 @@ SecureBackupCountrySMSCodes
 SecureBackupVerifcationToken
 SecureBackupUseCachedPassphrase
 SecureBackupHSA2CachedPrerecordUUID
+SecureBackupSpecifiedFederation
 SecureBackupNewPassphrase
 SecureBackupMetadata
 ClientMetadata
@@ -361,6 +367,8 @@ saveTermsAcceptance came back with %@
 getAcceptedTermsForAltDSID remote proxy error: %ld
 calling getAcceptedTermsForAltDSID in daemon
 getAcceptedTermsForAltDSID came back with %@
+moveToFederationAllowed remote proxy error: %ld
+calling moveToFederationAllowed in daemon
 No code for POSIX error: %s (%d)
 Unable to create SecCertificateRef from response data: %@
 Error copying escrow trust policy
@@ -446,6 +454,7 @@ NSCoding
 SecureBackupBeginPasscodeRequestResults
 SecureBackupTermsInfo
 NSCopying
+SecureBackupEscrowReason
 CloudServicesAnalytics
 StoredTermsInfo
 CloudServicesError
@@ -520,7 +529,7 @@ notificationInfoWithReply:
 backupWithInfo:reply:
 stateCaptureWithReply:
 prepareHSA2EscrowRecordContents:usesComplexPassphrase:reply:
-beginHSA2PasscodeRequest:desirePasscodeImmediately:uuid:reply:
+beginHSA2PasscodeRequest:desirePasscodeImmediately:uuid:reason:reply:
 recoverRecordContentsWithRequest:reply:
 createICDPRecordWithRequest:recordContents:reply:
 getCertificatesWithRequest:reply:
@@ -531,6 +540,7 @@ resume
 daemonPasscodeRequestOpinion:
 saveTermsAcceptance:reply:
 getAcceptedTermsForAltDSID:reply:
+moveToFederationAllowed:altDSID:
 _CreateSecureBackupConnection
 _ClassCreateSecureBackupConcurrentConnection
 initWithFormat:
@@ -564,6 +574,7 @@ oldEMCSCred
 recoveryKey
 smsTarget
 silent
+specifiedFederation
 stingray
 synchronize
 useCachedPassphrase
@@ -613,6 +624,7 @@ setPassphrase:
 setRecoveryKey:
 setSmsTarget:
 setSilent:
+setSpecifiedFederation:
 setStingray:
 setSynchronize:
 setUseCachedPassphrase:
@@ -666,7 +678,7 @@ UTF8String
 asyncRequestEscrowRecordUpdate
 domain
 isEqualToString:
-beginHSA2PasscodeRequest:uuid:error:
+beginHSA2PasscodeRequest:uuid:reason:error:
 count
 objectAtIndexedSubscript:
 _getAcceptedTermsForAltDSID:withError:
@@ -674,6 +686,7 @@ supportsSecureCoding
 needPasscodeForHSA2EscrowRecordUpdate:
 getAllAcceptedTermsWithError:
 getAcceptedTermsForAltDSID:withError:
+moveToFederationAllowed:altDSID:error:
 encodeWithCoder:
 initWithCoder:
 TB,R
@@ -714,6 +727,7 @@ srpInitNonce
 srpRecoveryBlobFromSRPInitResponse:
 prepareHSA2EscrowRecordContents:reply:
 beginHSA2PasscodeRequest:error:
+beginHSA2PasscodeRequest:uuid:error:
 getCertificates:
 requiresDoubleEnrollment
 certData
@@ -728,6 +742,12 @@ error
 setError:
 setActivityLabel:
 setActivityUUID:
+recoveryUUID
+setRecoveryUUID:
+doubleRecoveryUUID
+setDoubleRecoveryUUID:
+recoveryResult
+setRecoveryResult:
 prerecord
 setPrerecord:
 _deleteAll
@@ -746,6 +766,7 @@ _usesRandomPassphrase
 _usesRecoveryKey
 _suppressServerFiltering
 _deleteDoubleOnly
+_recoveryResult
 _silentDoubleRecovery
 _appleID
 _authToken
@@ -770,11 +791,14 @@ _oldEMCSCred
 _passphrase
 _recoveryKey
 _smsTarget
+_specifiedFederation
 _verificationToken
 _queue
 _error
 _activityLabel
 _activityUUID
+_recoveryUUID
+_doubleRecoveryUUID
 _hsa2CachedPrerecordUUID
 _prerecord
 _ses
@@ -809,6 +833,7 @@ T@"NSString",C,N,V_passphrase
 T@"NSString",C,N,V_recoveryKey
 T@"NSString",C,N,V_smsTarget
 TB,N,V_silent
+T@"NSNumber",C,N,V_specifiedFederation
 TB,N,V_stingray
 TB,N,V_synchronize
 TB,N,V_useCachedPassphrase
@@ -823,6 +848,9 @@ T@"NSString",C,N,V_activityLabel
 T@"NSString",C,N,V_activityUUID
 TB,N,V_suppressServerFiltering
 TB,N,V_deleteDoubleOnly
+T@"NSString",&,N,V_recoveryUUID
+T@"NSString",&,N,V_doubleRecoveryUUID
+TB,N,V_recoveryResult
 TB,N,V_silentDoubleRecovery
 T@"NSString",C,N,V_hsa2CachedPrerecordUUID
 T@"EscrowPrerecord",&,N,V_prerecord
@@ -881,6 +909,20 @@ setWithArray:
 setClasses:forSelector:argumentIndex:ofReply:
 setWithObject:
 setWithObjects:
+setExpectedFederationID:
+setReason:
+setHasReason:
+hasReason
+reasonAsString:
+StringAsReason:
+hasExpectedFederationID
+expectedFederationID
+_expectedFederationID
+_reason
+_has
+TB,N
+Ti,N,V_reason
+T@"NSString",&,N,V_expectedFederationID
 defaultAnalyticsDatabasePath:
 logger
 logSuccessForEventNamed:
@@ -898,8 +940,6 @@ hasTermsInfo
 storageVersion
 _storageVersion
 _termsInfo
-_has
-TB,N
 TQ,N,V_storageVersion
 T@"SecureBackupTermsInfo",&,N,V_termsInfo
 userInfo
@@ -932,6 +972,7 @@ data
 initWithCapacity:
 initWithData:
 termsInfo
+integerValue
 rootBaseVersionsForRootType:altDSID:inEnvironment:duplicate:
 rootCurrentVersionForRootType:altDSID:inEnvironment:
 storeTerms:withAltDSID:reply:
@@ -1039,7 +1080,7 @@ v40@0:8@16@24@?32
 v52@0:8@16@24B32@36@?44
 v24@0:8@?16
 v36@0:8@16B24@?28
-v44@0:8@16B24@28@?36
+v52@0:8@16B24@28@36@?44
 v32@0:8@"SecureBackup"16@?<v@?@"NSDictionary"@"NSError">24
 v32@0:8@"SecureBackup"16@?<v@?@"NSError">24
 v40@0:8@"OTICDPRecordContext"16@"OTEscrowRecord"24@?<v@?@"NSDictionary"@"NSError">32
@@ -1049,15 +1090,18 @@ v24@0:8@"SecureBackup"16
 v24@0:8@?<v@?@"NSDictionary"@"NSError">16
 v32@0:8@"NSDictionary"16@?<v@?@"NSError">24
 v36@0:8@"SecureBackup"16B24@?<v@?@"NSError">28
-v44@0:8@"SecureBackup"16B24@"NSString"28@?<v@?@"SecureBackupBeginPasscodeRequestResults"@"NSError">36
+v52@0:8@"SecureBackup"16B24@"NSString"28@"SecureBackupEscrowReason"36@?<v@?@"SecureBackupBeginPasscodeRequestResults"@"NSError">44
 v40@0:8@"SecureBackup"16@"NSDictionary"24@?<v@?@"NSError">32
 v32@0:8@"SecureBackup"16@?<v@?@"NSDictionary"@"NSData"@"NSData"@"NSError">24
+B32@0:8@16@24
 v24@0:8@?<v@?I@"NSError">16
 v32@0:8@"SecureBackupTermsInfo"16@?<v@?@"NSError">24
 v32@0:8@"NSString"16@?<v@?@"NSArray"@"NSError">24
+B32@0:8@"NSString"16@"NSString"24
 I24@0:8^@16
 @32@0:8@16^@24
 @24@0:8^@16
+B40@0:8@16@24^@32
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 B24@0:8^@16
@@ -1067,15 +1111,22 @@ v32@0:8@16@24
 v28@0:8B16@?20
 @28@0:8B16^@20
 @36@0:8B16@20^@28
+@44@0:8B16@20@28^@36
 v20@0:8B16
 @"NSDate"
 @"NSData"
+@"NSNumber"
 @"NSObject<OS_dispatch_queue>"
 @"NSError"
 @"EscrowPrerecord"
 @"SESWrapper"
 @32@0:8@16@24
 @24@0:8^{_NSZone=}16
+i16@0:8
+v20@0:8i16
+@20@0:8i16
+i24@0:8@16
+{?="reason"b1}
 v40@0:8@16@24@32
 v24@0:8Q16
 @"SecureBackupTermsInfo"
@@ -1095,13 +1146,11 @@ B80@0:8@16^^{__SecCertificate}24^^{__SecKey}32B40B44@48@56B64B68^@72
 @32@0:8@16B24i28
 @56@0:8@16@24@32@40@48
 @64@0:8@16@24@32@40@48B56i60
-v20@0:8i16
 @32@0:8^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}16^@24
 @40@0:8@16B24@28B36
 @40@0:8@16^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24^{ccrsa_full_ctx=QQ^{cczp_funcs}[0Q]}32
 ^{ccses_crypto_t=^{ccdigest_info}^{ccdh_gp}^{ccmode_ecb}^{ccmode_ecb}^{ccmode_cbc}^{ccmode_cbc}^{ccrng_state}QQQQ}16@0:8
 ^{ccsrp_ctx=^{ccdigest_info}^{ccdh_gp}^{ccrng_state}{?=b1b1b1b16}[1Q]}16@0:8
-i16@0:8
 ^{ckvr_srp_context=^{ccrng_state}^{ccdigest_info}^{ccmode_cbc}^{ccmode_cbc}^{ccmode_gcm}^{ccmode_gcm}^{ccsrp_ctx}}16@0:8
 ^{ccses_crypto_t=^{ccdigest_info}^{ccdh_gp}^{ccmode_ecb}^{ccmode_ecb}^{ccmode_cbc}^{ccmode_cbc}^{ccrng_state}QQQQ}
 ^{ccsrp_ctx=^{ccdigest_info}^{ccdh_gp}^{ccrng_state}{?=b1b1b1b16}[1Q]}

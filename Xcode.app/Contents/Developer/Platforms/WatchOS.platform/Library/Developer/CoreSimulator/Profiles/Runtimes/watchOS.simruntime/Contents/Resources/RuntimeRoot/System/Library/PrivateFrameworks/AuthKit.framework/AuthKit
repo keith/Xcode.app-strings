@@ -155,6 +155,8 @@ v24@?0@"AKBeneficiaryManifest"8@"NSError"16
 -[AKInheritanceController setupBeneficiaryWithInheritanceContext:completion:]_block_invoke
 -[AKInheritanceController updateBeneficiaryWithInheritanceContext:completion:]_block_invoke_2
 -[AKInheritanceController removeBeneficiaryWithInheritanceContext:completion:]_block_invoke_2
+v24@?0@"AKBeneficiaryAliasSetupResult"8@"NSError"16
+-[AKInheritanceController _setupBeneficiaryAliasWithInheritanceContext:completion:]_block_invoke
 AKContextManagerQueue
 v20@?0B8@"NSDictionary"12
 v12@?0B8
@@ -214,7 +216,8 @@ AKAttestationErrorDomain
 AKAttestationSignerValidity
 _akAction
 _itemIdentifier
-<%@:%p> identifier: %@, action: %@, altDSID: %@
+_txnid
+<%@:%p> identifier: %@, action: %@, altDSID: %@, txnid: %@
 number
 slotID
 label
@@ -269,6 +272,7 @@ X-Apple-MK-Validation-Token
 X-Apple-I-iCSC-PRK
 X-Apple-I-iCSC-MD-M
 X-Apple-I-ICSCREC
+X-Apple-I-IdMS-Data
 status
 success
 failure
@@ -301,11 +305,17 @@ X-Apple-I-HSA1-Conversion
 X-Apple-I-Test-Account-Mode
 source
 clear_followup_notification
+continuity_push_followup_notification
 AKFollowUpAltDSIDKey
 AKFollowUpServerURL
 AKFollowUpSafariURL
 com.apple.authkit.hsa2-password-reset
 verifyPrimaryEmail
+AKFollowUpLocalURLKey
+AKFollowUpAppleAccountRootKey
+IDMSUrl
+urlKey
+txnid
 cfudata
 cfuids
 items
@@ -459,6 +469,7 @@ _AKAddTestAccountHeader
 _AKAuthorizationDemoMode
 _AKCloudPartition
 _AKByPassCustodianDeviceCheck
+_AKBeneficiaryLiveOnKey
 AKLastIDMSEnvironment
 com.apple.authkit.config
 v12@?0i8
@@ -554,6 +565,7 @@ com.apple.ak.privateemail.xpc
 v24@?0@"AKPrivateEmail"8@"NSError"16
 -[AKPrivateEmailController lookupPrivateEmailForAltDSID:withKey:completion:]_block_invoke
 -[AKPrivateEmailController fetchPrivateEmailForAltDSID:withKey:completion:]_block_invoke
+-[AKPrivateEmailController registerPrivateEmailForAltDSID:withKey:completion:]_block_invoke
 v24@?0@"AKPrivateEmailContext"8@"NSError"16
 -[AKPrivateEmailController getContextForRequestContext:completion:]_block_invoke
 -[AKPrivateEmailController deletePrivateEmailDatabaseWithCompletion:]_block_invoke
@@ -577,6 +589,8 @@ FLFollowUpNotification
 FLGroupIdentifierAccount
 FLNotificationOptionForce
 FLNotificationOptionSpringboardAlert
+FLNotificationOptionExtensionForNotification
+FLNotificationOptionExtensionActions
 _accessibleBundleInformation
 _manifestOptions
 identifier
@@ -674,6 +688,7 @@ deleteAuthorizedApp
 managePrivateEmailAddress
 fetchHmeList
 usePrivateEmailAddress
+registerHme
 startCustodianSetup
 finishCustodianSetup
 abortCustodianSetup
@@ -691,6 +706,7 @@ fetchBeneficiaryDataSelectionOptions
 setupBeneficiary
 updateBeneficiary
 removeBeneficiary
+createBeneficiaryAccountLiveOn
 urls
 apsEnv
 iForgotAppleIdLocked
@@ -711,7 +727,8 @@ body
 title
 dismiss
 frequency
-urlKey
+localUrlKey
+root
 force
 delay
 osAlert
@@ -719,6 +736,8 @@ defbtn
 albtn
 priority
 zeroAction
+badgeOnly
+omitBadge
 AKAction
 @32@?0@"NSDictionary"8Q16^B24
 _encodedRecoveryIdentityToken
@@ -757,6 +776,16 @@ AUTH_ERROR_ALERT_CREATE_PASSCODE_TITLE
 AUTH_ERROR_ALERT_CREATE_PASSCODE_MESSAGE_WATCH
 AUTH_ERROR_BUTTON_OPEN_PASSCODE_SETUP
 &%@=%@
+_accessKey
+_beneficiaryFirstName
+_beneficiaryLastName
+_beneficiaryPassword
+Access Key: %@ 
+beneficiaryPassword: %@
+beneficiaryFirstName: %@
+beneficiaryLastName: %@
+identityToken: %@
+authToken: %@
 X-Apple-Session-Key
 X-Apple-Encrypted-Session-Key
 X-Apple-I-MD-Cmd-Target
@@ -906,6 +935,9 @@ altDSID: %@,
 userID: %@ 
 transactionID:%@
 https://gsa.apple.com
+https://grandslam-idms1.apple.com
+https://grandslam-idms2.apple.com
+https://grandslam-idms3.apple.com
 /auth
 /appleid/account
 /verify/phone
@@ -1093,6 +1125,11 @@ Do you agree to terms and conditions?
 Y to agree / READ to print out the terms (please just say yess!): 
 READ
 Y to agree: 
+_beneficiaryAltDSID
+_beneficiaryAccountName
+<%@: %p {
+beneficiaryAltDSID: %@
+beneficiaryAccountName: %@
 AKTemporaryValue
 com.apple.ak.code.entered
 AKAuthenticationInternalTokenCK
@@ -1303,6 +1340,7 @@ v24@?0q8@"NSError"16
 v24@?0@"AKAuthorizationPresentationContext"8@"NSError"16
 v24@?0@"NSSet"8@"NSError"16
 Cannot perform HME request - Insufficient security level
+Cannot perform HME request - MAKO Account
 self: (%p); Connection interrupted
 self: (%p); Connection invalidated
 error communicating to XPC: %@
@@ -1440,6 +1478,8 @@ Connection to remote inheritance service to %s returned an error: %@
 inheritance-authkit/persist-manifest
 inheritance-authkit/update-beneficiary
 inheritance-authkit/remove-beneficiary
+Not an Internal Build. Aborting beneficiary alias setup
+inheritance-authkit/create-beneficiary-alias
 Bad client! You are not supposed to provide your own implementation of AKAppleIDAuthenticationUIProvider!
 Context ID %@ has already been registered for authentication!
 Missing context identifier, how did we get here?
@@ -1622,6 +1662,11 @@ PrivateEmailRemoteFetch
 BEGIN [%lld]: PrivateEmailRemoteFetch  enableTelemetry=YES 
 END [%lld] %fs:PrivateEmailRemoteFetch  Error=%{public,signpost.telemetry:number2,name=Error}d 
 Completed Private Email fetch, error:%@
+private-email-authkit/register-email
+PrivateEmailRemoteRegister
+BEGIN [%lld]: PrivateEmailRemoteRegister  enableTelemetry=YES 
+END [%lld] %fs:PrivateEmailRemoteRegister  Error=%{public,signpost.telemetry:number2,name=Error}d 
+Completed Private Email fetch in background, error:%@
 authkit/PrivateEmailContext
 getContext completed with context: %@
 getContext failed: %@
@@ -2102,6 +2147,7 @@ AKAuthorizationNotificationHandler
 AKAuthorizationNotificationHandlerInterface
 AKCommandLineUtilities
 AKAlertHandler
+AKInheritanceCLIContext
 Accounts
 AKGrandSlamResponseHandler
 AKToken
@@ -2153,6 +2199,7 @@ AKUtilities
 AKAnisetteProvisioningController
 _AKAnisetteProviderProxy
 AKAppleIDAuthenticationCommandLineContext
+AKBeneficiaryAliasSetupResult
 AKAppleIDAuthenticationSurrogateUIProvider
 AKAppleIDAuthenticationContext
 SecondFactorSupport
@@ -2173,6 +2220,8 @@ AKAuthorizationController
 sharedInstance
 securityLevelForAccount:
 ak_errorWithCode:
+phoneAsAppleIDForAccount:
+errorWithDomain:code:userInfo:
 canPerformRequestWithAccount:error:
 encodeObject:forKey:
 init
@@ -2506,7 +2555,6 @@ objectAtIndexedSubscript:
 integerValue
 numberWithLongLong:
 dictionaryWithObjects:forKeys:count:
-errorWithDomain:code:userInfo:
 statusCode
 beginDataTaskWithRequest:completionHandler:
 protectionSpace
@@ -2613,10 +2661,13 @@ fetchManifestOptionsWithInheritanceContext:completion:
 setupBeneficiaryWithInheritanceContext:completion:
 updateBeneficiaryWithInheritanceContext:completion:
 removeBeneficiaryWithInheritanceContext:completion:
+_setupBeneficiaryAliasWithInheritanceContext:completion:
 initWithServiceName:remoteProtocol:options:
 initWithRemoteServiceConfig:delegate:
 initWithXPCSession:
 remoteServiceProxyWithErrorHandler:
+currentDevice
+isInternalBuild
 configureRemoteInterface:
 configureExportedInterface:
 exportedObject
@@ -2770,8 +2821,6 @@ ownerDevice
 setOwnerDevice:
 clientErrorCode
 setClientErrorCode:
-embargoEndFeedback
-setEmbargoEndFeedback:
 notificationAction
 setNotificationAction:
 custodianUUIDs
@@ -2781,7 +2830,6 @@ setBeneficiaryUUIDs:
 lastDataSyncTimestamp
 setLastDataSyncTimestamp:
 _ownerDevice
-_embargoEndFeedback
 _appProvidedData
 _companionDevice
 _proxiedDevice
@@ -2816,7 +2864,6 @@ T@"NSData",C,N,V_idmsData
 T@"NSString",C,N,V_recoveryStep
 TB,N,V_ownerDevice
 Tq,N,V_clientErrorCode
-TB,N,V_embargoEndFeedback
 Tq,N,V_notificationAction
 TB,N,V_cliMode
 T@"NSArray",C,N,V_custodianUUIDs
@@ -2912,10 +2959,15 @@ itemIdentifier
 setItemIdentifier:
 akAction
 setAkAction:
+txnid
+setTxnid:
 _itemIdentifier
 _akAction
+_txnid
 T@"NSString",C,N,V_itemIdentifier
 T@"NSString",C,N,V_akAction
+T@"NSString",C,N,V_txnid
+T@"NSString",C,N,V_idmsData
 authorizationRequestInitiatedWithUserProvidedInformation:completion:
 authorizationRequestFinishedWithAuthorization:error:completion:
 continueFetchingIconWithCompletion:
@@ -2954,7 +3006,6 @@ _connectionInvalidationHandler
 _unfairLock
 _listenerEndpoint
 T@"NSXPCListenerEndpoint",R,N,V_listenerEndpoint
-currentDevice
 isProtectedWithPasscode
 UUID
 setIsEligibleForUpgradeFromPassword:
@@ -3062,7 +3113,6 @@ _makePrivateEmail
 _userInformation
 T@"AKUserInformation",C,N,V_userInformation
 TB,N,V_makePrivateEmail
-isInternalBuild
 sharedConfiguration
 shouldHideInternalBuildHeader
 internalFeaturesMaskValue
@@ -3178,6 +3228,7 @@ configurationValueForKey:
 setConfigurationValue:forKey:
 unsignedIntegerValue
 shouldBypassCustodianDeviceCheck
+shouldEnableBeneficiaryLiveOn
 _validCloudPartition:
 shouldDisablePETs
 setShouldDisablePETs:
@@ -3210,6 +3261,7 @@ setShouldAutocycleAppsInWebTakeover:
 lastKnownIDMSEnvironment
 setLastKnownIDMSEnvironment:
 setShouldBypassCustodianDeviceCheck:
+setShouldEnableBeneficiaryLiveOn:
 requestedCloudPartition
 setRequestedCloudPartition:
 _cachedSettings
@@ -3384,7 +3436,6 @@ updateVerifiedEmail:forAccountWithAltDSID:
 updateUsername:forAccountsWithAltDSID:
 primaryEmailAddressForAccount:
 setPrimaryEmailAddress:forAccount:
-phoneAsAppleIDForAccount:
 setPhoneAsAppleID:forAccount:
 userUnderAgeForAccount:
 setUserUnderage:forAccount:
@@ -3473,6 +3524,7 @@ T@"ACAccountType",R,N
 T@"ACAccountStore",&,N,V_accountStore
 lookupPrivateEmailForAltDSID:withKey:completion:
 fetchPrivateEmailForAltDSID:withKey:completion:
+registerPrivateEmailForAltDSID:withKey:completion:
 getContextForRequestContext:completion:
 deletePrivateEmailDatabaseWithCompletion:
 privateEmailListVersionWithCompletion:
@@ -3619,6 +3671,8 @@ setProxiedDeviceAttestationData:
 cliMode
 setCliMode:
 privateEmailKey
+continuityIDMSData
+setContinuityIDMSData:
 _continuationHeaders
 _context
 _shouldSendEphemeralAuthHeader
@@ -3646,6 +3700,7 @@ _anisetteDataProvider
 _proxiedDeviceAnisetteData
 _proxiedDeviceAttestationData
 _privateEmailKey
+_continuityIDMSData
 TB,N,V_shouldSendEphemeralAuthHeader
 TB,N,V_shouldSendICSCIntentHeader
 TB,N,V_shouldSendLocalUserHasAppleIDLoginHeader
@@ -3672,6 +3727,7 @@ T@"<AKAnisetteServiceProtocol>",&,N,V_anisetteDataProvider
 T@"AKAnisetteData",&,N,V_proxiedDeviceAnisetteData
 T@"AKAttestationData",&,N,V_proxiedDeviceAttestationData
 T@"NSString",C,N,V_privateEmailKey
+T@"NSString",C,N,V_continuityIDMSData
 TB,N
 TB,N,V_shouldSendSigningHeaders
 T@"NSString",C,N,V_serviceToken
@@ -3817,14 +3873,14 @@ TB,R,N,GisPhoneNumberSupportedConfig
 inlineFlowSupportedConfig
 TB,R,N,GIsInlineFlowSupportedConfig
 T@"NSArray",R,N
-_itemFromPayload:withAltDSID:
+_itemFromPayload:pushMessageInfo:withAltDSID:
 ak_mapNullable:
 setUniqueIdentifier:
 extensionIdentifier
 setExtensionIdentifier:
-_actionsFromPayload:
+_actionsFromPayload:pushMessageInfo:
 setActions:
-_notificationFromPayload:
+_notificationFromPayload:pushMessageInfo:
 setNotification:
 notification
 title
@@ -3835,7 +3891,9 @@ setRepresentingBundlePath:
 setBundleIconName:
 setDisplayStyle:
 displayStyle
-_actionFromInfo:
+_actionFromInfo:pushMessageInfo:
+unsignedIntValue
+setIdentifier:
 setLabel:
 setFrequency:
 setFirstNotificationDelay:
@@ -3846,7 +3904,7 @@ actionWithTitle:andActionKey:
 setActivateAction:
 setClearAction:
 _clearAction
-itemsForAltDSID:fromIDMSPayload:
+itemsForAltDSID:pushMessageInfo:fromIDMSPayload:
 itemIdentifiersRequiringNotificationClearFromPayload:
 IsFollowUpItemNotificationForced:
 representingBundlePath
@@ -3887,6 +3945,7 @@ mutableJSONRequestForPath:
 resourceLoadDelegate
 jsonDictionaryForData:error:
 errorFromServerResponseBody:
+_hostURL
 componentsWithString:
 setPath:
 mutableJSONRequestForURL:
@@ -3921,6 +3980,22 @@ _openSpyglass
 _openUpgradeAccountSecurityLevelWithBundleID:
 _uiProvider
 T@"<AKAlertHandlerUIProvider>",W,N,V_uiProvider
+accessKeyString
+setAccessKeyString:
+beneficiaryPassword
+setBeneficiaryPassword:
+beneficiaryFirstName
+setBeneficiaryFirstName:
+beneficiaryLastName
+setBeneficiaryLastName:
+_accessKeyString
+_beneficiaryPassword
+_beneficiaryFirstName
+_beneficiaryLastName
+T@"NSString",C,N,V_accessKeyString
+T@"NSString",C,N,V_beneficiaryFirstName
+T@"NSString",C,N,V_beneficiaryLastName
+T@"NSString",C,N,V_beneficiaryPassword
 isUsernameEditable
 authKitAccount:
 authKitAccountForSilentServiceToken:
@@ -4029,7 +4104,6 @@ _followupController
 intValue
 initWithJSONDictionary:
 identifier
-setIdentifier:
 number
 setNumber:
 numberWithDialCode
@@ -4517,7 +4591,6 @@ _targetDevice
 T@"AKDevice",&,N,V_targetDevice
 _setMessage:
 setReason:
-unsignedIntValue
 setGeneratedCode:
 _message
 _interpolatedReason
@@ -4610,6 +4683,14 @@ T@"NSString",C,N,V_firstName
 T@"NSString",C,N,V_lastName
 T@"NSDate",C,N,V_birthday
 TB,N,V_termsAccepted
+beneficiaryAltDSID
+setBeneficiaryAltDSID:
+beneficiaryAccountName
+setBeneficiaryAccountName:
+_beneficiaryAltDSID
+_beneficiaryAccountName
+T@"NSString",C,N,V_beneficiaryAltDSID
+T@"NSString",C,N,V_beneficiaryAccountName
 _initWithIdentifier:
 _shouldSkipInitialReachabilityCheck
 shouldPromptForPasswordOnly
@@ -5088,6 +5169,7 @@ q24@0:8@16
 @"NSDictionary"
 v32@0:8@"AKInheritanceContext"16@?<v@?@"AKBeneficiaryManifest"@"NSError">24
 v32@0:8@"AKInheritanceContext"16@?<v@?@"NSError">24
+v32@0:8@"AKInheritanceCLIContext"16@?<v@?@"AKBeneficiaryAliasSetupResult"@"NSError">24
 v24@0:8@"NSXPCInterface"16
 @"NSObject"16@0:8
 @"AAFXPCSession"
@@ -5186,7 +5268,7 @@ v40@0:8@"AKPrivateEmail"16@"NSError"24@?<v@?B@"NSError">32
 @"AKPushMessage"
 @28@0:8B16^@20
 @"<AKURLBagDictionaryProvider>"
-@"NSArray"32@0:8@"NSString"16@"NSArray"24
+@"NSArray"40@0:8@"NSString"16@"NSDictionary"24@"NSArray"32
 @"NSArray"24@0:8@"NSArray"16
 B24@0:8@"FLFollowUpItem"16
 @"NSURL"

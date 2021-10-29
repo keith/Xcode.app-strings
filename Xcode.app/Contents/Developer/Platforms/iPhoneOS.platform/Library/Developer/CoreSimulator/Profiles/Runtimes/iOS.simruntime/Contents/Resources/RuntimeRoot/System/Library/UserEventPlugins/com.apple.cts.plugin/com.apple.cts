@@ -1,4 +1,5 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2235.12.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2235.60.2
+33333w
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -330,6 +331,7 @@ Registered unmanaged XPC Activity: %{public}@
 %{public}@: permissible values for priority are %s or %s
 %{public}@: postinstall activites are not allowed to repeat; interval property ignored.
 %{public}@: postinstall activites are not allowed to repeat; repeating property ignored.
+BUG IN %{public}@? None of interval, delay, grace period set for repeating task
 Control Channel: %{public}s %{public}s
 Creating XPC Activity on XPC add event: %{public}s
 Failed to create XPC Activity: %{public}s

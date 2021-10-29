@@ -683,6 +683,14 @@ DELETE FROM message_metadata ORDER BY timestamp LIMIT :limit;
 Combining smartsort with other sortDescriptors is not supported.
 Smartsort only supports single mailbox predicate.
 Unable to find message for messageID %@
+-[EDMessagePersistence collectStatistics]
+Q16@?0@"NSString"8
+SELECT COUNT(*) FROM messages
+SELECT COUNT(*) FROM message_data
+SELECT COUNT(*) FROM message_data_deleted
+SELECT COUNT(*) FROM messages WHERE deleted = '0'
+SELECT COUNT(*) FROM searchable_messages
+SELECT COUNT(*) FROM messages WHERE messages.searchable_message IS NULL AND deleted = '0'
 Failed on predicate %@
 com.apple.email.EDMessageQueryHandler.contentProtection
 com.apple.email.EDMessageQueryHandler.result
@@ -912,7 +920,7 @@ EDPersistence.m
 -[EDPersistence remoteContentManager]
 -[EDPersistence remoteContentPersistence]
 -[EDPersistence attachmentPersistenceManager]
--[EDPersistence diagnosticStringForIndexStatus]
+-[EDPersistence persistenceStatistics]
 MailClassAVFS
 MailClassBVFS
 MailClassCVFS
@@ -1420,6 +1428,8 @@ DELETE FROM %@ WHERE transaction_id IN (%@)
 Failed to delete messages for items in %@
 DELETE FROM searchable_attachments WHERE message_id = %@
 Removing message identifier from searchable_attachments
+SELECT DISTINCT transaction_id FROM searchable_messages
+Searching for distinct transaction identifiers
 Adding to searchable_messages index
 INSERT OR REPLACE INTO searchable_messages (message_id, message, transaction_id, reindex_type, message_body_indexed) VALUES (?, ?, %lld, %ld, ?)
 @"NSArray"24@?0@"NSNumber"8@"NSNumber"16
@@ -1486,6 +1496,8 @@ v32@?0@"NSNumber"8@"NSString"16^B24
 row:%@ cid:%@
 Searchable Index Verification failed
 Searchable Index verification found missing rowids: %@
+v24@?0@"NSString"8@"NSArray"16
+%@=*
 DROP INDEX IF EXISTS searchable_messages_message_id_reindex_type_index;
 Unable to drop index searchable_messages_message_id_reindex_type_index index to searchable_messages
 Unable to add index searchable_messages_reindex_type_message_id_index to searchable_messages
@@ -2528,6 +2540,11 @@ Verification failed at ratio: %f. threshold: %f
 Failed verification for row:%@ citd:%lld
 SpotlightVerificationSamples=%{public,signpost.telemetry:number1}lu SpotlightVerificationResultFailures=%{public,signpost.telemetry:number2}ld SpotlightVerificationFailingRatio=%{public,signpost.description:attribute}f enableTelemetry=YES 
 EDSearchableIndexVerifier
+Skipping transactionID verification for POMMES index
+Found %lu missing transaction(s)
+Failed to query for transaction identifiers
+Found all expected transaction identifiers
+No transactionIDs were fetched from the database, which implies nothing has been indexed yet. Skipping further verification.
 starting listener %@
 received a new connection request %@
 connection rejected because of missing entitlement
@@ -2881,6 +2898,7 @@ EDMessageDataLayoutManager
 EDMessageListItemPredicates
 EDMailboxPredictionQueryAdapter
 EDMessageObjectIDToDatabaseIDConverter
+EDMessagePersistenceStatistics
 EDMessageQueryEvaluator
 EDMessageQueryHandler
 _EDMessageItemIDCollector
@@ -3095,6 +3113,7 @@ T@"ACAccount",R,N
 canAuthenticateWithCurrentCredentials
 hasPasswordCredential
 savePersistentAccount
+altDSID
 statisticsKind
 primaryiCloudAccount
 isActive
@@ -3135,6 +3154,8 @@ transformedValue:
 UTF8String
 init
 registerAccountChangeHookResponder:
+arrayWithObjects:count:
+addValidSortDescriptorKeyPaths:forTargetClass:
 accountsProvider
 mailAccounts
 ef_filter:
@@ -3213,7 +3234,6 @@ definitionWithDatabaseName:
 textColumnWithName:collation:nullable:
 integerColumnWithName:nullable:defaultValue:
 integerColumnWithName:nullable:
-arrayWithObjects:count:
 initWithName:rowIDType:columns:
 addUniquenessConstraintForColumns:conflictResolution:
 addIndexForColumns:
@@ -3921,11 +3941,11 @@ future
 join:
 always:
 addFailureBlock:
-diagnosticStringForIndexStatus
+persistenceStatistics
 registerDiagnosticInfoProvider:completionHandler:
 gatherDiagnosticsWithOptions:completionHandler:
 fetchControllerStatusWithCompletionHandler:
-indexStatusWithCompletionHandler:
+databaseStatisticsWithCompletionHandler:
 setDiagnosticInfoProvider:
 setRemoteClientsProvider:
 setGathererQueue:
@@ -5140,6 +5160,14 @@ initWithAngleBracketID:
 mailboxURLsForPredicate:
 topSalienciesForMailboxID:limit:error:
 messagesForMessageObjectIDs:missedMessageObjectIDs:
+setStart:
+compiled
+setMessageData:
+setMessageDataDeleted:
+setIndexableMessages:
+setMessagesIndexed:
+setMessagesToIndex:
+setDuration:
 addressesTableName
 objectPropertyMapperForSchema:protectedSchema:
 partialMessagesTableSchemaAndForeignKeysToResolve:associationsToResolve:
@@ -5155,8 +5183,11 @@ setCachedMetadataJSON:forKey:messageID:
 messageObjectIDForURL:
 requestContentForMessageObjectID:requestID:options:delegate:completionHandler:
 iterateMessagesMatchingSmartSortQuery:limit:handler:
+collectStatistics
+collectStatisticsWithStatistics:
 setMessageTransformer:
 _cachedMetadataUpdatesSinceLastCheck
+_persistenceStatistics
 _cachedMetadataIsolation
 _cachedMetadataEstimatedRowCount
 _messageTransformer
@@ -5165,6 +5196,44 @@ T@"NSNumber",&,N,V_cachedMetadataEstimatedRowCount
 Ti,N,V_cachedMetadataUpdatesSinceLastCheck
 T@"EDMessageTransformer",&,N,V_messageTransformer
 T@"EDMailboxPersistence",R,W,N,V_mailboxPersistence
+T@"EDMessagePersistenceStatistics",R,N,V_persistenceStatistics
+duration
+messageData
+messagesDeleted
+setMessagesDeleted:
+messageDataDeleted
+indexableMessages
+messagesIndexed
+messagesToIndex
+indexableAttachments
+setIndexableAttachments:
+attachmentsIndexed
+setAttachmentsIndexed:
+attachmentsToIndex
+setAttachmentsToIndex:
+_start
+_duration
+_messageData
+_messagesDeleted
+_messageDataDeleted
+_indexableMessages
+_messagesIndexed
+_messagesToIndex
+_indexableAttachments
+_attachmentsIndexed
+_attachmentsToIndex
+Td,N,V_start
+Td,N,V_duration
+TQ,N,V_messages
+TQ,N,V_messageData
+TQ,N,V_messagesDeleted
+TQ,N,V_messageDataDeleted
+TQ,N,V_indexableMessages
+TQ,N,V_messagesIndexed
+TQ,N,V_messagesToIndex
+TQ,N,V_indexableAttachments
+TQ,N,V_attachmentsIndexed
+TQ,N,V_attachmentsToIndex
 timeIntervalSinceReferenceDate
 transformMessages:includeDeleted:
 messageQuery
@@ -5570,7 +5639,6 @@ ed_oneOfConcreteEvent
 selector
 invokeWithTarget:
 forwardInvocation:
-setDuration:
 hashedConversationID:
 hashedString:
 hashedMailboxID:
@@ -5823,9 +5891,6 @@ setHasDuration:
 hasDuration
 setHasScrolledToEnd:
 hasScrolledToEnd
-duration
-_duration
-Td,N,V_duration
 exceptionWithName:reason:userInfo:
 raise
 subjectWordsCount
@@ -6260,11 +6325,11 @@ _remaining
 _seenGlobalMessages
 _batchedMessages
 _batchSize
-initWithDirectoryURL:
-_commonInitWithVIPManager:
 remoteContentURLSession
 invalidateAndCancel:
 attachmentPersistenceManager
+persistenceStateWithStatistics:
+setVipManager:
 remoteContentURLCache
 setRemoteContentURLCache:
 setRemoteContentURLSession:
@@ -6272,6 +6337,7 @@ contentRuleListManager
 _remoteContentURLCache
 _remoteContentURLSession
 _contentRuleListManager
+T@"EDVIPManager",&,V_vipManager
 T@"EDPersistenceDatabase",R
 T@"EDConversationPersistence",R
 T@"EDLocalActionPersistence",R
@@ -6282,7 +6348,6 @@ T@"EDMessagePersistence",R,V_messagePersistence
 T@"EDMessageChangeManager",R
 T@"EDPersistenceHookRegistry",R,V_hookRegistry
 T@"EDSearchableIndexManager",R
-T@"EDVIPManager",R,V_vipManager
 T@"EDActivityPersistence",R,V_activityPersistence
 T@"EDRemoteContentManager",R
 T@"EDRemoteContentPersistence",R
@@ -7154,6 +7219,7 @@ setNeedsAllAttributesIndexingType
 setIndexingType:
 searchableIndex:assignIndexingType:forIdentifiers:
 verificationDataSamplesForSearchableIndex:count:lastVerifiedMessageID:
+distinctTransactionIDsForSearchableIndex:
 _coalescingTimerFired
 searchableIndexSchedulable:didIndexForTime:
 searchableIndexSchedulable:didIndexItemCount:
@@ -7275,6 +7341,7 @@ userHandle
 bundleIDForSearchableIndexVerifier:
 dataSamplesForSearchableIndexVerifier:searchableIndex:count:lastVerifiedMessageID:
 searchableIndexForSearchableIndexVerifier:
+knownTransactionIDsForSearchableIndexVerifier:
 setDataSourceIndexingPermitted:
 indexName
 pendingIndexItemsCount
@@ -7540,7 +7607,6 @@ setMailRepliedTo:
 setMailConversationID:
 setMailGMailLabels:
 mailboxIdentifiersForMessage:result:
-messageIDHeaderHash
 setMailMessageID:
 setContentCreationDate:
 setMailDateReceived:
@@ -7749,9 +7815,13 @@ T@"NSArray",C,N,V_removedIdentifiers
 T@"NSArray",C,N,V_removedDomainIdentifiers
 _failingSamples:tester:
 _addFailingSamples:toResultDictionary:
+_findMissingTransactionIDs:dataSource:
 _verifyDataSamples:
 _verifySamples:
 transactionID
+_missingTransactionIDsFromTransactionIDs:
+setAttribute:
+setFoundAttributeResultsBlock:
 indexVerificationActivity
 setIndexVerificationActivity:
 _indexVerificationActivity
@@ -8345,7 +8415,10 @@ updateCutoffForMailboxesWithMessages:
 clearCutoffForMailbox:
 _mailboxCutoffs
 T@"NSMutableDictionary",&,N,V_mailboxCutoffs
-initWithDirectoryURL:keyValueStore:contactStore:
+initWithDirectoryURL:keyValueStore:accountsProvider:contactStore:
+hasActiveAccounts
+_initializeKVSStore
+_accountsChanged:
 _loadVIPs
 _synchronizeKVStore
 _updateLocalWithCloud:refresh:
@@ -8376,6 +8449,7 @@ componentsFromString:
 givenName
 familyName
 intersectSet:
+removeObserver:name:object:
 predicateForContactsMatchingEmailAddress:
 _contactDescriptors
 unifiedContactsMatchingPredicate:keysToFetch:error:
@@ -8389,13 +8463,18 @@ saveVIPs:
 removeVIPsWithIdentifiers:
 removeVIPsWithEmailAddresses:
 T@"EAEmailAddressSet",R,C,N
+initWithDirectoryURL:accountsProvider:
 allVIPWaitForResult
+setContactStore:
+setKeyValueStore:
 _vipsByIdentifier
 _cachedEmailAddresses
+_initializeLock
 _keyValueStore
 _operationQueue
 _plistURL
-T@"NSUbiquitousKeyValueStore",R,N,V_keyValueStore
+T@"CNContactStore",&,N,V_contactStore
+T@"NSUbiquitousKeyValueStore",&,N,V_keyValueStore
 T@"NSObject<OS_dispatch_queue>",R,N,V_operationQueue
 T@"NSObject<OS_dispatch_queue>",R,N,V_notificationQueue
 T@"NSURL",R,N,V_plistURL
@@ -8827,6 +8906,7 @@ v32@0:8Q16@?24
 v32@0:8@"<EMDiagnosticInfoProvidingXPC>"16@?<v@?@"<EFCancelable>">24
 v32@0:8Q16@?<v@?@"EFSandboxedURLWrapper">24
 v24@0:8@?<v@?@"NSString">16
+v24@0:8@?<v@?@"NSDictionary">16
 @"<EMDiagnosticInfoProvidingXPC>"
 @"<EDServerRemoteClientsProvider>"
 @"EDFetchController"
@@ -8979,7 +9059,9 @@ q32@0:8q16^@24
 v40@0:8@16q24@?32
 i16@0:8
 v20@0:8i16
+@"EDMessagePersistenceStatistics"
 @"EDMessageTransformer"
+v24@0:8Q16
 @64@0:8@16@24@32@40@48@56
 @32@0:8q16@?24
 @56@0:8@16@24@32@40^@48
@@ -9049,7 +9131,6 @@ v40@0:8@"<EDPBHasher>"16@"<ECMessage>"24@"<ECMailbox>"32
 v40@0:8@"<EDPBHasher>"16@"<ECMessage>"24q32
 v40@0:8@"<EDPBHasher>"16q24@"NSDictionary"32
 v20@0:8I16
-v24@0:8Q16
 I16@0:8
 @"EDPBInteractionEventAppBackground"
 @"EDPBInteractionEventAppLaunch"
@@ -9210,6 +9291,7 @@ v40@0:8@"<EDSearchIndexable>"16@"NSArray"24@?<v@?>32
 @"NSString"24@0:8@"EDSearchableIndexVerifier"16
 @"NSDictionary"48@0:8@"EDSearchableIndexVerifier"16@"EDSearchableIndex"24Q32q40
 @"EDSearchableIndex"24@0:8@"EDSearchableIndexVerifier"16
+@"NSSet"24@0:8@"EDSearchableIndexVerifier"16
 v32@0:8@"NSArray"16@?<v@?>24
 d40@0:8^Q16d24@?32
 v40@0:8q16@24@?32
@@ -9253,6 +9335,7 @@ v40@0:8@"EDSearchableIndex"16@"NSArray"24q32
 @"NSArray"40@0:8@"EDSearchableIndex"16q24@"EDSearchableIndexUpdates"32
 v32@0:8@"EDSearchableIndex"16q24
 @"NSDictionary"40@0:8@"EDSearchableIndex"16Q24q32
+@"NSSet"24@0:8@"EDSearchableIndex"16
 v40@0:8@"EDSearchableIndex"16@"NSArray"24@"NSString"32
 v32@0:8@"EDSearchableIndex"16@"NSString"24
 @"NSArray"32@0:8@"EDSearchableIndex"16@"NSString"24

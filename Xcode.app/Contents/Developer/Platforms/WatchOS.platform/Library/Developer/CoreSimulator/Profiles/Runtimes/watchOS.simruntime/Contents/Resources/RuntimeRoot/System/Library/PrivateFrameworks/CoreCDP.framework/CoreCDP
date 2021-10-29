@@ -95,14 +95,11 @@ BEGIN [%lld]: CustodianDeleteRecoveryKey  enableTelemetry=YES
 END [%lld] %fs: CustodianDeleteRecoveryKey  Error=%{public,signpost.telemetry:number1,name=Error}d 
 "Error deleting custodian recovery key: %@"
 "Deleted custodian recovery key: for %@"
-"Generating Inheritance access key from security for beneficiary: %@"
+"Generating Inheritance access key for CDP account. Beneficiary: %@"
+"Generating Inheritance access key for non-CDP account - not saved on OT. Beneficiary: %@"
 "Creating the access key for beneficiary: %@"
-"Error creating access key for beneficiary %@: %@."
 "Unable to create the access key without access string or data."
 "Attempting to recover Octagon with the inheritance key."
-"Error creating access key: %@."
-"Creating the access code from data."
-"Creating the access code from string."
 "Attempted to present CDPUI with incomplete uiProvider: %s"
 LocalSecretCollect
 BEGIN [%lld]: LocalSecretCollect  enableTelemetry=YES 
@@ -124,6 +121,11 @@ cdp: clear follow up
 "iCloud Env missing, bad things to come..."
 "Auth Token missing, bad things to come..."
 "Base URL missing, bad things to come..."
+"Creating the access code from data."
+"Creating the access code from string."
+"Error creating key from access key string. Error - %@"
+"Already sent CDPCA event %@"
+"Sending report %@ (time: %f)"
 "Attempting to validate secret using validator %@"
 "Validator returned response of isValid=%i canRetry=%i error=%@ ... dispatching completion block on to main queue"
 "Invoking validateSecret:devices:type:withCompletion: completion block on the main queue"
@@ -278,6 +280,7 @@ _custodianRecoveryInfo
 _beneficiaryAccount
 _beneficiaryWrappedKeyData
 __supportsCustodianRecovery
+_bundleID
 CDPContext was missing DSID when CircleProxyImpl was initialized. Its OTClique was not created.
 -[CDPCircleProxyImpl waitForUpdate]
 v16@?0@"NSError"8
@@ -305,6 +308,16 @@ v24@?0@"CDPLocalSecret"8@"NSError"16
 -[CDPStateUIProviderProxy cdpContext:beginRemoteApprovalWithValidator:completion:]_block_invoke
 -[CDPStateUIProviderProxy cdpContext:promptForInteractiveAuthenticationWithCompletion:]
 v16@?0q8
+com.apple.CoreCDP.BackupRecovery
+backupRecoveryResult
+backupRecoveryThroughRemoteSecretDidSucceed
+backupRecoveryThroughRemoteSecretDidSucceedWithoutLocalSecret
+backupRecoveryThroughRemoteSecretDidCancel
+backupRecoveryThroughRemoteSecretDidReset
+backupRecoveryThroughRemoteSecretDidFail
+joinMethod
+attemptedMethods
+callingProcessBundleID
 iphone
 IPHONE
 ipad
@@ -345,6 +358,13 @@ recordInfo
 _deviceColor
 _enclosureColor
 CDPStateError
+wasSuccess
+errorDomain
+errorCode
+duration
+__OSINSTALL_ENVIRONMENT
+__AKSYNCBUBBLE
+<%@: %p> EventName: [%@], ReportData: %@
 v24@?0B8B12@"NSError"16
 v16@?0Q8
 v24@?0@"NSString"8@"NSError"16
@@ -399,7 +419,6 @@ zPLR
 zPLR
 zPLR
 zPLR
-zPLR
 CDPProtectedCloudStorageProxyImpl
 CDPProtectedCloudStorageProxy
 NSObject
@@ -425,11 +444,13 @@ CDPCustodianRecoveryKeyController
 CDPUpdateDataPrivacyContext
 CDPInheritanceTrustController
 CDPStateUIProviderProxy
+CDPCABackupRecoveryReporter
 CDPFollowUpController
 CDPPCSUtilities
 CDPLocalizedStringBuilder
 CDPDevice
 CoreCDP
+CDPCAReporter
 CDPRemoteDeviceSecretValidator
 CDPLocalDeviceSecretHandler
 CDPRecoveryKeyValidatorProxyImpl
@@ -613,6 +634,10 @@ setContext:
 stringValue
 setDsid:
 setAltDSID:
+duplexSession
+resumeContext
+sharingChannel
+initWithContext:
 copyWithZone:
 initWithAuthenticationResults:
 purgeResumeData
@@ -620,6 +645,9 @@ desiresAllRecords
 updateWithAuthenticationResults:
 augmentWithCredentialsFromContext:
 cliqueConfiguration
+isPiggybackingRecovery
+isTTSURecovery
+analyticsReporter
 authenticationResults
 setAuthenticationResults:
 setAppleID:
@@ -648,15 +676,12 @@ beneficiaryIdentifier
 setBeneficiaryIdentifier:
 _authProvider
 set_authProvider:
-duplexSession
 setDuplexSession:
-resumeContext
 setResumeContext:
 failSignInOnError
 setFailSignInOnError:
 _supportsCustodianRecovery
 set_supportsCustodianRecovery:
-sharingChannel
 setSharingChannel:
 _useSecureBackupCachedPassphrase
 set_useSecureBackupCachedPassphrase:
@@ -675,6 +700,9 @@ custodianRecoveryInfo
 setCustodianRecoveryInfo:
 beneficiaryWrappedKeyData
 setBeneficiaryWrappedKeyData:
+bundleID
+setBundleID:
+_analyticsReporter
 _isHSA2Account
 _isFederatedAccount
 _isBeneficiaryAccount
@@ -707,10 +735,12 @@ _sharingChannel
 __recoveryToken
 _custodianRecoveryInfo
 _beneficiaryWrappedKeyData
+_bundleID
 T@"<CDPAuthProviderInternal>",&,N,V__authProvider
 T@"KCAESGCMDuplexSession",&,N,V_duplexSession
 T@"AKCircleRequestContext",&,N,V_resumeContext
 TB,N,V_failSignInOnError
+T@"CDPCABackupRecoveryReporter",R,N
 TB,N,V__supportsCustodianRecovery
 T@"CUMessageSession",&,N,V_sharingChannel
 TB,N,V__useSecureBackupCachedPassphrase
@@ -723,6 +753,7 @@ TB,N,V_idmsMasterKeyRecovery
 Tq,N,V_type
 T@"CDPCustodianRecoveryInfo",&,N,V_custodianRecoveryInfo
 T@"NSData",&,N,V_beneficiaryWrappedKeyData
+T@"NSString",C,N,V_bundleID
 T@"NSDictionary",C,N,V_authenticationResults
 T@"NSString",C,N,V_appleID
 T@"NSString",C,N,V_password
@@ -827,7 +858,6 @@ reportFailure:
 recoverOctagonUsingCustodianInfo:completion:
 cdpContext
 T@"CDPContext",R,N
-initWithContext:
 sos_circleStatus:
 _clique
 _cdpContext
@@ -891,31 +921,17 @@ _devicesThatLoseAccountAccessOnEnable
 TQ,N,V_statusToSet
 TB,N,V_userAcceptedDevicesToLoseAccountAccess
 T@"NSArray",&,N,V_devicesThatLoseAccountAccessOnEnable
-_inheritanceAccessCodeFromKey:
+accessCode
 createInheritanceKey:uuid:reply:
-_inheritanceKeyFromAccessKey:keyError:
+generateInheritanceKey:uuid:reply:
+initFromAccessKey:
 beneficiaryID
 recoverOctagonUsingInheritanceKey:inheritanceKey:reply:
-uuid
-initWithBeneficiairyIdentifier:
-claimTokenData
-setClaimTokenData:
-claimTokenString
-setClaimTokenString:
-wrappingKeyData
-setWrappingKeyData:
-wrappingKeyString
-setWrappingKeyString:
-wrappedKeyData
-setWrappedKeyData:
-wrappedKeyString
-setWrappedKeyString:
-length
-initWithWrappedKeyData:wrappingKeyData:uuid:error:
-initWithWrappedKeyData:wrappingKeyString:uuid:error:
+removeInheritanceKey:inheritanceKeyUUID:reply:
 createInheritanceKeyWithContext:completion:
 recoverOctagonWithContext:inheritanceKey:completion:
 isInheritanceAccessKeyValid:
+deleteInheritanceAccessKeyWithContext:completion:
 errorWithDomain:code:userInfo:
 initWithContext:validator:
 initWithContext:handler:
@@ -930,12 +946,23 @@ uiProvider
 setUiProvider:
 _uiProvider
 T@"<CDPStateUIProvider>",&,N,V_uiProvider
+initWithEvent:
+setObject:forKeyedSubscript:
+backupRecoverySetAttemptedMethod:
+sendReport
+domain
+backupRecoveryDidSucceed
+backupRecoveryDidSucceedWithoutLocalSecret
+backupRecoveryDidCancel
+backupRecoveryDidReset
+backupRecoverySetJoinFromBundleID:
+backupRecoveryDidFailWithError:
+_attemptedMethods
 dealloc
 postFollowUpWithContext:error:
 clearFollowUpWithContext:error:
 _daemonConn
 dictionary
-setObject:forKeyedSubscript:
 _pcsConfigForPrimaryAccount
 addEntriesFromDictionary:
 setupDictionaryWithContext:
@@ -949,6 +976,24 @@ addSecretType:
 localizedString
 currentKey
 _key
+wrappingKeyData
+length
+wrappedKeyData
+initWithWrappedKeyData:wrappingKeyData:uuid:error:
+wrappingKeyString
+initWithWrappedKeyData:wrappingKeyString:uuid:error:
+uuid
+initWithBeneficiairyIdentifier:
+claimTokenData
+setClaimTokenData:
+claimTokenString
+setClaimTokenString:
+setWrappingKeyData:
+setWrappingKeyString:
+setWrappedKeyData:
+wrappedKeyString
+setWrappedKeyString:
+T@"AKInheritanceAccessKey",R,N
 numberWithInt:
 localizedName
 setLocalizedName:
@@ -1035,12 +1080,17 @@ T@"NSDictionary",C,N,V_recordInfo
 T@"NSData",C,N,V_simplePublicKey
 T@"NSString",C,N,V_localizedDescription
 cdp_errorWithCode:userInfo:
-domain
 isEqualToString:
 cdp_isCDPErrorWithCode:
 cdp_isLoginHardLimit
 cdp_isLoginSoftLimit
 cdp_errorWithCode:underlyingError:
+machAbsoluteTimeToTimeInterval:
+numberWithDouble:
+_eventName
+_reportData
+_initTime
+_clock_timebase
 _executeSyncOnMainThreadIfNeeded:
 isMainThread
 _validator
@@ -1268,6 +1318,7 @@ v20@0:8B16
 @24@0:8^{_NSZone=}16
 q16@0:8
 v24@0:8q16
+@"CDPCABackupRecoveryReporter"
 @"NSDictionary"
 @"NSNumber"
 @"NSUUID"
@@ -1309,6 +1360,9 @@ B28@0:8@16B24
 B24@0:8q16
 @24@0:8q16
 @32@0:8q16@24
+d24@0:8Q16
+@"NSMutableDictionary"
+{mach_timebase_info="numer"I"denom"I}
 @32@0:8@16@24
 @"<CDPRemoteDeviceSecretValidatorProtocol>"
 @"<CDPLocalDeviceSecretHandlerProtocol>"
