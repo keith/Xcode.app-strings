@@ -129,6 +129,7 @@ Action predictions not supported on this constrained device class
 v20@?0B8@"NSError"12
 ATXDigestOnboardingSuggestionClient.queue
 v16@?0@"NSTimer"8
+v32@?0Q8Q16@"NSError"24
 v16@?0@"BPSCompletion"8
 v16@?0@"BMStoreEvent"8
 B16@?0@"BMStoreEvent"8
@@ -715,6 +716,9 @@ deviceID
 isExternalRoute
 ATXRecentMLActions
 ATXRecentHeuristicActions
+com.apple.proactive.widgetModeEntity
+codingKeyForWidget
+%@:%@:%@:%@
 scores
 @16@?0@"ATXPBUserNotificationModelScore"8
 body
@@ -1085,6 +1089,8 @@ sendToDigestTimeoutScaleFactor
 backupStartTimeoutSeconds
 backupTimeoutScaleFactor
 numIgnoresToReject
+digestOnboardingSuggestionMinimumActiveNotifications
+digestOnboardingSuggestionMinimumUniqueBundleIds
 v16@?0@"ATXCacheReaderGuardedData"8
 com.apple.placeholder.activity.type
 VIEW_PHOTOS_TITLE
@@ -1480,6 +1486,10 @@ SELECT date, engagementType FROM widgetEngagements WHERE extensionBundleId = :ex
 SELECT date FROM widgetEngagements WHERE extensionBundleId = :extensionBundleId AND widgetKind = :widgetKind AND intentHash = :intentHash AND engagementType = :engagementType AND :now - date < :quota_window ORDER BY date
 SELECT date, engagementType, extensionBundleId, widgetKind, size, containerBundleIdentifier FROM widgetEngagements LIMIT 2000
 containerBundleIdentifier
+SELECT date, engagementType, extensionBundleId, containerBundleIdentifier, widgetKind, size FROM widgetEngagements WHERE date >= :startTimestamp AND date <= :endTimestamp AND engagementType = :engagementType ORDER BY date DESC LIMIT 1000
+:startTimestamp
+:endTimestamp
+SELECT extensionBundleId, containerBundleIdentifier, widgetKind, size, count(1) FROM widgetEngagements WHERE date >= :startTimestamp AND engagementType = 1 GROUP BY extensionBundleId, containerBundleIdentifier, widgetKind, size LIMIT 1000
 SELECT extensionBundleId, widgetKind, count(distinct(score)) FROM timelineDonations WHERE score IS NOT NULL group by extensionBundleId, widgetKind
 SELECT DISTINCT extensionBundleId, containerBundleIdentifier, widgetKind, widgetFamily FROM timelineDonations WHERE suggestionMappingReason IS NOT NULL AND suggestionId IS NOT NULL AND timestamp > :date;
 SELECT DISTINCT extensionBundleId, containerBundleIdentifier, widgetKind, widgetFamily FROM timelineDonations WHERE suggestionMappingReason IS NOT NULL AND suggestionId IS NOT NULL;
@@ -1822,6 +1832,7 @@ AppPredictionUI
 View
 Execute
 notificationGroupEvent
+numDigestExpansions
 Browse the Internet with Safari
 com.apple.AppStore
 Read about today's App picks
@@ -1979,9 +1990,14 @@ Digest Onboarding Suggestion Threshold for GM = %f
 Not registering for digest onboarding suggestion for seed user since the random number %f assigned to device is not less than threshold
 Not registering for digest onboarding suggestion since the random number %f assigned to device is not less than threshold
 ATXDigestOnboardingSuggestionClient: scheduling trigger for %{public}@
-No observer registered
+%@: No observers registered
 %@: No issues with notifications
+%@: The user has an issue with notifications, now checking for number of active notifications
+%@: Active notifications: %ld (min: %ld); unique apps: %ld (min: %ld)
+%@: We do not have the minimum active notifications and unique apps
+%@: We have the minimum active notifications and unique apps
 %@: Suggesting Digest Onboarding to client
+%@: Digest Onboarding has already been suggested
 Average Number of notifications being sent to client = %lu
 start date for notifications = %@
 %@: Number of apps receving notifications on day %lu: %lu
@@ -2165,6 +2181,7 @@ Not attempting XPC service call on connection %@ without entitlement %@
 %@ in %@ xpc error:%@
 Reached %@ reply with contacts:%@
 Reached %@ reply with apps:%@
+Reached %@ reply with widgets:%@
 Error unarchiving intent: %@
 Nil or empty title attached to intent event -- filtering out
 No bundleId for intent: %@, intentType: %@, intentSource: %lld
@@ -2205,6 +2222,8 @@ Successfully acquired semaphore in %@
 %@ - timed out trying to get rankedContactsForMode
 %@ - timed out trying to set app mode entity scores
 %@ - timed out trying to get rankedAppsForMode
+%@ - timed out trying to set widget mode entity scores
+%@ - timed out trying to get ranked widgets for mode
 %@ - timed out trying to set notification mode entity scores
 Did not receive rankedNotifications for mode:%@ error:%@
 %@ - timed out trying to get rankedNotificationsForMode
@@ -2218,6 +2237,8 @@ Did not score contacts for mode:%@ error:%@
 Did not receive rankedContacts for mode:%@ error:%@
 Did not score apps for mode:%@ error:%@
 Did not receive rankedApps for mode:%@ error:%@
+Did not score widgets for mode:%@ error:%@
+Did not receive ranked widgets for mode:%@ error:%@
 Did not score notifications for mode:%@ error:%@
 Did not receive rankedAppsForNotifications for mode:%@ error:%@
 Did not receive rankedContactsForNotifications for mode:%@ error:%@
@@ -2597,6 +2618,8 @@ ATXInformationStore: error upserting event of type %{}@ for widget - %{public}@
 ATXInformationStore: error reading most recent engagement for widget - %{public}@
 ATXInformationStore: error reading widget engagement timestamps for widget - %{public}@
 ATXInformationStore (fetchWidgetEngagementRecords): error fetching widget engagement records - %{public}@
+ATXInformationStore (fetchWidgetEngagementsBetweenStartDate:endDate): error fetching widget engagement records - %{public}@
+ATXInformationStore (fetchWidgetEngagementCountSinceStartDate): error fetching widget engagement counts - %{public}@
 ATXInformationStore (fetchDistinctScoreCountForWidgets): error fetching distinct count of scores for widgets - %{public}@
 ATXInformationStore (fetchDistinctWidgetsIgnoringIntentSinceDate): error reading distinct widgets - %{public}@
 ATXInformationStore: error reading relevant timeline entries for widget %@ - %{public}@
@@ -2922,6 +2945,7 @@ ATXDeviceClass
 ATXAVRouteInfo
 ATXRecentActionEngagementCache
 ATXAVRoutingSessionHelper
+ATXWidgetModeEntity
 ATXPBUserNotification
 ATXScorableTimeDigestTimeWrapper
 ATXNowPlayingDataProvider
@@ -3660,6 +3684,10 @@ _unregisterForLocaleChangeOnMainQueue
 _unregisterForKVOChangesOnMainQueue
 _invalidateTriggerOnMainQueue
 hasNotificationProblemForPreviousNumDays:
+digestOnboardingSuggestionMinimumActiveNotifications
+digestOnboardingSuggestionMinimumUniqueBundleIds
+_suggestDigestOnboardingIfApplicableOnMainQueueGivenNumberOfActiveNotifications:numberOfUniqueBundleIds:minActive:minUnique:
+numberOfActiveNotificationsWithCompletionHandler:
 digestSetupComplete
 setBool:forKey:
 boolForKey:
@@ -5011,6 +5039,8 @@ TB,N,V_didSelectShowMore
 T@"NSMutableArray",&,N,V_deliveryTimes
 scoreContacts:mode:reply:
 scoreApps:mode:reply:
+scoreWidgets:mode:reply:
+rankedWidgetsForMode:reply:
 scoreNotifications:mode:reply:
 rankedNotificationsForMode:reply:
 rankedAppsForNotificationsForMode:reply:
@@ -5264,6 +5294,14 @@ _avRoutingSessionManager
 _internalPredictedRouteInfo
 Tf,R,N
 T@"ATXAVRouteInfo",R,N
+family
+widget
+initWithWidget:
+setWidget:
+_scoreMetadata
+_widget
+T@"CHSWidget",C,N,V_widget
+T@"ATXModeEntityScore",&,N,V_scoreMetadata
 isEqualToATXActivitySuggestion:
 uuidString
 addContactIDs:
@@ -5459,6 +5497,8 @@ initFromModelScoreData:modelVersion:score:scoreTimestamp:scoreUUID:scoreInfo:
 _attachNotificationEntityScores:toNotifications:
 scoreContacts:mode:
 scoreApps:mode:
+scoreWidgets:mode:
+rankedWidgetsForMode:
 scoreUserNotifications:mode:
 scoreNotifications:mode:
 rankedNotificationsForMode:
@@ -5471,12 +5511,15 @@ isEqualToATXInterruptionManagerTuningSuggestion:
 initWithSuggestionType:
 hasType
 numEngagementsAfterExpiration
+numDigestExpansions
+setNumDigestExpansions:
 isEqualToATXSharedDigestEngagementTrackingMetrics:
 addMetricsFromOtherTracker:
 _numEngagementsInUpcoming
 _numEngagementsInScheduled
 _numEngagementsAfterExpiration
 _numExpansions
+_numDigestExpansions
 _sectionIdentifier
 _sectionPosition
 _sectionSize
@@ -5484,6 +5527,7 @@ TQ,N,V_numEngagementsInUpcoming
 TQ,N,V_numEngagementsInScheduled
 TQ,N,V_numEngagementsAfterExpiration
 TQ,N,V_numExpansions
+TQ,N,V_numDigestExpansions
 T@"NSString",C,N,V_sectionIdentifier
 TQ,N,V_sectionPosition
 TQ,N,V_sectionSize
@@ -6493,14 +6537,11 @@ atx_hashApproximately
 atx_backingStoreDataHash
 atx_isValidSuggestionIntentForWidgetIntent:
 setState:
-widget
-setWidget:
 widgetHandle
 setWidgetHandle:
 suggestedStackId
 setSuggestedStackId:
 _state
-_widget
 _widgetHandle
 _suggestedStackId
 TQ,N,V_state
@@ -7021,7 +7062,6 @@ relevanceWithScore:duration:
 entryWithDate:relevance:
 getDoubleForColumn:
 _insertTimelineEntries:forWidget:storageLimit:
-family
 timelineEntry
 suggestionMappingReason
 getDoubleAsNSNumberForColumnName:table:
@@ -7081,6 +7121,8 @@ mostRecentEngagementOfWidget:
 firstEngagementOfWidget:kind:intent:sinceTimestamp:
 engagementTimestampsForExtensionBundleId:kind:intent:engagementType:
 fetchWidgetEngagementRecords
+fetchWidgetEngagementsBetweenStartDate:endDate:
+fetchWidgetEngagementCountSinceStartDate:
 fetchDistinctScoreCountForWidgets
 fetchDistinctWidgetsIgnoringIntentSinceDate:
 fetchTimelineEntriesForWidget:sinceDate:
@@ -7630,6 +7672,8 @@ setHasSectionPosition:
 hasSectionPosition
 setHasSectionSize:
 hasSectionSize
+setHasNumDigestExpansions:
+hasNumDigestExpansions
 T@"NSString",&,N,V_sectionIdentifier
 _proactiveSuggestionWithBundleId:layoutType:title:
 initWithApplicableSuggestionLayout:
@@ -7987,6 +8031,7 @@ v72@0:8@"ATXContext"16@"NSArray"24@"NSArray"32@"NSArray"40@"NSArray"48Q56@?<v@?@
 v24@0:8Q16
 v32@0:8d16d24
 v32@0:8q16q24
+v48@0:8Q16Q24Q32Q40
 B24@0:8q16
 v48@0:8@16@24@32^v40
 @"NSHashTable"
@@ -8161,6 +8206,7 @@ f16@0:8
 @20@0:8f16
 @28@0:8@16f24
 @"AVRoutingSessionManager"
+@"CHSWidget"
 @"ATXPBUserNotificationDerivedData"
 @"ATXPBSharedDigestEngagementTrackingMetrics"
 {?="appSpecifiedScore"b1"badge"b1"timestamp"b1"attachmentType"b1"urgency"b1"isGroupMessage"b1"isMessage"b1}
@@ -8341,7 +8387,6 @@ v36@0:8@"WFWorkflowRunnerClient"16@"NSError"24B32
 {CGRect={CGPoint=dd}{CGSize=dd}}16@0:8
 v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16
 {CGRect="origin"{CGPoint="x"d"y"d}"size"{CGSize="width"d"height"d}}
-@"CHSWidget"
 @"<BSInvalidatable>"
 @"CHSProactiveService"
 @"SBSWidgetMetricsService"
@@ -8408,6 +8453,7 @@ v28@0:8i16@20
 {?="expirationTimestamp"b1"pauseDuration"b1}
 v32@0:8@"NSArray"16@?<v@?@"ATXUserNotificationDigest"@"NSError">24
 v32@0:8Q16@?<v@?@"NSArray"BQ@"NSError">24
+v24@0:8@?<v@?QQ@"NSError">16
 @"ATXPBUserNotification"
 {?="timestamp"b1"deliveryReason"b1"eventType"b1}
 @"ATXHomeScreenWidgetPersonality"16@0:8
@@ -8472,7 +8518,7 @@ v48@0:8@16Q24q32@?40
 @"ATXUserNotificationDigestBiomeStream"
 @"ATXSuggestionLayout"16@0:8
 @"PETScalarEventTracker"
-{?="numEngagementsAfterExpiration"b1"numEngagementsInScheduled"b1"numEngagementsInUpcoming"b1"numExpansions"b1"sectionPosition"b1"sectionSize"b1}
+{?="numDigestExpansions"b1"numEngagementsAfterExpiration"b1"numEngagementsInScheduled"b1"numEngagementsInUpcoming"b1"numExpansions"b1"sectionPosition"b1"sectionSize"b1}
 {?="captureType"b1"captured"b1}
 {?="origin"b1"uiLocation"b1"type"b1"shouldSuggestTriggers"b1}
 v20@0:8f16
@@ -8637,6 +8683,7 @@ Action predictions not supported on this constrained device class
 v20@?0B8@"NSError"12
 ATXDigestOnboardingSuggestionClient.queue
 v16@?0@"NSTimer"8
+v32@?0Q8Q16@"NSError"24
 v16@?0@"BPSCompletion"8
 v16@?0@"BMStoreEvent"8
 B16@?0@"BMStoreEvent"8
@@ -9223,6 +9270,9 @@ deviceID
 isExternalRoute
 ATXRecentMLActions
 ATXRecentHeuristicActions
+com.apple.proactive.widgetModeEntity
+codingKeyForWidget
+%@:%@:%@:%@
 scores
 @16@?0@"ATXPBUserNotificationModelScore"8
 body
@@ -9593,6 +9643,8 @@ sendToDigestTimeoutScaleFactor
 backupStartTimeoutSeconds
 backupTimeoutScaleFactor
 numIgnoresToReject
+digestOnboardingSuggestionMinimumActiveNotifications
+digestOnboardingSuggestionMinimumUniqueBundleIds
 v16@?0@"ATXCacheReaderGuardedData"8
 com.apple.placeholder.activity.type
 VIEW_PHOTOS_TITLE
@@ -9988,6 +10040,10 @@ SELECT date, engagementType FROM widgetEngagements WHERE extensionBundleId = :ex
 SELECT date FROM widgetEngagements WHERE extensionBundleId = :extensionBundleId AND widgetKind = :widgetKind AND intentHash = :intentHash AND engagementType = :engagementType AND :now - date < :quota_window ORDER BY date
 SELECT date, engagementType, extensionBundleId, widgetKind, size, containerBundleIdentifier FROM widgetEngagements LIMIT 2000
 containerBundleIdentifier
+SELECT date, engagementType, extensionBundleId, containerBundleIdentifier, widgetKind, size FROM widgetEngagements WHERE date >= :startTimestamp AND date <= :endTimestamp AND engagementType = :engagementType ORDER BY date DESC LIMIT 1000
+:startTimestamp
+:endTimestamp
+SELECT extensionBundleId, containerBundleIdentifier, widgetKind, size, count(1) FROM widgetEngagements WHERE date >= :startTimestamp AND engagementType = 1 GROUP BY extensionBundleId, containerBundleIdentifier, widgetKind, size LIMIT 1000
 SELECT extensionBundleId, widgetKind, count(distinct(score)) FROM timelineDonations WHERE score IS NOT NULL group by extensionBundleId, widgetKind
 SELECT DISTINCT extensionBundleId, containerBundleIdentifier, widgetKind, widgetFamily FROM timelineDonations WHERE suggestionMappingReason IS NOT NULL AND suggestionId IS NOT NULL AND timestamp > :date;
 SELECT DISTINCT extensionBundleId, containerBundleIdentifier, widgetKind, widgetFamily FROM timelineDonations WHERE suggestionMappingReason IS NOT NULL AND suggestionId IS NOT NULL;
@@ -10330,6 +10386,7 @@ AppPredictionUI
 View
 Execute
 notificationGroupEvent
+numDigestExpansions
 Browse the Internet with Safari
 com.apple.AppStore
 Read about today's App picks
@@ -10487,9 +10544,14 @@ Digest Onboarding Suggestion Threshold for GM = %f
 Not registering for digest onboarding suggestion for seed user since the random number %f assigned to device is not less than threshold
 Not registering for digest onboarding suggestion since the random number %f assigned to device is not less than threshold
 ATXDigestOnboardingSuggestionClient: scheduling trigger for %{public}@
-No observer registered
+%@: No observers registered
 %@: No issues with notifications
+%@: The user has an issue with notifications, now checking for number of active notifications
+%@: Active notifications: %ld (min: %ld); unique apps: %ld (min: %ld)
+%@: We do not have the minimum active notifications and unique apps
+%@: We have the minimum active notifications and unique apps
 %@: Suggesting Digest Onboarding to client
+%@: Digest Onboarding has already been suggested
 Average Number of notifications being sent to client = %lu
 start date for notifications = %@
 %@: Number of apps receving notifications on day %lu: %lu
@@ -10673,6 +10735,7 @@ Not attempting XPC service call on connection %@ without entitlement %@
 %@ in %@ xpc error:%@
 Reached %@ reply with contacts:%@
 Reached %@ reply with apps:%@
+Reached %@ reply with widgets:%@
 Error unarchiving intent: %@
 Nil or empty title attached to intent event -- filtering out
 No bundleId for intent: %@, intentType: %@, intentSource: %lld
@@ -10713,6 +10776,8 @@ Successfully acquired semaphore in %@
 %@ - timed out trying to get rankedContactsForMode
 %@ - timed out trying to set app mode entity scores
 %@ - timed out trying to get rankedAppsForMode
+%@ - timed out trying to set widget mode entity scores
+%@ - timed out trying to get ranked widgets for mode
 %@ - timed out trying to set notification mode entity scores
 Did not receive rankedNotifications for mode:%@ error:%@
 %@ - timed out trying to get rankedNotificationsForMode
@@ -10726,6 +10791,8 @@ Did not score contacts for mode:%@ error:%@
 Did not receive rankedContacts for mode:%@ error:%@
 Did not score apps for mode:%@ error:%@
 Did not receive rankedApps for mode:%@ error:%@
+Did not score widgets for mode:%@ error:%@
+Did not receive ranked widgets for mode:%@ error:%@
 Did not score notifications for mode:%@ error:%@
 Did not receive rankedAppsForNotifications for mode:%@ error:%@
 Did not receive rankedContactsForNotifications for mode:%@ error:%@
@@ -11105,6 +11172,8 @@ ATXInformationStore: error upserting event of type %{}@ for widget - %{public}@
 ATXInformationStore: error reading most recent engagement for widget - %{public}@
 ATXInformationStore: error reading widget engagement timestamps for widget - %{public}@
 ATXInformationStore (fetchWidgetEngagementRecords): error fetching widget engagement records - %{public}@
+ATXInformationStore (fetchWidgetEngagementsBetweenStartDate:endDate): error fetching widget engagement records - %{public}@
+ATXInformationStore (fetchWidgetEngagementCountSinceStartDate): error fetching widget engagement counts - %{public}@
 ATXInformationStore (fetchDistinctScoreCountForWidgets): error fetching distinct count of scores for widgets - %{public}@
 ATXInformationStore (fetchDistinctWidgetsIgnoringIntentSinceDate): error reading distinct widgets - %{public}@
 ATXInformationStore: error reading relevant timeline entries for widget %@ - %{public}@
@@ -11430,6 +11499,7 @@ ATXDeviceClass
 ATXAVRouteInfo
 ATXRecentActionEngagementCache
 ATXAVRoutingSessionHelper
+ATXWidgetModeEntity
 ATXPBUserNotification
 ATXScorableTimeDigestTimeWrapper
 ATXNowPlayingDataProvider
@@ -12168,6 +12238,10 @@ _unregisterForLocaleChangeOnMainQueue
 _unregisterForKVOChangesOnMainQueue
 _invalidateTriggerOnMainQueue
 hasNotificationProblemForPreviousNumDays:
+digestOnboardingSuggestionMinimumActiveNotifications
+digestOnboardingSuggestionMinimumUniqueBundleIds
+_suggestDigestOnboardingIfApplicableOnMainQueueGivenNumberOfActiveNotifications:numberOfUniqueBundleIds:minActive:minUnique:
+numberOfActiveNotificationsWithCompletionHandler:
 digestSetupComplete
 setBool:forKey:
 boolForKey:
@@ -13519,6 +13593,8 @@ TB,N,V_didSelectShowMore
 T@"NSMutableArray",&,N,V_deliveryTimes
 scoreContacts:mode:reply:
 scoreApps:mode:reply:
+scoreWidgets:mode:reply:
+rankedWidgetsForMode:reply:
 scoreNotifications:mode:reply:
 rankedNotificationsForMode:reply:
 rankedAppsForNotificationsForMode:reply:
@@ -13772,6 +13848,14 @@ _avRoutingSessionManager
 _internalPredictedRouteInfo
 Tf,R,N
 T@"ATXAVRouteInfo",R,N
+family
+widget
+initWithWidget:
+setWidget:
+_scoreMetadata
+_widget
+T@"CHSWidget",C,N,V_widget
+T@"ATXModeEntityScore",&,N,V_scoreMetadata
 isEqualToATXActivitySuggestion:
 uuidString
 addContactIDs:
@@ -13967,6 +14051,8 @@ initFromModelScoreData:modelVersion:score:scoreTimestamp:scoreUUID:scoreInfo:
 _attachNotificationEntityScores:toNotifications:
 scoreContacts:mode:
 scoreApps:mode:
+scoreWidgets:mode:
+rankedWidgetsForMode:
 scoreUserNotifications:mode:
 scoreNotifications:mode:
 rankedNotificationsForMode:
@@ -13979,12 +14065,15 @@ isEqualToATXInterruptionManagerTuningSuggestion:
 initWithSuggestionType:
 hasType
 numEngagementsAfterExpiration
+numDigestExpansions
+setNumDigestExpansions:
 isEqualToATXSharedDigestEngagementTrackingMetrics:
 addMetricsFromOtherTracker:
 _numEngagementsInUpcoming
 _numEngagementsInScheduled
 _numEngagementsAfterExpiration
 _numExpansions
+_numDigestExpansions
 _sectionIdentifier
 _sectionPosition
 _sectionSize
@@ -13992,6 +14081,7 @@ TQ,N,V_numEngagementsInUpcoming
 TQ,N,V_numEngagementsInScheduled
 TQ,N,V_numEngagementsAfterExpiration
 TQ,N,V_numExpansions
+TQ,N,V_numDigestExpansions
 T@"NSString",C,N,V_sectionIdentifier
 TQ,N,V_sectionPosition
 TQ,N,V_sectionSize
@@ -15001,14 +15091,11 @@ atx_hashApproximately
 atx_backingStoreDataHash
 atx_isValidSuggestionIntentForWidgetIntent:
 setState:
-widget
-setWidget:
 widgetHandle
 setWidgetHandle:
 suggestedStackId
 setSuggestedStackId:
 _state
-_widget
 _widgetHandle
 _suggestedStackId
 TQ,N,V_state
@@ -15529,7 +15616,6 @@ relevanceWithScore:duration:
 entryWithDate:relevance:
 getDoubleForColumn:
 _insertTimelineEntries:forWidget:storageLimit:
-family
 timelineEntry
 suggestionMappingReason
 getDoubleAsNSNumberForColumnName:table:
@@ -15589,6 +15675,8 @@ mostRecentEngagementOfWidget:
 firstEngagementOfWidget:kind:intent:sinceTimestamp:
 engagementTimestampsForExtensionBundleId:kind:intent:engagementType:
 fetchWidgetEngagementRecords
+fetchWidgetEngagementsBetweenStartDate:endDate:
+fetchWidgetEngagementCountSinceStartDate:
 fetchDistinctScoreCountForWidgets
 fetchDistinctWidgetsIgnoringIntentSinceDate:
 fetchTimelineEntriesForWidget:sinceDate:
@@ -16138,6 +16226,8 @@ setHasSectionPosition:
 hasSectionPosition
 setHasSectionSize:
 hasSectionSize
+setHasNumDigestExpansions:
+hasNumDigestExpansions
 T@"NSString",&,N,V_sectionIdentifier
 _proactiveSuggestionWithBundleId:layoutType:title:
 initWithApplicableSuggestionLayout:
@@ -16495,6 +16585,7 @@ v72@0:8@"ATXContext"16@"NSArray"24@"NSArray"32@"NSArray"40@"NSArray"48Q56@?<v@?@
 v24@0:8Q16
 v32@0:8d16d24
 v32@0:8q16q24
+v48@0:8Q16Q24Q32Q40
 B24@0:8q16
 v48@0:8@16@24@32^v40
 @"NSHashTable"
@@ -16669,6 +16760,7 @@ f16@0:8
 @20@0:8f16
 @28@0:8@16f24
 @"AVRoutingSessionManager"
+@"CHSWidget"
 @"ATXPBUserNotificationDerivedData"
 @"ATXPBSharedDigestEngagementTrackingMetrics"
 {?="appSpecifiedScore"b1"badge"b1"timestamp"b1"attachmentType"b1"urgency"b1"isGroupMessage"b1"isMessage"b1}
@@ -16849,7 +16941,6 @@ v36@0:8@"WFWorkflowRunnerClient"16@"NSError"24B32
 {CGRect={CGPoint=dd}{CGSize=dd}}16@0:8
 v48@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16
 {CGRect="origin"{CGPoint="x"d"y"d}"size"{CGSize="width"d"height"d}}
-@"CHSWidget"
 @"<BSInvalidatable>"
 @"CHSProactiveService"
 @"SBSWidgetMetricsService"
@@ -16916,6 +17007,7 @@ v28@0:8i16@20
 {?="expirationTimestamp"b1"pauseDuration"b1}
 v32@0:8@"NSArray"16@?<v@?@"ATXUserNotificationDigest"@"NSError">24
 v32@0:8Q16@?<v@?@"NSArray"BQ@"NSError">24
+v24@0:8@?<v@?QQ@"NSError">16
 @"ATXPBUserNotification"
 {?="timestamp"b1"deliveryReason"b1"eventType"b1}
 @"ATXHomeScreenWidgetPersonality"16@0:8
@@ -16980,7 +17072,7 @@ v48@0:8@16Q24q32@?40
 @"ATXUserNotificationDigestBiomeStream"
 @"ATXSuggestionLayout"16@0:8
 @"PETScalarEventTracker"
-{?="numEngagementsAfterExpiration"b1"numEngagementsInScheduled"b1"numEngagementsInUpcoming"b1"numExpansions"b1"sectionPosition"b1"sectionSize"b1}
+{?="numDigestExpansions"b1"numEngagementsAfterExpiration"b1"numEngagementsInScheduled"b1"numEngagementsInUpcoming"b1"numExpansions"b1"sectionPosition"b1"sectionSize"b1}
 {?="captureType"b1"captured"b1}
 {?="origin"b1"uiLocation"b1"type"b1"shouldSuggestTriggers"b1}
 v20@0:8f16

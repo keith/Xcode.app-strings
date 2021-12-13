@@ -2,6 +2,7 @@
 UDID
 com.apple.devicemanagementclient.mdmd.polling
 v8@?0
+app install block
 v16@?0@"NSError"8
 v20@?0B8@"NSError"12
 v24@?0Q8@"NSError"16
@@ -46,7 +47,7 @@ mdmd-BuddyFinished
 -[MDMDServer buddyDidFinish]
 -[MDMDServer buddyDidFinish]_block_invoke_2
 -[MDMDServer buddyDidFinish]_block_invoke
-/Library/Caches/com.apple.xbs/Sources/DeviceManagementClientTools_Sim/DeviceManagementClient-1.38.1/DeviceManagementClientTools/MDM Daemon/Server/MDMDServer.m
+/Library/Caches/com.apple.xbs/Sources/DeviceManagementClientTools_Sim/DeviceManagementClient-1.38.2/DeviceManagementClientTools/MDM Daemon/Server/MDMDServer.m
 -[MDMDServer notifyNewConfigurationWithCompletion:]
 mdmd-NewConfig
 -[MDMDServer notifyNewConfigurationWithCompletion:]_block_invoke
@@ -80,6 +81,7 @@ mdmd-UprootMDM
 v24@?0@8@"NSError"16
 mdmd-ProcessDeviceRequest-%@
 com.apple.ManagedConfiguration.PerformDeviceRequest
+RESTORE_ERROR_INTERNAL_ERROR
 v24@?0@"DMFMDMv1InstallAppResultObject"8@"NSError"16
 B24@?0@"IXAppInstallCoordinator"8@"NSError"16
 com.apple.purplebuddy.setupdone
@@ -91,7 +93,6 @@ MDM_ERROR_MISSING_IDENTITY
 mdmd-MigrateMDM
 Managed
 v32@?0@"NSString"8@"NSDictionary"16^B24
-mdm:
 v24@?0B8B12@"NSError"16
 com.apple.managedconfiguration.mdmd-access
 com.apple.managedconfiguration.mdmd.push
@@ -296,7 +297,8 @@ numberWithInt:
 memberQueueUserSwitchAlreadyInitiated
 setMemberQueueUserSwitchAlreadyInitiated:
 simulatePushWithAssertion:completion:
-isManagedByMDM
+sharedConnection
+installedMDMProfileIdentifier
 DMCErrorWithDomain:code:descriptionArray:errorType:
 sharedMigrator
 migrateMDMWithContext:
@@ -322,6 +324,9 @@ registerUserSwitchStakeHolder:completionHandler:
 setUserSwitchAlreadyInitiated:
 assertionDescriptions
 appendFormat:
+appBlockQueue
+appBlockCompletionBlock
+setAppBlockCompletionBlock:
 currentUserConnection
 bundleID
 isEqual:
@@ -388,6 +393,8 @@ reauthenticationCompleteWithCompletion:
 uprootMDMWithCompletion:
 processDeviceRequest:encodeResponse:completion:
 requestInstallOfAppsInRestoreWithCompletion:
+blockAppInstallsWithCompletion:
+unblockAppInstallsWithCompletion:
 setServerURL:
 setOrganizationInfo:
 MDMOptions
@@ -407,6 +414,7 @@ softwareUpdatePathFromDisk
 setTokenUpdateRequestCountToZero
 clearCachedResponse
 handleHTTPStatusGoneResponse
+isAppInstallBlocked
 memberQueuePollRequested
 memberQueueTimerContext
 setMemberQueueTimerContext:
@@ -416,6 +424,7 @@ memberQueuePowerAssertionDeassertedNotificationToken
 setMemberQueuePowerAssertionDeassertedNotificationToken:
 eventQueueBusyCount
 setEventQueueBusyCount:
+setAppBlockQueue:
 .cxx_destruct
 _keybagEventToken
 _buddyDoneEventToken
@@ -449,6 +458,8 @@ _memberQueueLastPollingAttemptRTCResetCount
 _memberQueueLastPollingSuccessMonotonicTime
 _memberQueueLastPollingSuccessRTCResetCount
 _executionQueuePushTokenWaitContinuationBlock
+_appBlockQueue
+_appBlockCompletionBlock
 T^{__SecIdentity=},N,V_memberQueueIdentity
 T@"NSArray",&,N,V_memberQueueServerPinnedSecCertificateRefs
 T@"NSArray",&,N,V_memberQueueCheckInPinnedSecCertificateRefs
@@ -480,6 +491,8 @@ TB,N
 T@?,C,N,V_executionQueuePushTokenWaitContinuationBlock
 TB,N,V_executionQueueIsCheckinInProgress
 Ti,N,V_eventQueueBusyCount
+T@"NSObject<OS_dispatch_queue>",&,N,V_appBlockQueue
+T@?,C,N,V_appBlockCompletionBlock
 T@"NSDictionary",C,N
 tokenUpdateScheduled
 TB,R,N,GisTokenUpdateScheduled
@@ -515,24 +528,19 @@ dataFromString:
 setData:forService:account:label:description:access:group:useSystemKeychain:sysBound:enforcePersonalPersona:outError:
 setRemovability:forAppWithBundleID:completion:
 enumerateKeysAndObjectsUsingBlock:
-_removeInvalidRMAccounts
 personaID
 managedAppleIDNameWithPersonaID:
 dmc_defaultStore
 dmc_iCloudAccountWithUsername:
 accountDescription
 _createRMAccountWithPersonaID:managedAppleID:profileIdentifier:organizationName:
-dmc_RemoteManagementAccounts
-dmc_enrollmentMethod
-dmc_enrollmentURL
-identifier
-dmc_removeAccountWithIdentifier:asynchronous:
 isUserEnrollmentShowsManagedAccountEnabled
 enrollmentFlowController
 complete
 updateMDMUserEnrollmentWithManagedAppleID:profileIdentifier:organizationName:personaID:completionHandler:
 waitForCompletion
 dmc_remoteManagementAccountForManagementProfileIdentifier:
+identifier
 interfaceWithProtocol:
 setExportedInterface:
 setXpcConnection:
@@ -542,6 +550,7 @@ xpcConnection
 valueForEntitlement:
 remoteProcessHasEntitlement:
 lacksEntitlementError:
+setInvalidationHandler:
 _xpcConnection
 T@"NSXPCConnection",W,N,V_xpcConnection
 initWithMachServiceName:
@@ -607,6 +616,12 @@ Could not stop managing app: %{public}@, error: %{public}@
 Ignoring stop managing books error: %{public}@
 Will switch user. Unfinished assertions:
 %{public}@
+block app installs, server block
+block app installs, server block, failing because of another blocker
+block app installs, server block, block established
+block app installs, server unblock
+block app installs, server unblock, unblocking
+block app installs, server unblock, no block in place, ignoring
 request install, received request to install all pending applications
 request install, enumerating coordinators, enumeration done
 request install, enumerating coordinators, coordinator: %{public}@
@@ -661,6 +676,8 @@ MDM migration: ending update of user enrollment: no MDM user enrollment present.
 Created RMAccount: %{public}@
 Failed to create RMAccount: %{public}@
 Accepted new connection.
+MDMServicer, XPC connection invalidated: %{public}@
+MDMServicer, XPC connection invalidated, app installs unblocked, error = %{public}@
 mdmd starting...
 mdmd stopping.
 IXCoordinatorWithAppAssetPromise
@@ -730,6 +747,7 @@ v24@0:8^{__SecIdentity=}16
 @"NSString"
 @"DMCTimerContext"
 @"NSDate"
+@"NSObject<OS_dispatch_queue>"
 v48@0:8@16@24@32@40
 @"NSXPCConnection"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -761,13 +779,13 @@ v48@0:8@16@24@32@40
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13A191</string>
+<string>19C44</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.2</string>
 <key>DTSDKBuild</key>
-<string>19C41</string>
+<string>19C44</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.2.internal</string>
 <key>DTXcode</key>
@@ -1119,6 +1137,7 @@ v48@0:8@16@24@32@40
 UDID
 com.apple.devicemanagementclient.mdmd.polling
 v8@?0
+app install block
 v16@?0@"NSError"8
 v20@?0B8@"NSError"12
 v24@?0Q8@"NSError"16
@@ -1163,7 +1182,7 @@ mdmd-BuddyFinished
 -[MDMDServer buddyDidFinish]
 -[MDMDServer buddyDidFinish]_block_invoke_2
 -[MDMDServer buddyDidFinish]_block_invoke
-/Library/Caches/com.apple.xbs/Sources/DeviceManagementClientTools_Sim/DeviceManagementClient-1.38.1/DeviceManagementClientTools/MDM Daemon/Server/MDMDServer.m
+/Library/Caches/com.apple.xbs/Sources/DeviceManagementClientTools_Sim/DeviceManagementClient-1.38.2/DeviceManagementClientTools/MDM Daemon/Server/MDMDServer.m
 -[MDMDServer notifyNewConfigurationWithCompletion:]
 mdmd-NewConfig
 -[MDMDServer notifyNewConfigurationWithCompletion:]_block_invoke
@@ -1197,6 +1216,7 @@ mdmd-UprootMDM
 v24@?0@8@"NSError"16
 mdmd-ProcessDeviceRequest-%@
 com.apple.ManagedConfiguration.PerformDeviceRequest
+RESTORE_ERROR_INTERNAL_ERROR
 v24@?0@"DMFMDMv1InstallAppResultObject"8@"NSError"16
 B24@?0@"IXAppInstallCoordinator"8@"NSError"16
 com.apple.purplebuddy.setupdone
@@ -1208,7 +1228,6 @@ MDM_ERROR_MISSING_IDENTITY
 mdmd-MigrateMDM
 Managed
 v32@?0@"NSString"8@"NSDictionary"16^B24
-mdm:
 v24@?0B8B12@"NSError"16
 com.apple.managedconfiguration.mdmd-access
 com.apple.managedconfiguration.mdmd.push
@@ -1413,7 +1432,8 @@ numberWithInt:
 memberQueueUserSwitchAlreadyInitiated
 setMemberQueueUserSwitchAlreadyInitiated:
 simulatePushWithAssertion:completion:
-isManagedByMDM
+sharedConnection
+installedMDMProfileIdentifier
 DMCErrorWithDomain:code:descriptionArray:errorType:
 sharedMigrator
 migrateMDMWithContext:
@@ -1439,6 +1459,9 @@ registerUserSwitchStakeHolder:completionHandler:
 setUserSwitchAlreadyInitiated:
 assertionDescriptions
 appendFormat:
+appBlockQueue
+appBlockCompletionBlock
+setAppBlockCompletionBlock:
 currentUserConnection
 bundleID
 isEqual:
@@ -1505,6 +1528,8 @@ reauthenticationCompleteWithCompletion:
 uprootMDMWithCompletion:
 processDeviceRequest:encodeResponse:completion:
 requestInstallOfAppsInRestoreWithCompletion:
+blockAppInstallsWithCompletion:
+unblockAppInstallsWithCompletion:
 setServerURL:
 setOrganizationInfo:
 MDMOptions
@@ -1524,6 +1549,7 @@ softwareUpdatePathFromDisk
 setTokenUpdateRequestCountToZero
 clearCachedResponse
 handleHTTPStatusGoneResponse
+isAppInstallBlocked
 memberQueuePollRequested
 memberQueueTimerContext
 setMemberQueueTimerContext:
@@ -1533,6 +1559,7 @@ memberQueuePowerAssertionDeassertedNotificationToken
 setMemberQueuePowerAssertionDeassertedNotificationToken:
 eventQueueBusyCount
 setEventQueueBusyCount:
+setAppBlockQueue:
 .cxx_destruct
 _keybagEventToken
 _buddyDoneEventToken
@@ -1566,6 +1593,8 @@ _memberQueueLastPollingAttemptRTCResetCount
 _memberQueueLastPollingSuccessMonotonicTime
 _memberQueueLastPollingSuccessRTCResetCount
 _executionQueuePushTokenWaitContinuationBlock
+_appBlockQueue
+_appBlockCompletionBlock
 T^{__SecIdentity=},N,V_memberQueueIdentity
 T@"NSArray",&,N,V_memberQueueServerPinnedSecCertificateRefs
 T@"NSArray",&,N,V_memberQueueCheckInPinnedSecCertificateRefs
@@ -1597,6 +1626,8 @@ TB,N
 T@?,C,N,V_executionQueuePushTokenWaitContinuationBlock
 TB,N,V_executionQueueIsCheckinInProgress
 Ti,N,V_eventQueueBusyCount
+T@"NSObject<OS_dispatch_queue>",&,N,V_appBlockQueue
+T@?,C,N,V_appBlockCompletionBlock
 T@"NSDictionary",C,N
 tokenUpdateScheduled
 TB,R,N,GisTokenUpdateScheduled
@@ -1632,24 +1663,19 @@ dataFromString:
 setData:forService:account:label:description:access:group:useSystemKeychain:sysBound:enforcePersonalPersona:outError:
 setRemovability:forAppWithBundleID:completion:
 enumerateKeysAndObjectsUsingBlock:
-_removeInvalidRMAccounts
 personaID
 managedAppleIDNameWithPersonaID:
 dmc_defaultStore
 dmc_iCloudAccountWithUsername:
 accountDescription
 _createRMAccountWithPersonaID:managedAppleID:profileIdentifier:organizationName:
-dmc_RemoteManagementAccounts
-dmc_enrollmentMethod
-dmc_enrollmentURL
-identifier
-dmc_removeAccountWithIdentifier:asynchronous:
 isUserEnrollmentShowsManagedAccountEnabled
 enrollmentFlowController
 complete
 updateMDMUserEnrollmentWithManagedAppleID:profileIdentifier:organizationName:personaID:completionHandler:
 waitForCompletion
 dmc_remoteManagementAccountForManagementProfileIdentifier:
+identifier
 interfaceWithProtocol:
 setExportedInterface:
 setXpcConnection:
@@ -1659,6 +1685,7 @@ xpcConnection
 valueForEntitlement:
 remoteProcessHasEntitlement:
 lacksEntitlementError:
+setInvalidationHandler:
 _xpcConnection
 T@"NSXPCConnection",W,N,V_xpcConnection
 initWithMachServiceName:
@@ -1724,6 +1751,12 @@ Could not stop managing app: %{public}@, error: %{public}@
 Ignoring stop managing books error: %{public}@
 Will switch user. Unfinished assertions:
 %{public}@
+block app installs, server block
+block app installs, server block, failing because of another blocker
+block app installs, server block, block established
+block app installs, server unblock
+block app installs, server unblock, unblocking
+block app installs, server unblock, no block in place, ignoring
 request install, received request to install all pending applications
 request install, enumerating coordinators, enumeration done
 request install, enumerating coordinators, coordinator: %{public}@
@@ -1778,6 +1811,8 @@ MDM migration: ending update of user enrollment: no MDM user enrollment present.
 Created RMAccount: %{public}@
 Failed to create RMAccount: %{public}@
 Accepted new connection.
+MDMServicer, XPC connection invalidated: %{public}@
+MDMServicer, XPC connection invalidated, app installs unblocked, error = %{public}@
 mdmd starting...
 mdmd stopping.
 IXCoordinatorWithAppAssetPromise
@@ -1847,6 +1882,7 @@ v24@0:8^{__SecIdentity=}16
 @"NSString"
 @"DMCTimerContext"
 @"NSDate"
+@"NSObject<OS_dispatch_queue>"
 v48@0:8@16@24@32@40
 @"NSXPCConnection"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1878,13 +1914,13 @@ v48@0:8@16@24@32@40
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13A191</string>
+<string>19C44</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.2</string>
 <key>DTSDKBuild</key>
-<string>19C41</string>
+<string>19C44</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.2.internal</string>
 <key>DTXcode</key>

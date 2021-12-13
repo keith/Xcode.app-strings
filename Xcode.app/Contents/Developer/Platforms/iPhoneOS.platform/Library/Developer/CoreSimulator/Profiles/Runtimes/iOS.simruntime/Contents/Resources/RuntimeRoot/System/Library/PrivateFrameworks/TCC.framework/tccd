@@ -188,7 +188,6 @@ SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now
 B24@?0Q8@"NSObject<OS_xpc_object>"16
 clients
 handle_TCCAccessSetInternal
-com.apple.Preferences
 com.apple.tccctl
 noKill
 result
@@ -281,6 +280,10 @@ bundle_id
 bundle
 path
 com.apple.private.tcc.allow-or-regional-prompt.overridable
+BOOL bundleHasTCCAllowEntitlementForService(LSBundleRecord *__strong, NSString *__strong, TCCDService *__strong)
+tccd.m
+Invalid entitlement passed to %s: %@
+bundleHasTCCAllowEntitlementForService
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 DELETE FROM access_overrides WHERE service = ?
 SELECT client, client_type, auth_value FROM access WHERE service = ?
@@ -929,6 +932,7 @@ Initial Barrier
 <%@: identifier=%@, pid=%d, auid=%d, euid=%d, 
 responsible_path=%@, 
 binary_path=%@>
+com.apple.Preferences
 /Library/Application Support/com.apple.TCC/MDMOverrides.plist
 sitePolicyOverridePath
 com.apple.TCC.configuration-profile-changed
@@ -1504,6 +1508,7 @@ identityType
 isProcessServiceCompositionManager:
 updateAccessRecord:replaceOnly:doCompositionWithChildService:
 codesignStatus
+isSystemPreferencesApp
 accessIdentity
 sendAnalyticsForAction:service:subjectIdentity:indirectObjectIdentity:authValue:includeV1AuthValue:v1AuthValue:
 scheduleAccessEntryExpiryCheckForService:
@@ -1647,6 +1652,9 @@ secondaryUsageDescriptionKeyName
 shouldUseADefaultDescriptionString
 initWithBundleIdentifier:allowPlaceholder:error:
 absoluteString
+hasPrefix:
+currentHandler
+handleFailureInFunction:file:lineNumber:description:
 entitlements
 objectForKey:ofClass:
 prefixOfBundleIdentifiersToResetAfterResetOfAppBundleIdentifier:
@@ -1659,7 +1667,6 @@ ios_useGenericSandboxExtension
 serviceAll
 applicationProxyForIdentifier:placeholder:
 serviceDescriptionsForPlatformName:
-hasPrefix:
 stateDumpDictionary
 setTestDoComposition:
 testDoComposition
@@ -2069,6 +2076,8 @@ subsequentRequestLimitedAuthorizationButtonTitleTextLocalizationKeyNameForServic
 useExternalNotificationOfDenial
 allowPromptForPlatformBinaries
 setAllowPromptForPlatformBinaries:
+defaultAllowedPlatformIdentifiersList
+setDefaultAllowedPlatformIdentifiersList:
 setApplyDevelopmentAuthoriationPolicy:
 setDefaultDevelopmentAuthorizationValue:
 localizedResourcesBundlePath
@@ -2118,6 +2127,7 @@ _secondaryUsageDescriptionKeyName
 _disallowedOnPlatformSubtypeNameList
 _sandboxOperationForDelegation
 _defaultAllowedIdentifiersList
+_defaultAllowedPlatformIdentifiersList
 _expirySeconds
 _defaultDevelopmentAuthorizationValue
 _alertManager
@@ -2173,6 +2183,7 @@ TB,N,V_shouldAllowUnrestrictedCheckAuditToken
 TB,N,V_hasParanoidSecurityPolicy
 T@"NSString",&,N,V_sandboxOperationForDelegation
 T@"NSArray",&,N,V_defaultAllowedIdentifiersList
+T@"NSArray",&,N,V_defaultAllowedPlatformIdentifiersList
 TB,N,V_doNotStoreDefaultAllowAccess
 T@"NSNumber",&,N,V_expirySeconds
 TB,N,V_expireOnlyAllowedEntries
@@ -2242,6 +2253,8 @@ TQ,V_authorizationReason
 TQ,V_flags
 T@"NSDate",&,V_lastModifiedDate
 orderedOverridePolicies
+firstObject
+isActive
 _locked_evaluateAccessByIdentity:toService:withIndirectObjectIdentityIdentity:authorizationReason:
 setPolicyAccessByIdentifier:
 setPlistDictionary:
@@ -2250,12 +2263,15 @@ validateEntry:identifierType:codeRequirementString:serviceName:allowed:comment:
 parseCodeRequirements:
 watchedFileVnodeSource
 setWatchedFileVnodeSource:
+isMDMPolicyOverrideActive
 loadPolicyData
 evaluateOverridePolicyForAccessByIdentity:toService:withIndirectObjectIdentityIdentity:authorizationReason:
 T@"NSString",&
 T@"NSDictionary",&,VplistDictionary
 T@"NSMutableDictionary",&,VpolicyAccessByIdentifier
 T@"NSObject<OS_dispatch_source>",&,VwatchedFileVnodeSource
+active
+TB,R,GisActive
 T@"NSString",&,VplistFilePath
 setUsageStringPolicy:
 setRecordUpgradePolicy:
@@ -2370,7 +2386,7 @@ TI,N,V_databaseFlags
 _loadState
 _createOSStateHandler
 getBytes:length:
-initWithAuditToken:responsiblePath:
+initWithAuditToken:responsibleIdentity:
 _serializeState
 _osStateDump
 _saveState
@@ -2388,15 +2404,17 @@ setAuditToken:
 setPid:
 setAuid:
 setEuid:
+_initializeUsingResponsibleIdentity:
+_initializeUsingTaskForAuditToken:
+setBinaryPath:
 setCodesignStatus:
 setEntitlements:
-identifierForInvalidCode
-setBinaryPath:
 binaryPath
 auid
+isPlatformBinary
+identifierForInvalidCode
 initWithPID:responsiblePath:
 hasRuntimeValidationEnabled
-isPlatformBinary
 _haveIsPlatformBinary
 _isPlatformBinary
 _pid
@@ -2827,8 +2845,7 @@ Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x
 Secondary Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x: usage string: '%@'
 Per-App Default Purpose String key: %{public}@, client[%d](%{public}s) sdk version: 0x%x: usage string: '%{public}@'
 handle_TCCAccessCopyInformation(): failed to allocate clientInfo dictionary.
-failed to find ApplicationRecord for bundle ID: %{public}@, error: %{public}@
-bundle Id: %@ has no LSApplicationRecord URL
+Failed to initialize LSApplicationRecord with bundle ID: %{public}@, error: %{public}@
 handle_TCCAccessCopyInformation(): skipping identity type: IDENTITY_TYPE_POLICY_ID for identifier: %{public}s.
 handle_TCCAccessCopyInformation(): Unknown identity type: %d.
 Bundle Prefix: '%@'; deleting (%@ : %@)
@@ -3044,19 +3061,18 @@ Removed subscriber %{public}@
 Added pending event: %@
 Sending %{public}@ to %{public}@ failed with error: %{public}s
 Publishing %{public}@ to %lu subscribers: %{public}@
-Failed to get realpath of responsiblePath: %{public}@: %{public}@
 Unabled to get proc_pidpath(%d): (#%d) %{public}s
 Failed to get realpath of binaryPath: %{public}s: %{public}@
 Failed csops_audittoken() for PID[%d].
-Failed to create a SecTaskCreateWithAuditToken() for PID[%d].
-FAIL: PID[%d]: SecTaskCopyValuesForEntitlements(): %{public}@
-FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{public}@
-FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{darwin.errno}d
 %{public}@: Entitlement: %{public}@ is not of type Boolean/NSNumber as expected.
 %{public}@: Entitlement: %{public}@ is not of type NSArray as required.
 %{public}@: Entitlement: %{public}@ is not of type NSDictionary as required.
 Entitlement value type from: %{public}@ for: %{public}@, service: %{public}@) is not an array as expected.
 Composed entitlement check for (%{public}@, %{public}@) from: %{public}@ to parent: %{public}@
+Failed to create a SecTaskCreateWithAuditToken() for PID[%d].
+FAIL: PID[%d]: SecTaskCopyValuesForEntitlements(): %{public}@
+FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{public}@
+FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{darwin.errno}d
 MDMPolicyOverride: configuration profile changed; reloading.
 Skipping MDM policy authorization record with invalid IdentifierType: %{public}@
 Database query for MDM policy authorization record failed: serviceName=%{public}@, identifier=%{public}@, identifier_type=%lld
@@ -3365,6 +3381,7 @@ v36@0:8I16Q20@28
 @56@0:8{?=[8I]}16@48
 @28@0:8i16@20
 B40@0:8@16@24Q32
+B48@0:8{?=[8I]}16
 v48@0:8{?=[8I]}16
 @24@0:8^@16
 @36@0:8B16r^^v20^@28
@@ -3390,13 +3407,13 @@ B24@0:8q16
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19C5041a</string>
+<string>19C44</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.2</string>
 <key>DTSDKBuild</key>
-<string>19C5041a</string>
+<string>19C44</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.2.internal</string>
 <key>DTXcode</key>
@@ -3633,7 +3650,6 @@ SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now
 B24@?0Q8@"NSObject<OS_xpc_object>"16
 clients
 handle_TCCAccessSetInternal
-com.apple.Preferences
 com.apple.tccctl
 noKill
 result
@@ -3726,6 +3742,10 @@ bundle_id
 bundle
 path
 com.apple.private.tcc.allow-or-regional-prompt.overridable
+BOOL bundleHasTCCAllowEntitlementForService(LSBundleRecord *__strong, NSString *__strong, TCCDService *__strong)
+tccd.m
+Invalid entitlement passed to %s: %@
+bundleHasTCCAllowEntitlementForService
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 DELETE FROM access_overrides WHERE service = ?
 SELECT client, client_type, auth_value FROM access WHERE service = ?
@@ -4374,6 +4394,7 @@ Initial Barrier
 <%@: identifier=%@, pid=%d, auid=%d, euid=%d, 
 responsible_path=%@, 
 binary_path=%@>
+com.apple.Preferences
 /Library/Application Support/com.apple.TCC/MDMOverrides.plist
 sitePolicyOverridePath
 com.apple.TCC.configuration-profile-changed
@@ -4949,6 +4970,7 @@ identityType
 isProcessServiceCompositionManager:
 updateAccessRecord:replaceOnly:doCompositionWithChildService:
 codesignStatus
+isSystemPreferencesApp
 accessIdentity
 sendAnalyticsForAction:service:subjectIdentity:indirectObjectIdentity:authValue:includeV1AuthValue:v1AuthValue:
 scheduleAccessEntryExpiryCheckForService:
@@ -5092,6 +5114,9 @@ secondaryUsageDescriptionKeyName
 shouldUseADefaultDescriptionString
 initWithBundleIdentifier:allowPlaceholder:error:
 absoluteString
+hasPrefix:
+currentHandler
+handleFailureInFunction:file:lineNumber:description:
 entitlements
 objectForKey:ofClass:
 prefixOfBundleIdentifiersToResetAfterResetOfAppBundleIdentifier:
@@ -5104,7 +5129,6 @@ ios_useGenericSandboxExtension
 serviceAll
 applicationProxyForIdentifier:placeholder:
 serviceDescriptionsForPlatformName:
-hasPrefix:
 stateDumpDictionary
 setTestDoComposition:
 testDoComposition
@@ -5514,6 +5538,8 @@ subsequentRequestLimitedAuthorizationButtonTitleTextLocalizationKeyNameForServic
 useExternalNotificationOfDenial
 allowPromptForPlatformBinaries
 setAllowPromptForPlatformBinaries:
+defaultAllowedPlatformIdentifiersList
+setDefaultAllowedPlatformIdentifiersList:
 setApplyDevelopmentAuthoriationPolicy:
 setDefaultDevelopmentAuthorizationValue:
 localizedResourcesBundlePath
@@ -5563,6 +5589,7 @@ _secondaryUsageDescriptionKeyName
 _disallowedOnPlatformSubtypeNameList
 _sandboxOperationForDelegation
 _defaultAllowedIdentifiersList
+_defaultAllowedPlatformIdentifiersList
 _expirySeconds
 _defaultDevelopmentAuthorizationValue
 _alertManager
@@ -5618,6 +5645,7 @@ TB,N,V_shouldAllowUnrestrictedCheckAuditToken
 TB,N,V_hasParanoidSecurityPolicy
 T@"NSString",&,N,V_sandboxOperationForDelegation
 T@"NSArray",&,N,V_defaultAllowedIdentifiersList
+T@"NSArray",&,N,V_defaultAllowedPlatformIdentifiersList
 TB,N,V_doNotStoreDefaultAllowAccess
 T@"NSNumber",&,N,V_expirySeconds
 TB,N,V_expireOnlyAllowedEntries
@@ -5687,6 +5715,8 @@ TQ,V_authorizationReason
 TQ,V_flags
 T@"NSDate",&,V_lastModifiedDate
 orderedOverridePolicies
+firstObject
+isActive
 _locked_evaluateAccessByIdentity:toService:withIndirectObjectIdentityIdentity:authorizationReason:
 setPolicyAccessByIdentifier:
 setPlistDictionary:
@@ -5695,12 +5725,15 @@ validateEntry:identifierType:codeRequirementString:serviceName:allowed:comment:
 parseCodeRequirements:
 watchedFileVnodeSource
 setWatchedFileVnodeSource:
+isMDMPolicyOverrideActive
 loadPolicyData
 evaluateOverridePolicyForAccessByIdentity:toService:withIndirectObjectIdentityIdentity:authorizationReason:
 T@"NSString",&
 T@"NSDictionary",&,VplistDictionary
 T@"NSMutableDictionary",&,VpolicyAccessByIdentifier
 T@"NSObject<OS_dispatch_source>",&,VwatchedFileVnodeSource
+active
+TB,R,GisActive
 T@"NSString",&,VplistFilePath
 setUsageStringPolicy:
 setRecordUpgradePolicy:
@@ -5815,7 +5848,7 @@ TI,N,V_databaseFlags
 _loadState
 _createOSStateHandler
 getBytes:length:
-initWithAuditToken:responsiblePath:
+initWithAuditToken:responsibleIdentity:
 _serializeState
 _osStateDump
 _saveState
@@ -5833,15 +5866,17 @@ setAuditToken:
 setPid:
 setAuid:
 setEuid:
+_initializeUsingResponsibleIdentity:
+_initializeUsingTaskForAuditToken:
+setBinaryPath:
 setCodesignStatus:
 setEntitlements:
-identifierForInvalidCode
-setBinaryPath:
 binaryPath
 auid
+isPlatformBinary
+identifierForInvalidCode
 initWithPID:responsiblePath:
 hasRuntimeValidationEnabled
-isPlatformBinary
 _haveIsPlatformBinary
 _isPlatformBinary
 _pid
@@ -6272,8 +6307,7 @@ Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x
 Secondary Usage key:%s service sdk version: 0x%x;  client[%d](%s) sdk version: 0x%x: usage string: '%@'
 Per-App Default Purpose String key: %{public}@, client[%d](%{public}s) sdk version: 0x%x: usage string: '%{public}@'
 handle_TCCAccessCopyInformation(): failed to allocate clientInfo dictionary.
-failed to find ApplicationRecord for bundle ID: %{public}@, error: %{public}@
-bundle Id: %@ has no LSApplicationRecord URL
+Failed to initialize LSApplicationRecord with bundle ID: %{public}@, error: %{public}@
 handle_TCCAccessCopyInformation(): skipping identity type: IDENTITY_TYPE_POLICY_ID for identifier: %{public}s.
 handle_TCCAccessCopyInformation(): Unknown identity type: %d.
 Bundle Prefix: '%@'; deleting (%@ : %@)
@@ -6489,19 +6523,18 @@ Removed subscriber %{public}@
 Added pending event: %@
 Sending %{public}@ to %{public}@ failed with error: %{public}s
 Publishing %{public}@ to %lu subscribers: %{public}@
-Failed to get realpath of responsiblePath: %{public}@: %{public}@
 Unabled to get proc_pidpath(%d): (#%d) %{public}s
 Failed to get realpath of binaryPath: %{public}s: %{public}@
 Failed csops_audittoken() for PID[%d].
-Failed to create a SecTaskCreateWithAuditToken() for PID[%d].
-FAIL: PID[%d]: SecTaskCopyValuesForEntitlements(): %{public}@
-FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{public}@
-FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{darwin.errno}d
 %{public}@: Entitlement: %{public}@ is not of type Boolean/NSNumber as expected.
 %{public}@: Entitlement: %{public}@ is not of type NSArray as required.
 %{public}@: Entitlement: %{public}@ is not of type NSDictionary as required.
 Entitlement value type from: %{public}@ for: %{public}@, service: %{public}@) is not an array as expected.
 Composed entitlement check for (%{public}@, %{public}@) from: %{public}@ to parent: %{public}@
+Failed to create a SecTaskCreateWithAuditToken() for PID[%d].
+FAIL: PID[%d]: SecTaskCopyValuesForEntitlements(): %{public}@
+FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{public}@
+FAIL: PID[%d]: SecTaskCopySigningIdentifier(): %{darwin.errno}d
 MDMPolicyOverride: configuration profile changed; reloading.
 Skipping MDM policy authorization record with invalid IdentifierType: %{public}@
 Database query for MDM policy authorization record failed: serviceName=%{public}@, identifier=%{public}@, identifier_type=%lld
@@ -6810,6 +6843,7 @@ v36@0:8I16Q20@28
 @56@0:8{?=[8I]}16@48
 @28@0:8i16@20
 B40@0:8@16@24Q32
+B48@0:8{?=[8I]}16
 v48@0:8{?=[8I]}16
 @24@0:8^@16
 @36@0:8B16r^^v20^@28
@@ -6835,13 +6869,13 @@ B24@0:8q16
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19C5041a</string>
+<string>19C44</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>15.2</string>
 <key>DTSDKBuild</key>
-<string>19C5041a</string>
+<string>19C44</string>
 <key>DTSDKName</key>
 <string>iphonesimulator15.2.internal</string>
 <key>DTXcode</key>
