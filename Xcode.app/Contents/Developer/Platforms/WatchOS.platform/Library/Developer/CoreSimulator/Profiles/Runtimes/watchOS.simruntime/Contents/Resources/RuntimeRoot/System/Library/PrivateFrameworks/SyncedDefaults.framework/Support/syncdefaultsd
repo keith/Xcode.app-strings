@@ -8,6 +8,11 @@ Scheduling shutdown took too long. Aborting self.
 Exiting due to SIGTERM
 got XPC error: %s
 got distnoted event:%s, bundleIDs:%@
+Found bundle identifiers for store %@: %@
+No bundle identifiers for store %@
+Generating store bundle mapping
+Generated new store bundle mapping: %@
+Installed apps changed. Clearing cached store bundle map. Notification=%@
 Resuming server
 Accepting new XPC connection %@
 Created client connection %@
@@ -378,11 +383,11 @@ Setting apps to registered applications for scheduler:%@: %@
 **** some apps want to synchronize, starting synchronization if possible, scheduler:%@, apps:%@
 **** deferring sync for scheduler:%@ since we have pending tracking messages, tag:%@, apps:%@
 **** some apps want to synchronize, computing next soon synchronization, scheduler:%@, apps:%@
+app:%@, scheduler:%@
 Will sync app:%@ because it's similar to app:%@, scheduler:%@
 **** deferring sync for scheduler:%@ since we have pending tracking messages, app:%@
 should sync app:%@, scheduler:%@
 **** some apps similar to app:%@ want to synchronize, computing next soon synchronization, scheduler:%@
-app:%@, scheduler:%@
 scheduler:%@, tasks:%@
 scheduler:%@, apps:%@
 scheduler:%@, waitingToIdle:%@
@@ -668,6 +673,8 @@ Unable to get current change token: %@
 Unable to get changed keys: %@
 Generated change dictionary for %ld changes
 Could not find change token URL to load change token
+Unable to determine if change token URL is a symbolic link: %@
+KVS store has a symbolic link for its change token (%@)
 Error loading change token from disk: %@
 Could not find change token URL to save change token: %@
 Removing change token from disk for %@
@@ -876,6 +883,11 @@ v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.syncdefaultsd.daemon.wake
 UserInfo
 bundleIDs
+com.apple.kvs.bundle-store-map
+com.apple.LaunchServices.applicationRegistered
+com.apple.LaunchServices.applicationUnregistered
+com.apple.developer.ubiquity-kvstore-identifier
+com.apple.private.ubiquity-additional-kvstore-identifiers
 PersonalPersona
 com.apple.kvs.daemon.queue
 com.apple.kvsd
@@ -1273,7 +1285,6 @@ changes
 asked by client
 %@ is not defined as an additional store for %@
 %@ has no valid %@ entitlement
-com.apple.developer.ubiquity-kvstore-identifier
 incorrect parameter
 %@: %@
 invalid parameter
@@ -1336,7 +1347,6 @@ code
 container
 storeID
 additionalStoreIDs
-com.apple.private.ubiquity-additional-kvstore-identifiers
 1.2.11
 timestamp
 remotevalue
@@ -1505,8 +1515,10 @@ com.apple.private.ubiquity-kvstore-manage
 com.apple.private.kvs.test
 com.apple.kvs.test
 Not entitled to access store %@
+com.apple.private.kvs.ignore-quota
 Set %@ = %@
 No sync manager trying to sync store %@
+Change token should not be a symbolic link
 NSUbiquitousKeyValueStoreDidChangeExternallyNotificationUserInfo
 ChangeToken
 <%@ %p [message:%@]>
@@ -1649,8 +1661,35 @@ shutdownWithHandler:
 defaultCenter
 postNotificationName:object:
 start
-initWithInitialStoreCreation:
 init
+installedAppsDidChange:
+addObserver:selector:name:object:
+removeObserver:
+dealloc
+queue
+cachedStoreBundleMap
+generateStoreBundleMap
+setCachedStoreBundleMap:
+objectForKeyedSubscript:
+count
+enumeratorWithOptions:
+countByEnumeratingWithState:objects:count:
+bundleIdentifier
+entitlements
+objectForKey:ofClass:
+objectForKey:ofClass:valuesOfClass:
+addObject:
+addObjectsFromArray:
+setObject:forKeyedSubscript:
+sharedInstance
+bundleIdentifiersForStoreIdentifier:
+setQueue:
+.cxx_destruct
+_queue
+_cachedStoreBundleMap
+T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+T@"NSDictionary",&,N,V_cachedStoreBundleMap
+initWithInitialStoreCreation:
 initializeKnownSyncManagers
 initWithMachServiceName:
 setXpcListener:
@@ -1658,10 +1697,8 @@ xpcListener
 setDelegate:
 resume
 registerForPeriodAnalyticsXPCActivity
-queue
 _queue_allSyncManagers
 syncManagersByPersona
-addObject:
 enumerateKeysAndObjectsUsingBlock:
 allObjects
 defaultStore
@@ -1675,7 +1712,6 @@ type
 syncManagerForStoreType:containerID:
 removeObject:
 _processAccountChanges
-countByEnumeratingWithState:objects:count:
 accountStore
 syd_accountIdentifierForCurrentPersona
 coreDataStore
@@ -1697,9 +1733,7 @@ sharedHelper
 isUbiquityDisabledForStoreIdentifier:
 syncManagerForStoreType:environment:createIfNecessary:
 syncManagerForStoreType:containerID:createIfNecessary:
-objectForKeyedSubscript:
 dictionary
-setObject:forKeyedSubscript:
 checkResourceIsReachableAndReturnError:
 dictionaryWithObjects:forKeys:count:
 URLByDeletingLastPathComponent
@@ -1722,7 +1756,6 @@ containerIdentifier
 environment
 numberWithInteger:
 numberWithUnsignedInteger:
-count
 fileSizeBytes
 isEqual:
 class
@@ -1752,17 +1785,13 @@ connection:syncManagerForStoreConfiguration:
 processAccountChanges
 syncManager:shouldSyncStoreWithIdentifier:
 allSyncManagers
-setQueue:
 setClientConnections:
 setSyncManagersByPersona:
-.cxx_destruct
 _initializingSyncManagers
 _xpcListener
-_queue
 _clientConnections
 _syncManagersByPersona
 T@"NSXPCListener",&,N,V_xpcListener
-T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 initializingSyncManagers
 TB,N,GisInitializingSyncManagers,V_initializingSyncManagers
 T@"NSMutableSet",&,N,V_clientConnections
@@ -1861,8 +1890,6 @@ initWithLSBundleRecord:
 additionalStoreIDs
 defaultWorkspace
 getKnowledgeUUID:andSequenceNumber:
-enumeratorWithOptions:
-bundleIdentifier
 _unsafe_processBundleID:record:
 effectiveBundleIdentifier
 arrayWithObjects:count:
@@ -2180,7 +2207,6 @@ requestAuthorizationWithOptions:completionHandler:
 initWithBundleIdentifier:
 showUserNotificationIfEnabledForStoreIdentifier:format:
 handleFailureInFunction:file:lineNumber:description:
-dealloc
 cancel
 UTF8String
 _setServiceState:
@@ -2322,7 +2348,6 @@ parametersClass
 _startTrackingChanges
 accountClass
 _accountDidChange
-addObserver:selector:name:object:
 pushManagerClass
 initWithPersistentState:pushManager:
 _otherSchedulerDidUpdateConfigurationDictionary:
@@ -2332,7 +2357,6 @@ _receivedSimulatedPushNotification:
 _networkStateDidChange
 _networkTypeDidChange
 resetIdling
-removeObserver:
 _cancelPlannedSynchronization
 registeredApplicationsForScheduler:
 setPersistentStateNeedsSaving
@@ -2463,7 +2487,6 @@ _addAppsToQueue:reason:now:
 _beginSyncWithTrackingForApps:reason:message:soon:
 isDisabledUntilNextLaunch
 cancelSync
-addObjectsFromArray:
 date
 noteSchedulerIsIdle:
 exitsBecauseOfIdle
@@ -2875,9 +2898,6 @@ sendMessageWithName:replyHandler:
 sendMessageWithName:userInfo:replyHandler:
 _connection
 _additionalSource
-entitlements
-objectForKey:ofClass:
-objectForKey:ofClass:valuesOfClass:
 dataContainerURL
 bundleURL
 setBundleURL:
@@ -2894,6 +2914,8 @@ T@"NSString",&,N,V_storeID
 T@"NSArray",&,N,V_additionalStoreIDs
 initWithUTF8String:
 localizedDescription
+URLHostAllowedCharacterSet
+stringByAddingPercentEncodingWithAllowedCharacters:
 URLForDirectory:inDomain:appropriateForURL:create:error:
 stringByAppendingPathExtension:
 initWithContainerIdentifier:environment:
@@ -3018,7 +3040,7 @@ zoneID
 initWithZoneID:
 addRecordZonesToSave:recordZoneIDsToDelete:
 addKeyValueRecordIDsToSave:recordIDsToDelete:
-setObject:forKey:inStoreWithIdentifier:excludeFromChangeTracking:error:
+setObject:forKey:inStoreWithIdentifier:excludeFromChangeTracking:enforceQuota:error:
 useUUIDRecordNames
 removeKeyValueForKey:inStoreWithIdentifier:excludeFromChangeTracking:error:
 saveKeyValue:inStoreWithIdentifier:excludeFromChangeTracking:error:
@@ -3071,6 +3093,7 @@ setValuesDidChangeDuringFetchChanges:
 creationDate
 deleteDataForStoreWithIdentifier:error:
 valuesDidChangeDuringFetchChanges
+setWithArray:
 destroyPersistentStore
 syncEngine:recordToSaveForRecordID:
 syncEngine:didSaveRecord:
@@ -3091,6 +3114,7 @@ syncEngine:zoneWithIDWasPurged:
 syncEngine:shouldFetchChangesForZoneID:
 syncEngineDidBeginFetchingChanges:
 syncEngineDidEndFetchingChanges:
+syncEngine:relatedApplicationBundleIdentifiersForZoneIDs:recordIDs:
 objectForKey:inStoreWithIdentifier:error:
 setObject:forKey:inStoreWithIdentifier:error:
 removeObjectForKey:inStoreWithIdentifier:error:
@@ -3276,7 +3300,10 @@ isXPCConnection:entitledForStoreConfiguration:
 notEntitledStoreIDs
 setNotEntitledStoreIDs:
 valueForEntitlement:xpcConnection:storeConfiguration:
+ignoreQuotaEntitlementValue
+setIgnoreQuotaEntitlementValue:
 errorNotEntitledForStoreConfiguration:
+shouldEnforceQuotaForStoreConfiguration:
 changeNotificationGroup
 callbackQueue
 dictionaryRepresentationForStoreWithIdentifier:error:
@@ -3284,6 +3311,7 @@ currentChangeTokenForStoreIdentifier:error:
 changedKeysForStoreIdentifier:sinceChangeTokenIfValid:inCoreDataStore:error:
 changeDictionaryWithChangedKeys:reason:changeToken:
 changeTokenURLForStoreConfiguration:xpcConnection:
+getResourceValue:forKey:error:
 changedKeysForStoreIdentifier:sinceChangeToken:error:
 isInvalidTokenError:
 dictionaryWithCapacity:
@@ -3318,6 +3346,7 @@ _registeredStoreConfigurations
 _entitledStoreIDs
 _notEntitledStoreIDs
 _storeConfigurations
+_ignoreQuotaEntitlementValue
 T@"NSXPCConnection",&,N,V_xpcConnection
 T@"<SYDDaemonToClientConnectionDelegate>",W,N,V_delegate
 T@"NSObject<OS_dispatch_queue>",&,N,V_callbackQueue
@@ -3326,6 +3355,7 @@ T@"NSMutableSet",&,N,V_registeredStoreConfigurations
 T@"NSMutableSet",&,N,V_entitledStoreIDs
 T@"NSMutableSet",&,N,V_notEntitledStoreIDs
 T@"NSMutableDictionary",&,N,V_storeConfigurations
+T@"NSNumber",&,N,V_ignoreQuotaEntitlementValue
 _translateMessageIfNecessary
 proposedStoreIdentifier
 setPeer:
@@ -3359,7 +3389,6 @@ timeIntervalSinceNow
 timeIntervalSinceReferenceDate
 dateWithTimeIntervalSinceReferenceDate:
 inputStreamWithURL:
-getResourceValue:forKey:error:
 unsignedLongValue
 addPlistURLsAndStoreIdentifiersForBundleRecord:toDictionary:uncontainerizedSyncedPreferencesDirectoryURL:
 addPlistURLsAndStoreIdentifiersForKnownDaemonsToDictionary:uncontainerizedSyncedPreferencesDirectoryURL:
@@ -3503,6 +3532,7 @@ T@"NSManagedObjectContext",&,N,V_transactionContext
 T@"NSMutableDictionary",&,N,V_contexts
 T@"NSLock",&,N,V_contextsLock
 TB,N,V_shouldLogValues
+SYDStoreBundleMap
 SYDDaemon
 NSXPCListenerDelegate
 NSObject
@@ -3563,10 +3593,15 @@ SYDKeychainScheduler
 SYDPIMAccount
 SYDPIMScheduler
 SYDCoreDataStore
+@16@0:8
+v16@0:8
+@24@0:8@16
+v24@0:8@16
+@"NSObject<OS_dispatch_queue>"
+@"NSDictionary"
 @32@0:8q16@24
 B24@0:8@16
 #16@0:8
-@16@0:8
 @24@0:8:16
 @32@0:8:16@24
 @40@0:8:16@24@32
@@ -3580,9 +3615,7 @@ B24@0:8@"Protocol"16
 @"NSString"16@0:8
 B32@0:8@16@24
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
-v24@0:8@16
 @32@0:8@16@24
-v16@0:8
 v24@0:8@"SYDDaemonToClientConnection"16
 @"SYDSyncManager"32@0:8@"SYDDaemonToClientConnection"16@"SYDStoreConfiguration"24
 B32@0:8@"SYDSyncManager"16@"NSString"24
@@ -3592,12 +3625,9 @@ B32@0:8@"SYDSyncManager"16@"NSString"24
 @36@0:8q16@24B32
 v20@0:8B16
 @"NSXPCListener"
-@"NSObject<OS_dispatch_queue>"
 @"NSMutableSet"
 @"NSMutableDictionary"
-@24@0:8@16
 @"NSString"
-@"NSDictionary"
 @"ACAccount"
 @"SYDAccount"
 v24@0:8@"NSCoder"16
@@ -3740,9 +3770,10 @@ v40@0:8@"CKSyncEngine"16@"CKRecordZoneID"24@"NSError"32
 v40@0:8@"CKSyncEngine"16@"CKRecordZone"24@"NSError"32
 B32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
 v24@0:8@"CKSyncEngine"16
+@"NSArray"40@0:8@"CKSyncEngine"16@"NSArray"24@"NSArray"32
 @40@0:8@16@24q32
 @40@0:8@16@24^@32
-B52@0:8@16@24@32B40^@44
+B56@0:8@16@24@32B40B44^@48
 B48@0:8@16@24@32^@40
 B44@0:8@16@24B32^@36
 B40@0:8@16@24^@32
@@ -3801,7 +3832,7 @@ softlink:r:path:/System/Library/Frameworks/UserNotifications.framework/UserNotif
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleIdentifier</key>
 <string>com.apple.syncdefaultsd</string>
 <key>CFBundleInfoDictionaryVersion</key>
@@ -3817,21 +3848,21 @@ softlink:r:path:/System/Library/Frameworks/UserNotifications.framework/UserNotif
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19S40</string>
+<string>19T5208x</string>
 <key>DTSDKName</key>
-<string>watchsimulator8.3.internal</string>
+<string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>4</integer>
@@ -3940,6 +3971,7 @@ zPLR
 zPLR
 zPLR
 zPLR
+zPLR
 @(#)PROGRAM:syncdefaultsd  PROJECT:SyncedDefaults-
 kvs/main
 Starting
@@ -3950,6 +3982,11 @@ Scheduling shutdown took too long. Aborting self.
 Exiting due to SIGTERM
 got XPC error: %s
 got distnoted event:%s, bundleIDs:%@
+Found bundle identifiers for store %@: %@
+No bundle identifiers for store %@
+Generating store bundle mapping
+Generated new store bundle mapping: %@
+Installed apps changed. Clearing cached store bundle map. Notification=%@
 Resuming server
 Accepting new XPC connection %@
 Created client connection %@
@@ -4321,11 +4358,11 @@ Setting apps to registered applications for scheduler:%@: %@
 **** some apps want to synchronize, starting synchronization if possible, scheduler:%@, apps:%@
 **** deferring sync for scheduler:%@ since we have pending tracking messages, tag:%@, apps:%@
 **** some apps want to synchronize, computing next soon synchronization, scheduler:%@, apps:%@
+app:%@, scheduler:%@
 Will sync app:%@ because it's similar to app:%@, scheduler:%@
 **** deferring sync for scheduler:%@ since we have pending tracking messages, app:%@
 should sync app:%@, scheduler:%@
 **** some apps similar to app:%@ want to synchronize, computing next soon synchronization, scheduler:%@
-app:%@, scheduler:%@
 scheduler:%@, tasks:%@
 scheduler:%@, apps:%@
 scheduler:%@, waitingToIdle:%@
@@ -4611,6 +4648,8 @@ Unable to get current change token: %@
 Unable to get changed keys: %@
 Generated change dictionary for %ld changes
 Could not find change token URL to load change token
+Unable to determine if change token URL is a symbolic link: %@
+KVS store has a symbolic link for its change token (%@)
 Error loading change token from disk: %@
 Could not find change token URL to save change token: %@
 Removing change token from disk for %@
@@ -4818,6 +4857,11 @@ v16@?0@"NSObject<OS_xpc_object>"8
 com.apple.syncdefaultsd.daemon.wake
 UserInfo
 bundleIDs
+com.apple.kvs.bundle-store-map
+com.apple.LaunchServices.applicationRegistered
+com.apple.LaunchServices.applicationUnregistered
+com.apple.developer.ubiquity-kvstore-identifier
+com.apple.private.ubiquity-additional-kvstore-identifiers
 PersonalPersona
 com.apple.kvs.daemon.queue
 com.apple.kvsd
@@ -5215,7 +5259,6 @@ changes
 asked by client
 %@ is not defined as an additional store for %@
 %@ has no valid %@ entitlement
-com.apple.developer.ubiquity-kvstore-identifier
 incorrect parameter
 %@: %@
 invalid parameter
@@ -5278,7 +5321,6 @@ code
 container
 storeID
 additionalStoreIDs
-com.apple.private.ubiquity-additional-kvstore-identifiers
 1.2.11
 timestamp
 remotevalue
@@ -5447,8 +5489,10 @@ com.apple.private.ubiquity-kvstore-manage
 com.apple.private.kvs.test
 com.apple.kvs.test
 Not entitled to access store %@
+com.apple.private.kvs.ignore-quota
 Set %@ = %@
 No sync manager trying to sync store %@
+Change token should not be a symbolic link
 NSUbiquitousKeyValueStoreDidChangeExternallyNotificationUserInfo
 ChangeToken
 <%@ %p [message:%@]>
@@ -5591,8 +5635,35 @@ shutdownWithHandler:
 defaultCenter
 postNotificationName:object:
 start
-initWithInitialStoreCreation:
 init
+installedAppsDidChange:
+addObserver:selector:name:object:
+removeObserver:
+dealloc
+queue
+cachedStoreBundleMap
+generateStoreBundleMap
+setCachedStoreBundleMap:
+objectForKeyedSubscript:
+count
+enumeratorWithOptions:
+countByEnumeratingWithState:objects:count:
+bundleIdentifier
+entitlements
+objectForKey:ofClass:
+objectForKey:ofClass:valuesOfClass:
+addObject:
+addObjectsFromArray:
+setObject:forKeyedSubscript:
+sharedInstance
+bundleIdentifiersForStoreIdentifier:
+setQueue:
+.cxx_destruct
+_queue
+_cachedStoreBundleMap
+T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+T@"NSDictionary",&,N,V_cachedStoreBundleMap
+initWithInitialStoreCreation:
 initializeKnownSyncManagers
 initWithMachServiceName:
 setXpcListener:
@@ -5600,10 +5671,8 @@ xpcListener
 setDelegate:
 resume
 registerForPeriodAnalyticsXPCActivity
-queue
 _queue_allSyncManagers
 syncManagersByPersona
-addObject:
 enumerateKeysAndObjectsUsingBlock:
 allObjects
 defaultStore
@@ -5617,7 +5686,6 @@ type
 syncManagerForStoreType:containerID:
 removeObject:
 _processAccountChanges
-countByEnumeratingWithState:objects:count:
 accountStore
 syd_accountIdentifierForCurrentPersona
 coreDataStore
@@ -5639,9 +5707,7 @@ sharedHelper
 isUbiquityDisabledForStoreIdentifier:
 syncManagerForStoreType:environment:createIfNecessary:
 syncManagerForStoreType:containerID:createIfNecessary:
-objectForKeyedSubscript:
 dictionary
-setObject:forKeyedSubscript:
 checkResourceIsReachableAndReturnError:
 dictionaryWithObjects:forKeys:count:
 URLByDeletingLastPathComponent
@@ -5664,7 +5730,6 @@ containerIdentifier
 environment
 numberWithInteger:
 numberWithUnsignedInteger:
-count
 fileSizeBytes
 isEqual:
 class
@@ -5694,17 +5759,13 @@ connection:syncManagerForStoreConfiguration:
 processAccountChanges
 syncManager:shouldSyncStoreWithIdentifier:
 allSyncManagers
-setQueue:
 setClientConnections:
 setSyncManagersByPersona:
-.cxx_destruct
 _initializingSyncManagers
 _xpcListener
-_queue
 _clientConnections
 _syncManagersByPersona
 T@"NSXPCListener",&,N,V_xpcListener
-T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 initializingSyncManagers
 TB,N,GisInitializingSyncManagers,V_initializingSyncManagers
 T@"NSMutableSet",&,N,V_clientConnections
@@ -5803,8 +5864,6 @@ initWithLSBundleRecord:
 additionalStoreIDs
 defaultWorkspace
 getKnowledgeUUID:andSequenceNumber:
-enumeratorWithOptions:
-bundleIdentifier
 _unsafe_processBundleID:record:
 effectiveBundleIdentifier
 arrayWithObjects:count:
@@ -6122,7 +6181,6 @@ requestAuthorizationWithOptions:completionHandler:
 initWithBundleIdentifier:
 showUserNotificationIfEnabledForStoreIdentifier:format:
 handleFailureInFunction:file:lineNumber:description:
-dealloc
 cancel
 UTF8String
 _setServiceState:
@@ -6264,7 +6322,6 @@ parametersClass
 _startTrackingChanges
 accountClass
 _accountDidChange
-addObserver:selector:name:object:
 pushManagerClass
 initWithPersistentState:pushManager:
 _otherSchedulerDidUpdateConfigurationDictionary:
@@ -6274,7 +6331,6 @@ _receivedSimulatedPushNotification:
 _networkStateDidChange
 _networkTypeDidChange
 resetIdling
-removeObserver:
 _cancelPlannedSynchronization
 registeredApplicationsForScheduler:
 setPersistentStateNeedsSaving
@@ -6405,7 +6461,6 @@ _addAppsToQueue:reason:now:
 _beginSyncWithTrackingForApps:reason:message:soon:
 isDisabledUntilNextLaunch
 cancelSync
-addObjectsFromArray:
 date
 noteSchedulerIsIdle:
 exitsBecauseOfIdle
@@ -6817,9 +6872,6 @@ sendMessageWithName:replyHandler:
 sendMessageWithName:userInfo:replyHandler:
 _connection
 _additionalSource
-entitlements
-objectForKey:ofClass:
-objectForKey:ofClass:valuesOfClass:
 dataContainerURL
 bundleURL
 setBundleURL:
@@ -6836,6 +6888,8 @@ T@"NSString",&,N,V_storeID
 T@"NSArray",&,N,V_additionalStoreIDs
 initWithUTF8String:
 localizedDescription
+URLHostAllowedCharacterSet
+stringByAddingPercentEncodingWithAllowedCharacters:
 URLForDirectory:inDomain:appropriateForURL:create:error:
 stringByAppendingPathExtension:
 initWithContainerIdentifier:environment:
@@ -6960,7 +7014,7 @@ zoneID
 initWithZoneID:
 addRecordZonesToSave:recordZoneIDsToDelete:
 addKeyValueRecordIDsToSave:recordIDsToDelete:
-setObject:forKey:inStoreWithIdentifier:excludeFromChangeTracking:error:
+setObject:forKey:inStoreWithIdentifier:excludeFromChangeTracking:enforceQuota:error:
 useUUIDRecordNames
 removeKeyValueForKey:inStoreWithIdentifier:excludeFromChangeTracking:error:
 saveKeyValue:inStoreWithIdentifier:excludeFromChangeTracking:error:
@@ -7013,6 +7067,7 @@ setValuesDidChangeDuringFetchChanges:
 creationDate
 deleteDataForStoreWithIdentifier:error:
 valuesDidChangeDuringFetchChanges
+setWithArray:
 destroyPersistentStore
 syncEngine:recordToSaveForRecordID:
 syncEngine:didSaveRecord:
@@ -7033,6 +7088,7 @@ syncEngine:zoneWithIDWasPurged:
 syncEngine:shouldFetchChangesForZoneID:
 syncEngineDidBeginFetchingChanges:
 syncEngineDidEndFetchingChanges:
+syncEngine:relatedApplicationBundleIdentifiersForZoneIDs:recordIDs:
 objectForKey:inStoreWithIdentifier:error:
 setObject:forKey:inStoreWithIdentifier:error:
 removeObjectForKey:inStoreWithIdentifier:error:
@@ -7218,7 +7274,10 @@ isXPCConnection:entitledForStoreConfiguration:
 notEntitledStoreIDs
 setNotEntitledStoreIDs:
 valueForEntitlement:xpcConnection:storeConfiguration:
+ignoreQuotaEntitlementValue
+setIgnoreQuotaEntitlementValue:
 errorNotEntitledForStoreConfiguration:
+shouldEnforceQuotaForStoreConfiguration:
 changeNotificationGroup
 callbackQueue
 dictionaryRepresentationForStoreWithIdentifier:error:
@@ -7226,6 +7285,7 @@ currentChangeTokenForStoreIdentifier:error:
 changedKeysForStoreIdentifier:sinceChangeTokenIfValid:inCoreDataStore:error:
 changeDictionaryWithChangedKeys:reason:changeToken:
 changeTokenURLForStoreConfiguration:xpcConnection:
+getResourceValue:forKey:error:
 changedKeysForStoreIdentifier:sinceChangeToken:error:
 isInvalidTokenError:
 dictionaryWithCapacity:
@@ -7260,6 +7320,7 @@ _registeredStoreConfigurations
 _entitledStoreIDs
 _notEntitledStoreIDs
 _storeConfigurations
+_ignoreQuotaEntitlementValue
 T@"NSXPCConnection",&,N,V_xpcConnection
 T@"<SYDDaemonToClientConnectionDelegate>",W,N,V_delegate
 T@"NSObject<OS_dispatch_queue>",&,N,V_callbackQueue
@@ -7268,6 +7329,7 @@ T@"NSMutableSet",&,N,V_registeredStoreConfigurations
 T@"NSMutableSet",&,N,V_entitledStoreIDs
 T@"NSMutableSet",&,N,V_notEntitledStoreIDs
 T@"NSMutableDictionary",&,N,V_storeConfigurations
+T@"NSNumber",&,N,V_ignoreQuotaEntitlementValue
 _translateMessageIfNecessary
 proposedStoreIdentifier
 setPeer:
@@ -7301,7 +7363,6 @@ timeIntervalSinceNow
 timeIntervalSinceReferenceDate
 dateWithTimeIntervalSinceReferenceDate:
 inputStreamWithURL:
-getResourceValue:forKey:error:
 unsignedLongValue
 addPlistURLsAndStoreIdentifiersForBundleRecord:toDictionary:uncontainerizedSyncedPreferencesDirectoryURL:
 addPlistURLsAndStoreIdentifiersForKnownDaemonsToDictionary:uncontainerizedSyncedPreferencesDirectoryURL:
@@ -7445,6 +7506,7 @@ T@"NSManagedObjectContext",&,N,V_transactionContext
 T@"NSMutableDictionary",&,N,V_contexts
 T@"NSLock",&,N,V_contextsLock
 TB,N,V_shouldLogValues
+SYDStoreBundleMap
 SYDDaemon
 NSXPCListenerDelegate
 NSObject
@@ -7505,10 +7567,15 @@ SYDKeychainScheduler
 SYDPIMAccount
 SYDPIMScheduler
 SYDCoreDataStore
+@16@0:8
+v16@0:8
+@24@0:8@16
+v24@0:8@16
+@"NSObject<OS_dispatch_queue>"
+@"NSDictionary"
 @32@0:8q16@24
 B24@0:8@16
 #16@0:8
-@16@0:8
 @24@0:8:16
 @32@0:8:16@24
 @40@0:8:16@24@32
@@ -7522,9 +7589,7 @@ B24@0:8@"Protocol"16
 @"NSString"16@0:8
 B32@0:8@16@24
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
-v24@0:8@16
 @32@0:8@16@24
-v16@0:8
 v24@0:8@"SYDDaemonToClientConnection"16
 @"SYDSyncManager"32@0:8@"SYDDaemonToClientConnection"16@"SYDStoreConfiguration"24
 B32@0:8@"SYDSyncManager"16@"NSString"24
@@ -7534,12 +7599,9 @@ B32@0:8@"SYDSyncManager"16@"NSString"24
 @36@0:8q16@24B32
 v20@0:8B16
 @"NSXPCListener"
-@"NSObject<OS_dispatch_queue>"
 @"NSMutableSet"
 @"NSMutableDictionary"
-@24@0:8@16
 @"NSString"
-@"NSDictionary"
 @"ACAccount"
 @"SYDAccount"
 v24@0:8@"NSCoder"16
@@ -7682,9 +7744,10 @@ v40@0:8@"CKSyncEngine"16@"CKRecordZoneID"24@"NSError"32
 v40@0:8@"CKSyncEngine"16@"CKRecordZone"24@"NSError"32
 B32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
 v24@0:8@"CKSyncEngine"16
+@"NSArray"40@0:8@"CKSyncEngine"16@"NSArray"24@"NSArray"32
 @40@0:8@16@24q32
 @40@0:8@16@24^@32
-B52@0:8@16@24@32B40^@44
+B56@0:8@16@24@32B40B44^@48
 B48@0:8@16@24@32^@40
 B44@0:8@16@24B32^@36
 B40@0:8@16@24^@32
@@ -7743,7 +7806,7 @@ softlink:r:path:/System/Library/Frameworks/UserNotifications.framework/UserNotif
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleIdentifier</key>
 <string>com.apple.syncdefaultsd</string>
 <key>CFBundleInfoDictionaryVersion</key>
@@ -7759,21 +7822,21 @@ softlink:r:path:/System/Library/Frameworks/UserNotifications.framework/UserNotif
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19S40</string>
+<string>19T5208x</string>
 <key>DTSDKName</key>
-<string>watchsimulator8.3.internal</string>
+<string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>4</integer>

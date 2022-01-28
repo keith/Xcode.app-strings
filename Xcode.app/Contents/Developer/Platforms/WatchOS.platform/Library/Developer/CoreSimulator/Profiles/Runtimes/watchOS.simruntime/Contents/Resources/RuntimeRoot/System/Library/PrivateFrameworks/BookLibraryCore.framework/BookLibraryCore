@@ -1,4 +1,4 @@
-@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-618
+@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-636
 <%@:%p 
   <itemsToAdd: 
     %@,
@@ -54,14 +54,19 @@ stringValue
 database.server.userUID IN %@
 (%K == NO OR %K == NULL)
 isHidden
+parentItem.database.server.userUID IN %@
+(parentItem.%K == NO OR parentItem.%K == NULL)
 cloudID IN %@
 storeID IN %@
+purchasedTokenCode != NULL and purchasedTokenCode != 0
 (%K == YES)
 needsImport
 storeDownloadParameters == %@
 NOT (storeAccountID IN %@)
 storeAccountID = %@
+parentItem.storeID IN %@
 NSDetailedErrors
+BLJaliscoServerBookletItem
 BLErrorDomain
 message
 title
@@ -74,6 +79,7 @@ v32@?0@"NSURL"8@"NSURLResponse"16@"NSError"24
 Unable to remove existing file.
 Error moving file from %@ to %@: %@
 databases/%@/extra_data/cloud-artwork-info
+<%@:%p name=%@ redownloadParameters=%@ storeID=%@ size=%@>
 databases/%@/edit
 v16@?0@"ICStoreRequestContext"8
 AMS bag error - no url for request %@
@@ -100,6 +106,7 @@ Nil jalisco moc
 (%K MATCHES[cd] %@ OR %K MATCHES[cd] %@)
 sortedTitle
 NBPlayerDataSourceIgnoreCache
+booklets
 macAddress
 <%s: %p> %@: %@, %@%@supportsVolume:%d, locked:%d, macAddress:%@
 supportsVideo
@@ -111,7 +118,7 @@ selected
 selected v:%f 
 volume
 hasPassword
-%@ %@, %llu, %@, %@, containerItemID = %u, isPreorder = %u, isHidden = %@, additionalInfo = %@
+%@ %@, %llu, %@, %@, containerItemID = %u, isPreorder = %u, isHidden = %@, Booklets = %@, additionalInfo = %@
 dmap.itemhidden
 mediaKind
 com.apple.itunes.mediakind
@@ -147,6 +154,7 @@ BLServiceDatabaseManager
 BLServiceDownloadFilesystem
 BLServiceDownloadStreamingZip
 BLServiceNotification
+BLServiceMetadataStore
 BLServiceProxy
 BookLibrary
 BLDaemon
@@ -177,6 +185,10 @@ GROUP-ID
 #EXT-X-INDEPENDENT-SEGMENTS
 #EXT-X-KEY
 #EXT-X-STREAM-INF
+#EXT-X-SESSION-DATA
+DATA-ID
+com.apple.audiobook.rapguid
+VALUE
 #EXT-X-BITRATE
 TYPE
 NAME
@@ -219,6 +231,7 @@ kJaliscoDAAPClientMOCDidSaveNotification
 kJaliscoDAAPClientLastSuccessfulFullUpdateDateDictionary
 Jalisco_DAAP_Server_Worker_Queue
 Jalisco_DAAP_DSID_Queue
+v32@?0@"NSDictionary"8Q16^B24
 dsid
 initiallyLoadingJalisco
 v12@?0B8
@@ -303,6 +316,12 @@ dmap.itemavailable
 daap.songdatereleased
 daap.songuserplaycount
 daap.songyear
+com.apple.itunes.store.booklet-item-listing
+com.apple.itunes.store.booklet-item
+com.apple.itunes.store.booklet-item-name
+com.apple.itunes.store.booklet-item-store-id
+com.apple.itunes.store.booklet-item-redownload-param
+com.apple.itunes.store.booklet-item-size
 v16@?0@"DKDAAPWriter"8
 v24@?0@"NSDictionary"8^B16
 Fetch items
@@ -649,7 +668,9 @@ Downloaded master playlist, about to parse it.
 Parsed master HLS Playlist but it had no valid media playlist (error was %@)
 Unable to parse master HLS Playlist: %@
 Parsed master playlist. Out of a total of %lu choices, using streamInf: %@
+Downloaded master playlist, about to parse it to get racGUID.
 Dropping unsupported key format %{public}@
+Found rapguid attribute: %@
 Ignoring tag %@
 BLMLAudiobookImportOperation canceling %@
 DONE BLMLAudiobookImport operation
@@ -685,7 +706,9 @@ Failed to delete item %@ for jalisco item %@
 Failed to delete item %@. Cannot find matching jalisco item
 Unable to initialize BLJaliscoDAAPClient
 ARTWORK: Ignoring timebomb on its %lu try.
-Moc Save Error:  %@
+Set items hidden: Moc Save Error:  %@
+Reset purchase token: Moc Save Error:  %@
+Non-empty purchase token storeIDs: Moc Fetch Error:  %@
 Need update test: currentGeneration:%lu pendingGeneration:%lu Needs update:%{BOOL}d
 No update required
 [BLJaliscoDAAPClient] updatePolitely:%{BOOL}d reason:%ld will update for DSIDs:(%@)
@@ -963,10 +986,12 @@ AMSRequestEncoding
 BLJaliscoServerSource
 JaliscoExtras
 UnsignedLongLongValue
+BLJaliscoServerBookletItem
 BLJaliscoServerDatabase
 BLDAAPBuffer
 BLFileFetcher
 BLDAAPArtRequest
+BLJaliscoBookletItem
 BLDAAPHideItemsRequest
 BLHLS
 BLDAAPURLRequest
@@ -1277,6 +1302,8 @@ hlsPlaylistURLString
 additionalAudiobookInfo
 T@"NSDictionary",&,D,N
 needsImport
+booklets
+T@"NSSet",&,D,N
 initWithBag:
 bu_sharedAccountStore
 ams_activeiTunesAccount
@@ -1402,13 +1429,17 @@ refreshStoreWithCompletion:
 serverDatabaseForDSID:fromManagedObjectContext:error:
 serverDatabaseForDSID:withIdentifier:fromManagedObjectContext:error:
 serverItemWithStoreID:inDatabaseWithIdentifier:forDSID:fromManagedObjectContext:error:
+predicateForBookletItems:dsids:
 fetchRequestForAllCloudIDs:dsids:
 fetchRequestForStoreIDs:dsids:
+fetchRequestForAllStoreIDsWithNonEmptyPurchasedToken:dsids:
 fetchRequestForAllStoreIDs:
 fetchRequestForAllStoreIDs:dsids:isImported:
 fetchRequestForBuyParameters:
 fetchRequestForNotInStoreAccountIDs:
 predicateForStoreAccountID:storeIDs:
+fetchRequestForBookletItemsForStoreIDs:
+fetchRequestForAllBookletsIDsWithParentStoreIDs:
 setIdentifier:
 setDatabaseContainerPath:
 _modelSentinel
@@ -1423,9 +1454,11 @@ T@"NSPersistentHistoryToken",R,N
 objectForKey:
 UTF8String
 unsignedLongLongValue
+size
+parentItem
+T@"BLJaliscoServerItem",&,D,N
 server
 T@"BLJaliscoServerInfo",&,D,N
-T@"NSSet",&,D,N
 errorWithDomain:code:userInfo:
 dictionaryWithObjectsAndKeys:
 addEntriesFromDictionary:
@@ -1466,6 +1499,20 @@ T@"BLAudiobookCacheDirectoryUtils",&,N,V_cacheDirectoryUtils
 T@"NSURLSessionConfiguration",R,N,V_URLSessionConfiguration
 setDaapURL:
 initWithDSID:databaseID:body:
+setTitle:
+setStoreDownloadParameters:
+setStoreID:
+setSize:
+itemWithServerBookletItem:
+arrayWithServerBookletItems:
+_title
+_storeDownloadParameters
+_storeID
+_size
+T@"NSString",C,N,V_title
+T@"NSString",C,N,V_storeDownloadParameters
+T@"NSString",C,N,V_storeID
+T@"NSNumber",C,N,V_size
 activeAccount
 setIdentityStore:
 initWithSystemApplicationType:
@@ -1783,8 +1830,10 @@ setWaitsForConnectivity:
 set_sourceApplicationBundleIdentifier:
 playlistParsingURL:error:
 preferredStreamFromMasterPlaylist:
+racGUID
 initCanUseCellularData:powerRequired:bundleID:
 setupDownloadTaskForFetchingMasterPlaylistAndSelectingStreamFromMasterPlaylistURL:completion:
+getRacGUIDFromMasterPlaylistURL:completion:
 T@"NSURLSession",R,N,V_session
 independentSegments
 groups
@@ -1821,6 +1870,8 @@ setIndependentSegments:
 isFormatSupported
 setCurrentKey:
 keyFormat
+initWithUUIDString:
+setRacGUID:
 requestedBitrates
 rewritePlaylistData:toURL:requestedBitrates:error:
 rewritePlaylistURL:toURL:requestedBitrates:error:
@@ -1833,6 +1884,7 @@ _ignoreSegments
 _groups
 _streamInfs
 _segments
+_racGUID
 _state
 _uniqueKeys
 _requestedBitrates
@@ -1844,6 +1896,7 @@ TB,N,V_ignoreSegments
 T@"BLHLSPlaylistState",&,N,V_state
 T@"NSMutableSet",&,N,V_uniqueKeys
 T@"NSArray",&,N,V_requestedBitrates
+T@"NSUUID",&,N,V_racGUID
 T@"NSSet",R,N
 _type
 _url
@@ -2015,6 +2068,9 @@ fetchRequestForStoreIDIncludingHidden:
 setIsHidden:
 hasChanges
 save:
+setPurchasedTokenCode:
+fetchRequestForAllStoreIDsWithNonEmptyPurchasedToken:
+bu_arrayByRemovingNSNulls
 _currentPurchaseDAAPServers
 countForFetchRequest:error:
 currentThread
@@ -2052,13 +2108,18 @@ refreshSignInStatus
 jaliscoArtworkTimebombed
 forceJaliscoArtworkUpdateWithCompletion:
 fetchItemsForStoreIDs:completion:
+fetchAllBookletIDsWithParentStoreIDs:
 fetchItemsForBuyParameters:completion:
 setItemHidden:forStoreID:completion:
+resetPurchasedTokenForStoreIDs:completion:
+storeIDsWithNonEmptyPurchasedToken:completion:
 updatePolitelyAfterSignOut:reason:completion:
 updatePolitelyAfterSignIn:reason:completion:
 updateFamilyPolitely:reason:completion:
 fetchRequestForStoreID:
+fetchRequestForBookletItems:
 predicateForItems:
+predicateForBookletItems:
 deleteItemsWithStoreIDs:completion:
 _fetchItemsForNeedsImport:
 _familyPurchaseDAAPServers
@@ -2258,6 +2319,7 @@ backoffUntil
 _canMakeDAAPRequest
 responseStatusCode
 allHeaderFields
+bl_isAMSStatusCode401
 failureIntervals:
 handleClientExpired
 initWithTimeIntervalSinceNow:
@@ -2277,6 +2339,7 @@ writeString:withCode:
 daapQueryFilterString
 writeUInt8:withCode:
 _dataForItemsRequestWithLocalVersion:serverVersion:tokenPairs:
+bookletKeys
 _lastPolledAt
 _DAAPReconnectAt
 _clientExpired
@@ -2351,6 +2414,7 @@ T@"BLHLSPlaylist",R,N,V_mediaPlaylist
 Td,R,N,V_startingOffset
 Td,R,N,V_length
 bu_isErrorPassingTest:
+longValue
 bl_isUserCancelError
 TB,R,N
 setDelta:
@@ -2359,21 +2423,17 @@ dataUsingEncoding:
 delta
 _delta
 T@"NSNumber",C,N,V_delta
-setStoreID:
 setArtist:
 setCloudID:
 setGenre:
 setPurchasedAt:
-setPurchasedTokenCode:
 setPurchaseHistoryID:
-setTitle:
 setIsExplicit:
 setIsDisabled:
 setExpectedDate:
 setSortedTitle:
 setSortedAuthor:
 setDisplayVersion:
-setStoreDownloadParameters:
 setFileExtension:
 setIsPictureBook:
 setContainsAudio:
@@ -2383,7 +2443,7 @@ setIsAudiobook:
 setHlsPlaylistURLString:
 setAdditionalAudiobookInfo:
 setNeedsImport:
-_storeID
+setBooklets:
 _artist
 _artworkTokenCode
 _artworkURLString
@@ -2393,14 +2453,12 @@ _isHidden
 _purchasedAt
 _purchasedTokenCode
 _purchaseHistoryID
-_title
 _isExplicit
 _isDisabled
 _expectedDate
 _sortedTitle
 _sortedAuthor
 _displayVersion
-_storeDownloadParameters
 _fileExtension
 _isPictureBook
 _containsAudio
@@ -2410,7 +2468,7 @@ _isAudiobook
 _hlsPlaylistURLString
 _additionalAudiobookInfo
 _needsImport
-T@"NSString",C,N,V_storeID
+_booklets
 T@"NSString",C,N,V_artist
 T@"NSString",C,N,V_artworkTokenCode
 T@"NSString",C,N,V_artworkURLString
@@ -2420,14 +2478,12 @@ T@"NSNumber",&,N,V_isHidden
 T@"NSDate",C,N,V_purchasedAt
 T@"NSString",C,N,V_purchasedTokenCode
 T@"NSNumber",&,N,V_purchaseHistoryID
-T@"NSString",C,N,V_title
 T@"NSNumber",&,N,V_isExplicit
 T@"NSNumber",&,N,V_isDisabled
 T@"NSDate",C,N,V_expectedDate
 T@"NSString",C,N,V_sortedTitle
 T@"NSString",C,N,V_sortedAuthor
 T@"NSString",C,N,V_displayVersion
-T@"NSString",C,N,V_storeDownloadParameters
 T@"NSString",C,N,V_fileExtension
 T@"NSNumber",&,N,V_isPictureBook
 T@"NSNumber",&,N,V_containsAudio
@@ -2437,6 +2493,7 @@ T@"NSNumber",&,N,V_isAudiobook
 T@"NSString",&,N,V_hlsPlaylistURLString
 T@"NSDictionary",&,N,V_additionalAudiobookInfo
 T@"NSNumber",&,N,V_needsImport
+T@"NSSet",&,N,V_booklets
 T@"NSNumber",R,N
 _performBuyProductRequest
 sharedBagProvider
@@ -2627,6 +2684,8 @@ parseUnicodeCharacter:count:
 typeForDRCPValueType:
 setFloat32:size:inDict:forKey:
 parseListingCollection:count:capacity:
+parseBookletListing:count:
+parseBookletItem:count:
 parseListingItem:count:
 dictionaryWithCapacity:
 parseDeletedIDsList:count:
@@ -2646,7 +2705,6 @@ parseContentCodes:count:
 setMediaType:
 setArtworkId:
 setHidden:
-longValue
 setPurchaseDateTime:
 setPurchaseHistoryToken:
 setContentRating:
@@ -2794,6 +2852,7 @@ v48@0:8@"BLM3U8Parser"16@"NSString"24@"NSString"32@"NSDictionary"40
 v32@0:8@"BLM3U8Parser"16@"NSString"24
 B24@0:8@"BLM3U8Parser"16
 B32@0:8@16^@24
+@"NSUUID"
 @"BLHLSPlaylistState"
 @"NSURL"
 @48@0:8@16d24@32@40
@@ -2844,6 +2903,7 @@ v40@0:8@"<BLHLSSegmentCaching>"16@"MPMediaItem"24@"NSError"32
 @56@0:8@16@24@32d40d48
 @64@0:8@16@24@32d40d48@56
 @56@0:8@16q24@32@40@48
+@"NSSet"
 @"ICBuyProductRequest"
 @"ICStoreMediaResponseItem"
 B40@0:8@16@24@32
@@ -2867,7 +2927,7 @@ v36@0:8I16r*20q28
 @36@0:8r*16q24i32
 v40@0:8r*16q24@32
 @36@0:8I16r*20q28
-@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-618
+@(#)PROGRAM:BookLibraryCore  PROJECT:BookLibrary-636
 <%@:%p 
   <itemsToAdd: 
     %@,
@@ -2923,14 +2983,19 @@ stringValue
 database.server.userUID IN %@
 (%K == NO OR %K == NULL)
 isHidden
+parentItem.database.server.userUID IN %@
+(parentItem.%K == NO OR parentItem.%K == NULL)
 cloudID IN %@
 storeID IN %@
+purchasedTokenCode != NULL and purchasedTokenCode != 0
 (%K == YES)
 needsImport
 storeDownloadParameters == %@
 NOT (storeAccountID IN %@)
 storeAccountID = %@
+parentItem.storeID IN %@
 NSDetailedErrors
+BLJaliscoServerBookletItem
 BLErrorDomain
 message
 title
@@ -2943,6 +3008,7 @@ v32@?0@"NSURL"8@"NSURLResponse"16@"NSError"24
 Unable to remove existing file.
 Error moving file from %@ to %@: %@
 databases/%@/extra_data/cloud-artwork-info
+<%@:%p name=%@ redownloadParameters=%@ storeID=%@ size=%@>
 databases/%@/edit
 v16@?0@"ICStoreRequestContext"8
 AMS bag error - no url for request %@
@@ -2969,6 +3035,7 @@ Nil jalisco moc
 (%K MATCHES[cd] %@ OR %K MATCHES[cd] %@)
 sortedTitle
 NBPlayerDataSourceIgnoreCache
+booklets
 macAddress
 <%s: %p> %@: %@, %@%@supportsVolume:%d, locked:%d, macAddress:%@
 supportsVideo
@@ -2980,7 +3047,7 @@ selected
 selected v:%f 
 volume
 hasPassword
-%@ %@, %llu, %@, %@, containerItemID = %u, isPreorder = %u, isHidden = %@, additionalInfo = %@
+%@ %@, %llu, %@, %@, containerItemID = %u, isPreorder = %u, isHidden = %@, Booklets = %@, additionalInfo = %@
 dmap.itemhidden
 mediaKind
 com.apple.itunes.mediakind
@@ -3016,6 +3083,7 @@ BLServiceDatabaseManager
 BLServiceDownloadFilesystem
 BLServiceDownloadStreamingZip
 BLServiceNotification
+BLServiceMetadataStore
 BLServiceProxy
 BookLibrary
 BLDaemon
@@ -3046,6 +3114,10 @@ GROUP-ID
 #EXT-X-INDEPENDENT-SEGMENTS
 #EXT-X-KEY
 #EXT-X-STREAM-INF
+#EXT-X-SESSION-DATA
+DATA-ID
+com.apple.audiobook.rapguid
+VALUE
 #EXT-X-BITRATE
 TYPE
 NAME
@@ -3088,6 +3160,7 @@ kJaliscoDAAPClientMOCDidSaveNotification
 kJaliscoDAAPClientLastSuccessfulFullUpdateDateDictionary
 Jalisco_DAAP_Server_Worker_Queue
 Jalisco_DAAP_DSID_Queue
+v32@?0@"NSDictionary"8Q16^B24
 dsid
 initiallyLoadingJalisco
 v12@?0B8
@@ -3172,6 +3245,12 @@ dmap.itemavailable
 daap.songdatereleased
 daap.songuserplaycount
 daap.songyear
+com.apple.itunes.store.booklet-item-listing
+com.apple.itunes.store.booklet-item
+com.apple.itunes.store.booklet-item-name
+com.apple.itunes.store.booklet-item-store-id
+com.apple.itunes.store.booklet-item-redownload-param
+com.apple.itunes.store.booklet-item-size
 v16@?0@"DKDAAPWriter"8
 v24@?0@"NSDictionary"8^B16
 Fetch items
@@ -3518,7 +3597,9 @@ Downloaded master playlist, about to parse it.
 Parsed master HLS Playlist but it had no valid media playlist (error was %@)
 Unable to parse master HLS Playlist: %@
 Parsed master playlist. Out of a total of %lu choices, using streamInf: %@
+Downloaded master playlist, about to parse it to get racGUID.
 Dropping unsupported key format %{public}@
+Found rapguid attribute: %@
 Ignoring tag %@
 BLMLAudiobookImportOperation canceling %@
 DONE BLMLAudiobookImport operation
@@ -3554,7 +3635,9 @@ Failed to delete item %@ for jalisco item %@
 Failed to delete item %@. Cannot find matching jalisco item
 Unable to initialize BLJaliscoDAAPClient
 ARTWORK: Ignoring timebomb on its %lu try.
-Moc Save Error:  %@
+Set items hidden: Moc Save Error:  %@
+Reset purchase token: Moc Save Error:  %@
+Non-empty purchase token storeIDs: Moc Fetch Error:  %@
 Need update test: currentGeneration:%lu pendingGeneration:%lu Needs update:%{BOOL}d
 No update required
 [BLJaliscoDAAPClient] updatePolitely:%{BOOL}d reason:%ld will update for DSIDs:(%@)
@@ -3821,10 +3904,12 @@ AMSRequestEncoding
 BLJaliscoServerSource
 JaliscoExtras
 UnsignedLongLongValue
+BLJaliscoServerBookletItem
 BLJaliscoServerDatabase
 BLDAAPBuffer
 BLFileFetcher
 BLDAAPArtRequest
+BLJaliscoBookletItem
 BLDAAPHideItemsRequest
 BLHLS
 BLDAAPURLRequest
@@ -4135,6 +4220,8 @@ hlsPlaylistURLString
 additionalAudiobookInfo
 T@"NSDictionary",&,D,N
 needsImport
+booklets
+T@"NSSet",&,D,N
 initWithBag:
 bu_sharedAccountStore
 ams_activeiTunesAccount
@@ -4260,13 +4347,17 @@ refreshStoreWithCompletion:
 serverDatabaseForDSID:fromManagedObjectContext:error:
 serverDatabaseForDSID:withIdentifier:fromManagedObjectContext:error:
 serverItemWithStoreID:inDatabaseWithIdentifier:forDSID:fromManagedObjectContext:error:
+predicateForBookletItems:dsids:
 fetchRequestForAllCloudIDs:dsids:
 fetchRequestForStoreIDs:dsids:
+fetchRequestForAllStoreIDsWithNonEmptyPurchasedToken:dsids:
 fetchRequestForAllStoreIDs:
 fetchRequestForAllStoreIDs:dsids:isImported:
 fetchRequestForBuyParameters:
 fetchRequestForNotInStoreAccountIDs:
 predicateForStoreAccountID:storeIDs:
+fetchRequestForBookletItemsForStoreIDs:
+fetchRequestForAllBookletsIDsWithParentStoreIDs:
 setIdentifier:
 setDatabaseContainerPath:
 _modelSentinel
@@ -4281,9 +4372,11 @@ T@"NSPersistentHistoryToken",R,N
 objectForKey:
 UTF8String
 unsignedLongLongValue
+size
+parentItem
+T@"BLJaliscoServerItem",&,D,N
 server
 T@"BLJaliscoServerInfo",&,D,N
-T@"NSSet",&,D,N
 errorWithDomain:code:userInfo:
 dictionaryWithObjectsAndKeys:
 addEntriesFromDictionary:
@@ -4324,6 +4417,20 @@ T@"BLAudiobookCacheDirectoryUtils",&,N,V_cacheDirectoryUtils
 T@"NSURLSessionConfiguration",R,N,V_URLSessionConfiguration
 setDaapURL:
 initWithDSID:databaseID:body:
+setTitle:
+setStoreDownloadParameters:
+setStoreID:
+setSize:
+itemWithServerBookletItem:
+arrayWithServerBookletItems:
+_title
+_storeDownloadParameters
+_storeID
+_size
+T@"NSString",C,N,V_title
+T@"NSString",C,N,V_storeDownloadParameters
+T@"NSString",C,N,V_storeID
+T@"NSNumber",C,N,V_size
 activeAccount
 setIdentityStore:
 initWithSystemApplicationType:
@@ -4641,8 +4748,10 @@ setWaitsForConnectivity:
 set_sourceApplicationBundleIdentifier:
 playlistParsingURL:error:
 preferredStreamFromMasterPlaylist:
+racGUID
 initCanUseCellularData:powerRequired:bundleID:
 setupDownloadTaskForFetchingMasterPlaylistAndSelectingStreamFromMasterPlaylistURL:completion:
+getRacGUIDFromMasterPlaylistURL:completion:
 T@"NSURLSession",R,N,V_session
 independentSegments
 groups
@@ -4679,6 +4788,8 @@ setIndependentSegments:
 isFormatSupported
 setCurrentKey:
 keyFormat
+initWithUUIDString:
+setRacGUID:
 requestedBitrates
 rewritePlaylistData:toURL:requestedBitrates:error:
 rewritePlaylistURL:toURL:requestedBitrates:error:
@@ -4691,6 +4802,7 @@ _ignoreSegments
 _groups
 _streamInfs
 _segments
+_racGUID
 _state
 _uniqueKeys
 _requestedBitrates
@@ -4702,6 +4814,7 @@ TB,N,V_ignoreSegments
 T@"BLHLSPlaylistState",&,N,V_state
 T@"NSMutableSet",&,N,V_uniqueKeys
 T@"NSArray",&,N,V_requestedBitrates
+T@"NSUUID",&,N,V_racGUID
 T@"NSSet",R,N
 _type
 _url
@@ -4873,6 +4986,9 @@ fetchRequestForStoreIDIncludingHidden:
 setIsHidden:
 hasChanges
 save:
+setPurchasedTokenCode:
+fetchRequestForAllStoreIDsWithNonEmptyPurchasedToken:
+bu_arrayByRemovingNSNulls
 _currentPurchaseDAAPServers
 countForFetchRequest:error:
 currentThread
@@ -4910,13 +5026,18 @@ refreshSignInStatus
 jaliscoArtworkTimebombed
 forceJaliscoArtworkUpdateWithCompletion:
 fetchItemsForStoreIDs:completion:
+fetchAllBookletIDsWithParentStoreIDs:
 fetchItemsForBuyParameters:completion:
 setItemHidden:forStoreID:completion:
+resetPurchasedTokenForStoreIDs:completion:
+storeIDsWithNonEmptyPurchasedToken:completion:
 updatePolitelyAfterSignOut:reason:completion:
 updatePolitelyAfterSignIn:reason:completion:
 updateFamilyPolitely:reason:completion:
 fetchRequestForStoreID:
+fetchRequestForBookletItems:
 predicateForItems:
+predicateForBookletItems:
 deleteItemsWithStoreIDs:completion:
 _fetchItemsForNeedsImport:
 _familyPurchaseDAAPServers
@@ -5116,6 +5237,7 @@ backoffUntil
 _canMakeDAAPRequest
 responseStatusCode
 allHeaderFields
+bl_isAMSStatusCode401
 failureIntervals:
 handleClientExpired
 initWithTimeIntervalSinceNow:
@@ -5135,6 +5257,7 @@ writeString:withCode:
 daapQueryFilterString
 writeUInt8:withCode:
 _dataForItemsRequestWithLocalVersion:serverVersion:tokenPairs:
+bookletKeys
 _lastPolledAt
 _DAAPReconnectAt
 _clientExpired
@@ -5209,6 +5332,7 @@ T@"BLHLSPlaylist",R,N,V_mediaPlaylist
 Td,R,N,V_startingOffset
 Td,R,N,V_length
 bu_isErrorPassingTest:
+longValue
 bl_isUserCancelError
 TB,R,N
 setDelta:
@@ -5217,21 +5341,17 @@ dataUsingEncoding:
 delta
 _delta
 T@"NSNumber",C,N,V_delta
-setStoreID:
 setArtist:
 setCloudID:
 setGenre:
 setPurchasedAt:
-setPurchasedTokenCode:
 setPurchaseHistoryID:
-setTitle:
 setIsExplicit:
 setIsDisabled:
 setExpectedDate:
 setSortedTitle:
 setSortedAuthor:
 setDisplayVersion:
-setStoreDownloadParameters:
 setFileExtension:
 setIsPictureBook:
 setContainsAudio:
@@ -5241,7 +5361,7 @@ setIsAudiobook:
 setHlsPlaylistURLString:
 setAdditionalAudiobookInfo:
 setNeedsImport:
-_storeID
+setBooklets:
 _artist
 _artworkTokenCode
 _artworkURLString
@@ -5251,14 +5371,12 @@ _isHidden
 _purchasedAt
 _purchasedTokenCode
 _purchaseHistoryID
-_title
 _isExplicit
 _isDisabled
 _expectedDate
 _sortedTitle
 _sortedAuthor
 _displayVersion
-_storeDownloadParameters
 _fileExtension
 _isPictureBook
 _containsAudio
@@ -5268,7 +5386,7 @@ _isAudiobook
 _hlsPlaylistURLString
 _additionalAudiobookInfo
 _needsImport
-T@"NSString",C,N,V_storeID
+_booklets
 T@"NSString",C,N,V_artist
 T@"NSString",C,N,V_artworkTokenCode
 T@"NSString",C,N,V_artworkURLString
@@ -5278,14 +5396,12 @@ T@"NSNumber",&,N,V_isHidden
 T@"NSDate",C,N,V_purchasedAt
 T@"NSString",C,N,V_purchasedTokenCode
 T@"NSNumber",&,N,V_purchaseHistoryID
-T@"NSString",C,N,V_title
 T@"NSNumber",&,N,V_isExplicit
 T@"NSNumber",&,N,V_isDisabled
 T@"NSDate",C,N,V_expectedDate
 T@"NSString",C,N,V_sortedTitle
 T@"NSString",C,N,V_sortedAuthor
 T@"NSString",C,N,V_displayVersion
-T@"NSString",C,N,V_storeDownloadParameters
 T@"NSString",C,N,V_fileExtension
 T@"NSNumber",&,N,V_isPictureBook
 T@"NSNumber",&,N,V_containsAudio
@@ -5295,6 +5411,7 @@ T@"NSNumber",&,N,V_isAudiobook
 T@"NSString",&,N,V_hlsPlaylistURLString
 T@"NSDictionary",&,N,V_additionalAudiobookInfo
 T@"NSNumber",&,N,V_needsImport
+T@"NSSet",&,N,V_booklets
 T@"NSNumber",R,N
 _performBuyProductRequest
 sharedBagProvider
@@ -5485,6 +5602,8 @@ parseUnicodeCharacter:count:
 typeForDRCPValueType:
 setFloat32:size:inDict:forKey:
 parseListingCollection:count:capacity:
+parseBookletListing:count:
+parseBookletItem:count:
 parseListingItem:count:
 dictionaryWithCapacity:
 parseDeletedIDsList:count:
@@ -5504,7 +5623,6 @@ parseContentCodes:count:
 setMediaType:
 setArtworkId:
 setHidden:
-longValue
 setPurchaseDateTime:
 setPurchaseHistoryToken:
 setContentRating:
@@ -5652,6 +5770,7 @@ v48@0:8@"BLM3U8Parser"16@"NSString"24@"NSString"32@"NSDictionary"40
 v32@0:8@"BLM3U8Parser"16@"NSString"24
 B24@0:8@"BLM3U8Parser"16
 B32@0:8@16^@24
+@"NSUUID"
 @"BLHLSPlaylistState"
 @"NSURL"
 @48@0:8@16d24@32@40
@@ -5702,6 +5821,7 @@ v40@0:8@"<BLHLSSegmentCaching>"16@"MPMediaItem"24@"NSError"32
 @56@0:8@16@24@32d40d48
 @64@0:8@16@24@32d40d48@56
 @56@0:8@16q24@32@40@48
+@"NSSet"
 @"ICBuyProductRequest"
 @"ICStoreMediaResponseItem"
 B40@0:8@16@24@32

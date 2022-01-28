@@ -84,6 +84,7 @@ ThinkingStateTransition
 %s No network. Not starting the request
 %s Device not unlocked since boot. Not starting the request
 %s %@ not starting a new request because its delegate vetoed with nil request options
+%s #modes Sending modes configuration : %@
 %s Received Command: %@ aceId: %@
 %s %@ may be a part of a multi turn request.
 %s %@ indicates end of a multi turn request.
@@ -106,6 +107,8 @@ ThinkingStateTransition
 %s #audioInterruption audio session interruption ended shouldResume: %{public, bool}d userInfo: %{public}@
 %s couldn't find a speech request dispatch group
 %s Not transitioning to AFUISiriSessionEventRequestFinished for temporary command : %@
+%s #userAttention Attention was lost for event: %@
+%s #userAttention Attention was gained for event: %@
 %s #activation requestInfo: %@, context: %@
 %s %zd
 %s Updating announcement requests permitted by presentation: %{BOOL}d
@@ -113,6 +116,8 @@ ThinkingStateTransition
 %s Sending ace command of class %@ expects a turn identifier, but one isn't provided.
 %s Sending ace command of class %@ with a turn identifier is unsupported. Dropping turn identifier.
 %s reason %zd
+%s #modes Creating modes configuration with heuristics related to RequestOptions: %@
+%s #modes Updating modes configuration with heuristics related to RequestOptions: %@
 %s Unhandled direct action event: %li
 %s #sceneHosting Initializing AFUISceneConfiguration with null bounds, falling back to displayConfiguration's bounds: %@
 %s #sceneHosting Initializing AFUISceneConfiguration using bounds: %@
@@ -224,7 +229,9 @@ voiceUILaunch
 %s Button up time: %f
 %s Start recording to button up time: %f
 %s Manual endpointing threshold: %f
+%s Entering HTT mode
 %s Transitioning to Automatic Endpointing
+%s Transitioning to HTT mode
 %s Exiting HTT mode
 %s Trigger target did release
 %s Starting request with trigger %@
@@ -370,6 +377,8 @@ Invalidating because [AFUISiriRemoteSceneViewController siriDidDeactivate]
 -[AFUISiriRemoteSceneViewController takeScreenshotWithCompletion:]_block_invoke
 -[AFUISiriRemoteSceneViewController dealloc]
 com.apple.LocalAuthentication.ui.presented
+com.apple.siri.internal
+ModeOverride
 AFUISiriSession.m
 Session must have a delegate queue
 -[AFUISiriSession dealloc]
@@ -381,6 +390,8 @@ v16@?0@"<AFUISiriSessionDelegate>"8
 Success
 v20@?0I8@"NSError"12
 -[AFUISiriSession forceAudioSessionActiveWithCompletion:]
+ResponseFramework
+Enabled
 -[AFUISiriSession _startRequestWithFinalOptions:completion:]_block_invoke
 v24@?0@"NSArray"8@"NSError"16
 -[AFUISiriSession _startRequestWithFinalOptions:completion:]
@@ -396,6 +407,8 @@ Device not unlocked since boot.
 -[AFUISiriSession startRequestWithOptions:completion:]_block_invoke
 Session delegate vetoed.
 v16@?0@"SASRequestOptions"8
+v16@?0@"<AFModesConfigurationMutating>"8
+-[AFUISiriSession assistantConnectionRequestWillStart:]
 v16@?0@"AceObject<SAAceCommand>"8
 refId
 -[AFUISiriSession assistantConnection:receivedCommand:completion:]
@@ -426,6 +439,8 @@ No speech request ispatch group.
 No AFConnection.
 AFConnection is already recording.
 -[AFUISiriSession requestDidPresentViewForUICommand:]
+-[AFUISiriSession didLoseAttentionWithEvent:]
+-[AFUISiriSession didGainAttentionWithEvent:]
 -[AFUISiriSession _startLegacyDirectActionRequestWithInfo:context:completion:]
 -[AFUISiriSession _startContinuityRequestWithInfo:completion:]
 -[AFUISiriSession _startRequestWithInfo:completion:]
@@ -439,6 +454,7 @@ Core duet logging queue
 -[AFUISiriSession end]
 -[AFUISiriSession endForReason:]
 -[AFUISiriSession _updateActiveAccount:]_block_invoke
+-[AFUISiriSession _updateModesHeuristicsForRequestOptions:]
 -[AFUISiriSession _updateCarPlayInvocationContext:fromDirectActionEvent:appBundleIdentifier:]
 INStartCallIntent
 Class getINStartCallIntentClass(void)_block_invoke
@@ -645,7 +661,7 @@ aceId
 title
 @"NSDictionary"8@?0
 @unionOfArrays.self
-com.apple.siri.Siriland
+com.apple.siri.Compact
 -[AFUIAudioPlayer startPlaying]
 AFUIAudioPlayer.m
 This method should be overwritten by child class!
@@ -680,7 +696,6 @@ com.apple.siri.ui.end
 -[AFUISiriViewController viewWillDisappear:]
 -[AFUISiriViewController viewDidDisappear:]
 -[AFUISiriViewController _setVoiceTriggerEnabled:]
-Enabled
 Disabled
 No change
 -[AFUISiriViewController _presentRemoteViewController]
@@ -712,7 +727,9 @@ triggerEndMachTime
 -[AFUISiriViewController handleViewFullyRevealed]
 -[AFUISiriViewController _holdToTalkTriggerDidReleaseFromSource:]
 -[AFUISiriViewController _holdToTalkThresholdHasElapsed]
+-[AFUISiriViewController _enterHoldToTalkMode]
 -[AFUISiriViewController _transitionToAutomaticEndpointMode]
+-[AFUISiriViewController _transitionToManualEndpointMode]
 -[AFUISiriViewController _exitHoldToTalkMode]
 -[AFUISiriViewController _activationTriggerDidRelease:]
 -[AFUISiriViewController startRequestWithActivationTrigger:completion:]
@@ -846,7 +863,6 @@ _AFUIDataStoringShim
 AFUIDataStoring
 AFUIStateMachine
 AFUIGuideCacheManager
-AFUIRequestTrigger
 AFUISceneSpecification
 AFUIStarkSceneSpecification
 AFUISceneClientSettings
@@ -970,6 +986,10 @@ suspendedSafeAreaInsets
 safeAreaInsets
 setSuspendedSafeAreaInsets:
 setSafeAreaInsetsAreSuspended:
+configuration
+copy
+setDeactivationReasonMask:
+updateSceneWithConfiguration:
 viewWillTransitionToSize:withTransitionCoordinator:
 containerView
 transitionDuration
@@ -1029,13 +1049,12 @@ isHostingScene
 isDeferringHIDEvents
 startDeferringHIDEventsIfNeeded
 invalidateAndPauseDeferringHIDEvents
-updateSceneWithConfiguration:
 setWindowSceneHostingView:
 setInFluidDismissal:
+deactivateScene
 viewDidMoveToWindow:shouldAppearOrDisappear:
 _hasScene
 deferralMode
-configuration
 isInFluidDismissal
 sceneController
 setSceneController:
@@ -1137,21 +1156,12 @@ layer
 setAllowsGroupOpacity:
 _destroyAssistantVersionLabelIfNecessary
 setNeedsLayout
-mainScreen
-_isTextInputEnabled
-initWithFrame:screen:textInputEnabled:configuration:
-flamesContainerView
-insertSubview:belowSubview:
 setFlamesViewDeferred:
 sizeToFit
 setDisabledMicOpacity:
 _updateControlsAppearance
 availabilityState
 _configureEyesFreeLogo
-_configureHelpButton
-configureReportBugButtonToShowHoldToTalkState:
-_showsReportBugButton
-_createAssistantVersionLabelIfNecessary
 effectWithStyle:
 effectForBlurEffect:
 initWithEffect:
@@ -1177,6 +1187,7 @@ _animateView:fromYPosition:toYPosition:fade:completion:
 _animateButtonsHidden:
 setMode:
 setAlpha:
+_isTextInputEnabled
 setHidden:
 _setupButtonsIfNecessary
 animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:
@@ -1191,6 +1202,7 @@ userAccountCountForSiriView:
 assistantVersionForSiriView:
 activeAccountForSiriView:
 length
+_createAssistantVersionLabelIfNecessary
 transitionToPrivateStyle:
 dimBackdropSettings
 transitionToSettings:
@@ -1200,6 +1212,8 @@ setBlurRadius:
 setScale:
 _placeRemoteContentView
 insertSubview:aboveSubview:
+flamesContainerView
+insertSubview:belowSubview:
 insertSubview:below:
 _setupVoiceActivationMaskView
 setStatusViewHidden:
@@ -1212,6 +1226,7 @@ _audioRouteButtonTapped:
 addTarget:action:forControlEvents:
 _setTouchInsets:
 insertSubview:above:
+_showsReportBugButton
 animateWithDuration:animations:
 setBluetoothOn:
 delegate
@@ -1249,6 +1264,7 @@ pulse
 alpha
 siriui_platterVibrancyEffect
 bundleForClass:
+mainScreen
 imageNamed:inBundle:compatibleWithTraitCollection:
 whiteColor
 _flatImageWithColor:
@@ -1316,7 +1332,9 @@ updateForPercentageRevealed:
 setShowAudioRoutePicker:
 setAudioRoutePickerBluetoothOn:
 _preferencesDidChange:
+configureReportBugButtonToShowHoldToTalkState:
 setBugReportingAvailable:
+_configureHelpButton
 setHelpButtonEmphasized:
 setHelpButtonDeferred:
 pulseHelpButton
@@ -1613,7 +1631,6 @@ siriSessionDidReceiveSpeechPartialResultCommand:
 siriSessionDidRecognizedAdditionalSpeechInterpretation:refId:
 siriSessionDidUpdateRecognitionWithPhrases:utterances:refId:
 siriSessionDidReceiveAddViewsCommand:completion:
-siriSessionDidReceiveAddDialogsCommand:completion:
 siriSessionDidReceiveOpenLinkCommand:completion:
 siriSessionDidReceiveClearScreenCommand:completion:
 siriSessionDidReceivePlayVoicemailCommand:completion:
@@ -1643,6 +1660,8 @@ siriSessionDidReceivePlayContentCommand:completion:
 siriSessionDidReceiveLaunchTVRemoteCommand:completion:
 siriSessionDidReceiveExtendCurrentTTSCommand:completion:
 siriSessionDidReceivePaginateListCommand:completion:
+siriSessionDidReceiveShowNextSnippetCommand:completion:
+siriSessionDidReceiveUpdateVisualResponseSnippetCommand:completion:
 siriSessionDidReceiveRevealRecognizedSpeechCommand:completion:
 siriSessionSpeechRecordingDidChangeAVRecordRoute:
 siriSessionSpeechRecordingDidEnd
@@ -1688,6 +1707,8 @@ audioRoutePickerWillShow
 audioRoutePickerWillDismiss
 speechSynthesisDidFinish:
 speechSynthesisDidUpdatePowerLevelTo:
+didGainAttentionWithEvent:
+didLoseAttentionWithEvent:
 notifyStateManagerPresentationTransitionBegan
 notifyStateManagerPresentationTransitionEnded
 notifyStateManagerSpeakingBegan
@@ -1732,6 +1753,7 @@ _instrumentationTurnContext
 emitInstrumentation:
 instrumentationEvents
 countByEnumeratingWithState:objects:count:
+_updateModesHeuristicsForRequestOptions:
 _shouldFetchActiveAccount
 activeAccount
 isActive
@@ -1775,6 +1797,10 @@ _preparedSpeechRequestWithRequestOptions:
 stopSpeechWithOptions:
 updateSpeechOptions:
 isPPTAvailable
+_modeOverrideValue
+setModeOverrideValue:
+mutatedCopyWithMutator:
+setModesConfiguration:
 refId
 views
 arrayWithCapacity:
@@ -1826,7 +1852,7 @@ localDelegate
 recordingPowerLevel
 isRecording
 _requestWillStart
-copy
+activationEvent
 setSuppressStartAlert:
 setActivationEvent:
 setIsEyesFree:
@@ -1843,6 +1869,8 @@ activationDeviceIdentifier
 setActivationDeviceIdentifier:
 useAutomaticEndpointing
 setEndpointerOperationMode:
+endpointerStopRecordingMode
+setEndpointerStopRecordingMode:
 useStreamingDictation
 setUseStreamingDictation:
 homeButtonUpFromBeep
@@ -1876,6 +1904,9 @@ underlyingConnection
 recordRequestMetric:withTimestamp:
 sendFeedbackToAppPreferencesPredictorForMetricsContext:selectedBundleId:
 siriSessionAudioOutputDidChangePowerLevel:
+_updateModesConfigurationForAttentionType:value:
+_populateModesConfiguration:attentionType:value:
+setFaceDetected:
 beginPresentationTransition
 endPresentationTransition
 beginSpeakingForClient:
@@ -1929,7 +1960,22 @@ averagePower
 _updateActiveAccount:
 setActiveAccountAndGenerateLightweightInfo:
 setUserAccountCountGenerateLightweightInfo:
-activationEvent
+isForEyesFree
+isForCarDND
+setIsForCarDND:
+isVoiceTriggerRequest
+setIsVoiceTriggerRequest:
+isConnectedToCarPlay
+setIsConnectedToCarPlay:
+isRequestMadeWithPhysicalDeviceInteraction
+setIsRequestMadeWithPhysicalDeviceInteraction:
+userTypedInSiri
+setUserTypedInSiri:
+getDeviceOrientation:
+setDeviceOrientation:
+initWithSuiteName:
+stringForKey:
+lowercaseString
 _mapInvocationSource:
 isForStark
 directActionEvent
@@ -1949,6 +1995,7 @@ beginMonitoringSiriAvailability
 effectiveCoreLocationBundle
 assistantConnectionRequestWillStart:
 assistantConnectionDismissAssistant:
+assistantConnection:dismissAssistantWithReason:
 assistantConnectionRequestFinished:
 assistantConnection:receivedCommand:completion:
 assistantConnection:requestFailedWithError:requestClass:
@@ -2024,6 +2071,7 @@ _sendContextBeforeContinuingSpeechRequest
 _settingsConnection
 _isDeviceInStarkMode
 _clientStateManager
+_modesConfiguration
 _thinkingIntervalID
 _eyesFree
 _isProcessingAcousticIdRequest
@@ -2096,7 +2144,6 @@ setSceneLoadingTimeOutDuration:
 setCancelSceneLoadingAfterTimeout:
 setSceneParameters:
 setInitialSafeAreaInsets:
-setDeactivationReasonMask:
 stringByAppendingFormat:
 copyWithZone:
 sceneParameters
@@ -2245,18 +2292,6 @@ _isCheckingGuideUpdate
 T@"NSNumber",R,N
 T@"SAGuidanceGuideSnippet",R,N
 T@"SAGuidanceSuggestedUtterances",R,N
-setUseAutomaticEndpointing:
-_updateState:
-initWithKeyOptions:valueOptions:capacity:
-removeObjectForKey:
-initWithRequestOptions:updateHandle:
-addTriggerTarget:action:
-removeTriggerTarget:
-options
-_options
-_observers
-T@"SASRequestOptions",R,N,V_options
-Tq,R,N,V_state
 clientSettingsClass
 transitionContextClass
 otherSettings
@@ -2288,6 +2323,7 @@ sruif_hasExternalDomainsForStringWithFormat:
 speakableProviderForObject:
 registerProvider:forNamespace:
 parseStringWithFormat:error:
+siriXDebugStatusEnabled
 animateUsingSpringWithStiffness:damping:animations:
 parsedUtteranceFromText:context:
 orbViewModeForSiriSessionState:
@@ -2378,7 +2414,6 @@ T@"NSMutableDictionary",&,N,G_tapToRadarParameters,V_tapToRadarParameters
 attachmentPaths
 T@"NSMutableArray",&,N,G_attachmentPaths,V_attachmentPaths
 T@"<AFUIBugReportingDelegate>",W,N,V_delegate
-initWithSuiteName:
 dataWithContentsOfURL:options:error:
 registerDefaults:
 URLForResource:withExtension:
@@ -2386,7 +2421,6 @@ initWithDefaultsAtURL:
 integerForKey:
 doubleForKey:
 boolForKey:
-stringForKey:
 preferences:didChangeValueForKey:
 setInteger:forKey:
 _mutateValueForKey:block:
@@ -2480,6 +2514,7 @@ _performDelayedActionCommandTimerAction:
 scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
 delayedActionAceId
 _invalidateDelayedActionTimer:withKey:
+removeObjectForKey:
 userInfo
 _performCommandsWithDelayedActionCommand:
 allKeys
@@ -2832,6 +2867,7 @@ _uiPresentationIdentifier
 siriViewControllerSpeechRequestStartedFromSiriOrb
 _informRemoteViewControllerOfOrbViewTapToCancelRequest
 siriViewControllerSpeechRequestCancelledFromSiriOrb
+initWithRequestOptions:updateHandle:
 startRequestWithActivationTrigger:
 handlePasscodeUnlockAndCancelRequest:withCompletion:
 requiresUserInteraction
@@ -2868,17 +2904,24 @@ setInitialBringUp:
 _delayForHoldToTalkStopRequestsWithSource:
 _stopRequestWithOptions:afterDelay:
 _transitionToAutomaticEndpointMode
+isATVRemotePTTEligible
+_transitionToManualEndpointMode
 siriViewControllerShouldSupportTextInput:
+isTVPushToTalkEnabled
 _recordingStartedTimeValue
 _manualEndpointingThreshold
 _setInHoldToTalkMode:
+setUseAutomaticEndpointing:
 _exitHoldToTalkMode
+_enterHoldToTalkMode
 manualEndpointingThreshold
+removeTriggerTarget:
+options
 _holdToTalkTriggerDidReleaseFromSource:
 startRequestWithActivationTrigger:completion:
 _activationTriggerDidRelease:
+addTriggerTarget:action:
 inputAccessoryView
-_enterHoldToTalkMode
 siriViewControllerShouldEndSession:
 siriViewController:attemptUnlockWithPassword:
 assistantVersion
@@ -2891,6 +2934,7 @@ hasRoutesToPick
 _setShowAudioRoutePicker:
 bluetoothIsPicked
 _setAudioRoutePickerBluetoothOn:
+orientation
 bulletinsForSiriViewController:
 contextAppInfosForSiriViewController:
 currentCarPlaySupportedOEMAppsForSiriViewController:
@@ -2956,6 +3000,7 @@ setSiriRequestCancellationReason:
 didReceiveButtonUpWithRequestOptions:
 handleViewFullyRevealed
 shortTapActionWithRequestOptions:
+tvRemoteSentButtonDownWhileListening
 _recordingStartedOnRoute
 _setRecordingStartedOnRoute:
 emitUIStateTransitionForSiriDismissalWithReason:
@@ -3353,6 +3398,7 @@ constraintEqualToConstant:
 heightAnchor
 centerYAnchor
 orbViewRectInCarplayView
+siriXIndicatorView
 _orbContainerView
 _siriXIndicatorView
 B24@0:8@16
@@ -3479,7 +3525,6 @@ v24@0:8@"SASSpeechPartialResult"16
 v32@0:8@"AFSpeechInterpretation"16@"NSString"24
 v40@0:8@"NSArray"16@"NSArray"24@"NSString"32
 v32@0:8@"SAUIAddViews"16@?<v@?@"AceObject<SAAceCommand>">24
-v32@0:8@"SAUIAddDialogs"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIOpenLink"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIClearScreen"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAPhonePlayVoiceMail"16@?<v@?@"AceObject<SAAceCommand>">24
@@ -3509,6 +3554,8 @@ v32@0:8@"SAVCSPlayContent"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUILaunchTVRemote"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIExtendCurrentTTS"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIPaginateList"16@?<v@?@"AceObject<SAAceCommand>">24
+v32@0:8@"SAUIVisualResponseShowNextSnippet"16@?<v@?@"AceObject<SAAceCommand>">24
+v32@0:8@"SAUIUpdateVisualResponseSnippet"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIRevealRecognizedSpeech"16@?<v@?@"AceObject<SAAceCommand>">24
 v24@0:8@"AceObject<SAAceCommand>"16
 v32@0:8@"AFBulletin"16@?<v@?Q>24
@@ -3540,6 +3587,7 @@ v28@0:8@16I24
 v36@0:8@16B24@28
 v48@0:8@16q24@32@?40
 v24@0:8@"AFConnection"16
+v32@0:8@"AFConnection"16q24
 v40@0:8@"AFConnection"16@"AceObject<SAAceCommand>"24@?<v@?@"AceObject<SAAceCommand>">32
 v40@0:8@"AFConnection"16@"NSError"24@"NSString"32
 v40@0:8@"AFConnection"16@"NSURL"24@?<v@?B>32
@@ -3558,7 +3606,6 @@ v32@0:8@"AFConnection"16@"AFAudioPlaybackRequest"24
 v40@0:8@"AFConnection"16@"AFAudioPlaybackRequest"24@"NSError"32
 v32@0:8@"AFConnection"16Q24
 v48@0:8@"AFConnection"16q24@"INIntent"32@?<v@?BB>40
-v32@0:8@"AFConnection"16q24
 v36@0:8@16@24I32
 v40@0:8@16q24@?32
 v32@0:8@"AFConnection"16@"AFXPCWrapper"24
@@ -3575,6 +3622,8 @@ v40@0:8@"SRUIFStateMachine"16q24q32
 @"NSString"32@0:8@"SRUIFStateMachine"16q24
 @?24@0:8@?16
 v36@0:8@16B24@?28
+v28@0:8Q16B24
+v36@0:8@16Q24B32
 v40@0:8@16@24d32
 f16@0:8
 i24@0:8q16
@@ -3586,6 +3635,7 @@ v40@0:8@16q24@32
 @"NSMutableSet"
 @"AFConnection"
 @"AFSiriClientStateManager"
+@"AFModesConfiguration"
 @"<AFUISiriSessionDelegate>"
 @"<AFUISiriSessionLocalDataSource>"
 @"<AFUISiriSessionLocalDelegate>"
@@ -3616,10 +3666,6 @@ v32@0:8@"UIImage"16@"NSString"24
 @"NSMutableDictionary"
 B32@0:8@16@24
 @"SAGuidanceGuideUpdate"
-@32@0:8@16^@?24
-v32@0:8@16:24
-@"SASRequestOptions"
-@"NSMapTable"
 I16@0:8
 @56@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16q48
 @"SiriUIBackgroundBlurView"
@@ -3664,6 +3710,7 @@ v28@0:8B16q20
 q32@0:8q16q24
 @"<AFUIDisambiguationAnalyticsManagerDataSource>"
 @"<AFDisambiguationAssistance>"
+@"SASRequestOptions"
 v28@0:8@"AVAudioPlayer"16B24
 v32@0:8@"AVAudioPlayer"16@"NSError"24
 v24@0:8@"AVAudioPlayer"16
@@ -3707,9 +3754,9 @@ v32@0:8@"AFUISiriCompactView"16d24
 v28@0:8@"AFUISiriCompactView"16B24
 v28@0:8@"SiriUIAudioRoutePickerController"16B24
 v24@0:8@"SiriUIAudioRoutePickerController"16
+q24@0:8@"AFUISiriSession"16
 @"NSArray"24@0:8@"AFUISiriSession"16
 Q24@0:8@"AFUISiriSession"16
-q24@0:8@"AFUISiriSession"16
 v32@0:8@"AFUISiriSession"16q24
 v36@0:8@"AFUISiriSession"16B24@?<v@?q>28
 v32@0:8@"AFUISiriSession"16@?<v@?q>24
@@ -3791,6 +3838,8 @@ v36@0:8@"AFUISiriCarPlayBackgroundView"16B24@"BSAnimationSettings"28
 @"AFUISiriCarPlayBackgroundView"
 ?ffffff
 ?333333
+*****
+!#%****'
  @333333
 %s Updating scene with frame: %@, interfaceOrientation: %zd
 %s #sceneHosting Error requesting scene: %@ 
@@ -3878,6 +3927,7 @@ ThinkingStateTransition
 %s No network. Not starting the request
 %s Device not unlocked since boot. Not starting the request
 %s %@ not starting a new request because its delegate vetoed with nil request options
+%s #modes Sending modes configuration : %@
 %s Received Command: %@ aceId: %@
 %s %@ may be a part of a multi turn request.
 %s %@ indicates end of a multi turn request.
@@ -3900,6 +3950,8 @@ ThinkingStateTransition
 %s #audioInterruption audio session interruption ended shouldResume: %{public, bool}d userInfo: %{public}@
 %s couldn't find a speech request dispatch group
 %s Not transitioning to AFUISiriSessionEventRequestFinished for temporary command : %@
+%s #userAttention Attention was lost for event: %@
+%s #userAttention Attention was gained for event: %@
 %s #activation requestInfo: %@, context: %@
 %s %zd
 %s Updating announcement requests permitted by presentation: %{BOOL}d
@@ -3907,6 +3959,8 @@ ThinkingStateTransition
 %s Sending ace command of class %@ expects a turn identifier, but one isn't provided.
 %s Sending ace command of class %@ with a turn identifier is unsupported. Dropping turn identifier.
 %s reason %zd
+%s #modes Creating modes configuration with heuristics related to RequestOptions: %@
+%s #modes Updating modes configuration with heuristics related to RequestOptions: %@
 %s Unhandled direct action event: %li
 %s #sceneHosting Initializing AFUISceneConfiguration with null bounds, falling back to displayConfiguration's bounds: %@
 %s #sceneHosting Initializing AFUISceneConfiguration using bounds: %@
@@ -4018,7 +4072,9 @@ buttonLaunch
 %s Button up time: %f
 %s Start recording to button up time: %f
 %s Manual endpointing threshold: %f
+%s Entering HTT mode
 %s Transitioning to Automatic Endpointing
+%s Transitioning to HTT mode
 %s Exiting HTT mode
 %s Trigger target did release
 %s Starting request with trigger %@
@@ -4164,6 +4220,8 @@ Invalidating because [AFUISiriRemoteSceneViewController siriDidDeactivate]
 -[AFUISiriRemoteSceneViewController takeScreenshotWithCompletion:]_block_invoke
 -[AFUISiriRemoteSceneViewController dealloc]
 com.apple.LocalAuthentication.ui.presented
+com.apple.siri.internal
+ModeOverride
 AFUISiriSession.m
 Session must have a delegate queue
 -[AFUISiriSession dealloc]
@@ -4175,6 +4233,8 @@ v16@?0@"<AFUISiriSessionDelegate>"8
 Success
 v20@?0I8@"NSError"12
 -[AFUISiriSession forceAudioSessionActiveWithCompletion:]
+ResponseFramework
+Enabled
 -[AFUISiriSession _startRequestWithFinalOptions:completion:]_block_invoke
 v24@?0@"NSArray"8@"NSError"16
 -[AFUISiriSession _startRequestWithFinalOptions:completion:]
@@ -4190,6 +4250,8 @@ Device not unlocked since boot.
 -[AFUISiriSession startRequestWithOptions:completion:]_block_invoke
 Session delegate vetoed.
 v16@?0@"SASRequestOptions"8
+v16@?0@"<AFModesConfigurationMutating>"8
+-[AFUISiriSession assistantConnectionRequestWillStart:]
 v16@?0@"AceObject<SAAceCommand>"8
 refId
 -[AFUISiriSession assistantConnection:receivedCommand:completion:]
@@ -4220,6 +4282,8 @@ No speech request ispatch group.
 No AFConnection.
 AFConnection is already recording.
 -[AFUISiriSession requestDidPresentViewForUICommand:]
+-[AFUISiriSession didLoseAttentionWithEvent:]
+-[AFUISiriSession didGainAttentionWithEvent:]
 -[AFUISiriSession _startLegacyDirectActionRequestWithInfo:context:completion:]
 -[AFUISiriSession _startContinuityRequestWithInfo:completion:]
 -[AFUISiriSession _startRequestWithInfo:completion:]
@@ -4233,6 +4297,7 @@ Core duet logging queue
 -[AFUISiriSession end]
 -[AFUISiriSession endForReason:]
 -[AFUISiriSession _updateActiveAccount:]_block_invoke
+-[AFUISiriSession _updateModesHeuristicsForRequestOptions:]
 -[AFUISiriSession _updateCarPlayInvocationContext:fromDirectActionEvent:appBundleIdentifier:]
 INStartCallIntent
 Class getINStartCallIntentClass(void)_block_invoke
@@ -4439,7 +4504,7 @@ aceId
 title
 @"NSDictionary"8@?0
 @unionOfArrays.self
-com.apple.siri.Siriland
+com.apple.siri.Compact
 -[AFUIAudioPlayer startPlaying]
 AFUIAudioPlayer.m
 This method should be overwritten by child class!
@@ -4474,7 +4539,6 @@ com.apple.siri.ui.end
 -[AFUISiriViewController viewWillDisappear:]
 -[AFUISiriViewController viewDidDisappear:]
 -[AFUISiriViewController _setVoiceTriggerEnabled:]
-Enabled
 Disabled
 No change
 -[AFUISiriViewController _presentRemoteViewController]
@@ -4506,7 +4570,9 @@ triggerEndMachTime
 -[AFUISiriViewController handleViewFullyRevealed]
 -[AFUISiriViewController _holdToTalkTriggerDidReleaseFromSource:]
 -[AFUISiriViewController _holdToTalkThresholdHasElapsed]
+-[AFUISiriViewController _enterHoldToTalkMode]
 -[AFUISiriViewController _transitionToAutomaticEndpointMode]
+-[AFUISiriViewController _transitionToManualEndpointMode]
 -[AFUISiriViewController _exitHoldToTalkMode]
 -[AFUISiriViewController _activationTriggerDidRelease:]
 -[AFUISiriViewController startRequestWithActivationTrigger:completion:]
@@ -4637,7 +4703,6 @@ _AFUIDataStoringShim
 AFUIDataStoring
 AFUIStateMachine
 AFUIGuideCacheManager
-AFUIRequestTrigger
 AFUISceneSpecification
 AFUIStarkSceneSpecification
 AFUISceneClientSettings
@@ -4761,6 +4826,10 @@ suspendedSafeAreaInsets
 safeAreaInsets
 setSuspendedSafeAreaInsets:
 setSafeAreaInsetsAreSuspended:
+configuration
+copy
+setDeactivationReasonMask:
+updateSceneWithConfiguration:
 viewWillTransitionToSize:withTransitionCoordinator:
 containerView
 transitionDuration
@@ -4820,13 +4889,12 @@ isHostingScene
 isDeferringHIDEvents
 startDeferringHIDEventsIfNeeded
 invalidateAndPauseDeferringHIDEvents
-updateSceneWithConfiguration:
 setWindowSceneHostingView:
 setInFluidDismissal:
+deactivateScene
 viewDidMoveToWindow:shouldAppearOrDisappear:
 _hasScene
 deferralMode
-configuration
 isInFluidDismissal
 sceneController
 setSceneController:
@@ -4928,21 +4996,12 @@ layer
 setAllowsGroupOpacity:
 _destroyAssistantVersionLabelIfNecessary
 setNeedsLayout
-mainScreen
-_isTextInputEnabled
-initWithFrame:screen:textInputEnabled:configuration:
-flamesContainerView
-insertSubview:belowSubview:
 setFlamesViewDeferred:
 sizeToFit
 setDisabledMicOpacity:
 _updateControlsAppearance
 availabilityState
 _configureEyesFreeLogo
-_configureHelpButton
-configureReportBugButtonToShowHoldToTalkState:
-_showsReportBugButton
-_createAssistantVersionLabelIfNecessary
 effectWithStyle:
 effectForBlurEffect:
 initWithEffect:
@@ -4968,6 +5027,7 @@ _animateView:fromYPosition:toYPosition:fade:completion:
 _animateButtonsHidden:
 setMode:
 setAlpha:
+_isTextInputEnabled
 setHidden:
 _setupButtonsIfNecessary
 animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:
@@ -4982,6 +5042,7 @@ userAccountCountForSiriView:
 assistantVersionForSiriView:
 activeAccountForSiriView:
 length
+_createAssistantVersionLabelIfNecessary
 transitionToPrivateStyle:
 dimBackdropSettings
 transitionToSettings:
@@ -4991,6 +5052,8 @@ setBlurRadius:
 setScale:
 _placeRemoteContentView
 insertSubview:aboveSubview:
+flamesContainerView
+insertSubview:belowSubview:
 insertSubview:below:
 _setupVoiceActivationMaskView
 setStatusViewHidden:
@@ -5003,6 +5066,7 @@ _audioRouteButtonTapped:
 addTarget:action:forControlEvents:
 _setTouchInsets:
 insertSubview:above:
+_showsReportBugButton
 animateWithDuration:animations:
 setBluetoothOn:
 delegate
@@ -5040,6 +5104,7 @@ pulse
 alpha
 siriui_platterVibrancyEffect
 bundleForClass:
+mainScreen
 imageNamed:inBundle:compatibleWithTraitCollection:
 whiteColor
 _flatImageWithColor:
@@ -5107,7 +5172,9 @@ updateForPercentageRevealed:
 setShowAudioRoutePicker:
 setAudioRoutePickerBluetoothOn:
 _preferencesDidChange:
+configureReportBugButtonToShowHoldToTalkState:
 setBugReportingAvailable:
+_configureHelpButton
 setHelpButtonEmphasized:
 setHelpButtonDeferred:
 pulseHelpButton
@@ -5404,7 +5471,6 @@ siriSessionDidReceiveSpeechPartialResultCommand:
 siriSessionDidRecognizedAdditionalSpeechInterpretation:refId:
 siriSessionDidUpdateRecognitionWithPhrases:utterances:refId:
 siriSessionDidReceiveAddViewsCommand:completion:
-siriSessionDidReceiveAddDialogsCommand:completion:
 siriSessionDidReceiveOpenLinkCommand:completion:
 siriSessionDidReceiveClearScreenCommand:completion:
 siriSessionDidReceivePlayVoicemailCommand:completion:
@@ -5434,6 +5500,8 @@ siriSessionDidReceivePlayContentCommand:completion:
 siriSessionDidReceiveLaunchTVRemoteCommand:completion:
 siriSessionDidReceiveExtendCurrentTTSCommand:completion:
 siriSessionDidReceivePaginateListCommand:completion:
+siriSessionDidReceiveShowNextSnippetCommand:completion:
+siriSessionDidReceiveUpdateVisualResponseSnippetCommand:completion:
 siriSessionDidReceiveRevealRecognizedSpeechCommand:completion:
 siriSessionSpeechRecordingDidChangeAVRecordRoute:
 siriSessionSpeechRecordingDidEnd
@@ -5479,6 +5547,8 @@ audioRoutePickerWillShow
 audioRoutePickerWillDismiss
 speechSynthesisDidFinish:
 speechSynthesisDidUpdatePowerLevelTo:
+didGainAttentionWithEvent:
+didLoseAttentionWithEvent:
 notifyStateManagerPresentationTransitionBegan
 notifyStateManagerPresentationTransitionEnded
 notifyStateManagerSpeakingBegan
@@ -5523,6 +5593,7 @@ _instrumentationTurnContext
 emitInstrumentation:
 instrumentationEvents
 countByEnumeratingWithState:objects:count:
+_updateModesHeuristicsForRequestOptions:
 _shouldFetchActiveAccount
 activeAccount
 isActive
@@ -5566,6 +5637,10 @@ _preparedSpeechRequestWithRequestOptions:
 stopSpeechWithOptions:
 updateSpeechOptions:
 isPPTAvailable
+_modeOverrideValue
+setModeOverrideValue:
+mutatedCopyWithMutator:
+setModesConfiguration:
 refId
 views
 arrayWithCapacity:
@@ -5617,7 +5692,7 @@ localDelegate
 recordingPowerLevel
 isRecording
 _requestWillStart
-copy
+activationEvent
 setSuppressStartAlert:
 setActivationEvent:
 setIsEyesFree:
@@ -5634,6 +5709,8 @@ activationDeviceIdentifier
 setActivationDeviceIdentifier:
 useAutomaticEndpointing
 setEndpointerOperationMode:
+endpointerStopRecordingMode
+setEndpointerStopRecordingMode:
 useStreamingDictation
 setUseStreamingDictation:
 homeButtonUpFromBeep
@@ -5667,6 +5744,9 @@ underlyingConnection
 recordRequestMetric:withTimestamp:
 sendFeedbackToAppPreferencesPredictorForMetricsContext:selectedBundleId:
 siriSessionAudioOutputDidChangePowerLevel:
+_updateModesConfigurationForAttentionType:value:
+_populateModesConfiguration:attentionType:value:
+setFaceDetected:
 beginPresentationTransition
 endPresentationTransition
 beginSpeakingForClient:
@@ -5720,7 +5800,22 @@ averagePower
 _updateActiveAccount:
 setActiveAccountAndGenerateLightweightInfo:
 setUserAccountCountGenerateLightweightInfo:
-activationEvent
+isForEyesFree
+isForCarDND
+setIsForCarDND:
+isVoiceTriggerRequest
+setIsVoiceTriggerRequest:
+isConnectedToCarPlay
+setIsConnectedToCarPlay:
+isRequestMadeWithPhysicalDeviceInteraction
+setIsRequestMadeWithPhysicalDeviceInteraction:
+userTypedInSiri
+setUserTypedInSiri:
+getDeviceOrientation:
+setDeviceOrientation:
+initWithSuiteName:
+stringForKey:
+lowercaseString
 _mapInvocationSource:
 isForStark
 directActionEvent
@@ -5740,6 +5835,7 @@ beginMonitoringSiriAvailability
 effectiveCoreLocationBundle
 assistantConnectionRequestWillStart:
 assistantConnectionDismissAssistant:
+assistantConnection:dismissAssistantWithReason:
 assistantConnectionRequestFinished:
 assistantConnection:receivedCommand:completion:
 assistantConnection:requestFailedWithError:requestClass:
@@ -5815,6 +5911,7 @@ _sendContextBeforeContinuingSpeechRequest
 _settingsConnection
 _isDeviceInStarkMode
 _clientStateManager
+_modesConfiguration
 _thinkingIntervalID
 _eyesFree
 _isProcessingAcousticIdRequest
@@ -5887,7 +5984,6 @@ setSceneLoadingTimeOutDuration:
 setCancelSceneLoadingAfterTimeout:
 setSceneParameters:
 setInitialSafeAreaInsets:
-setDeactivationReasonMask:
 stringByAppendingFormat:
 copyWithZone:
 sceneParameters
@@ -6036,18 +6132,6 @@ _isCheckingGuideUpdate
 T@"NSNumber",R,N
 T@"SAGuidanceGuideSnippet",R,N
 T@"SAGuidanceSuggestedUtterances",R,N
-setUseAutomaticEndpointing:
-_updateState:
-initWithKeyOptions:valueOptions:capacity:
-removeObjectForKey:
-initWithRequestOptions:updateHandle:
-addTriggerTarget:action:
-removeTriggerTarget:
-options
-_options
-_observers
-T@"SASRequestOptions",R,N,V_options
-Tq,R,N,V_state
 clientSettingsClass
 transitionContextClass
 otherSettings
@@ -6079,6 +6163,7 @@ sruif_hasExternalDomainsForStringWithFormat:
 speakableProviderForObject:
 registerProvider:forNamespace:
 parseStringWithFormat:error:
+siriXDebugStatusEnabled
 animateUsingSpringWithStiffness:damping:animations:
 parsedUtteranceFromText:context:
 orbViewModeForSiriSessionState:
@@ -6169,7 +6254,6 @@ T@"NSMutableDictionary",&,N,G_tapToRadarParameters,V_tapToRadarParameters
 attachmentPaths
 T@"NSMutableArray",&,N,G_attachmentPaths,V_attachmentPaths
 T@"<AFUIBugReportingDelegate>",W,N,V_delegate
-initWithSuiteName:
 dataWithContentsOfURL:options:error:
 registerDefaults:
 URLForResource:withExtension:
@@ -6177,7 +6261,6 @@ initWithDefaultsAtURL:
 integerForKey:
 doubleForKey:
 boolForKey:
-stringForKey:
 preferences:didChangeValueForKey:
 setInteger:forKey:
 _mutateValueForKey:block:
@@ -6271,6 +6354,7 @@ _performDelayedActionCommandTimerAction:
 scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
 delayedActionAceId
 _invalidateDelayedActionTimer:withKey:
+removeObjectForKey:
 userInfo
 _performCommandsWithDelayedActionCommand:
 allKeys
@@ -6623,6 +6707,7 @@ _uiPresentationIdentifier
 siriViewControllerSpeechRequestStartedFromSiriOrb
 _informRemoteViewControllerOfOrbViewTapToCancelRequest
 siriViewControllerSpeechRequestCancelledFromSiriOrb
+initWithRequestOptions:updateHandle:
 startRequestWithActivationTrigger:
 handlePasscodeUnlockAndCancelRequest:withCompletion:
 requiresUserInteraction
@@ -6659,17 +6744,24 @@ setInitialBringUp:
 _delayForHoldToTalkStopRequestsWithSource:
 _stopRequestWithOptions:afterDelay:
 _transitionToAutomaticEndpointMode
+isATVRemotePTTEligible
+_transitionToManualEndpointMode
 siriViewControllerShouldSupportTextInput:
+isTVPushToTalkEnabled
 _recordingStartedTimeValue
 _manualEndpointingThreshold
 _setInHoldToTalkMode:
+setUseAutomaticEndpointing:
 _exitHoldToTalkMode
+_enterHoldToTalkMode
 manualEndpointingThreshold
+removeTriggerTarget:
+options
 _holdToTalkTriggerDidReleaseFromSource:
 startRequestWithActivationTrigger:completion:
 _activationTriggerDidRelease:
+addTriggerTarget:action:
 inputAccessoryView
-_enterHoldToTalkMode
 siriViewControllerShouldEndSession:
 siriViewController:attemptUnlockWithPassword:
 assistantVersion
@@ -6682,6 +6774,7 @@ hasRoutesToPick
 _setShowAudioRoutePicker:
 bluetoothIsPicked
 _setAudioRoutePickerBluetoothOn:
+orientation
 bulletinsForSiriViewController:
 contextAppInfosForSiriViewController:
 currentCarPlaySupportedOEMAppsForSiriViewController:
@@ -6747,6 +6840,7 @@ setSiriRequestCancellationReason:
 didReceiveButtonUpWithRequestOptions:
 handleViewFullyRevealed
 shortTapActionWithRequestOptions:
+tvRemoteSentButtonDownWhileListening
 _recordingStartedOnRoute
 _setRecordingStartedOnRoute:
 emitUIStateTransitionForSiriDismissalWithReason:
@@ -7144,6 +7238,7 @@ constraintEqualToConstant:
 heightAnchor
 centerYAnchor
 orbViewRectInCarplayView
+siriXIndicatorView
 _orbContainerView
 _siriXIndicatorView
 B24@0:8@16
@@ -7270,7 +7365,6 @@ v24@0:8@"SASSpeechPartialResult"16
 v32@0:8@"AFSpeechInterpretation"16@"NSString"24
 v40@0:8@"NSArray"16@"NSArray"24@"NSString"32
 v32@0:8@"SAUIAddViews"16@?<v@?@"AceObject<SAAceCommand>">24
-v32@0:8@"SAUIAddDialogs"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIOpenLink"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIClearScreen"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAPhonePlayVoiceMail"16@?<v@?@"AceObject<SAAceCommand>">24
@@ -7300,6 +7394,8 @@ v32@0:8@"SAVCSPlayContent"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUILaunchTVRemote"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIExtendCurrentTTS"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIPaginateList"16@?<v@?@"AceObject<SAAceCommand>">24
+v32@0:8@"SAUIVisualResponseShowNextSnippet"16@?<v@?@"AceObject<SAAceCommand>">24
+v32@0:8@"SAUIUpdateVisualResponseSnippet"16@?<v@?@"AceObject<SAAceCommand>">24
 v32@0:8@"SAUIRevealRecognizedSpeech"16@?<v@?@"AceObject<SAAceCommand>">24
 v24@0:8@"AceObject<SAAceCommand>"16
 v32@0:8@"AFBulletin"16@?<v@?Q>24
@@ -7331,6 +7427,7 @@ v28@0:8@16I24
 v36@0:8@16B24@28
 v48@0:8@16q24@32@?40
 v24@0:8@"AFConnection"16
+v32@0:8@"AFConnection"16q24
 v40@0:8@"AFConnection"16@"AceObject<SAAceCommand>"24@?<v@?@"AceObject<SAAceCommand>">32
 v40@0:8@"AFConnection"16@"NSError"24@"NSString"32
 v40@0:8@"AFConnection"16@"NSURL"24@?<v@?B>32
@@ -7349,7 +7446,6 @@ v32@0:8@"AFConnection"16@"AFAudioPlaybackRequest"24
 v40@0:8@"AFConnection"16@"AFAudioPlaybackRequest"24@"NSError"32
 v32@0:8@"AFConnection"16Q24
 v48@0:8@"AFConnection"16q24@"INIntent"32@?<v@?BB>40
-v32@0:8@"AFConnection"16q24
 v36@0:8@16@24I32
 v40@0:8@16q24@?32
 v32@0:8@"AFConnection"16@"AFXPCWrapper"24
@@ -7366,6 +7462,8 @@ v40@0:8@"SRUIFStateMachine"16q24q32
 @"NSString"32@0:8@"SRUIFStateMachine"16q24
 @?24@0:8@?16
 v36@0:8@16B24@?28
+v28@0:8Q16B24
+v36@0:8@16Q24B32
 v40@0:8@16@24d32
 f16@0:8
 i24@0:8q16
@@ -7377,6 +7475,7 @@ v40@0:8@16q24@32
 @"NSMutableSet"
 @"AFConnection"
 @"AFSiriClientStateManager"
+@"AFModesConfiguration"
 @"<AFUISiriSessionDelegate>"
 @"<AFUISiriSessionLocalDataSource>"
 @"<AFUISiriSessionLocalDelegate>"
@@ -7407,10 +7506,6 @@ v32@0:8@"UIImage"16@"NSString"24
 @"NSMutableDictionary"
 B32@0:8@16@24
 @"SAGuidanceGuideUpdate"
-@32@0:8@16^@?24
-v32@0:8@16:24
-@"SASRequestOptions"
-@"NSMapTable"
 I16@0:8
 @56@0:8{CGRect={CGPoint=dd}{CGSize=dd}}16q48
 @"SiriUIBackgroundBlurView"
@@ -7455,6 +7550,7 @@ v28@0:8B16q20
 q32@0:8q16q24
 @"<AFUIDisambiguationAnalyticsManagerDataSource>"
 @"<AFDisambiguationAssistance>"
+@"SASRequestOptions"
 v28@0:8@"AVAudioPlayer"16B24
 v32@0:8@"AVAudioPlayer"16@"NSError"24
 v24@0:8@"AVAudioPlayer"16
@@ -7498,9 +7594,9 @@ v32@0:8@"AFUISiriCompactView"16d24
 v28@0:8@"AFUISiriCompactView"16B24
 v28@0:8@"SiriUIAudioRoutePickerController"16B24
 v24@0:8@"SiriUIAudioRoutePickerController"16
+q24@0:8@"AFUISiriSession"16
 @"NSArray"24@0:8@"AFUISiriSession"16
 Q24@0:8@"AFUISiriSession"16
-q24@0:8@"AFUISiriSession"16
 v32@0:8@"AFUISiriSession"16q24
 v36@0:8@"AFUISiriSession"16B24@?<v@?q>28
 v32@0:8@"AFUISiriSession"16@?<v@?q>24

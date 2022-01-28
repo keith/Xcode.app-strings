@@ -106,6 +106,8 @@ sharingContactRankerModelSuggestionProxies
 knnSuggestionBasedOnInteractionsProxies
 otherPhotoSuggestionProxies
 backFillProxies
+messagesRecencyProxies
+shareSheetRecencyProxies
 null
 com.apple.PeopleSuggester.Config.Default
 plist
@@ -117,6 +119,7 @@ _PSAllowNonSupportedBundleIDs
 (mechanism == %@)
 (bundleId IN %@)
 B16@?0@"_CDInteraction"8
+(mechanism IN %@)
 (targetBundleId IN %@)
 com.apple.PeopleSuggester.ContactMonitor
 _PSReturnRecentNonSystemSuggestions
@@ -124,11 +127,12 @@ _PSExpanseSessionModel
 v24@?0@"PPTopicRecord"8^B16
 Portrait topic based contact suggestion
 personId == %@
+@"_CDContact"16@?0@"_CDContact"8
+identifier
 ((direction IN %@) && (mechanism == %@) && (bundleId == %@) && (domainIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (targetBundleId == %@) && (domainIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (bundleId == %@) && (derivedIntentIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (targetBundleId == %@) && (derivedIntentIdentifier == %@))
-identifier
 PeopleSuggester
 zkw_v2
 PastMessages
@@ -203,6 +207,13 @@ com.apple.mobilesms.compose
 Person in photo suggestions heuristic (asset presence)
 In-call heuristic
 In-expanse session heuristic
+com.apple.coreduetd
+com.apple.knowledge-agent
+com.apple.telephonyutilities.callservicesd
+com.apple.InCallService.RemotePeoplePicker
+com.apple.FaceTime.RemotePeoplePicker
+TUBundleIdentifierCallServicesDaemon
+/System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities
 %@ %@
 sessionId
 shareEvents
@@ -423,7 +434,6 @@ CNContactPreviousFamilyNameKey
 CNContactNameSuffixKey
 CNContactTypeKey
 (startDate > %@)
-(mechanism IN %@)
 direction IN %@ && mechanism IN %@
 mechanism == %@
 (startDate < %@)
@@ -458,11 +468,16 @@ self->_embeddingsBeforeActivation != nil
 self->_embeddingsAfterActivation != nil
 nil != self->_contactId
 _PSHeuristicsRecencyMargin
+_PSHeuristicsBackfillLimit
+_PSHeuristicsMessagesRecencyLimit
+_PSHeuristicsShareSheetRecencyLimit
 (targetBundleId IN %@) AND (mechanism == %@)
 (mechanism IN %@) AND (recipients.@count == 1) AND SUBQUERY(recipients, $recipient, $recipient.personId != nil).@count > 0
 Recent Non-System
 Overlapping seed recipients group
-Recency Backfill
+Backfill
+Messages Recency
+ShareSheet Recency
 q24@?0@"_PSClusterPoint"8@"_PSClusterPoint"16
 Points, convex hulls:<%@ %@>
 <%@ %@>
@@ -698,7 +713,8 @@ _PSKnnModelRecencyMarginToRetainShares
 _PSKnnTopKGroupActivities
 _PSKnnModelRecencyMarginToRetainGroupActivities
 _PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
-_PSKnnModelMinimumOccuranceRegularizer
+_PSKnnModelShareSheetMinimumOccurenceRegularizer
+_PSKnnModelSharePlayMinimumOccurenceRegularizer
 _PSInteractionModelInUse
 conversationId
 %K ==[c] %@
@@ -711,10 +727,10 @@ v32@?0@"NSString"8Q16^B24
 bundleId == %@
 bundleId
 displayName CONTAINS[cd] %@
+expanseRecipients
 displayName BEGINSWITH[cd] %@
 @max.floatValue
 sourceBundleId
-expanseRecipients
 count
 interaction
 description
@@ -882,6 +898,7 @@ attachments
 appBundleIdsToShareExtensionBundleIdsMapping
 photoSuggestedPeople
 showPotentialFamilyMembers
+isSharePlayAvailable
 searchPrefix
 <%@ %p> chatGuid: %@
 _PSSharingContactRankerMLModelInUse
@@ -937,6 +954,19 @@ calculatedPositiveSampleWeight
 Training
 /sharesheet/behavioralRuleFeatures
 _DKBehavioralRuleFeaturesMetadataKey-featureDict
+v32@?0@"NSString"8@16^B24
+engagementRate
+engagementRate_NumPositiveSamples
+engagementRate_NumSamples
+binaryAccuracy
+binaryAccuracy_NumPositiveSamples
+binaryAccuracy_NumSamples
+binaryAccuracyClass1
+binaryAccuracyClass1_NumPositiveSamples
+binaryAccuracyClass1_NumSamples
+binaryAccuracyClass0
+binaryAccuracyClass0_NumPositiveSamples
+binaryAccuracyClass0_NumSamples
 v32@?0@"NSString"8@"NSObject"16^B24
 MLRTaskResult
 /System/Library/PrivateFrameworks/MLRuntime.framework/MLRuntime
@@ -1066,7 +1096,7 @@ Prediction - kNN based on expanse sessions, all.
 _PSShareSheetPeopleKnnSuggestionsWithExpanseSessions
 Prediction - ContactRankerModel
 _PSShareSheetPeopleContactRankerModelSuggestions
-Prediction - Backfill
+Prediction - %@
 Prediction Context - Start to re-order
 Process Proxy: %@
 Error fetching SuggestLess Share Sheet events from Knowledge Store: %@
@@ -1087,6 +1117,7 @@ Error saving feedback event to knowledge store: %@
 _PSShareSheetAppSuggestionsTotalTime
 _PSCNAutocompleteFeedback: ERROR unarchiving Biome event: %@
 _PSCNAutocompleteFeedback: ERROR serializing Biome event: %@
+Failed to open framework /System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities
 sortedScoredModelArray: %@
 Error creating Biome storage directory: %@
 Duet: Share Sheet Suggestions
@@ -1411,6 +1442,15 @@ Got nil return from processDataForStore:taskParameters:
 Failed to get data source with error: %@
 No model file specified for key 'ModelFileName' in Trial attachment
 modelURLs had a length not equal to 1: %lu
+Failed to run evaluateWithModelURL with error: %@
+Failed to run evaluateMetricsWithModelURL
+Failed to compile model with error
+Failed to load model
+Loaded model from %@
+Using prediction label name: %@
+Amount of data for evaluation: %ld
+ML model load to predict with error
+Amount of predictions, %ld
 Failed to open framework /System/Library/PrivateFrameworks/MLRuntime.framework/MLRuntime
 Failed to open framework /System/Library/PrivateFrameworks/CoreDuet.framework/CoreDuet
 _PSUnarchiver: unable to close archive_read - %{public}s.
@@ -1564,6 +1604,7 @@ _PSMessagesPinningSuggestion
 _PSSharingContactRankerModel
 CAPContactFillerUserEvent
 _PSInteractionStoreUtils
+evaluatedRule
 LighthouseShareSheetPFLTraining
 ContactEmbeddingAnalysisPETNeuralNetEmbedding
 _PSBehaviorRuleFeatureExtraction
@@ -2054,6 +2095,11 @@ loadAdaptableModelConfig:
 reasonType
 reason
 trialID
+mainBundle
+bundleIdentifier
+mobileCoreDuetBundleId
+macKnowledgeAgentBundleId
+allowConcurrentReads
 setReadConcurrently:
 initWithSuiteName:
 peopleSuggesterDefaults
@@ -2110,6 +2156,8 @@ showPotentialFamilyMembers
 attachments
 familyPredictionsWithMaxSuggestions:
 predictWithPredictionContext:maxSuggestions:contactKeysToFetch:
+isSharePlayAvailable
+sharePlayBundleId
 recentNonSystemSuggestionsForBundleIDs:numberOfSuggestion:
 suggestionPurpose
 suggestionDate
@@ -2145,8 +2193,9 @@ suggestionProxiesBasedOnNonSharingInteractionsWithPredictionContext:
 suggestionProxiesBasedOnExpanseInteractionsWithPredictionContext:withOnlyTopCandidates:withFilterOutNonMatchingSourceBundleIDs:
 behaviorRulesConsideringInTheContext
 suggestionProxiesWithPredictionContext:supportedBundleIDs:behaviorRulesConsideringInTheContext:interactionModelSuggestions:ruleRankingMLModelScores:
+PSHeuristicsRecencyReasonToString:
 interactions
-backFillProxiesByRecencyUsingInteractions:startIndex:
+proxiesByRecencyUsingInteractions:startIndex:reason:allowNonSupportedBundleIDs:
 PSConfidenceModelInUse
 getConfidenceRankedModelKeysGivenKeysToSort:
 arrayWithArray:
@@ -2177,6 +2226,10 @@ derivedIntentIdentifier
 templateForPhoneCallHeuristicWithContactId:handle:reason:
 templateForPhoneCallHeuristicWithHandles:reason:
 compare:options:
+normalizedStringFromContactString:
+setIdentifier:
+_pas_mappedArrayWithTransform:
+setContentURL:
 orPredicateWithSubpredicates:
 queryInteractionsUsingPredicate:sortDescriptors:limit:offset:error:
 type
@@ -2209,9 +2262,11 @@ rankedMapsShareEtaSuggestions:maxSuggestions:
 mapsShareEtaDefaultKnnSuggestions:maxSuggestions:
 mapsSuggestionArrayWithArray:appendingUniqueElementsFromArray:contactResolver:meContactId:
 arrayByAddingObjectsFromArray:
-setIdentifier:
 setContact:
 allEmailAndPhoneNumberHandlesForContact:
+mobileSharePlayPeoplePickerBundleId
+setBundleID:
+macSharePlayPeoplePickerBundleId
 setWithObject:
 numberWithInt:
 initWithInteractionMechanisms:interactionCountMaxDepths:interactionHistoryRelativeStartDates:bundleIds:modelType:clusterPruneThreshold:modelName:
@@ -2310,7 +2365,6 @@ typedHandle
 viaContactPicker
 erasedHandle
 reportTime
-bundleIdentifier
 isImplicit
 encodeInt32:forKey:
 encodeBool:forKey:
@@ -3153,6 +3207,7 @@ dictionaryWithContentsOfFile:
 prepareRecencyCacheWithSupportedBundleIds:
 setRecencyMargin:
 recencyMargin
+setRecencyHeuristicLimitNumberOfProxiesByReason:
 evaluateWithObject:
 setRecencyCache:
 minusSet:
@@ -3162,12 +3217,15 @@ partitionPeopleSuggestionProxiesFromPhotosByAssetPresenceInAttachments:photoSugg
 conversationIdWithMaximalIntersectionWithContactIdentifiers:store:bundleIds:meContactIdentifier:
 UUID
 UUIDString
+recencyHeuristicLimitNumberOfProxiesByReason
 proximityBoostingHeuristicWithProximityBooster:existingSuggestions:
 recencyCache
 _recencyCache
 _recencyMargin
+_recencyHeuristicLimitNumberOfProxiesByReason
 T@"_CDInteractionCache",&,N,V_recencyCache
 Td,N,V_recencyMargin
+T@"NSDictionary",&,N,V_recencyHeuristicLimitNumberOfProxiesByReason
 T@"<_DKKnowledgeQuerying>",R,N,V_knowledgeStore
 T@"_PSContactResolver",R,N,V_contactResolver
 T@"_CDInteractionCache",R,N,V_messageInteractionCache
@@ -3238,7 +3296,6 @@ T@"_PSMapsFeedbackAction",R,N,V_action
 T@"_PSMapsPredictionContext",R,N,V_context
 T@"NSArray",R,N,V_suggestions
 TQ,R,N
-setBundleID:
 setNavigationStartLocationId:
 setNavigationEndLocationId:
 _bundleID
@@ -3511,9 +3568,7 @@ _pas_filteredArrayWithTest:
 someInteractionWithMatchingIdentifier:store:bundleIds:afterStartDate:
 sharedInstance
 getContactForHandle:handleType:
-normalizedStringFromContactString:
 stringFromContact:
-_pas_mappedArrayWithTransform:
 suggestionFromContactPriors:priorScoreThreshold:bundleID:reason:
 isAllDay
 status
@@ -3807,7 +3862,12 @@ set_PSKnnModelRecencyMarginToRetainShares:
 set_PSKnnTopKGroupActivities:
 set_PSKnnModelRecencyMarginToRetainGroupActivities:
 set_PSKnnModelGroupActivitiesMinimumOccuranceRegularizer:
-set_PSKnnModelSharesMinimumOccuranceRegularizer:
+set_PSKnnModelShareSheetMinimumOccurenceRegularizer:
+_PSKnnModelShareSheetMinimumOccurenceRegularizer
+set_PSKnnModelSharePlayMinimumOccurenceRegularizer:
+_PSKnnModelSharePlayMinimumOccurenceRegularizer
+initWithDictionary:copyItems:
+set_PSKnnModelMinimumOccurenceOfInteractionByMechanism:
 set_PSInteractionModelInUse:
 featureVectorFromPredictionDate:bundleId:
 interactionsMatchingAnyHandles:account:directions:mechanisms:bundleIds:store:fetchLimit:messageInteractionCache:
@@ -3837,8 +3897,8 @@ lowercaseString
 hasPrefix:
 interactionsFromStore:referenceDate:withMechanisms:withAccount:withBundleIds:withTargetBundleIds:withDirections:fetchLimit:
 initWithBundleID:conversationIdentifier:groupName:recipients:reason:reasonType:score:
-_PSKnnModelSharesMinimumOccuranceRegularizer
-filterShareInteractions:minimumOccurences:contextBundleId:filterOutNonMatchingSourceBundleIDs:
+_PSKnnModelMinimumOccurenceOfInteractionByMechanism
+filterShareInteractions:minimumOccurencesByMechanism:contextBundleId:filterOutNonMatchingSourceBundleIDs:
 neighborsFromTrainingData:k:queryPoint:
 extractNearestNeighborLabelsForQueryResult:andNeighbors:frequencyOnly:rankerType:contactsOnly:
 splitShareLabels:suggestionDate:contextBundleId:
@@ -3880,20 +3940,24 @@ __PSKnnMessagesZkwTopNFilter
 __PSKnnModelRecencyMarginToPromoteShares
 __PSKnnModelRecencyMarginToPromoteSharesMatchingBundleId
 __PSKnnModelRecencyMarginToRetainShares
-__PSKnnModelSharesMinimumOccuranceRegularizer
+__PSKnnModelShareSheetMinimumOccurenceRegularizer
+__PSKnnModelSharePlayMinimumOccurenceRegularizer
 __PSKnnTopKGroupActivities
 __PSKnnModelRecencyMarginToRetainGroupActivities
 __PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
+__PSKnnModelMinimumOccurenceOfInteractionByMechanism
 TQ,N,V__PSKnnTopKShares
 TQ,N,V__PSKnnMessagesZkwTopNFilter
 TQ,N,V__PSKnnModelRecencyMarginToPromoteShares
 TQ,N,V__PSKnnModelRecencyMarginToPromoteSharesMatchingBundleId
 TQ,N,V__PSKnnModelRecencyMarginToRetainShares
-TQ,N,V__PSKnnModelSharesMinimumOccuranceRegularizer
+TQ,N,V__PSKnnModelShareSheetMinimumOccurenceRegularizer
+TQ,N,V__PSKnnModelSharePlayMinimumOccurenceRegularizer
 TQ,N,V__PSKnnTopKGroupActivities
 TQ,N,V__PSKnnModelRecencyMarginToRetainGroupActivities
 TQ,N,V__PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
 TB,N,V__PSInteractionModelInUse
+T@"NSDictionary",&,N,V__PSKnnModelMinimumOccurenceOfInteractionByMechanism
 TQ,R,N,V_k
 T@"NSArray",R,N,V_filterBundleIds
 engagementWithNonSuggestionWithEngagementIdentifier:
@@ -4486,7 +4550,6 @@ _interactionMechanism
 T@"NSString",C,N,V_appBundleId
 T@"NSNumber",C,N,V_interactionMechanism
 initWithIdentifier:bundleIdentifier:context:
-mainBundle
 discoverabilitySignalsStream
 setContext:
 T@"NSString",C,N,V_bundleIdentifier
@@ -4511,9 +4574,11 @@ setCandidateShareExtensionBundleIds:
 setAppBundleIdsToShareExtensionBundleIdsMapping:
 setAttachments:
 setShowPotentialFamilyMembers:
+setIsSharePlayAvailable:
 setSuggestionPurpose:
 setSearchPrefix:
 _showPotentialFamilyMembers
+_isSharePlayAvailable
 _locationUUID
 _locationUUIDs
 _locationType
@@ -4536,6 +4601,7 @@ T@"NSDictionary",C,N,V_appBundleIdsToShareExtensionBundleIdsMapping
 T@"NSArray",&,N,V_attachments
 T@"NSArray",C,N,V_photoSuggestedPeople
 TB,N,V_showPotentialFamilyMembers
+TB,N,V_isSharePlayAvailable
 Tq,V_suggestionPurpose
 initWithChatGuid:
 T@"NSString",R,N,V_chatGuid
@@ -4600,6 +4666,9 @@ createDataSourceForRecipe:error:
 stringValueForKey:defaultValue:
 attachmentURLsForBasename:
 positiveSampleWeight
+processDataForMetricEvaluationForStore:
+evaluateMetricsWithModelURL:
+createMLFeatureProviderArrayFromSingleShareEventData:
 taskResultFromDict:
 runTask:knowledgeStore:error:
 _positiveSampleWeight
@@ -4795,6 +4864,7 @@ v20@0:8f16
 B40@0:8@16@24i32i36
 @"ContactEmbeddingAnalysisPETNeuralNetEmbedding"
 @56@0:8@16@24@32@40@48
+@44@0:8@16Q24q32B40
 @"<_DKKnowledgeQuerying>"
 q40@0:8@16@24@32
 @40@0:8@16@24q32
@@ -4827,7 +4897,6 @@ v48@0:8@16@24q32q40
 @52@0:8@16Q24B32@36@44
 @32@0:8@16B24B28
 @48@0:8@16@24q32B40B44
-@44@0:8@16Q24@32B40
 @36@0:8Q16@24B32
 @48@0:8@16@24B32q36B44
 @44@0:8@16@24B32B36B40
@@ -4910,7 +4979,10 @@ v32@0:8^f16Q24
 i20@0:8i16
 @(#)PROGRAM:PeopleSuggester  PROJECT:PeopleSuggester-1
 @333333
-@ffffff
+)7ESa
+ffffff
+!$'*,
+!$'*
 InteractionModelClusters/
 MM-dd-yyyy
 .archive
@@ -5016,6 +5088,8 @@ sharingContactRankerModelSuggestionProxies
 knnSuggestionBasedOnInteractionsProxies
 otherPhotoSuggestionProxies
 backFillProxies
+messagesRecencyProxies
+shareSheetRecencyProxies
 null
 com.apple.PeopleSuggester.Config.Default
 plist
@@ -5027,6 +5101,7 @@ _PSAllowNonSupportedBundleIDs
 (mechanism == %@)
 (bundleId IN %@)
 B16@?0@"_CDInteraction"8
+(mechanism IN %@)
 (targetBundleId IN %@)
 com.apple.PeopleSuggester.ContactMonitor
 _PSReturnRecentNonSystemSuggestions
@@ -5034,11 +5109,12 @@ _PSExpanseSessionModel
 v24@?0@"PPTopicRecord"8^B16
 Portrait topic based contact suggestion
 personId == %@
+@"_CDContact"16@?0@"_CDContact"8
+identifier
 ((direction IN %@) && (mechanism == %@) && (bundleId == %@) && (domainIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (targetBundleId == %@) && (domainIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (bundleId == %@) && (derivedIntentIdentifier == %@))
 ((direction IN %@) && (mechanism == %@) && (targetBundleId == %@) && (derivedIntentIdentifier == %@))
-identifier
 PeopleSuggester
 zkw_v2
 PastMessages
@@ -5113,6 +5189,13 @@ com.apple.mobilesms.compose
 Person in photo suggestions heuristic (asset presence)
 In-call heuristic
 In-expanse session heuristic
+com.apple.coreduetd
+com.apple.knowledge-agent
+com.apple.telephonyutilities.callservicesd
+com.apple.InCallService.RemotePeoplePicker
+com.apple.FaceTime.RemotePeoplePicker
+TUBundleIdentifierCallServicesDaemon
+/System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities
 %@ %@
 sessionId
 shareEvents
@@ -5333,7 +5416,6 @@ CNContactPreviousFamilyNameKey
 CNContactNameSuffixKey
 CNContactTypeKey
 (startDate > %@)
-(mechanism IN %@)
 direction IN %@ && mechanism IN %@
 mechanism == %@
 (startDate < %@)
@@ -5368,11 +5450,16 @@ self->_embeddingsBeforeActivation != nil
 self->_embeddingsAfterActivation != nil
 nil != self->_contactId
 _PSHeuristicsRecencyMargin
+_PSHeuristicsBackfillLimit
+_PSHeuristicsMessagesRecencyLimit
+_PSHeuristicsShareSheetRecencyLimit
 (targetBundleId IN %@) AND (mechanism == %@)
 (mechanism IN %@) AND (recipients.@count == 1) AND SUBQUERY(recipients, $recipient, $recipient.personId != nil).@count > 0
 Recent Non-System
 Overlapping seed recipients group
-Recency Backfill
+Backfill
+Messages Recency
+ShareSheet Recency
 q24@?0@"_PSClusterPoint"8@"_PSClusterPoint"16
 Points, convex hulls:<%@ %@>
 <%@ %@>
@@ -5608,7 +5695,8 @@ _PSKnnModelRecencyMarginToRetainShares
 _PSKnnTopKGroupActivities
 _PSKnnModelRecencyMarginToRetainGroupActivities
 _PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
-_PSKnnModelMinimumOccuranceRegularizer
+_PSKnnModelShareSheetMinimumOccurenceRegularizer
+_PSKnnModelSharePlayMinimumOccurenceRegularizer
 _PSInteractionModelInUse
 conversationId
 %K ==[c] %@
@@ -5621,10 +5709,10 @@ v32@?0@"NSString"8Q16^B24
 bundleId == %@
 bundleId
 displayName CONTAINS[cd] %@
+expanseRecipients
 displayName BEGINSWITH[cd] %@
 @max.floatValue
 sourceBundleId
-expanseRecipients
 count
 interaction
 description
@@ -5792,6 +5880,7 @@ attachments
 appBundleIdsToShareExtensionBundleIdsMapping
 photoSuggestedPeople
 showPotentialFamilyMembers
+isSharePlayAvailable
 searchPrefix
 <%@ %p> chatGuid: %@
 _PSSharingContactRankerMLModelInUse
@@ -5847,6 +5936,19 @@ calculatedPositiveSampleWeight
 Training
 /sharesheet/behavioralRuleFeatures
 _DKBehavioralRuleFeaturesMetadataKey-featureDict
+v32@?0@"NSString"8@16^B24
+engagementRate
+engagementRate_NumPositiveSamples
+engagementRate_NumSamples
+binaryAccuracy
+binaryAccuracy_NumPositiveSamples
+binaryAccuracy_NumSamples
+binaryAccuracyClass1
+binaryAccuracyClass1_NumPositiveSamples
+binaryAccuracyClass1_NumSamples
+binaryAccuracyClass0
+binaryAccuracyClass0_NumPositiveSamples
+binaryAccuracyClass0_NumSamples
 v32@?0@"NSString"8@"NSObject"16^B24
 MLRTaskResult
 /System/Library/PrivateFrameworks/MLRuntime.framework/MLRuntime
@@ -5976,7 +6078,7 @@ Prediction - kNN based on expanse sessions, all.
 _PSShareSheetPeopleKnnSuggestionsWithExpanseSessions
 Prediction - ContactRankerModel
 _PSShareSheetPeopleContactRankerModelSuggestions
-Prediction - Backfill
+Prediction - %@
 Prediction Context - Start to re-order
 Process Proxy: %@
 Error fetching SuggestLess Share Sheet events from Knowledge Store: %@
@@ -5997,6 +6099,7 @@ Error saving feedback event to knowledge store: %@
 _PSShareSheetAppSuggestionsTotalTime
 _PSCNAutocompleteFeedback: ERROR unarchiving Biome event: %@
 _PSCNAutocompleteFeedback: ERROR serializing Biome event: %@
+Failed to open framework /System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities
 sortedScoredModelArray: %@
 Error creating Biome storage directory: %@
 Duet: Share Sheet Suggestions
@@ -6321,6 +6424,15 @@ Got nil return from processDataForStore:taskParameters:
 Failed to get data source with error: %@
 No model file specified for key 'ModelFileName' in Trial attachment
 modelURLs had a length not equal to 1: %lu
+Failed to run evaluateWithModelURL with error: %@
+Failed to run evaluateMetricsWithModelURL
+Failed to compile model with error
+Failed to load model
+Loaded model from %@
+Using prediction label name: %@
+Amount of data for evaluation: %ld
+ML model load to predict with error
+Amount of predictions, %ld
 Failed to open framework /System/Library/PrivateFrameworks/MLRuntime.framework/MLRuntime
 Failed to open framework /System/Library/PrivateFrameworks/CoreDuet.framework/CoreDuet
 _PSUnarchiver: unable to close archive_read - %{public}s.
@@ -6463,6 +6575,7 @@ _PSMessagesPinningSuggestion
 _PSSharingContactRankerModel
 CAPContactFillerUserEvent
 _PSInteractionStoreUtils
+evaluatedRule
 LighthouseShareSheetPFLTraining
 ContactEmbeddingAnalysisPETNeuralNetEmbedding
 _PSBehaviorRuleFeatureExtraction
@@ -6953,6 +7066,11 @@ loadAdaptableModelConfig:
 reasonType
 reason
 trialID
+mainBundle
+bundleIdentifier
+mobileCoreDuetBundleId
+macKnowledgeAgentBundleId
+allowConcurrentReads
 setReadConcurrently:
 initWithSuiteName:
 peopleSuggesterDefaults
@@ -7009,6 +7127,8 @@ showPotentialFamilyMembers
 attachments
 familyPredictionsWithMaxSuggestions:
 predictWithPredictionContext:maxSuggestions:contactKeysToFetch:
+isSharePlayAvailable
+sharePlayBundleId
 recentNonSystemSuggestionsForBundleIDs:numberOfSuggestion:
 suggestionPurpose
 suggestionDate
@@ -7044,8 +7164,9 @@ suggestionProxiesBasedOnNonSharingInteractionsWithPredictionContext:
 suggestionProxiesBasedOnExpanseInteractionsWithPredictionContext:withOnlyTopCandidates:withFilterOutNonMatchingSourceBundleIDs:
 behaviorRulesConsideringInTheContext
 suggestionProxiesWithPredictionContext:supportedBundleIDs:behaviorRulesConsideringInTheContext:interactionModelSuggestions:ruleRankingMLModelScores:
+PSHeuristicsRecencyReasonToString:
 interactions
-backFillProxiesByRecencyUsingInteractions:startIndex:
+proxiesByRecencyUsingInteractions:startIndex:reason:allowNonSupportedBundleIDs:
 PSConfidenceModelInUse
 getConfidenceRankedModelKeysGivenKeysToSort:
 arrayWithArray:
@@ -7076,6 +7197,10 @@ derivedIntentIdentifier
 templateForPhoneCallHeuristicWithContactId:handle:reason:
 templateForPhoneCallHeuristicWithHandles:reason:
 compare:options:
+normalizedStringFromContactString:
+setIdentifier:
+_pas_mappedArrayWithTransform:
+setContentURL:
 orPredicateWithSubpredicates:
 queryInteractionsUsingPredicate:sortDescriptors:limit:offset:error:
 type
@@ -7108,9 +7233,11 @@ rankedMapsShareEtaSuggestions:maxSuggestions:
 mapsShareEtaDefaultKnnSuggestions:maxSuggestions:
 mapsSuggestionArrayWithArray:appendingUniqueElementsFromArray:contactResolver:meContactId:
 arrayByAddingObjectsFromArray:
-setIdentifier:
 setContact:
 allEmailAndPhoneNumberHandlesForContact:
+mobileSharePlayPeoplePickerBundleId
+setBundleID:
+macSharePlayPeoplePickerBundleId
 setWithObject:
 numberWithInt:
 initWithInteractionMechanisms:interactionCountMaxDepths:interactionHistoryRelativeStartDates:bundleIds:modelType:clusterPruneThreshold:modelName:
@@ -7209,7 +7336,6 @@ typedHandle
 viaContactPicker
 erasedHandle
 reportTime
-bundleIdentifier
 isImplicit
 encodeInt32:forKey:
 encodeBool:forKey:
@@ -8052,6 +8178,7 @@ dictionaryWithContentsOfFile:
 prepareRecencyCacheWithSupportedBundleIds:
 setRecencyMargin:
 recencyMargin
+setRecencyHeuristicLimitNumberOfProxiesByReason:
 evaluateWithObject:
 setRecencyCache:
 minusSet:
@@ -8061,12 +8188,15 @@ partitionPeopleSuggestionProxiesFromPhotosByAssetPresenceInAttachments:photoSugg
 conversationIdWithMaximalIntersectionWithContactIdentifiers:store:bundleIds:meContactIdentifier:
 UUID
 UUIDString
+recencyHeuristicLimitNumberOfProxiesByReason
 proximityBoostingHeuristicWithProximityBooster:existingSuggestions:
 recencyCache
 _recencyCache
 _recencyMargin
+_recencyHeuristicLimitNumberOfProxiesByReason
 T@"_CDInteractionCache",&,N,V_recencyCache
 Td,N,V_recencyMargin
+T@"NSDictionary",&,N,V_recencyHeuristicLimitNumberOfProxiesByReason
 T@"<_DKKnowledgeQuerying>",R,N,V_knowledgeStore
 T@"_PSContactResolver",R,N,V_contactResolver
 T@"_CDInteractionCache",R,N,V_messageInteractionCache
@@ -8137,7 +8267,6 @@ T@"_PSMapsFeedbackAction",R,N,V_action
 T@"_PSMapsPredictionContext",R,N,V_context
 T@"NSArray",R,N,V_suggestions
 TQ,R,N
-setBundleID:
 setNavigationStartLocationId:
 setNavigationEndLocationId:
 _bundleID
@@ -8410,9 +8539,7 @@ _pas_filteredArrayWithTest:
 someInteractionWithMatchingIdentifier:store:bundleIds:afterStartDate:
 sharedInstance
 getContactForHandle:handleType:
-normalizedStringFromContactString:
 stringFromContact:
-_pas_mappedArrayWithTransform:
 suggestionFromContactPriors:priorScoreThreshold:bundleID:reason:
 isAllDay
 status
@@ -8706,7 +8833,12 @@ set_PSKnnModelRecencyMarginToRetainShares:
 set_PSKnnTopKGroupActivities:
 set_PSKnnModelRecencyMarginToRetainGroupActivities:
 set_PSKnnModelGroupActivitiesMinimumOccuranceRegularizer:
-set_PSKnnModelSharesMinimumOccuranceRegularizer:
+set_PSKnnModelShareSheetMinimumOccurenceRegularizer:
+_PSKnnModelShareSheetMinimumOccurenceRegularizer
+set_PSKnnModelSharePlayMinimumOccurenceRegularizer:
+_PSKnnModelSharePlayMinimumOccurenceRegularizer
+initWithDictionary:copyItems:
+set_PSKnnModelMinimumOccurenceOfInteractionByMechanism:
 set_PSInteractionModelInUse:
 featureVectorFromPredictionDate:bundleId:
 interactionsMatchingAnyHandles:account:directions:mechanisms:bundleIds:store:fetchLimit:messageInteractionCache:
@@ -8736,8 +8868,8 @@ lowercaseString
 hasPrefix:
 interactionsFromStore:referenceDate:withMechanisms:withAccount:withBundleIds:withTargetBundleIds:withDirections:fetchLimit:
 initWithBundleID:conversationIdentifier:groupName:recipients:reason:reasonType:score:
-_PSKnnModelSharesMinimumOccuranceRegularizer
-filterShareInteractions:minimumOccurences:contextBundleId:filterOutNonMatchingSourceBundleIDs:
+_PSKnnModelMinimumOccurenceOfInteractionByMechanism
+filterShareInteractions:minimumOccurencesByMechanism:contextBundleId:filterOutNonMatchingSourceBundleIDs:
 neighborsFromTrainingData:k:queryPoint:
 extractNearestNeighborLabelsForQueryResult:andNeighbors:frequencyOnly:rankerType:contactsOnly:
 splitShareLabels:suggestionDate:contextBundleId:
@@ -8779,20 +8911,24 @@ __PSKnnMessagesZkwTopNFilter
 __PSKnnModelRecencyMarginToPromoteShares
 __PSKnnModelRecencyMarginToPromoteSharesMatchingBundleId
 __PSKnnModelRecencyMarginToRetainShares
-__PSKnnModelSharesMinimumOccuranceRegularizer
+__PSKnnModelShareSheetMinimumOccurenceRegularizer
+__PSKnnModelSharePlayMinimumOccurenceRegularizer
 __PSKnnTopKGroupActivities
 __PSKnnModelRecencyMarginToRetainGroupActivities
 __PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
+__PSKnnModelMinimumOccurenceOfInteractionByMechanism
 TQ,N,V__PSKnnTopKShares
 TQ,N,V__PSKnnMessagesZkwTopNFilter
 TQ,N,V__PSKnnModelRecencyMarginToPromoteShares
 TQ,N,V__PSKnnModelRecencyMarginToPromoteSharesMatchingBundleId
 TQ,N,V__PSKnnModelRecencyMarginToRetainShares
-TQ,N,V__PSKnnModelSharesMinimumOccuranceRegularizer
+TQ,N,V__PSKnnModelShareSheetMinimumOccurenceRegularizer
+TQ,N,V__PSKnnModelSharePlayMinimumOccurenceRegularizer
 TQ,N,V__PSKnnTopKGroupActivities
 TQ,N,V__PSKnnModelRecencyMarginToRetainGroupActivities
 TQ,N,V__PSKnnModelGroupActivitiesMinimumOccuranceRegularizer
 TB,N,V__PSInteractionModelInUse
+T@"NSDictionary",&,N,V__PSKnnModelMinimumOccurenceOfInteractionByMechanism
 TQ,R,N,V_k
 T@"NSArray",R,N,V_filterBundleIds
 engagementWithNonSuggestionWithEngagementIdentifier:
@@ -9385,7 +9521,6 @@ _interactionMechanism
 T@"NSString",C,N,V_appBundleId
 T@"NSNumber",C,N,V_interactionMechanism
 initWithIdentifier:bundleIdentifier:context:
-mainBundle
 discoverabilitySignalsStream
 setContext:
 T@"NSString",C,N,V_bundleIdentifier
@@ -9410,9 +9545,11 @@ setCandidateShareExtensionBundleIds:
 setAppBundleIdsToShareExtensionBundleIdsMapping:
 setAttachments:
 setShowPotentialFamilyMembers:
+setIsSharePlayAvailable:
 setSuggestionPurpose:
 setSearchPrefix:
 _showPotentialFamilyMembers
+_isSharePlayAvailable
 _locationUUID
 _locationUUIDs
 _locationType
@@ -9435,6 +9572,7 @@ T@"NSDictionary",C,N,V_appBundleIdsToShareExtensionBundleIdsMapping
 T@"NSArray",&,N,V_attachments
 T@"NSArray",C,N,V_photoSuggestedPeople
 TB,N,V_showPotentialFamilyMembers
+TB,N,V_isSharePlayAvailable
 Tq,V_suggestionPurpose
 initWithChatGuid:
 T@"NSString",R,N,V_chatGuid
@@ -9499,6 +9637,9 @@ createDataSourceForRecipe:error:
 stringValueForKey:defaultValue:
 attachmentURLsForBasename:
 positiveSampleWeight
+processDataForMetricEvaluationForStore:
+evaluateMetricsWithModelURL:
+createMLFeatureProviderArrayFromSingleShareEventData:
 taskResultFromDict:
 runTask:knowledgeStore:error:
 _positiveSampleWeight
@@ -9694,6 +9835,7 @@ v20@0:8f16
 B40@0:8@16@24i32i36
 @"ContactEmbeddingAnalysisPETNeuralNetEmbedding"
 @56@0:8@16@24@32@40@48
+@44@0:8@16Q24q32B40
 @"<_DKKnowledgeQuerying>"
 q40@0:8@16@24@32
 @40@0:8@16@24q32
@@ -9726,7 +9868,6 @@ v48@0:8@16@24q32q40
 @52@0:8@16Q24B32@36@44
 @32@0:8@16B24B28
 @48@0:8@16@24q32B40B44
-@44@0:8@16Q24@32B40
 @36@0:8Q16@24B32
 @48@0:8@16@24B32q36B44
 @44@0:8@16@24B32B36B40

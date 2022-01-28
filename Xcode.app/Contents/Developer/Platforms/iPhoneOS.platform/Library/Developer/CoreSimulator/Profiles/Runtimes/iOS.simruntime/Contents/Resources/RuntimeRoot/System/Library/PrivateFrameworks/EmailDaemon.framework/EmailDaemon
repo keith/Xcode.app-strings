@@ -378,7 +378,7 @@ forward_sent
 message_sent
 -[EDListUnsubscribeHandler ignoreWithCommand:completion:]
 EDListUnsubscribeHandler.m
--[EDListUnsubscribeHandler unsubscribeWithCommand:completion:]
+-[EDListUnsubscribeHandler unsubscribeMailtoWithCommand:completion:]
 local_message_actions
 action_messages
 action_labels
@@ -1780,6 +1780,8 @@ Modification of VIPs only supported when syncing is enabled
 B32@?0@"NSString"8@"EMVIP"16^B24
 v32@?0@"NSString"8@"NSDictionary"16^B24
 B32@?0@"NSString"8Q16^B24
+com.apple.EDVisibleMessagesReloadRegistry.notify
+com.apple.EDVisibleMessagesReloadRegistry.observation
 com.apple.email.updateWidget
 kLastWidgetUpdateDefaultsKey
 kNumberOfWidgetUpdatesDefaultsKey
@@ -2042,6 +2044,7 @@ Will delete salt
 Error deleting salt: %d
 Will migrate salt
 errSecInteractionNotAllowed from keychain. Is the device still locked?
+Cannot perform HTML unsubscribe. url was nil: %{BOOL}d, postContent was nil: %{BOOL}d
 Could not find destination message for database ID %lld
 Creating flag change action for %lu messages in mailbox %{public}llu
 Got foreign key constraint error adding action for mailbox %{public}llu
@@ -2510,7 +2513,10 @@ Setting needs reindex
 SearchableIndex is requesting a batch of up to %lu items requiring indexing
 type=%ld limit=%lu messageCount=%u
 EDSearchableIndexPersistenceMessagesToItems
+limit=%ld
 Generated %lu attachment items from %lu attachment data
+Taking too long to find attachmentItems after:%f
+EDSearchableIndexPersistenceWhileLoop
 type=%ld limit=%ld
 EDSearchableIndexPersistenceMessagesForIndexing
 Clearing existing searchable_attachment entries for message_id %@
@@ -2519,7 +2525,7 @@ Setting %lu orphaned searchable_message values to NULL
 SpotlightVerificationOrphanedValues=%{public,signpost.telemetry:number1}lu enableTelemetry=YES 
 EDSearchableIndexPersistenceOrphanedValues
 Inserting attachment items into the searchable_attachments table %@
-Found items %@ for attachment indexing
+Found item count:%lu for attachment indexing
 Initializing scheduler with budgetConfiguration:%{public}@
 Configuring %{public}@ actvitity with interval: %lld
 Starting scheduling with budgetedItemCountRemaining: %ld
@@ -3070,6 +3076,7 @@ EMVIPManager
 EMVIPReader
 EDVIPManagerProxy
 EMVIPManagerInterface
+EDVisibleMessagesReloadRegistry
 EDWidgetUpdateController
 EDAdditions
 EDImportantMLModelInput
@@ -4552,8 +4559,11 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_stateTrackingQueue
 T@"EDMailboxPersistence",&,N,V_mailboxPersistence
 T@"<EDInteractionEventLog>",&,N,V_eventLog
 T@"NSObject<OS_dispatch_queue>",&,N,V_processingQueue
+oneClickURL
+postContent
 ignoreWithCommand:completion:
-unsubscribeWithCommand:completion:
+unsubscribeMailtoWithCommand:completion:
+unsubscribeHTMLWithCommand:timeout:completion:
 localMessageActionsTableSchema
 actionMessagesTableSchema
 actionLabelsTableSchema
@@ -6362,7 +6372,7 @@ T@"EDRemoteContentPersistence",R
 T@"EDAttachmentPersistenceManager",R
 T@"EMRemoteContentURLCache",&,N,V_remoteContentURLCache
 T@"EMRemoteContentURLSession",&,N,V_remoteContentURLSession
-T@"EDContentRuleListManager",R,N,V_contentRuleListManager
+T@"MEContentRuleListManager",R,N,V_contentRuleListManager
 initWithDelegate:maxConcurrentBackgroundReaders:
 enforceDataProtection
 writersWaiting
@@ -8494,6 +8504,13 @@ registerObserver:observationIdentifier:
 _observersLock
 _observersByIdentifier
 T@"NSSet",R,C,N,VallVIPWaitForResult
+_scheduleVisibleMessageReload
+_reloadVisibleMessages
+reload
+addObserver:
+_observationScheduler
+_reloadDebouncer
+_notifyToken
 initForAvocadoIdentifier:inBundleIdentifier:
 _restoreFromUserDefaults
 _runActivity
@@ -8850,7 +8867,7 @@ v48@0:8@"NSString"16@"NSDate"24@"<ECMessage>"32q40
 @"EDDifferentialPrivacyReporter"
 v48@0:8q16q24@32@40
 v48@0:8q16q24@"NSString"32@"NSString"40
-v24@0:8i16i20
+v32@0:8q16q24
 @"BKSProcessAssertion"
 @"<EDClientStateReporting>"
 @"<EFScheduler>"
@@ -8892,7 +8909,6 @@ v32@0:8@"NSArray"16q24
 @"NSArray"32@0:8^@16^@24
 v28@0:8@16B24
 v40@0:8Q16@24q32
-v32@0:8q16q24
 v56@0:8q16Q24Q32q40@48
 v48@0:8q16Q24Q32q40
 v56@0:8@16@24@32Q40@48
@@ -8999,6 +9015,7 @@ v32@0:8{_NSRange=QQ}16
 @"<EDInteractionEventLog>"
 @"EDMailboxPersistence"
 {_NSRange="location"Q"length"Q}
+v40@0:8@16d24@?32
 @32@0:8@16q24
 v48@0:8q16@24@32@40
 B40@0:8@16q24@32
@@ -9190,7 +9207,7 @@ v32@0:8^B16Q24
 @"EFQueue"
 @"EMRemoteContentURLCache"
 @"EMRemoteContentURLSession"
-@"EDContentRuleListManager"
+@"MEContentRuleListManager"
 @20@0:8B16
 @"EDPersistenceDatabaseConnection"20@0:8B16
 @"NSURL"32@0:8@"NSString"16q24
@@ -9474,11 +9491,26 @@ v24@0:8@"EAEmailAddressSet"16
 @"EAEmailAddressSet"16@0:8
 @"EAEmailAddressSet"
 v32@0:8@"<EMVIPManagerObserver>"16@"EMObjectID"24
+@"NSHashTable"
 @"MLFeatureValue"24@0:8@"NSString"16
 @360@0:8d16d24d32d40d48d56d64d72d80d88d96d104d112d120d128d136d144d152d160d168d176d184d192d200d208d216d224d232@240d248d256d264d272d280d288d296d304d312d320d328d336d344d352
 @368@0:8d16d24d32d40d48d56d64d72d80d88d96d104d112d120d128d136d144d152d160d168d176d184d192d200d208d216d224d232@240d248d256d264d272d280d288d296d304d312d320d328d336d344d352^@360
 @"MLModel"
 @40@0:8@16d24^@32
+!'
+.E\s
+,/25
+;"%(>ADGJ
+"%(+.147:=@CLFIJ
+!$'*-0369<?BEH
+'Jmx
+ *4>HR\fpz
+!$'*-03G69I
+!$'*-03G69I
+!$'*-03G69I
+!$'*-03G69I
+!$'*-03G69I
+!$'*-03G69
 v16@?0@"<EMReceivingAccountBuilder>"8
 v16@?0@"<EMDeliveryAccountBuilder>"8
 com.apple.email
@@ -9859,7 +9891,7 @@ forward_sent
 message_sent
 -[EDListUnsubscribeHandler ignoreWithCommand:completion:]
 EDListUnsubscribeHandler.m
--[EDListUnsubscribeHandler unsubscribeWithCommand:completion:]
+-[EDListUnsubscribeHandler unsubscribeMailtoWithCommand:completion:]
 local_message_actions
 action_messages
 action_labels
@@ -11261,6 +11293,8 @@ Modification of VIPs only supported when syncing is enabled
 B32@?0@"NSString"8@"EMVIP"16^B24
 v32@?0@"NSString"8@"NSDictionary"16^B24
 B32@?0@"NSString"8Q16^B24
+com.apple.EDVisibleMessagesReloadRegistry.notify
+com.apple.EDVisibleMessagesReloadRegistry.observation
 com.apple.email.updateWidget
 kLastWidgetUpdateDefaultsKey
 kNumberOfWidgetUpdatesDefaultsKey
@@ -11523,6 +11557,7 @@ Will delete salt
 Error deleting salt: %d
 Will migrate salt
 errSecInteractionNotAllowed from keychain. Is the device still locked?
+Cannot perform HTML unsubscribe. url was nil: %{BOOL}d, postContent was nil: %{BOOL}d
 Could not find destination message for database ID %lld
 Creating flag change action for %lu messages in mailbox %{public}llu
 Got foreign key constraint error adding action for mailbox %{public}llu
@@ -11991,7 +12026,10 @@ Setting needs reindex
 SearchableIndex is requesting a batch of up to %lu items requiring indexing
 type=%ld limit=%lu messageCount=%u
 EDSearchableIndexPersistenceMessagesToItems
+limit=%ld
 Generated %lu attachment items from %lu attachment data
+Taking too long to find attachmentItems after:%f
+EDSearchableIndexPersistenceWhileLoop
 type=%ld limit=%ld
 EDSearchableIndexPersistenceMessagesForIndexing
 Clearing existing searchable_attachment entries for message_id %@
@@ -12000,7 +12038,7 @@ Setting %lu orphaned searchable_message values to NULL
 SpotlightVerificationOrphanedValues=%{public,signpost.telemetry:number1}lu enableTelemetry=YES 
 EDSearchableIndexPersistenceOrphanedValues
 Inserting attachment items into the searchable_attachments table %@
-Found items %@ for attachment indexing
+Found item count:%lu for attachment indexing
 Initializing scheduler with budgetConfiguration:%{public}@
 Configuring %{public}@ actvitity with interval: %lld
 Starting scheduling with budgetedItemCountRemaining: %ld
@@ -12551,6 +12589,7 @@ EMVIPManager
 EMVIPReader
 EDVIPManagerProxy
 EMVIPManagerInterface
+EDVisibleMessagesReloadRegistry
 EDWidgetUpdateController
 EDAdditions
 EDImportantMLModelInput
@@ -14033,8 +14072,11 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_stateTrackingQueue
 T@"EDMailboxPersistence",&,N,V_mailboxPersistence
 T@"<EDInteractionEventLog>",&,N,V_eventLog
 T@"NSObject<OS_dispatch_queue>",&,N,V_processingQueue
+oneClickURL
+postContent
 ignoreWithCommand:completion:
-unsubscribeWithCommand:completion:
+unsubscribeMailtoWithCommand:completion:
+unsubscribeHTMLWithCommand:timeout:completion:
 localMessageActionsTableSchema
 actionMessagesTableSchema
 actionLabelsTableSchema
@@ -15843,7 +15885,7 @@ T@"EDRemoteContentPersistence",R
 T@"EDAttachmentPersistenceManager",R
 T@"EMRemoteContentURLCache",&,N,V_remoteContentURLCache
 T@"EMRemoteContentURLSession",&,N,V_remoteContentURLSession
-T@"EDContentRuleListManager",R,N,V_contentRuleListManager
+T@"MEContentRuleListManager",R,N,V_contentRuleListManager
 initWithDelegate:maxConcurrentBackgroundReaders:
 enforceDataProtection
 writersWaiting
@@ -17975,6 +18017,13 @@ registerObserver:observationIdentifier:
 _observersLock
 _observersByIdentifier
 T@"NSSet",R,C,N,VallVIPWaitForResult
+_scheduleVisibleMessageReload
+_reloadVisibleMessages
+reload
+addObserver:
+_observationScheduler
+_reloadDebouncer
+_notifyToken
 initForAvocadoIdentifier:inBundleIdentifier:
 _restoreFromUserDefaults
 _runActivity
@@ -18331,7 +18380,7 @@ v48@0:8@"NSString"16@"NSDate"24@"<ECMessage>"32q40
 @"EDDifferentialPrivacyReporter"
 v48@0:8q16q24@32@40
 v48@0:8q16q24@"NSString"32@"NSString"40
-v24@0:8i16i20
+v32@0:8q16q24
 @"BKSProcessAssertion"
 @"<EDClientStateReporting>"
 @"<EFScheduler>"
@@ -18373,7 +18422,6 @@ v32@0:8@"NSArray"16q24
 @"NSArray"32@0:8^@16^@24
 v28@0:8@16B24
 v40@0:8Q16@24q32
-v32@0:8q16q24
 v56@0:8q16Q24Q32q40@48
 v48@0:8q16Q24Q32q40
 v56@0:8@16@24@32Q40@48
@@ -18480,6 +18528,7 @@ v32@0:8{_NSRange=QQ}16
 @"<EDInteractionEventLog>"
 @"EDMailboxPersistence"
 {_NSRange="location"Q"length"Q}
+v40@0:8@16d24@?32
 @32@0:8@16q24
 v48@0:8q16@24@32@40
 B40@0:8@16q24@32
@@ -18671,7 +18720,7 @@ v32@0:8^B16Q24
 @"EFQueue"
 @"EMRemoteContentURLCache"
 @"EMRemoteContentURLSession"
-@"EDContentRuleListManager"
+@"MEContentRuleListManager"
 @20@0:8B16
 @"EDPersistenceDatabaseConnection"20@0:8B16
 @"NSURL"32@0:8@"NSString"16q24
@@ -18955,6 +19004,7 @@ v24@0:8@"EAEmailAddressSet"16
 @"EAEmailAddressSet"16@0:8
 @"EAEmailAddressSet"
 v32@0:8@"<EMVIPManagerObserver>"16@"EMObjectID"24
+@"NSHashTable"
 @"MLFeatureValue"24@0:8@"NSString"16
 @360@0:8d16d24d32d40d48d56d64d72d80d88d96d104d112d120d128d136d144d152d160d168d176d184d192d200d208d216d224d232@240d248d256d264d272d280d288d296d304d312d320d328d336d344d352
 @368@0:8d16d24d32d40d48d56d64d72d80d88d96d104d112d120d128d136d144d152d160d168d176d184d192d200d208d216d224d232@240d248d256d264d272d280d288d296d304d312d320d328d336d344d352^@360

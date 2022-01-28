@@ -1,4 +1,4 @@
-@(#)PROGRAM:mlruntimed  PROJECT:dodml-63.0.3
+@(#)PROGRAM:mlruntimed  PROJECT:dodml-63.11
 Setting up handler for SIGTERM.
 Receiving SIGTERM.
 _set_user_dir_suffix failed
@@ -19,6 +19,8 @@ In requestCancellationBlock with error: %@
 Requesting activation after stopped for plugin %@
 Failed to beginExtensionRequestWithOptions with error=%@
 Failed to get correct host context with class = %@
+Simulating crash for extension %@
+Failed to simulate crash for extension=%@ with error=%@
 Unloading plugin %@
 Fail to issue sandbox extensions for downloaded attachment %@.
 Unexpected sandbox extensions returned for submission log (%@).
@@ -31,6 +33,7 @@ Fail to retrieve task result for %@ with error=%@.
 Reaching out to plugin to start compute, task=%@.
 %@ return results=%@.
 Extension=%@ is being killed.
+Waiting to kill plugin=%@ with %lld
 Failed to stop with error=%@
 PluginManager should not be nil
 TrialManager should not be nil
@@ -110,7 +113,8 @@ Unregistering XPC activity %{public}s because D&U is not allowed.
 Registering because we have not registered yet or D&U changed.
 Failed to set activity state to %ld. Current state = %lu.
 Set new activity interval to %{public}lld seconds for %{public}s
-Error performing block with error=%@
+Error performing block synchronously with error=%@
+Error performing block asynchronously with error=%@
 Fail to create remote object proxy
 Unrecognized bundle=%@.
 v8@?0
@@ -126,10 +130,10 @@ MLRExtensionPluginManager
 v16@?0@"<NSCopying>"8
 v24@?0@"<NSCopying>"8@"NSError"16
 <%@ %@>
+v16@?0@"<MLRExtensionRemoteProtocol>"8
 Ignoring tasks after plugin=%@ is requested to stop.
 Fail to get host context for %@.
 v24@?0@"DESDodMLTaskResultContainer"8@"NSError"16
-v16@?0@"<MLRExtensionRemoteProtocol>"8
 %@ crashed? (error=%@)
 v24@?0@"MLRInternalTrialTaskResult"8@"NSError"16
 %@ crashed? (error=%@).
@@ -255,12 +259,15 @@ cStringUsingEncoding:
 _setupExtensionHandlers
 setRequestInterruptionBlock:
 setRequestCancellationBlock:
+extensionName
 beginExtensionRequestWithOptions:inputItems:error:
 _extensionContextForUUID:
-cancelExtensionRequestWithIdentifier:
+shouldTriggerSimulatedCrash
 _kill:
+simulateCrash
+performOnRemoteObjectSynchronouslyWithBlock:errorHandler:
+cancelExtensionRequestWithIdentifier:
 _unload
-extensionName
 issueSandBoxExtensionsForFileURLs:requireWrite:outError:
 addObjectsFromArray:
 recordDirURLsForBundleId:
@@ -268,11 +275,14 @@ _activateExtensionIfNecessary
 _createSandBoxExtensions:error:
 taskResultWithError:
 performDodMLTask:sandBoxExtensions:completion:
-performOnRemoteObjectWithBlock:errorHandler:
-performTrialTask:completion:
-_graceIntervalBeforeKilling
-T@"NSString",R,N
 unload
+performTrialTask:completion:
+_graceIntervalBeforeUnloading
+_triggerSimulatedCrash
+_graceIntervalBeforeKilling
+_killExtension:afterInterval:
+performOnRemoteObjectWithBlock:errorHandler:
+T@"NSString",R,N
 _extension
 _sessionID
 _syncQueue
@@ -299,8 +309,6 @@ minInterval
 startAfterDate
 endAtDate
 setPerformCount:
-evaluationID
-sendEventEvaluationCompletedForBundleID:duration:deferralTime:wasDeferred:success:
 policy
 updateTaskAfterCompletion:taskID:error:
 performTrialTask:outError:
@@ -310,6 +318,14 @@ canRunTask:
 _performAfterTask:duration:error:
 requestToDeferByDAS
 TB,R,N,V_requestToDeferByDAS
+evaluationState
+sendEventTaskCompletedForBundleID:factorsState:duration:error:
+evaluationID
+sendEventTasksFetchedCountForBundleID:count:
+sendEventTasksFetchingErrorForBundleID:error:
+sendEventTaskFetchedForBundleID:factorsState:
+sendEventTaskScheduledStatusForBundleID:factorsState:success:
+sendEventTaskSchedulingErrorForBundleID:factorsState:error:
 _performCount
 Tq,N,V_performCount
 schedulerWakeupPeriodInSeconds
@@ -518,6 +534,7 @@ createTaskWorkerForDodMLTask:completion:
 createTaskWorkerForTrialTask:completion:
 updateInterval
 pluginTypeForBundleId:
+sendEventSchedulerStartedWithPluginCount:
 fetchAllRandomizedPluginIDs
 _startSchedulingWithListOfBundles:completion:
 allObjects
@@ -539,12 +556,10 @@ _pluginFactory
 setStateForXPCActivity:state:
 purgeObsoleted
 submissionAllowed
-sendEventMaintenanceWithShouldSkip:
 processInfo
 systemUptime
 createTaskSchedulerWithXPCActivity:
 shouldDeferForXPCActivity:
-sendEventActivityShouldDeferWithConnectionDuration:
 stop
 addEligibilityChangedHandlerForActivity:handler:
 didCompleteWithError:
@@ -562,10 +577,14 @@ _submissionWasAllowed
 _hasRegistered
 _activityDeferred
 _activity
+sendEventMaintenanceWithShouldSkip:
+sendEventActivityShouldDeferWithConnectionDuration:
 interfaceWithProtocol:
 _auxiliaryConnection
 processIdentifier
+performOnRemoteObjectSynchronously:WithBlock:errorHandler:
 synchronousRemoteObjectProxyWithErrorHandler:
+remoteObjectProxyWithErrorHandler:
 sandboxExtensionsToXPCConnection:fileURLs:requireWrite:outError:
 _extensionAuxiliaryHostProtocol
 _extensionAuxiliaryVendorProtocol
@@ -579,7 +598,7 @@ pluginManagerForBundleIdentifier:endpoint:
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -603,27 +622,27 @@ pluginManagerForBundleIdentifier:endpoint:
 <string>AppleTVSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>63.0.3</string>
+<string>63.11</string>
 <key>CFBundleVisibleComponentName</key>
 <string>com.apple.MLRuntimeDaemon</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19K40</string>
+<string>19L5407u</string>
 <key>DTPlatformName</key>
 <string>appletvsimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.2</string>
+<string>15.4</string>
 <key>DTSDKBuild</key>
-<string>19K40</string>
+<string>19L5407u</string>
 <key>DTSDKName</key>
-<string>appletvsimulator15.2.internal</string>
+<string>appletvsimulator15.4.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>15.2</string>
+<string>15.4</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>3</integer>
@@ -661,6 +680,8 @@ pluginManagerForBundleIdentifier:endpoint:
 <key>com.apple.proactive.PersonalizationPortrait.Contact</key>
 <true/>
 <key>com.apple.proactive.PersonalizationPortrait.NamedEntity.readOnly</key>
+<true/>
+<key>com.apple.proactive.eventtracker</key>
 <true/>
 <key>com.apple.security.exception.files.absolute-path.read-only</key>
 <array>
@@ -727,6 +748,8 @@ pluginManagerForBundleIdentifier:endpoint:
 <string>com.apple.siri-distributed-evaluation</string>
 <key>com.apple.siriinferenced</key>
 <true/>
+<key>com.apple.trial.client</key>
+<array/>
 <key>com.apple.trial.status.evaluation.mlruntime.allow</key>
 <true/>
 <key>platform-application</key>
@@ -789,6 +812,7 @@ v16@0:8
 @"NSDictionary"24@0:8@"DESRecordSet"16
 B32@0:8@"NSURL"16@"DESInternalDodMLTask"24
 @"MLRInternalTrialTaskResult"32@0:8@"MLRInternalTrialTask"16^@24
+v32@0:8@16q24
 @"NSExtension"
 @"NSUUID"
 @"MLRExtensionHostContext"
@@ -862,9 +886,10 @@ v40@0:8@"DESInternalDodMLTask"16@"NSArray"24@?<v@?@"DESDodMLTaskResultContainer"
 v32@0:8@"MLRInternalTrialTask"16@?<v@?@"MLRInternalTrialTaskResult"@"NSError">24
 i16@0:8
 v32@0:8@?16@?24
+v36@0:8B16@?20@?28
 @36@0:8@16B24^@28
 @32@0:8@16q24
-@(#)PROGRAM:mlruntimed  PROJECT:dodml-63.0.3
+@(#)PROGRAM:mlruntimed  PROJECT:dodml-63.11
 Setting up handler for SIGTERM.
 Receiving SIGTERM.
 _set_user_dir_suffix failed
@@ -885,6 +910,8 @@ In requestCancellationBlock with error: %@
 Requesting activation after stopped for plugin %@
 Failed to beginExtensionRequestWithOptions with error=%@
 Failed to get correct host context with class = %@
+Simulating crash for extension %@
+Failed to simulate crash for extension=%@ with error=%@
 Unloading plugin %@
 Fail to issue sandbox extensions for downloaded attachment %@.
 Unexpected sandbox extensions returned for submission log (%@).
@@ -897,6 +924,7 @@ Fail to retrieve task result for %@ with error=%@.
 Reaching out to plugin to start compute, task=%@.
 %@ return results=%@.
 Extension=%@ is being killed.
+Waiting to kill plugin=%@ with %lld
 Failed to stop with error=%@
 PluginManager should not be nil
 TrialManager should not be nil
@@ -976,7 +1004,8 @@ Unregistering XPC activity %{public}s because D&U is not allowed.
 Registering because we have not registered yet or D&U changed.
 Failed to set activity state to %ld. Current state = %lu.
 Set new activity interval to %{public}lld seconds for %{public}s
-Error performing block with error=%@
+Error performing block synchronously with error=%@
+Error performing block asynchronously with error=%@
 Fail to create remote object proxy
 Unrecognized bundle=%@.
 v8@?0
@@ -992,10 +1021,10 @@ MLRExtensionPluginManager
 v16@?0@"<NSCopying>"8
 v24@?0@"<NSCopying>"8@"NSError"16
 <%@ %@>
+v16@?0@"<MLRExtensionRemoteProtocol>"8
 Ignoring tasks after plugin=%@ is requested to stop.
 Fail to get host context for %@.
 v24@?0@"DESDodMLTaskResultContainer"8@"NSError"16
-v16@?0@"<MLRExtensionRemoteProtocol>"8
 %@ crashed? (error=%@)
 v24@?0@"MLRInternalTrialTaskResult"8@"NSError"16
 %@ crashed? (error=%@).
@@ -1121,12 +1150,15 @@ cStringUsingEncoding:
 _setupExtensionHandlers
 setRequestInterruptionBlock:
 setRequestCancellationBlock:
+extensionName
 beginExtensionRequestWithOptions:inputItems:error:
 _extensionContextForUUID:
-cancelExtensionRequestWithIdentifier:
+shouldTriggerSimulatedCrash
 _kill:
+simulateCrash
+performOnRemoteObjectSynchronouslyWithBlock:errorHandler:
+cancelExtensionRequestWithIdentifier:
 _unload
-extensionName
 issueSandBoxExtensionsForFileURLs:requireWrite:outError:
 addObjectsFromArray:
 recordDirURLsForBundleId:
@@ -1134,11 +1166,14 @@ _activateExtensionIfNecessary
 _createSandBoxExtensions:error:
 taskResultWithError:
 performDodMLTask:sandBoxExtensions:completion:
-performOnRemoteObjectWithBlock:errorHandler:
-performTrialTask:completion:
-_graceIntervalBeforeKilling
-T@"NSString",R,N
 unload
+performTrialTask:completion:
+_graceIntervalBeforeUnloading
+_triggerSimulatedCrash
+_graceIntervalBeforeKilling
+_killExtension:afterInterval:
+performOnRemoteObjectWithBlock:errorHandler:
+T@"NSString",R,N
 _extension
 _sessionID
 _syncQueue
@@ -1165,8 +1200,6 @@ minInterval
 startAfterDate
 endAtDate
 setPerformCount:
-evaluationID
-sendEventEvaluationCompletedForBundleID:duration:deferralTime:wasDeferred:success:
 policy
 updateTaskAfterCompletion:taskID:error:
 performTrialTask:outError:
@@ -1176,6 +1209,14 @@ canRunTask:
 _performAfterTask:duration:error:
 requestToDeferByDAS
 TB,R,N,V_requestToDeferByDAS
+evaluationState
+sendEventTaskCompletedForBundleID:factorsState:duration:error:
+evaluationID
+sendEventTasksFetchedCountForBundleID:count:
+sendEventTasksFetchingErrorForBundleID:error:
+sendEventTaskFetchedForBundleID:factorsState:
+sendEventTaskScheduledStatusForBundleID:factorsState:success:
+sendEventTaskSchedulingErrorForBundleID:factorsState:error:
 _performCount
 Tq,N,V_performCount
 schedulerWakeupPeriodInSeconds
@@ -1384,6 +1425,7 @@ createTaskWorkerForDodMLTask:completion:
 createTaskWorkerForTrialTask:completion:
 updateInterval
 pluginTypeForBundleId:
+sendEventSchedulerStartedWithPluginCount:
 fetchAllRandomizedPluginIDs
 _startSchedulingWithListOfBundles:completion:
 allObjects
@@ -1405,12 +1447,10 @@ _pluginFactory
 setStateForXPCActivity:state:
 purgeObsoleted
 submissionAllowed
-sendEventMaintenanceWithShouldSkip:
 processInfo
 systemUptime
 createTaskSchedulerWithXPCActivity:
 shouldDeferForXPCActivity:
-sendEventActivityShouldDeferWithConnectionDuration:
 stop
 addEligibilityChangedHandlerForActivity:handler:
 didCompleteWithError:
@@ -1428,10 +1468,14 @@ _submissionWasAllowed
 _hasRegistered
 _activityDeferred
 _activity
+sendEventMaintenanceWithShouldSkip:
+sendEventActivityShouldDeferWithConnectionDuration:
 interfaceWithProtocol:
 _auxiliaryConnection
 processIdentifier
+performOnRemoteObjectSynchronously:WithBlock:errorHandler:
 synchronousRemoteObjectProxyWithErrorHandler:
+remoteObjectProxyWithErrorHandler:
 sandboxExtensionsToXPCConnection:fileURLs:requireWrite:outError:
 _extensionAuxiliaryHostProtocol
 _extensionAuxiliaryVendorProtocol
@@ -1445,7 +1489,7 @@ pluginManagerForBundleIdentifier:endpoint:
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -1469,27 +1513,27 @@ pluginManagerForBundleIdentifier:endpoint:
 <string>AppleTVSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>63.0.3</string>
+<string>63.11</string>
 <key>CFBundleVisibleComponentName</key>
 <string>com.apple.MLRuntimeDaemon</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19K40</string>
+<string>19L5407u</string>
 <key>DTPlatformName</key>
 <string>appletvsimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.2</string>
+<string>15.4</string>
 <key>DTSDKBuild</key>
-<string>19K40</string>
+<string>19L5407u</string>
 <key>DTSDKName</key>
-<string>appletvsimulator15.2.internal</string>
+<string>appletvsimulator15.4.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>15.2</string>
+<string>15.4</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>3</integer>
@@ -1527,6 +1571,8 @@ pluginManagerForBundleIdentifier:endpoint:
 <key>com.apple.proactive.PersonalizationPortrait.Contact</key>
 <true/>
 <key>com.apple.proactive.PersonalizationPortrait.NamedEntity.readOnly</key>
+<true/>
+<key>com.apple.proactive.eventtracker</key>
 <true/>
 <key>com.apple.security.exception.files.absolute-path.read-only</key>
 <array>
@@ -1593,6 +1639,8 @@ pluginManagerForBundleIdentifier:endpoint:
 <string>com.apple.siri-distributed-evaluation</string>
 <key>com.apple.siriinferenced</key>
 <true/>
+<key>com.apple.trial.client</key>
+<array/>
 <key>com.apple.trial.status.evaluation.mlruntime.allow</key>
 <true/>
 <key>platform-application</key>
@@ -1655,6 +1703,7 @@ v16@0:8
 @"NSDictionary"24@0:8@"DESRecordSet"16
 B32@0:8@"NSURL"16@"DESInternalDodMLTask"24
 @"MLRInternalTrialTaskResult"32@0:8@"MLRInternalTrialTask"16^@24
+v32@0:8@16q24
 @"NSExtension"
 @"NSUUID"
 @"MLRExtensionHostContext"
@@ -1728,5 +1777,6 @@ v40@0:8@"DESInternalDodMLTask"16@"NSArray"24@?<v@?@"DESDodMLTaskResultContainer"
 v32@0:8@"MLRInternalTrialTask"16@?<v@?@"MLRInternalTrialTaskResult"@"NSError">24
 i16@0:8
 v32@0:8@?16@?24
+v36@0:8B16@?20@?28
 @36@0:8@16B24^@28
 @32@0:8@16q24

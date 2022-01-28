@@ -242,6 +242,7 @@ T@"<GEOExperimentServerProxyDelegate>",W,N,V_delegate
 standardConfig
 urlType
 dataRequestKindForRequest:traits:
+serviceTypeNumber
 hasGreenTeaWithValue:
 _startWithRequest:traits:auditToken:config:throttleToken:completionHandler:
 _cancelRequest:
@@ -265,9 +266,7 @@ startWithMessage:
 cancelWithMessage:
 initWithCapacity:
 _spoolQueueToDB
-_clearQueueFlushTransaction
-_terminationRequested:
-addObserver:selector:name:object:
+_clearQueueFlushTimer
 sharedPolicies
 uploadPolicyForUploadPolicyType:
 date
@@ -282,7 +281,8 @@ initWithType:usageString:usageBool:appId:createTime:
 objectAtIndexedSubscript:
 initWithType:collectionId:createTime:
 initWithSettings:createTime:
-_setQueueFlushTransaction
+evalModeEnabled
+_setQueueFlushTimer
 copy
 removeAllObjects
 submitBatchesForUpload
@@ -297,7 +297,6 @@ _batchQueueMaxSize
 _batchQueueFlushTime
 _batchQueueLock
 _batchQueueSpoolTimer
-_batchQueueSpoolTransaction
 _storageQueue
 initWithData:createTime:
 storeRequestResponseData:
@@ -339,6 +338,7 @@ initWithQueueName:logFacility:dbFilePath:sqliteFlags:pragmas:setupBlock:
 dictionary
 orderedSetWithCapacity:
 _localeChanged:
+addObserver:selector:name:object:
 removeObserver:
 executeAsync:
 createTable:withDrop:
@@ -460,6 +460,9 @@ usageType
 usageString
 usageBool
 reportDailyUsageCountType:usageString:usageBool:appId:completion:completionQueue:
+state
+stateType
+updateSharedStateType:state:completion:completionQueue:
 desiredEnableState
 setEvalMode:
 flushEvalData
@@ -473,6 +476,7 @@ logMsgReportWithRequest:
 ccActionReportWithRequest:
 dailySettingsReportWithRequest:
 dailyUsageCountReportWithRequest:
+sharedStateReportWithRequest:
 setEvalModeWithRequest:
 flushEvalDataWithRequest:
 showWithMessage:
@@ -585,7 +589,6 @@ resourcesOnQueue:results:
 mutableCopy
 _pruneOldResourcesIn:
 lastObject
-state
 resourceInfo
 policy
 isExpired
@@ -610,6 +613,10 @@ _debug_setCustomQuerySubstring:forExperimentType:dispatcherRequestType:
 _setActiveExperimentBranchDictionaryRepresentation:
 _fetchAllAvailableExperimentsResponse:
 updateCountryConfiguration:callbackQueue:
+carPlay
+carInfo
+sharedData
+setCarPlayInfo:
 sharedAggregator
 runEvalAggregation
 _processMapsAppDeletion
@@ -664,7 +671,7 @@ fuzzCount:forDailyUsageType:
 setCount:
 setUsageBool:
 setUsageString:
-captureDailyUseSummaryWithUseEvents:firstEventDate:user_mapsUseLastDate:
+captureDailyUseSummaryWithUseEvents:firstEventTimeRoundedToHour:user_mapsUseLastDate:
 selectDailyCountsWithVisitorBlock:completionBlock:
 aggregateCuratedCollectionViewCountsAndReportFrom:until:
 reportCuratedCollectionSavedListFrom:until:
@@ -773,7 +780,6 @@ _resetPrivacyToken
 _queue
 _shiftQueueToAvoidCoreLocDeadLocks
 T@"GEOLocationShifterPersistence",R,N
-serviceTypeNumber
 status
 parametersCount
 _validateResponse:
@@ -826,7 +832,6 @@ _writeRRLogElem:
 dateWithTimeIntervalSince1970:
 initWithUUIDString:
 protectedDataDidBecomeAvailable:
-evalModeEnabled
 selectBatchIdsForBatchUpload
 selectLogMsgsForBatchUploadWithBatchId:visitorBlock:completionBlock:
 deleteCurCollSaved:
@@ -1006,7 +1011,7 @@ receivedData
 entityTag
 bundleIdForNetworkAttribution
 clientMetrics
-captureNetworkEventForDataRequestKind:requestAppIdentifier:appMajorVersion:appMinorVersion:error:clientMetrics:additionalStates:
+captureNetworkEventForDataRequestKind:usedBackgroundURL:requestAppIdentifier:appMajorVersion:appMinorVersion:error:clientMetrics:additionalStates:
 dataSession:didCompleteTask:
 dataSession:willSendRequest:forTask:completionHandler:
 dataSession:didCompleteSubtask:completion:
@@ -1537,8 +1542,6 @@ com.apple.geo.analytics.storage
 VIEWED
 SAVED
 REMOVED
-com.apple.geo.analytics.flush
-com.apple.geo.analytics.write
 com.apple.GeoAnalytics
 Storage
 UNSPECIFIED
@@ -1711,8 +1714,22 @@ USER_ACCOUNT_OPENED
 VENUE_INTERACTION
 ENTER_MAPS
 EXIT_MAPS
-TOTAL_SECONDS_IN_FOREGROUND
+TOTAL_SECONDS_IN_MAPS_DEVICE
 ENTER_MAPS_DEVICE
+MAP_VIEW_INSTANTIATED
+MAP_VIEW_ACTIVATED
+DIRECTIONS_PLACECARD_REVEAL_CARPLAY_UI
+DIRECTIONS_LIST_ITEM_CARPLAY_UI
+DIRECTIONS_FAVORITE_CARPLAY_UI
+GET_DIRECTIONS_CARPLAY_CONNECTED
+DIRECTIONS_REQUESTED_DRIVING_CARPLAY_CONNECTED
+SIRI_SEARCH_CARPLAY_UI
+OPEN_KEYBOARD_CARPLAY_UI
+TAP_SEARCH_CARPLAY_UI
+OPEN_SEARCH_CARPLAY_UI
+MAPS_SEARCH_CARPLAY_CONNECTED
+EXIT_MAPS_CARPLAY
+TOTAL_SECONDS_IN_MAPS_CARPLAY
 v40@?0@"NSString"8Q16Q24@32
 v16@?0@"NSObject<OS_xpc_object>"8
 v12@?0B8
@@ -1796,6 +1813,7 @@ logMsgReport
 ccActionReport
 dailySettingsReport
 dailyUsageCountReport
+sharedStateReport
 rrLogReport
 setEvalMode
 flushEvalData
@@ -2088,6 +2106,7 @@ DELETE FROM shadow;
 @session_id
 @viewed_time
 @settings_data
+com.apple.geo.persistAnalytics
 @fk_msgid
 @msgid
 Persistence
@@ -2493,7 +2512,6 @@ storing Daily Usage action '%@'
 storing Curated Collection action '%@'
 storing Daily Settings
 reached batch capacity; will spool now
-Termination requested. Immediately flushing pending items to disk.
 spooling outstanding analytics to disk
 will persist %lu analytics
 privacy manager
@@ -2882,12 +2900,14 @@ Q28@0:8Q16i24
 v60@0:8i16@20@28@36@?44@52
 v48@0:8Q16Q24@?32@40
 v40@0:8@16@?24@32
+v44@0:8i16@20@?28@36
 v20@0:8B16
 v32@0:8@16@?24
 v48@0:8@"NSData"16Q24@"NSObject<OS_dispatch_queue>"32@?<v@?>40
 v60@0:8i16@"NSString"20@"NSNumber"28@"NSString"36@?<v@?>44@"NSObject<OS_dispatch_queue>"52
 v48@0:8Q16Q24@?<v@?>32@"NSObject<OS_dispatch_queue>"40
 v40@0:8@"GEOLogMsgEventPeriodicSettingsSummary"16@?<v@?>24@"NSObject<OS_dispatch_queue>"32
+v44@0:8i16@"GEOLogMsgState"20@?<v@?>28@"NSObject<OS_dispatch_queue>"36
 v24@0:8@?<B@?Q@"NSData">16
 v24@0:8@"NSData"16
 v32@0:8@"NSObject<OS_dispatch_queue>"16@?<v@?@"NSError">24
@@ -3044,7 +3064,7 @@ softlink:r:fw:CoreAnalytics
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -3068,21 +3088,21 @@ softlink:r:fw:CoreAnalytics
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19S40x</string>
+<string>19T5210s</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19S40x</string>
+<string>19T5210s</string>
 <key>DTSDKName</key>
-<string>watchsimulator8.3.internal</string>
+<string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>4</integer>
@@ -3189,6 +3209,10 @@ zPLR
 zPLR
 zPLR
 @(#)PROGRAM:geod  PROJECT:GeoServices-
+"%(+.147:=@
+cfilo
+!$'*-0369<?
+!$'*-0369<?BEHKNQTWZ]`cfilorux{~
 init
 shared
 initWithKeyOptions:valueOptions:capacity:
@@ -3432,6 +3456,7 @@ T@"<GEOExperimentServerProxyDelegate>",W,N,V_delegate
 standardConfig
 urlType
 dataRequestKindForRequest:traits:
+serviceTypeNumber
 hasGreenTeaWithValue:
 _startWithRequest:traits:auditToken:config:throttleToken:completionHandler:
 _cancelRequest:
@@ -3455,9 +3480,7 @@ startWithMessage:
 cancelWithMessage:
 initWithCapacity:
 _spoolQueueToDB
-_clearQueueFlushTransaction
-_terminationRequested:
-addObserver:selector:name:object:
+_clearQueueFlushTimer
 sharedPolicies
 uploadPolicyForUploadPolicyType:
 date
@@ -3472,7 +3495,8 @@ initWithType:usageString:usageBool:appId:createTime:
 objectAtIndexedSubscript:
 initWithType:collectionId:createTime:
 initWithSettings:createTime:
-_setQueueFlushTransaction
+evalModeEnabled
+_setQueueFlushTimer
 copy
 removeAllObjects
 submitBatchesForUpload
@@ -3487,7 +3511,6 @@ _batchQueueMaxSize
 _batchQueueFlushTime
 _batchQueueLock
 _batchQueueSpoolTimer
-_batchQueueSpoolTransaction
 _storageQueue
 initWithData:createTime:
 storeRequestResponseData:
@@ -3529,6 +3552,7 @@ initWithQueueName:logFacility:dbFilePath:sqliteFlags:pragmas:setupBlock:
 dictionary
 orderedSetWithCapacity:
 _localeChanged:
+addObserver:selector:name:object:
 removeObserver:
 executeAsync:
 createTable:withDrop:
@@ -3650,6 +3674,9 @@ usageType
 usageString
 usageBool
 reportDailyUsageCountType:usageString:usageBool:appId:completion:completionQueue:
+state
+stateType
+updateSharedStateType:state:completion:completionQueue:
 desiredEnableState
 setEvalMode:
 flushEvalData
@@ -3663,6 +3690,7 @@ logMsgReportWithRequest:
 ccActionReportWithRequest:
 dailySettingsReportWithRequest:
 dailyUsageCountReportWithRequest:
+sharedStateReportWithRequest:
 setEvalModeWithRequest:
 flushEvalDataWithRequest:
 showWithMessage:
@@ -3775,7 +3803,6 @@ resourcesOnQueue:results:
 mutableCopy
 _pruneOldResourcesIn:
 lastObject
-state
 resourceInfo
 policy
 isExpired
@@ -3800,6 +3827,10 @@ _debug_setCustomQuerySubstring:forExperimentType:dispatcherRequestType:
 _setActiveExperimentBranchDictionaryRepresentation:
 _fetchAllAvailableExperimentsResponse:
 updateCountryConfiguration:callbackQueue:
+carPlay
+carInfo
+sharedData
+setCarPlayInfo:
 sharedAggregator
 runEvalAggregation
 _processMapsAppDeletion
@@ -3854,7 +3885,7 @@ fuzzCount:forDailyUsageType:
 setCount:
 setUsageBool:
 setUsageString:
-captureDailyUseSummaryWithUseEvents:firstEventDate:user_mapsUseLastDate:
+captureDailyUseSummaryWithUseEvents:firstEventTimeRoundedToHour:user_mapsUseLastDate:
 selectDailyCountsWithVisitorBlock:completionBlock:
 aggregateCuratedCollectionViewCountsAndReportFrom:until:
 reportCuratedCollectionSavedListFrom:until:
@@ -3963,7 +3994,6 @@ _resetPrivacyToken
 _queue
 _shiftQueueToAvoidCoreLocDeadLocks
 T@"GEOLocationShifterPersistence",R,N
-serviceTypeNumber
 status
 parametersCount
 _validateResponse:
@@ -4016,7 +4046,6 @@ _writeRRLogElem:
 dateWithTimeIntervalSince1970:
 initWithUUIDString:
 protectedDataDidBecomeAvailable:
-evalModeEnabled
 selectBatchIdsForBatchUpload
 selectLogMsgsForBatchUploadWithBatchId:visitorBlock:completionBlock:
 deleteCurCollSaved:
@@ -4196,7 +4225,7 @@ receivedData
 entityTag
 bundleIdForNetworkAttribution
 clientMetrics
-captureNetworkEventForDataRequestKind:requestAppIdentifier:appMajorVersion:appMinorVersion:error:clientMetrics:additionalStates:
+captureNetworkEventForDataRequestKind:usedBackgroundURL:requestAppIdentifier:appMajorVersion:appMinorVersion:error:clientMetrics:additionalStates:
 dataSession:didCompleteTask:
 dataSession:willSendRequest:forTask:completionHandler:
 dataSession:didCompleteSubtask:completion:
@@ -4727,8 +4756,6 @@ com.apple.geo.analytics.storage
 VIEWED
 SAVED
 REMOVED
-com.apple.geo.analytics.flush
-com.apple.geo.analytics.write
 com.apple.GeoAnalytics
 Storage
 UNSPECIFIED
@@ -4901,8 +4928,22 @@ USER_ACCOUNT_OPENED
 VENUE_INTERACTION
 ENTER_MAPS
 EXIT_MAPS
-TOTAL_SECONDS_IN_FOREGROUND
+TOTAL_SECONDS_IN_MAPS_DEVICE
 ENTER_MAPS_DEVICE
+MAP_VIEW_INSTANTIATED
+MAP_VIEW_ACTIVATED
+DIRECTIONS_PLACECARD_REVEAL_CARPLAY_UI
+DIRECTIONS_LIST_ITEM_CARPLAY_UI
+DIRECTIONS_FAVORITE_CARPLAY_UI
+GET_DIRECTIONS_CARPLAY_CONNECTED
+DIRECTIONS_REQUESTED_DRIVING_CARPLAY_CONNECTED
+SIRI_SEARCH_CARPLAY_UI
+OPEN_KEYBOARD_CARPLAY_UI
+TAP_SEARCH_CARPLAY_UI
+OPEN_SEARCH_CARPLAY_UI
+MAPS_SEARCH_CARPLAY_CONNECTED
+EXIT_MAPS_CARPLAY
+TOTAL_SECONDS_IN_MAPS_CARPLAY
 v40@?0@"NSString"8Q16Q24@32
 v16@?0@"NSObject<OS_xpc_object>"8
 v12@?0B8
@@ -4986,6 +5027,7 @@ logMsgReport
 ccActionReport
 dailySettingsReport
 dailyUsageCountReport
+sharedStateReport
 rrLogReport
 setEvalMode
 flushEvalData
@@ -5278,6 +5320,7 @@ DELETE FROM shadow;
 @session_id
 @viewed_time
 @settings_data
+com.apple.geo.persistAnalytics
 @fk_msgid
 @msgid
 Persistence
@@ -5683,7 +5726,6 @@ storing Daily Usage action '%@'
 storing Curated Collection action '%@'
 storing Daily Settings
 reached batch capacity; will spool now
-Termination requested. Immediately flushing pending items to disk.
 spooling outstanding analytics to disk
 will persist %lu analytics
 privacy manager
@@ -6072,12 +6114,14 @@ Q28@0:8Q16i24
 v60@0:8i16@20@28@36@?44@52
 v48@0:8Q16Q24@?32@40
 v40@0:8@16@?24@32
+v44@0:8i16@20@?28@36
 v20@0:8B16
 v32@0:8@16@?24
 v48@0:8@"NSData"16Q24@"NSObject<OS_dispatch_queue>"32@?<v@?>40
 v60@0:8i16@"NSString"20@"NSNumber"28@"NSString"36@?<v@?>44@"NSObject<OS_dispatch_queue>"52
 v48@0:8Q16Q24@?<v@?>32@"NSObject<OS_dispatch_queue>"40
 v40@0:8@"GEOLogMsgEventPeriodicSettingsSummary"16@?<v@?>24@"NSObject<OS_dispatch_queue>"32
+v44@0:8i16@"GEOLogMsgState"20@?<v@?>28@"NSObject<OS_dispatch_queue>"36
 v24@0:8@?<B@?Q@"NSData">16
 v24@0:8@"NSData"16
 v32@0:8@"NSObject<OS_dispatch_queue>"16@?<v@?@"NSError">24
@@ -6234,7 +6278,7 @@ softlink:r:fw:CoreAnalytics
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241123</string>
+<string>20A241128</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -6258,21 +6302,21 @@ softlink:r:fw:CoreAnalytics
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19S40x</string>
+<string>19T5210s</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19S40x</string>
+<string>19T5210s</string>
 <key>DTSDKName</key>
-<string>watchsimulator8.3.internal</string>
+<string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
-<string>1300</string>
+<string>1330</string>
 <key>DTXcodeBuild</key>
-<string>13A191</string>
+<string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>8.3</string>
+<string>8.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>4</integer>

@@ -38,6 +38,7 @@ Unable to archive objects at %{public}@: %{public}@
 [%{public}@] Request notification user authorization prompt
 [%{public}@] Approved by user
 [%{public}@] Denied by user
+[%{public}@] No response by user
 [%{public}@] Requesting critical alert authorization
 [%{public}@] Already registered for critical alerts.
 [%{public}@] Critical alert authorization is not permitted
@@ -143,6 +144,7 @@ opportunistic:%{public}@
 nonWakingOpportunistic:%{public}@
 Setting no enabled, ignored or opportunistic topics for environment %{public}@
 [%{public}@] Request per-app token with token identifier %{public}@
+Calculate push topics because bluelist status changed
 [%{public}@] Push registration with a nil environment was encountered, will not invalidate token
 Notify APS that all connections are configured
 [%{public}@] Sending didReceiveNotificationResponse:forBundleIdentifier:
@@ -152,6 +154,8 @@ Notify APS that all connections are configured
 [%{public}@] didOpenApplicationForResponse:forBundleIdentifier: failed with error: %{public}@
 [%{public}@] Sending didChangeSettings:forBundleIdentifier:
 [%{public}@] didChangeSettings:forBundleIdentifier: failed with error: %{public}@
+Unable to initialize bluelist coreduet context. Opportunistic topics will not be boosted.
+bluelist status changed; budgetExhausted: %d, notifying delegate: %p
 Application state restored for %ld clients
 Handle locale change for %ld clients
 Handle significant time change for %ld clients
@@ -164,6 +168,10 @@ UNSNotificationSettingsService [%{public}@] Getting Notification Sources For Bun
 UNSNotificationSettingsService [%{public}@] Returning Notification Sources For BundleIdentifiers %{public}@
 UNSNotificationSettingsService [%{public}@] Getting All Notification Sources
 UNSNotificationSettingsService [%{public}@] Returning All Notification Sources %{public}@
+UNSNotificationSettingsService [%{public}@] Authorizing Notification Settings
+[%{public}@] Notification source not found
+[%{public}@] Notification source not configured for UserNotifications
+[%{public}@] Notification source is not permitted to use critical alerts
 UNSNotificationSettingsService [%{public}@] Replacing Notification Settings
 UNSNotificationSettingsService [%{public}@] Replacing Notification Topic Settings
 UNSNotificationSettingsService [%{public}@] Getting Notification System Settings
@@ -510,6 +518,11 @@ q24@?0@"NSDictionary"8@"NSDictionary"16
 com.apple.usernotifications.UNSDaemonLauncher
 com.apple.usernotifications.UNSDaemonLauncher.call-out
 v12@?0B8
+com.apple.usernotificationsserver.BlueListMonitor
+/push/bluelist
+com.apple.usernotifications.bluelist
+com.apple.UserNotificationsServer
+v24@?0@"NSString"8@"NSDictionary"16
 Environment
 Token
 TokenIdentifier
@@ -659,6 +672,7 @@ UNCustomSettingsBundle
 UNCustomSettingsDetailControllerClass
 UNAllowCriticalAlerts
 UNAllowCalls
+UNSupportsProvisionalAlerts
 UNActionIdentifier
 UNActionTitle
 UNActionTextInput
@@ -740,6 +754,7 @@ cloudkit
 com.apple.internal.suiautomation
 newsstand-content
 com.apple.
+KettleTCC
 InfoPlist
 @16@?0@"NSDictionary"8
 BundleIdentifier
@@ -1141,11 +1156,13 @@ UNSPendingNotificationRepositoryObserver
 UNSNotificationTopicRecordMapper
 UNSRemoteNotificationServer
 APSConnectionDelegate
+UNSBlueListMonitorDelegate
 UNSAuthorizationAlertController
 UNSHybridContentProtectionStrategy
 UNSContentProtectionStrategy
 UNSDaemonLauncher
 UNUserNotificationCenterDelegateServiceProtocol
+UNSBlueListMonitor
 UNSPushRegistration
 UNSNotificationSchedulingService
 UNSNotificationSchedule
@@ -1376,7 +1393,6 @@ requestAuthorizationStatus:withOptions:scheduledDeliveryEnabled:forNotificationS
 sharedConnection
 isNotificationsModificationAllowedForBundleID:
 notificationSystemSettings
-localizedName
 requestAuthorizationForBundleIdentifier:displayName:withResult:
 criticalAlertSetting
 allowCriticalAlerts
@@ -1579,6 +1595,7 @@ pushSettings
 carPlaySetting
 timeSensitiveSetting
 announceSetting
+showsCustomSettingsLink
 setPushSettings:
 setCarPlaySetting:
 setAnnounceSetting:
@@ -1612,7 +1629,6 @@ bulletinGroupingSetting
 uns_notificationSettingForBBSectionInfoSetting:
 uns_notificationSettingForBBSectionAnnounceSetting:
 directMessagesSetting
-showsCustomSettingsLink
 settingsWithAuthorizationStatus:soundSetting:badgeSetting:alertSetting:notificationCenterSetting:lockScreenSetting:carPlaySetting:announcementSetting:criticalAlertSetting:timeSensitiveSetting:scheduledDeliverySetting:directMessagesSetting:alertStyle:showPreviewsSetting:groupingSetting:providesAppNotificationSettings:
 supportsAlerts
 modalAlertStyle
@@ -1723,6 +1739,7 @@ _queue_applicationDidLaunch:
 _queue_applicationDidTerminate:
 _queue_moveTopicsForApplication:fromList:toList:
 hasEnabledAlertSettings
+_queue_shouldBoostTopicToEnabled:
 indexOfObject:
 objectAtIndex:
 addObjectsFromArray:
@@ -1753,6 +1770,7 @@ connection:didFailToSendOutgoingMessage:error:
 connection:didChangeConnectedStatus:
 connectionDidReconnect:
 connection:channelSubscriptionsFailedWithFailures:
+bluelistStatusChanged
 initWithNotificationRepository:attachmentsService:categoryRepository:pushRegistrationRepository:platform:
 didChangeNotificationSettings:forBundleIdentifier:
 didCompleteInitialization
@@ -1766,6 +1784,7 @@ _categoryRepository
 _attachmentsService
 _pushRegistrationRepository
 _duetActivityScheduler
+_blueListMonitor
 _serviceExtensionManager
 _platform
 _apsQueue
@@ -1835,6 +1854,18 @@ resume
 invalidate
 setExportedObject:
 _connectionByBundleIdentifier
+userContext
+keyPathWithKey:
+_startMonitoring
+predicateForChangeAtKeyPath:
+localWakingRegistrationWithIdentifier:contextualPredicate:clientIdentifier:callback:
+registerCallback:
+shouldBoostOpportunisticTopicsToEnabled
+delegate
+_budgetExhausted
+_context
+_blueListKeyPath
+T@"<UNSBlueListMonitorDelegate>",W,N,V_delegate
 initWithEnvironment:tokenIdentifier:token:
 uns_safeSetObject:forKey:
 builder
@@ -2019,8 +2050,11 @@ subsections
 effectiveSectionInfoForSectionIDs:
 allEffectiveSectionInfo
 initWithArray:
-sectionInfoForSectionID:
+sourceDescriptionWithBundleIdentifier:
+defaultSectionInfoForType:
+setSectionID:
 setSectionInfo:forSectionID:
+sectionInfoForSectionID:
 globalContentPreviewSetting
 globalAnnounceSetting
 globalAnnounceHeadphonesSetting
@@ -2048,6 +2082,7 @@ settingsGateway:didUpdateGlobalSettings:
 notificationSettingsForTopicsWithBundleIdentifier:
 notificationSourceForBundleIdentifier:
 allNotificationSources
+authorizationWithOptions:forNotificationSourceIdentifier:withCompletionHandler:
 replaceNotificationSettings:forNotificationSourceIdentifier:
 replaceNotificationTopicSettings:forNotificationSourceIdentifier:topicIdentifier:
 setNotificationSystemSettings:
@@ -2327,6 +2362,7 @@ objectForInfoDictionaryKey:ofClass:inScope:
 entitlementValueForKey:ofClass:
 setAllowServiceExtensionFiltering:
 correspondingApplicationRecord
+localizedName
 entitlementValueForKey:ofClass:valuesOfClass:
 caseInsensitiveCompare:
 setUsesCloudKit:
@@ -2347,7 +2383,6 @@ applicationType
 objectForInfoDictionaryKey:ofClass:
 initWithURL:
 setSystemPropertiesFromDictionary:bundle:
-setSuppressUserAuthorizationPrompt:
 defaultSettings
 setAllowUnlimitedPendingNotifications:
 setAllowPrivateProperties:
@@ -2397,6 +2432,7 @@ setUniversalApplicationIdentifier:
 setIntentsBundleIdentifier:
 setSuppressDismissalSync:
 setSuppressIconMask:
+setSuppressUserAuthorizationPrompt:
 setAllowUnlimitedContentBody:
 setDaemonShouldReceiveBackgroundResponses:
 setDaemonShouldReceiveNotificationSettingsUpdates:
@@ -2404,6 +2440,7 @@ setDaemonShouldReceiveApplicationEvents:
 setRequiresTopics:
 setCustomSettingsBundle:
 setCustomSettingsDetailControllerClass:
+setSupportsProvisionalAlerts:
 setDefaultIconFile:
 setSettingsIconFile:
 setSettingsSheetIconFile:
@@ -2455,13 +2492,13 @@ setDefaultTopics:
 daemonShouldReceiveBackgroundResponses
 daemonShouldReceiveNotificationSettingsUpdates
 daemonShouldReceiveApplicationEvents
-sourceDescriptionWithBundleIdentifier:
 groupContainerURLS
 requiresTopics
 isAppClip
 setIsAppClip:
 wantsEphemeralNotifications
 setWantsEphemeralNotifications:
+supportsProvisionalAlerts
 _allowCriticalAlerts
 _allowTimeSensitive
 _allowCalls
@@ -2485,6 +2522,7 @@ _daemonShouldReceiveNotificationSettingsUpdates
 _daemonShouldReceiveApplicationEvents
 _isAppClip
 _wantsEphemeralNotifications
+_supportsProvisionalAlerts
 _allowUnlimitedPendingNotifications
 _intentsBundleIdentifier
 _universalApplicationIdentifier
@@ -2562,6 +2600,7 @@ TB,N,V_daemonShouldReceiveNotificationSettingsUpdates
 TB,N,V_daemonShouldReceiveApplicationEvents
 TB,N,V_isAppClip
 TB,N,V_wantsEphemeralNotifications
+TB,N,V_supportsProvisionalAlerts
 descriptionWithBundleIdentifier:path:allowServiceExtensionFiltering:
 setContentType:
 setCommunicationContextIdentifier:
@@ -3069,8 +3108,6 @@ privacyOptionShowTitle
 privacyOptionShowSubtitle
 setPrivacySettings:
 topicsForBundleIdentifier:
-defaultSectionInfoForType:
-setSectionID:
 setIsRestricted:
 setSuppressFromSettings:
 setSuppressedSettings:
@@ -3285,6 +3322,7 @@ _queue_notificationSettingsForBundleIdentifier:
 _queue_notificationSettingsForTopicsWithBundleIdentifier:
 _queue_updateSettingsWithAuthorizationStatus:options:scheduledDeliveryEnabled:forNotificationSourceDescription:completionHandler:
 _queue_updateSettingsWithAuthorizationStatus:options:scheduledDeliveryEnabled:expirationDate:lastUserGrantDate:forNotificationSourceDescription:completionHandler:
+_queue_removeDataProviderWithBundleIdentifier:completionHandler:
 _queue_setCriticalAlertAuthorization:forNotificationSourceDescription:completionHandler:
 _queue_effectiveSectionInfoForBundleIdentifier:
 _queue_sectionInfoForBundleIdentifier:
@@ -3299,7 +3337,6 @@ getSectionInfoForSectionIDs:withCompletion:
 _queue_notificationSourceDidInstall:
 _queue_createNewDefaultDataProviders:
 _queue_notificationSourceDidUninstall:
-_queue_removeDataProviderWithBundleIdentifier:
 _queue_sectionInfoDidChange:
 observer:addBulletin:forFeed:playLightsAndSirens:withReply:
 observer:addBulletin:forFeed:
@@ -3575,7 +3612,6 @@ _queue_performMigrationForPushStore
 _queue_performMigrationForPushStoreAtPath:
 isEqualToArray:
 removeNotificationRepository
-delegate
 settingsProvider
 _unlimitedBodyBundleIdentifiers
 _settingsProvider
@@ -3872,6 +3908,7 @@ v40@0:8@16Q24Q32
 @"UNSAttachmentsService"
 @"UNSPushRegistrationRepository"
 @"<_DASActivityScheduler>"
+@"UNSBlueListMonitor"
 @"UNSNotificationServiceExtensionManager"
 @"BSPlatform"
 @"NSMutableSet"
@@ -3893,6 +3930,9 @@ v24@0:8@?<@"NSData"@?@"NSData"@"NSData">16
 v40@0:8@"UNNotificationResponse"16@"NSString"24@?<v@?B>32
 v32@0:8@"UNNotificationSettings"16@"NSString"24
 v32@0:8@"UNNotificationResponse"16@"NSString"24
+@"<_CDContext>"
+@"_CDContextualKeyPath"
+@"<UNSBlueListMonitorDelegate>"
 @"NSData"
 @"UNSNotificationScheduleRepository"
 @"UNSLocationMonitor"
@@ -4021,6 +4061,7 @@ v32@0:8@"CLLocationManager"16@"CLVisit"24
 v32@0:8@"NSString"16@?<v@?@"UNNotificationSource">24
 v32@0:8@"NSSet"16@?<v@?@"NSSet">24
 v24@0:8@?<v@?@"NSSet">16
+v40@0:8Q16@"NSString"24@?<v@?B@"NSError">32
 v40@0:8@"UNNotificationSettings"16@"NSString"24@"NSString"32
 v24@0:8@?<v@?@"UNNotificationSystemSettings">16
 v24@0:8@"UNNotificationSystemSettings"16
@@ -4036,7 +4077,6 @@ v40@0:8@16Q24@32
 v28@0:8B16@20
 v48@0:8@16@24@32@?40
 v28@0:8B16@"NSString"20
-v40@0:8Q16@"NSString"24@?<v@?B@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"UNNotificationSettings">24
 v32@0:8@"NSString"16@?<v@?@"NSSet">24
 v32@0:8@"NSSet"16@"NSString"24
@@ -4111,6 +4151,7 @@ Unable to archive objects at %{public}@: %{public}@
 [%{public}@] Request notification user authorization prompt
 [%{public}@] Approved by user
 [%{public}@] Denied by user
+[%{public}@] No response by user
 [%{public}@] Requesting critical alert authorization
 [%{public}@] Already registered for critical alerts.
 [%{public}@] Critical alert authorization is not permitted
@@ -4216,6 +4257,7 @@ opportunistic:%{public}@
 nonWakingOpportunistic:%{public}@
 Setting no enabled, ignored or opportunistic topics for environment %{public}@
 [%{public}@] Request per-app token with token identifier %{public}@
+Calculate push topics because bluelist status changed
 [%{public}@] Push registration with a nil environment was encountered, will not invalidate token
 Notify APS that all connections are configured
 [%{public}@] Sending didReceiveNotificationResponse:forBundleIdentifier:
@@ -4225,6 +4267,8 @@ Notify APS that all connections are configured
 [%{public}@] didOpenApplicationForResponse:forBundleIdentifier: failed with error: %{public}@
 [%{public}@] Sending didChangeSettings:forBundleIdentifier:
 [%{public}@] didChangeSettings:forBundleIdentifier: failed with error: %{public}@
+Unable to initialize bluelist coreduet context. Opportunistic topics will not be boosted.
+bluelist status changed; budgetExhausted: %d, notifying delegate: %p
 Application state restored for %ld clients
 Handle locale change for %ld clients
 Handle significant time change for %ld clients
@@ -4237,6 +4281,10 @@ UNSNotificationSettingsService [%{public}@] Getting Notification Sources For Bun
 UNSNotificationSettingsService [%{public}@] Returning Notification Sources For BundleIdentifiers %{public}@
 UNSNotificationSettingsService [%{public}@] Getting All Notification Sources
 UNSNotificationSettingsService [%{public}@] Returning All Notification Sources %{public}@
+UNSNotificationSettingsService [%{public}@] Authorizing Notification Settings
+[%{public}@] Notification source not found
+[%{public}@] Notification source not configured for UserNotifications
+[%{public}@] Notification source is not permitted to use critical alerts
 UNSNotificationSettingsService [%{public}@] Replacing Notification Settings
 UNSNotificationSettingsService [%{public}@] Replacing Notification Topic Settings
 UNSNotificationSettingsService [%{public}@] Getting Notification System Settings
@@ -4583,6 +4631,11 @@ q24@?0@"NSDictionary"8@"NSDictionary"16
 com.apple.usernotifications.UNSDaemonLauncher
 com.apple.usernotifications.UNSDaemonLauncher.call-out
 v12@?0B8
+com.apple.usernotificationsserver.BlueListMonitor
+/push/bluelist
+com.apple.usernotifications.bluelist
+com.apple.UserNotificationsServer
+v24@?0@"NSString"8@"NSDictionary"16
 Environment
 Token
 TokenIdentifier
@@ -4732,6 +4785,7 @@ UNCustomSettingsBundle
 UNCustomSettingsDetailControllerClass
 UNAllowCriticalAlerts
 UNAllowCalls
+UNSupportsProvisionalAlerts
 UNActionIdentifier
 UNActionTitle
 UNActionTextInput
@@ -4813,6 +4867,7 @@ cloudkit
 com.apple.internal.suiautomation
 newsstand-content
 com.apple.
+KettleTCC
 InfoPlist
 @16@?0@"NSDictionary"8
 BundleIdentifier
@@ -5214,11 +5269,13 @@ UNSPendingNotificationRepositoryObserver
 UNSNotificationTopicRecordMapper
 UNSRemoteNotificationServer
 APSConnectionDelegate
+UNSBlueListMonitorDelegate
 UNSAuthorizationAlertController
 UNSHybridContentProtectionStrategy
 UNSContentProtectionStrategy
 UNSDaemonLauncher
 UNUserNotificationCenterDelegateServiceProtocol
+UNSBlueListMonitor
 UNSPushRegistration
 UNSNotificationSchedulingService
 UNSNotificationSchedule
@@ -5449,7 +5506,6 @@ requestAuthorizationStatus:withOptions:scheduledDeliveryEnabled:forNotificationS
 sharedConnection
 isNotificationsModificationAllowedForBundleID:
 notificationSystemSettings
-localizedName
 requestAuthorizationForBundleIdentifier:displayName:withResult:
 criticalAlertSetting
 allowCriticalAlerts
@@ -5652,6 +5708,7 @@ pushSettings
 carPlaySetting
 timeSensitiveSetting
 announceSetting
+showsCustomSettingsLink
 setPushSettings:
 setCarPlaySetting:
 setAnnounceSetting:
@@ -5685,7 +5742,6 @@ bulletinGroupingSetting
 uns_notificationSettingForBBSectionInfoSetting:
 uns_notificationSettingForBBSectionAnnounceSetting:
 directMessagesSetting
-showsCustomSettingsLink
 settingsWithAuthorizationStatus:soundSetting:badgeSetting:alertSetting:notificationCenterSetting:lockScreenSetting:carPlaySetting:announcementSetting:criticalAlertSetting:timeSensitiveSetting:scheduledDeliverySetting:directMessagesSetting:alertStyle:showPreviewsSetting:groupingSetting:providesAppNotificationSettings:
 supportsAlerts
 modalAlertStyle
@@ -5796,6 +5852,7 @@ _queue_applicationDidLaunch:
 _queue_applicationDidTerminate:
 _queue_moveTopicsForApplication:fromList:toList:
 hasEnabledAlertSettings
+_queue_shouldBoostTopicToEnabled:
 indexOfObject:
 objectAtIndex:
 addObjectsFromArray:
@@ -5826,6 +5883,7 @@ connection:didFailToSendOutgoingMessage:error:
 connection:didChangeConnectedStatus:
 connectionDidReconnect:
 connection:channelSubscriptionsFailedWithFailures:
+bluelistStatusChanged
 initWithNotificationRepository:attachmentsService:categoryRepository:pushRegistrationRepository:platform:
 didChangeNotificationSettings:forBundleIdentifier:
 didCompleteInitialization
@@ -5839,6 +5897,7 @@ _categoryRepository
 _attachmentsService
 _pushRegistrationRepository
 _duetActivityScheduler
+_blueListMonitor
 _serviceExtensionManager
 _platform
 _apsQueue
@@ -5908,6 +5967,18 @@ resume
 invalidate
 setExportedObject:
 _connectionByBundleIdentifier
+userContext
+keyPathWithKey:
+_startMonitoring
+predicateForChangeAtKeyPath:
+localWakingRegistrationWithIdentifier:contextualPredicate:clientIdentifier:callback:
+registerCallback:
+shouldBoostOpportunisticTopicsToEnabled
+delegate
+_budgetExhausted
+_context
+_blueListKeyPath
+T@"<UNSBlueListMonitorDelegate>",W,N,V_delegate
 initWithEnvironment:tokenIdentifier:token:
 uns_safeSetObject:forKey:
 builder
@@ -6092,8 +6163,11 @@ subsections
 effectiveSectionInfoForSectionIDs:
 allEffectiveSectionInfo
 initWithArray:
-sectionInfoForSectionID:
+sourceDescriptionWithBundleIdentifier:
+defaultSectionInfoForType:
+setSectionID:
 setSectionInfo:forSectionID:
+sectionInfoForSectionID:
 globalContentPreviewSetting
 globalAnnounceSetting
 globalAnnounceHeadphonesSetting
@@ -6121,6 +6195,7 @@ settingsGateway:didUpdateGlobalSettings:
 notificationSettingsForTopicsWithBundleIdentifier:
 notificationSourceForBundleIdentifier:
 allNotificationSources
+authorizationWithOptions:forNotificationSourceIdentifier:withCompletionHandler:
 replaceNotificationSettings:forNotificationSourceIdentifier:
 replaceNotificationTopicSettings:forNotificationSourceIdentifier:topicIdentifier:
 setNotificationSystemSettings:
@@ -6400,6 +6475,7 @@ objectForInfoDictionaryKey:ofClass:inScope:
 entitlementValueForKey:ofClass:
 setAllowServiceExtensionFiltering:
 correspondingApplicationRecord
+localizedName
 entitlementValueForKey:ofClass:valuesOfClass:
 caseInsensitiveCompare:
 setUsesCloudKit:
@@ -6420,7 +6496,6 @@ applicationType
 objectForInfoDictionaryKey:ofClass:
 initWithURL:
 setSystemPropertiesFromDictionary:bundle:
-setSuppressUserAuthorizationPrompt:
 defaultSettings
 setAllowUnlimitedPendingNotifications:
 setAllowPrivateProperties:
@@ -6470,6 +6545,7 @@ setUniversalApplicationIdentifier:
 setIntentsBundleIdentifier:
 setSuppressDismissalSync:
 setSuppressIconMask:
+setSuppressUserAuthorizationPrompt:
 setAllowUnlimitedContentBody:
 setDaemonShouldReceiveBackgroundResponses:
 setDaemonShouldReceiveNotificationSettingsUpdates:
@@ -6477,6 +6553,7 @@ setDaemonShouldReceiveApplicationEvents:
 setRequiresTopics:
 setCustomSettingsBundle:
 setCustomSettingsDetailControllerClass:
+setSupportsProvisionalAlerts:
 setDefaultIconFile:
 setSettingsIconFile:
 setSettingsSheetIconFile:
@@ -6528,13 +6605,13 @@ setDefaultTopics:
 daemonShouldReceiveBackgroundResponses
 daemonShouldReceiveNotificationSettingsUpdates
 daemonShouldReceiveApplicationEvents
-sourceDescriptionWithBundleIdentifier:
 groupContainerURLS
 requiresTopics
 isAppClip
 setIsAppClip:
 wantsEphemeralNotifications
 setWantsEphemeralNotifications:
+supportsProvisionalAlerts
 _allowCriticalAlerts
 _allowTimeSensitive
 _allowCalls
@@ -6558,6 +6635,7 @@ _daemonShouldReceiveNotificationSettingsUpdates
 _daemonShouldReceiveApplicationEvents
 _isAppClip
 _wantsEphemeralNotifications
+_supportsProvisionalAlerts
 _allowUnlimitedPendingNotifications
 _intentsBundleIdentifier
 _universalApplicationIdentifier
@@ -6635,6 +6713,7 @@ TB,N,V_daemonShouldReceiveNotificationSettingsUpdates
 TB,N,V_daemonShouldReceiveApplicationEvents
 TB,N,V_isAppClip
 TB,N,V_wantsEphemeralNotifications
+TB,N,V_supportsProvisionalAlerts
 descriptionWithBundleIdentifier:path:allowServiceExtensionFiltering:
 setContentType:
 setCommunicationContextIdentifier:
@@ -7142,8 +7221,6 @@ privacyOptionShowTitle
 privacyOptionShowSubtitle
 setPrivacySettings:
 topicsForBundleIdentifier:
-defaultSectionInfoForType:
-setSectionID:
 setIsRestricted:
 setSuppressFromSettings:
 setSuppressedSettings:
@@ -7358,6 +7435,7 @@ _queue_notificationSettingsForBundleIdentifier:
 _queue_notificationSettingsForTopicsWithBundleIdentifier:
 _queue_updateSettingsWithAuthorizationStatus:options:scheduledDeliveryEnabled:forNotificationSourceDescription:completionHandler:
 _queue_updateSettingsWithAuthorizationStatus:options:scheduledDeliveryEnabled:expirationDate:lastUserGrantDate:forNotificationSourceDescription:completionHandler:
+_queue_removeDataProviderWithBundleIdentifier:completionHandler:
 _queue_setCriticalAlertAuthorization:forNotificationSourceDescription:completionHandler:
 _queue_effectiveSectionInfoForBundleIdentifier:
 _queue_sectionInfoForBundleIdentifier:
@@ -7372,7 +7450,6 @@ getSectionInfoForSectionIDs:withCompletion:
 _queue_notificationSourceDidInstall:
 _queue_createNewDefaultDataProviders:
 _queue_notificationSourceDidUninstall:
-_queue_removeDataProviderWithBundleIdentifier:
 _queue_sectionInfoDidChange:
 observer:addBulletin:forFeed:playLightsAndSirens:withReply:
 observer:addBulletin:forFeed:
@@ -7648,7 +7725,6 @@ _queue_performMigrationForPushStore
 _queue_performMigrationForPushStoreAtPath:
 isEqualToArray:
 removeNotificationRepository
-delegate
 settingsProvider
 _unlimitedBodyBundleIdentifiers
 _settingsProvider
@@ -7945,6 +8021,7 @@ v40@0:8@16Q24Q32
 @"UNSAttachmentsService"
 @"UNSPushRegistrationRepository"
 @"<_DASActivityScheduler>"
+@"UNSBlueListMonitor"
 @"UNSNotificationServiceExtensionManager"
 @"BSPlatform"
 @"NSMutableSet"
@@ -7966,6 +8043,9 @@ v24@0:8@?<@"NSData"@?@"NSData"@"NSData">16
 v40@0:8@"UNNotificationResponse"16@"NSString"24@?<v@?B>32
 v32@0:8@"UNNotificationSettings"16@"NSString"24
 v32@0:8@"UNNotificationResponse"16@"NSString"24
+@"<_CDContext>"
+@"_CDContextualKeyPath"
+@"<UNSBlueListMonitorDelegate>"
 @"NSData"
 @"UNSNotificationScheduleRepository"
 @"UNSLocationMonitor"
@@ -8094,6 +8174,7 @@ v32@0:8@"CLLocationManager"16@"CLVisit"24
 v32@0:8@"NSString"16@?<v@?@"UNNotificationSource">24
 v32@0:8@"NSSet"16@?<v@?@"NSSet">24
 v24@0:8@?<v@?@"NSSet">16
+v40@0:8Q16@"NSString"24@?<v@?B@"NSError">32
 v40@0:8@"UNNotificationSettings"16@"NSString"24@"NSString"32
 v24@0:8@?<v@?@"UNNotificationSystemSettings">16
 v24@0:8@"UNNotificationSystemSettings"16
@@ -8109,7 +8190,6 @@ v40@0:8@16Q24@32
 v28@0:8B16@20
 v48@0:8@16@24@32@?40
 v28@0:8B16@"NSString"20
-v40@0:8Q16@"NSString"24@?<v@?B@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"UNNotificationSettings">24
 v32@0:8@"NSString"16@?<v@?@"NSSet">24
 v32@0:8@"NSSet"16@"NSString"24

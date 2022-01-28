@@ -76,8 +76,7 @@ Could not look up appInfo for pid: %d bundle id: %@ uuid: %@
 %s called with null appInfo
 Failed to save appInfo: %@ for uuid: %@
 %s called with null uuid
-Calling custom lookup handler with pid: %d, uuid: %@, bundleID: %@
-Custom lookup handler gave back dictionary: %@
+Calling delegate lookup handler with pid: %d, uuid: %@, bundleID: %@
 Origin lookup for pid %d, bundle id: %@
 Origin lookup created appInfo:
 %s called with null bundleID
@@ -1387,6 +1386,8 @@ Certificate authentication data could not be verified
 %s called with null lastResponderPacket
 %@ Initiator auth EAP received notify error: %@
 %@ No EAP data received
+%@ received sending notify payload request
+[pacsendIKEAuthket addNotifyPayload:notifyPayload] failed
 %s called with null !ikeSA.isInitiator
 %@ Responder auth received notify error %@
 %@ Initiator ID missing
@@ -2315,6 +2316,12 @@ Failed to set priority: [%d] %s
 Failed to lock session to process: [%d] %s
 Failed to register service: [%d] %s
 Failed to unregister service: [%d] %s
+%s called with null filterData
+Failed to add domain filter: [%d] %s
+Failed to add domain filter of length %zu
+Added domain filter of length %zu
+Failed to remove domain filter %u: [%d] %s
+Failed to remove all domain filters: [%d] %s
 Failed to create add message
 Failed to add TLVs to message
 Failed to add policy: [%d] %s
@@ -3422,7 +3429,6 @@ inbound
 outbound
 outBytes
 signature
-v36@?0i8@"NSUUID"12@"NSString"20@?<v@?@"NEAppInfo">28
 ParentURL
 URLRequest
 URLResponse
@@ -4748,6 +4754,8 @@ BlackHoleDetectionEnabled
 RemoteCertificateHostname
 RemoteCertificateAuthorityName
 RemoteCertificateAuthorityReferences
+IMEI
+IMEISV
 RemoteAuthenticationMethod
 PDUSessionID
 ConfigurationRequest
@@ -5068,6 +5076,7 @@ condition-type
 application-uuid
 address
 end-address
+domain-filter
 account-identifier
 custom-entitlement
 agent-domain
@@ -5155,6 +5164,7 @@ Policy Conditions Invalid
 Policy ID Not Found
 Invalid Process
 Unknown Error %u
+-[NEPolicySession addDomainFilterWithData:]
 high_1
 high_2
 high_3
@@ -5910,6 +5920,7 @@ NSExtensionRequestHandling
 NEFilterDataExtensionProviderProtocol
 NEFilterDataExtensionProviderHostProtocol
 NEFilterDataExtensionProviderContext
+NEAppInfoCacheLookupDelegate
 NEFilterDataSavedMessageHandler
 NEFilterDataExtensionProviderHostContext
 NEExtensionAppPushProviderProtocol
@@ -6364,7 +6375,8 @@ setObject:forKeyedSubscript:
 isEqual:
 bundleID:matchesBundleID:
 bundleIDWithoutTeamID:
-customLookupHandler
+lookupDelegate
+fetchAppInfoForPID:UUID:bundleID:completionHandler:
 lookupAppInfoForPid:bundleID:
 UTF8String
 initWithUUIDBytes:
@@ -6375,14 +6387,14 @@ substringFromIndex:
 copy
 sharedAppInfoCache
 appInfoForPid:UUID:bundleID:completionHandler:
-setCustomLookupHandler:
+setLookupDelegate:
 setCachedSourceAppInfo:
-_customLookupHandler
+_lookupDelegate
 _cachedSourceAppInfo
 _cacheQueue
 T@"NSMutableDictionary",&,V_cachedSourceAppInfo
 T@"NSObject<OS_dispatch_queue>",R,V_cacheQueue
-T@?,C,N,V_customLookupHandler
+T@"<NEAppInfoCacheLookupDelegate>",W,V_lookupDelegate
 dictionaryWithObjects:forKeys:count:
 errorWithDomain:code:userInfo:
 context
@@ -7541,8 +7553,8 @@ report:
 sendBrowserContentFilterServerRequest
 sendSocketContentFilterRequest
 fetchCurrentRulesForFlow:completionHandler:
-getSourceAppInfo:completionHandler:
 applySettings:completionHandler:
+getSourceAppInfo:completionHandler:
 controlProviderInitialized
 setControlProviderExists:
 setPendingConnections:
@@ -7603,7 +7615,7 @@ socketProtocol
 subdataWithRange:
 createNewFlowReply:controlSocket:verdict:context:
 reportFlow:forVerdict:event:
-updateSourceAppInfo:completionHandler:
+updateSourceAppInfoWithCompletionHandler:
 adjustDataToFilter:startOffset:flow:direction:
 handleInboundDataFromFlow:readBytesStartOffset:readBytes:
 handleOutboundDataFromFlow:readBytesStartOffset:readBytes:
@@ -8854,6 +8866,10 @@ setCustomIKEAuthPayloads:
 customIKEAuthVendorPayloads
 setCustomIKEAuthVendorPayloads:
 setCustomIKEAuthPrivateNotifies:
+IMEI
+setIMEI:
+IMEISV
+setIMEISV:
 setConfigurationType:
 natTraversalKeepaliveEnabled
 setNatTraversalKeepaliveEnabled:
@@ -8903,6 +8919,8 @@ _customIKEAuthPayloads
 _customIKEAuthVendorPayloads
 _customIKEAuthPrivateNotifies
 _pduSessionID
+_IMEI
+_IMEISV
 T@"NEIKEv2Identifier",&,V_localIdentifier
 T@"NEIKEv2Identifier",&,V_remoteIdentifier
 TB,V_initialContactDisabled
@@ -8951,6 +8969,8 @@ T@"NSArray",&,V_customIKEAuthPayloads
 T@"NSArray",&,V_customIKEAuthVendorPayloads
 T@"NSArray",&,N,V_customIKEAuthPrivateNotifies
 T@"NSNumber",&,V_pduSessionID
+T@"NSString",&,V_IMEI
+T@"NSString",&,V_IMEISV
 setNonceSize:
 outgoingInterfaceName
 randomizeLocalPort
@@ -9466,6 +9486,7 @@ eapMessage
 setEapClient:
 setEap:
 setEapMessage:
+createNotifyPayloadType:data:
 setRemoteIdentifierFromPacket:
 setLocalIdentifierFromPacket:
 setChildSAModeFromPacket:
@@ -9489,6 +9510,7 @@ setUsesPacketDelegate:
 setConfigurationDelegate:
 createLocalSPIForLocalAddress:remoteAddress:
 setLocalSPI:
+usesPacketDelegate
 transport
 transportType
 setUseTCPEncapsulation:
@@ -9511,7 +9533,6 @@ responderTrafficSelectorsFromPacket
 transportDelegate
 socketGetBlock
 initIKESAWithConfiguration:sessionConfiguration:queue:initialTransport:transportDelegate:socketGetBlock:packetDelegate:configurationDelegate:ikeSessionUniqueIndex:
-usesPacketDelegate
 useNATTraversal
 detectedIncomingNAT
 setDetectedIncomingNAT:
@@ -9699,7 +9720,6 @@ T@"NSArray",&,N,V_responderTrafficSelectorsFromPacket
 T@"NEIKEv2EAP",&,V_eapClient
 T@"NEIKEv2ConfigurationMessage",&,V_activeConfiguration
 T@"NSData",&,V_receivedDestinationHash
-createNotifyPayloadType:data:
 setDeletes:
 isDeleteIKE
 setSpis:
@@ -11587,6 +11607,7 @@ setApplicationUUID:
 setPid_version:
 setUid:
 setAccountIdentifier:
+setDomainFilter:
 setInterfaceName:
 setTrafficClassStart:
 setTrafficClassEnd:
@@ -11608,6 +11629,7 @@ minSDKVersion
 sdkVersion
 addTLVToMessage:type:length:value:
 effectivePID:version:
+domainFilter:
 localNetworks
 customEntitlement:
 fallbackTraffic
@@ -11623,6 +11645,7 @@ isNegative
 applicationUUID
 pid_version
 accountIdentifier
+domainFilter
 trafficClassStart
 trafficClassEnd
 clientFlags
@@ -11635,6 +11658,7 @@ _packetFilterTags
 _schemePort
 _pid_version
 _uid
+_domainFilter
 _trafficClassStart
 _trafficClassEnd
 _clientFlags
@@ -11655,6 +11679,7 @@ Ti,V_pid_version
 TI,V_uid
 T@"NSString",C,V_accountIdentifier
 T@"NSString",C,V_domain
+TI,V_domainFilter
 T@"NSString",C,V_interfaceName
 TI,V_trafficClassStart
 TI,V_trafficClassEnd
@@ -11755,6 +11780,9 @@ messageIDForMessage:
 initFromPrivilegedProcess
 initWithSessionName:
 createTLVMessage:
+addDomainFilterWithData:
+removeDomainFilterWithID:
+removeAllDomainFilters
 dumpKernelPolicies
 policyWithID:
 setPolicies:
@@ -12680,12 +12708,12 @@ v44@0:8i16@20@28@?36
 B32@0:8@16@24
 B40@0:8@16@24@32
 @28@0:8i16@20
-@?16@0:8
-v24@0:8@?16
+@"<NEAppInfoCacheLookupDelegate>"
 @"NSMutableDictionary"
 @"NSObject<OS_dispatch_queue>"
 v32@0:8@16@?24
 v32@0:8q16@?24
+v24@0:8@?16
 B24@0:8q16
 @32@0:8@16#24
 v48@0:8@16@24@32^v40
@@ -12694,6 +12722,7 @@ v32@0:8^{_NEFlow=}16@?24
 ^{_NEFlowDirector=}16@0:8
 v24@0:8^{_NEFlowDirector=}16
 I16@0:8
+@?16@0:8
 @"NEAppProxyProvider"
 @"<NEAppProxyProviderContainerDelegate>"
 ^{_NEFlowDirector=}
@@ -12819,8 +12848,9 @@ v32@0:8@"NEFilterProviderConfiguration"16@?<v@?@"NSError">24
 v32@0:8@"NEFilterFlow"16@?<v@?@"NEFilterControlVerdict">24
 v24@0:8@"NEFilterReport"16
 v24@0:8@"NSExtensionContext"16
-v32@0:8@"NEAppInfo"16@?<v@?@"NEAppInfo">24
 v32@0:8@"NEFilterSettings"16@?<v@?@"NSError">24
+v32@0:8@"NEAppInfo"16@?<v@?@"NEAppInfo">24
+v44@0:8i16@"NSUUID"20@"NSString"28@?<v@?@"NEAppInfo">36
 v40@0:8@16@24q32
 v36@0:8i16i20*24i32
 @48@0:8@16^Q24@32q40
@@ -13347,8 +13377,7 @@ Could not look up appInfo for pid: %d bundle id: %@ uuid: %@
 %s called with null appInfo
 Failed to save appInfo: %@ for uuid: %@
 %s called with null uuid
-Calling custom lookup handler with pid: %d, uuid: %@, bundleID: %@
-Custom lookup handler gave back dictionary: %@
+Calling delegate lookup handler with pid: %d, uuid: %@, bundleID: %@
 Origin lookup for pid %d, bundle id: %@
 Origin lookup created appInfo:
 %s called with null bundleID
@@ -14658,6 +14687,8 @@ Certificate authentication data could not be verified
 %s called with null lastResponderPacket
 %@ Initiator auth EAP received notify error: %@
 %@ No EAP data received
+%@ received sending notify payload request
+[pacsendIKEAuthket addNotifyPayload:notifyPayload] failed
 %s called with null !ikeSA.isInitiator
 %@ Responder auth received notify error %@
 %@ Initiator ID missing
@@ -15586,6 +15617,12 @@ Failed to set priority: [%d] %s
 Failed to lock session to process: [%d] %s
 Failed to register service: [%d] %s
 Failed to unregister service: [%d] %s
+%s called with null filterData
+Failed to add domain filter: [%d] %s
+Failed to add domain filter of length %zu
+Added domain filter of length %zu
+Failed to remove domain filter %u: [%d] %s
+Failed to remove all domain filters: [%d] %s
 Failed to create add message
 Failed to add TLVs to message
 Failed to add policy: [%d] %s
@@ -15843,25 +15880,47 @@ SCNetworkInterfaceSetExtendedConfiguration failed: %s
 Cannot set IPSec settings in service, interface is NULL
 Creating PPTP interface failed, protocol is no longer supported
 #*1>E
+ #/258;>AD
 &&&&
+jjjjjjj
 <none>
+TSqqqq
+qqS9
+7KA#
 !$'*-03E
 "%(+.147:=@
+ %*.
 !$'2
 !$'*-
+$8C888k8t
+%%%0B%%%%Uh{
+!,50
+"%(+.147:=@@@@^
 rux{~
 "%(+.147:=@CFILORUX[^
+[w7w7
+[wwww
+7www
+L!#########GIK
+:147=@
 69<?BEHKNQTWZ]`cfilorux{~
 ?BEHKNQ
 DGJMPSV
 >ADGJMP
 !$'*-0369<
-?BEHKNQTWZZZZ]A
- "$&(*,.02468:<@@@@>
-8888
+?BEHKNQTWZZZZ]`C
+ "$&(*,.02468:<BBBB>@II_ace
+::::
 !$'*
 !$'*
+"%(+
+)3B^inx
+KV[`er
+%(+.147:=@@@@@@C}
+(+.147:=@CFILORU
 []y<I@
+r'*-0
+```````
 /var/mobile/Library/terminus/com.apple.necp_drop_dest.plist
 /var/tmp/com.apple.neutil.necp_drop_dest.plist
 com.apple.networkextension.disable-nexus
@@ -16713,7 +16772,6 @@ inbound
 outbound
 outBytes
 signature
-v36@?0i8@"NSUUID"12@"NSString"20@?<v@?@"NEAppInfo">28
 ParentURL
 URLRequest
 URLResponse
@@ -18039,6 +18097,8 @@ BlackHoleDetectionEnabled
 RemoteCertificateHostname
 RemoteCertificateAuthorityName
 RemoteCertificateAuthorityReferences
+IMEI
+IMEISV
 RemoteAuthenticationMethod
 PDUSessionID
 ConfigurationRequest
@@ -18359,6 +18419,7 @@ condition-type
 application-uuid
 address
 end-address
+domain-filter
 account-identifier
 custom-entitlement
 agent-domain
@@ -18446,6 +18507,7 @@ Policy Conditions Invalid
 Policy ID Not Found
 Invalid Process
 Unknown Error %u
+-[NEPolicySession addDomainFilterWithData:]
 high_1
 high_2
 high_3
@@ -19199,6 +19261,7 @@ NSExtensionRequestHandling
 NEFilterDataExtensionProviderProtocol
 NEFilterDataExtensionProviderHostProtocol
 NEFilterDataExtensionProviderContext
+NEAppInfoCacheLookupDelegate
 NEFilterDataSavedMessageHandler
 NEFilterDataExtensionProviderHostContext
 NEExtensionAppPushProviderProtocol
@@ -19653,7 +19716,8 @@ setObject:forKeyedSubscript:
 isEqual:
 bundleID:matchesBundleID:
 bundleIDWithoutTeamID:
-customLookupHandler
+lookupDelegate
+fetchAppInfoForPID:UUID:bundleID:completionHandler:
 lookupAppInfoForPid:bundleID:
 UTF8String
 initWithUUIDBytes:
@@ -19664,14 +19728,14 @@ substringFromIndex:
 copy
 sharedAppInfoCache
 appInfoForPid:UUID:bundleID:completionHandler:
-setCustomLookupHandler:
+setLookupDelegate:
 setCachedSourceAppInfo:
-_customLookupHandler
+_lookupDelegate
 _cachedSourceAppInfo
 _cacheQueue
 T@"NSMutableDictionary",&,V_cachedSourceAppInfo
 T@"NSObject<OS_dispatch_queue>",R,V_cacheQueue
-T@?,C,N,V_customLookupHandler
+T@"<NEAppInfoCacheLookupDelegate>",W,V_lookupDelegate
 dictionaryWithObjects:forKeys:count:
 errorWithDomain:code:userInfo:
 context
@@ -20830,8 +20894,8 @@ report:
 sendBrowserContentFilterServerRequest
 sendSocketContentFilterRequest
 fetchCurrentRulesForFlow:completionHandler:
-getSourceAppInfo:completionHandler:
 applySettings:completionHandler:
+getSourceAppInfo:completionHandler:
 controlProviderInitialized
 setControlProviderExists:
 setPendingConnections:
@@ -20892,7 +20956,7 @@ socketProtocol
 subdataWithRange:
 createNewFlowReply:controlSocket:verdict:context:
 reportFlow:forVerdict:event:
-updateSourceAppInfo:completionHandler:
+updateSourceAppInfoWithCompletionHandler:
 adjustDataToFilter:startOffset:flow:direction:
 handleInboundDataFromFlow:readBytesStartOffset:readBytes:
 handleOutboundDataFromFlow:readBytesStartOffset:readBytes:
@@ -22143,6 +22207,10 @@ setCustomIKEAuthPayloads:
 customIKEAuthVendorPayloads
 setCustomIKEAuthVendorPayloads:
 setCustomIKEAuthPrivateNotifies:
+IMEI
+setIMEI:
+IMEISV
+setIMEISV:
 setConfigurationType:
 natTraversalKeepaliveEnabled
 setNatTraversalKeepaliveEnabled:
@@ -22192,6 +22260,8 @@ _customIKEAuthPayloads
 _customIKEAuthVendorPayloads
 _customIKEAuthPrivateNotifies
 _pduSessionID
+_IMEI
+_IMEISV
 T@"NEIKEv2Identifier",&,V_localIdentifier
 T@"NEIKEv2Identifier",&,V_remoteIdentifier
 TB,V_initialContactDisabled
@@ -22240,6 +22310,8 @@ T@"NSArray",&,V_customIKEAuthPayloads
 T@"NSArray",&,V_customIKEAuthVendorPayloads
 T@"NSArray",&,N,V_customIKEAuthPrivateNotifies
 T@"NSNumber",&,V_pduSessionID
+T@"NSString",&,V_IMEI
+T@"NSString",&,V_IMEISV
 setNonceSize:
 outgoingInterfaceName
 randomizeLocalPort
@@ -22755,6 +22827,7 @@ eapMessage
 setEapClient:
 setEap:
 setEapMessage:
+createNotifyPayloadType:data:
 setRemoteIdentifierFromPacket:
 setLocalIdentifierFromPacket:
 setChildSAModeFromPacket:
@@ -22778,6 +22851,7 @@ setUsesPacketDelegate:
 setConfigurationDelegate:
 createLocalSPIForLocalAddress:remoteAddress:
 setLocalSPI:
+usesPacketDelegate
 transport
 transportType
 setUseTCPEncapsulation:
@@ -22800,7 +22874,6 @@ responderTrafficSelectorsFromPacket
 transportDelegate
 socketGetBlock
 initIKESAWithConfiguration:sessionConfiguration:queue:initialTransport:transportDelegate:socketGetBlock:packetDelegate:configurationDelegate:ikeSessionUniqueIndex:
-usesPacketDelegate
 useNATTraversal
 detectedIncomingNAT
 setDetectedIncomingNAT:
@@ -22988,7 +23061,6 @@ T@"NSArray",&,N,V_responderTrafficSelectorsFromPacket
 T@"NEIKEv2EAP",&,V_eapClient
 T@"NEIKEv2ConfigurationMessage",&,V_activeConfiguration
 T@"NSData",&,V_receivedDestinationHash
-createNotifyPayloadType:data:
 setDeletes:
 isDeleteIKE
 setSpis:
@@ -24876,6 +24948,7 @@ setApplicationUUID:
 setPid_version:
 setUid:
 setAccountIdentifier:
+setDomainFilter:
 setInterfaceName:
 setTrafficClassStart:
 setTrafficClassEnd:
@@ -24897,6 +24970,7 @@ minSDKVersion
 sdkVersion
 addTLVToMessage:type:length:value:
 effectivePID:version:
+domainFilter:
 localNetworks
 customEntitlement:
 fallbackTraffic
@@ -24912,6 +24986,7 @@ isNegative
 applicationUUID
 pid_version
 accountIdentifier
+domainFilter
 trafficClassStart
 trafficClassEnd
 clientFlags
@@ -24924,6 +24999,7 @@ _packetFilterTags
 _schemePort
 _pid_version
 _uid
+_domainFilter
 _trafficClassStart
 _trafficClassEnd
 _clientFlags
@@ -24944,6 +25020,7 @@ Ti,V_pid_version
 TI,V_uid
 T@"NSString",C,V_accountIdentifier
 T@"NSString",C,V_domain
+TI,V_domainFilter
 T@"NSString",C,V_interfaceName
 TI,V_trafficClassStart
 TI,V_trafficClassEnd
@@ -25044,6 +25121,9 @@ messageIDForMessage:
 initFromPrivilegedProcess
 initWithSessionName:
 createTLVMessage:
+addDomainFilterWithData:
+removeDomainFilterWithID:
+removeAllDomainFilters
 dumpKernelPolicies
 policyWithID:
 setPolicies:
@@ -25969,12 +26049,12 @@ v44@0:8i16@20@28@?36
 B32@0:8@16@24
 B40@0:8@16@24@32
 @28@0:8i16@20
-@?16@0:8
-v24@0:8@?16
+@"<NEAppInfoCacheLookupDelegate>"
 @"NSMutableDictionary"
 @"NSObject<OS_dispatch_queue>"
 v32@0:8@16@?24
 v32@0:8q16@?24
+v24@0:8@?16
 B24@0:8q16
 @32@0:8@16#24
 v48@0:8@16@24@32^v40
@@ -25983,6 +26063,7 @@ v32@0:8^{_NEFlow=}16@?24
 ^{_NEFlowDirector=}16@0:8
 v24@0:8^{_NEFlowDirector=}16
 I16@0:8
+@?16@0:8
 @"NEAppProxyProvider"
 @"<NEAppProxyProviderContainerDelegate>"
 ^{_NEFlowDirector=}
@@ -26108,8 +26189,9 @@ v32@0:8@"NEFilterProviderConfiguration"16@?<v@?@"NSError">24
 v32@0:8@"NEFilterFlow"16@?<v@?@"NEFilterControlVerdict">24
 v24@0:8@"NEFilterReport"16
 v24@0:8@"NSExtensionContext"16
-v32@0:8@"NEAppInfo"16@?<v@?@"NEAppInfo">24
 v32@0:8@"NEFilterSettings"16@?<v@?@"NSError">24
+v32@0:8@"NEAppInfo"16@?<v@?@"NEAppInfo">24
+v44@0:8i16@"NSUUID"20@"NSString"28@?<v@?@"NEAppInfo">36
 v40@0:8@16@24q32
 v36@0:8i16i20*24i32
 @48@0:8@16^Q24@32q40

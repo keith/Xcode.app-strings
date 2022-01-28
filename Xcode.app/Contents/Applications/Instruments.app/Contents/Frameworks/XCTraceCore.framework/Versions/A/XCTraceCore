@@ -5,6 +5,7 @@ __sFILE
 Foundation
 PFTInitializationFlags
 __sbuf
+InstrumentsPlugIn
 NSFileManager
 XCTraceCore
 FileManagerProtocol
@@ -24,6 +25,8 @@ Kind
 <name|UDID>
 XCTraceCore
 RemodelCommandConfiguration
+XCTraceCore
+SymbolicateCommandConfiguration
 XCTraceCore
 HelpCommandSubcommand
 XCTraceCore
@@ -46,6 +49,7 @@ XCTraceCore
 CommandParser
 PartialRecordTraceCommand
 PartialRemodelTraceCommand
+PartialSymbolicateTraceCommand
 PartialExportTraceCommand
 PartialImportFileCommand
 XCTraceCore
@@ -90,6 +94,7 @@ record
 import
 export
 remodel
+symbolicate
 list
 version
 Import given supported file into Instruments .trace file using specified template
@@ -98,6 +103,7 @@ Export given .trace using supplied query to the XML file format that can be late
 Perform a new recording on the specified device and target with the given template
 Remodel given trace file using currently installed modelers
 New output trace file is generated as part of the remodel operation
+Symbolicate given .trace using supplied dSYM
 Show xctrace version
 List capabilities of the current running environment, such as devices or templates
 If output path is not specified, the export operation output will be written to the standard output.
@@ -107,6 +113,9 @@ If the output path is a directory, then a unique file is created in it. If the p
 extension 
  file will be created at the specified path.
 To remodel existing file in place, specify this path in the output file argument
+If an output path is not specified, the symbolicated trace is saved at the same path as the original one.
+If dsym path is a directory, it will be searched recursively for relevant dSYMs.
+If dsym path is not specified, best effort will be made to locate relevant dSYMs on the system.
 xctrace import --input system_logs.logarchive
 xctrace import --input system_logs.logarchive --template 'Custom'
 xctrace import --input ktrace001.trace --template 'System Trace' --output system.trace
@@ -123,6 +132,7 @@ xctrace record --template 'Time Profiler' --device-name "Chad's iPhone" --attach
 xctrace record --template 'Metal System Trace' --device-name 'iPhone SE Simulator' --all-processes
 xctrace record --template 'Allocations' --env KEY=VALUE --launch -- MyApp.app
 xctrace record --template 'Time Profiler' --target-stdout - --launch -- /tmp/tool arg1 arg2
+xctrace symbolicate --input input.trace --output symbolicated.trace --dsym SomeLibrary.dSYM
 OS_dispatch_source_signal
 XRMobileAgentVisitor
 @16@0:8
@@ -132,6 +142,8 @@ T@"XRMobileAgent<XRMobileAgentOwner>",N,&
 @"XRMobileAgent<XRMobileAgentOwner>"16@0:8
 v24@0:8@"XRMobileAgent<XRMobileAgentOwner>"16
 XRTraceSetupMobileAgent
+c16@0:8
+v20@0:8c16
 sourceURL
 T@"NSURL",N,C
 sourceUTI
@@ -139,6 +151,8 @@ T@"NSString",N,C
 trace
 T@"XRTrace",N,&
 templateURL
+templateIsDefault
+Tc,N
 templateNameForLoggingPurposes
 autoStartCommand
 T@"PFTInstrumentCommand",N,&
@@ -170,7 +184,6 @@ OS_dispatch_source
 c24@0:8@16
 @32@0:8:16@24
 @40@0:8:16@24@32
-c16@0:8
 c24@0:8#16
 c24@0:8:16
 Vv16@0:8
@@ -185,10 +198,14 @@ T@"NSString",N,R
 debugDescription
 c24@0:8@"Protocol"16
 -- command [arguments]
+notify-tracing-started
 <duration[ms|s|m]>
 <time[ms|s|m|h]>
 list [devices|templates]
-demodel [<options>]
+Make terminal ouput less verbose
+global options:
+symbolicate [<options>] [--dsym path]
+remodel [<options>]
 record [<options>] [--attach | --all-processes | --launch -- command ]
 export [<options>] [--toc | --xpath expression]
 import [<options>]
@@ -201,6 +218,9 @@ If target device UDID or name is not specified
 Specifying environment variables or stream redirection is only available when using 
 Some of the importable file types will have default template. In these cases --template
 parameter is optional. The default template for a given import file UTI may change between releases.
+Symbolicate addresses in given .trace file
+Output symbolicated .trace file to the given path
+Use dSYM from given path as source of symbol data
 Remodel data from the given .trace file
 Output remodeled .trace file to given path
 Load Instruments Package from given path for duration of the command
@@ -216,6 +236,7 @@ Launch process with the given name or path
 Redirect standard input of the launched process
 Redirect standard output of the launched process
 Set specified environment variable for the launched process
+Send Darwin notification with this name when a recording has started
 Skip any prompts that would be otherwise presented (like privacy warnings)
 Export data from the given .trace file
 Command output is written to the given path, if specified
@@ -245,12 +266,15 @@ timeLimit
 windowLimit
 template
 outputPath
+startNotificationName
 skipPrivacyPrompt
 additionalArguments
 globalOptions
 _TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E826PartialRemodelTraceCommand
 inputFilePath
 outputFilePath
+_TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E830PartialSymbolicateTraceCommand
+dsymPath
 _TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E825PartialExportTraceCommand
 xpathExpression
 provideTableOfContents
@@ -270,13 +294,19 @@ sigintHandler
 sigtermHandler
 userStoppedProcess
 alreadyIssuedEndCommand
+OS_ACTIVITY_MODE
+disable
+OS_ACTIVITY_ERROR
+] Cannot load existing document: 
+] Cannot resymbolicate this trace: 
+] Cannot save symbolicated document: 
+] The symbolicated trace was written to '
 Cannot load existing document because of an error: 
 Remodeling failed with errors. Saving output file...
 Cannot save trace document to: 
 Output file saved as: 
 Remodeling of all runs completed. Saving output file...
 Starting remodel failed
-Cannot create output document at: 
 Import failed with error: 
 No template specified for import
 Starting import of 
@@ -301,9 +331,9 @@ Because of appending to an existing trace, passed template is getting ignored an
 Cannot launch process with provided value: 
 bundled template
 Ctrl-C to stop the recording
-Stopping recording...
 Recording failed with errors. Saving output file...
 Recording completed. Saving output file...
+Stopping recording...
 Starting recording failed
 v16@?0@"XRLogEvent"8
 Cannot write to specified standard input file: 
@@ -312,6 +342,7 @@ Device does not support stdin redirection. Recording failed
 Device does not support stdout redirection. Recording failed
 Cannot find process for provided pid: 
 Cannot load specified template with error: 
+Cannot create output document at: 
 Starting recording with the 
 Launching process: 
 Targeting All Processes. 
@@ -369,15 +400,14 @@ No subcommand specified
 Unexpected arguments to 'help' verb
 Unexpected arguments: [ 
 xctrace <command> [options]
-global options:
 Print version of the tool
 List capabilities of the current running environment
  xctrace help <command>
+Symbolicate .trace file using specified dSYM
 Perform new recording using specified template
 Remodel .trace using currently installed modelers
 Export .trace file content to an external format
 Import file of a supported format into .trace file
-v20@0:8c16
 v28@0:8@16c24
 v40@0:8@16{XRTimeRange=QQ}24
 v32@0:8@16q24
@@ -448,17 +478,11 @@ SS4path_
 _SS5valuet
 _AAt
 ySSG
-SS6option_SS11descriptiont
-ySS6option_SS11descriptiontG
 6option_SS0A11DescriptiontG
-ySo14XRTemplateItemCG
-ySo8XRDeviceCG
-ySo12NSFileHandleCG
-ySo10PFTProcessCG
-ySnySiGG
-ySsG
-SS7command_SS7purposet
+ySS6option_SS11descriptiontG
+SS6option_SS11descriptiont
 ySS7command_SS7purposetG
+SS7command_SS7purposet
 $ss12CaseIterableP
 ySo14NSUnitDurationCG
 ySo14NSUnitDurationCGSg
@@ -475,11 +499,13 @@ SSSgG
 SaySSGG
 SSSgG
 SaySSGG
+SSSgG
 $s11XCTraceCore30UniqueFileIdentifierProvidableP
 $s11XCTraceCore24CommandConfigurationBaseP
 $s11XCTraceCore29DateTimestampStringProvidableP
 Sg_ABt
 ySo14NSUnitDurationCGSg_AEt
+Sg_ABt
 $s11XCTraceCore25CommandLineOptionProviderP
 yypG
 So8NSObjectC
@@ -488,15 +514,22 @@ So25OS_dispatch_source_signal_pSg
 ySo7XRTraceC
 So14XRTemplateItemC
 SaySo14XRTemplateItemCG
+ySo14XRTemplateItemCG
+ySo8XRDeviceCG
 So12NSFileHandleC
 yySo10XRLogEventCXBG
 ySo10XRLogEventCXB
+ySo12NSFileHandleCG
 yS2SG
 SDySSypG
 SgXw
+ySo10PFTProcessCG
+SnySiG
+ySnySiGG
 So8XRDeviceC
 So21OS_dispatch_semaphoreC
 _pSg
+ySsG
 So13XRMobileAgentC
 So20XRMobileAgentVisitor_So0aB0CXcSg
 So17XRMobileAgentTeamCSg
@@ -551,10 +584,14 @@ discoveredSubcommand
 inputURL
 outputURL
 temporaryPackagePaths
+inputURL
+outputURL
+dsymPath
 record
 importFile
 exportTrace
 remodelTrace
+symbolicateTrace
 list
 version
 AllCases
@@ -564,6 +601,7 @@ targetSpecification
 timeLimit
 lastWindow
 skipPrivacyPrompt
+recordingStartedNotificationName
 outputURL
 templateSpecification
 temporaryPackagePaths
@@ -589,6 +627,7 @@ importFile
 exportFile
 record
 remodel
+symbolicate
 listTemplates
 listDevices
 version
@@ -615,11 +654,13 @@ timeLimit
 windowLimit
 template
 outputPath
+startNotificationName
 skipPrivacyPrompt
 additionalArguments
 globalOptions
 inputFilePath
 outputFilePath
+dsymPath
 xpathExpression
 provideTableOfContents
 externalFormatExports
@@ -699,6 +740,7 @@ cannotStartRemodel
 remodelingRuntimeErrorOccured
 externalFormatExportNonDirectoryOutputPassed
 targetReturnsNonZeroExitStatus
+resymbolicationErrorOccured
 notSupportedYet
 baseUsage
 diagnosticStream
@@ -734,6 +776,8 @@ trace
 setTrace:
 templateURL
 setTemplateURL:
+templateIsDefault
+setTemplateIsDefault:
 templateNameForLoggingPurposes
 setTemplateNameForLoggingPurposes:
 autoStartCommand
@@ -794,8 +838,12 @@ trace:endedCommand:
 trace:willEndCommand:reason:
 .cxx_destruct
 setDelegate:
-setVerbose:
 loadDocument:error:
+close
+symbolicateTrace:withPath:progressUI:error:
+saveDocument:error:
+colorize:withColor:bold:
+setVerbose:
 runData
 runNumbers
 templateRecordCommand
@@ -804,14 +852,10 @@ setCommandPurpose:
 integerValue
 setRunNumber:
 startCommand:
-currentRunLoop
-runUntilDate:
 runIssueAccumulator
 runIssueErrorCountForCurrentRun
-saveDocument:error:
-close
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-removeItemAtURL:error:
+currentRunLoop
+runUntilDate:
 traceSetupAgentForFileURL:prefersDefaultTemplateChoice:error:
 mainQueueStop
 activateWithFinalDestination:ticket:
@@ -858,6 +902,7 @@ setTimeLimit:
 setRecordingMode:
 loadTemplate:outputURL:preserveRunHistory:error:
 sharedDevice
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 fileHandleForWritingToURL:error:
 fileHandleForReadingFromURL:error:
 logMessage
@@ -871,6 +916,7 @@ registerForDevicesNotifications:
 bootDevice
 unregisterForDeviceNotifications:
 connection
+removeItemAtURL:error:
 mainRunLoop
 runMode:beforeDate:
 createdFiles
@@ -922,6 +968,7 @@ __sFILE
 Foundation
 PFTInitializationFlags
 __sbuf
+InstrumentsPlugIn
 NSFileManager
 XCTraceCore
 FileManagerProtocol
@@ -948,6 +995,8 @@ Kind
 XCTraceCore
 RemodelCommandConfiguration
 XCTraceCore
+SymbolicateCommandConfiguration
+XCTraceCore
 HelpCommandSubcommand
 XCTraceCore
 LaunchedTargetStandardStreamSpecification
@@ -959,7 +1008,9 @@ AttachToProcessSpecification
 RecordDeviceSpecification
 XCTraceCore
 TemplateSpecification
-)AY|
+?[n$
+Eat$
++C[s
 GlobalOption
 XCTraceCore
 Command
@@ -970,6 +1021,7 @@ XCTraceCore
 CommandParser
 PartialRecordTraceCommand
 PartialRemodelTraceCommand
+PartialSymbolicateTraceCommand
 PartialExportTraceCommand
 PartialImportFileCommand
 XCTraceCore
@@ -996,7 +1048,7 @@ XCTraceCore
 CommandLineOptionProvider
 XCTraceCore
 CommandLineOption
- "$&(*,.02468:<>@BDFHJLNPRTVXZ\^`bdfh
+ "$&(*,.02468:<>@BDFHJLNPRTVXZ\^`bdfhj
 XCTraceCore
 RunFailure
 Runner
@@ -1015,6 +1067,7 @@ record
 import
 export
 remodel
+symbolicate
 list
 version
 Import given supported file into Instruments .trace file using specified template
@@ -1023,6 +1076,7 @@ Export given .trace using supplied query to the XML file format that can be late
 Perform a new recording on the specified device and target with the given template
 Remodel given trace file using currently installed modelers
 New output trace file is generated as part of the remodel operation
+Symbolicate given .trace using supplied dSYM
 Show xctrace version
 List capabilities of the current running environment, such as devices or templates
 If output path is not specified, the export operation output will be written to the standard output.
@@ -1032,6 +1086,9 @@ If the output path is a directory, then a unique file is created in it. If the p
 extension 
  file will be created at the specified path.
 To remodel existing file in place, specify this path in the output file argument
+If an output path is not specified, the symbolicated trace is saved at the same path as the original one.
+If dsym path is a directory, it will be searched recursively for relevant dSYMs.
+If dsym path is not specified, best effort will be made to locate relevant dSYMs on the system.
 xctrace import --input system_logs.logarchive
 xctrace import --input system_logs.logarchive --template 'Custom'
 xctrace import --input ktrace001.trace --template 'System Trace' --output system.trace
@@ -1048,6 +1105,7 @@ xctrace record --template 'Time Profiler' --device-name "Chad's iPhone" --attach
 xctrace record --template 'Metal System Trace' --device-name 'iPhone SE Simulator' --all-processes
 xctrace record --template 'Allocations' --env KEY=VALUE --launch -- MyApp.app
 xctrace record --template 'Time Profiler' --target-stdout - --launch -- /tmp/tool arg1 arg2
+xctrace symbolicate --input input.trace --output symbolicated.trace --dsym SomeLibrary.dSYM
 OS_dispatch_source_signal
 XRMobileAgentVisitor
 @16@0:8
@@ -1057,6 +1115,8 @@ T@"XRMobileAgent<XRMobileAgentOwner>",N,&
 @"XRMobileAgent<XRMobileAgentOwner>"16@0:8
 v24@0:8@"XRMobileAgent<XRMobileAgentOwner>"16
 XRTraceSetupMobileAgent
+B16@0:8
+v20@0:8B16
 sourceURL
 T@"NSURL",N,C
 sourceUTI
@@ -1064,6 +1124,8 @@ T@"NSString",N,C
 trace
 T@"XRTrace",N,&
 templateURL
+templateIsDefault
+TB,N
 templateNameForLoggingPurposes
 autoStartCommand
 T@"PFTInstrumentCommand",N,&
@@ -1095,7 +1157,6 @@ OS_dispatch_source
 B24@0:8@16
 @32@0:8:16@24
 @40@0:8:16@24@32
-B16@0:8
 B24@0:8#16
 B24@0:8:16
 Vv16@0:8
@@ -1110,10 +1171,14 @@ T@"NSString",N,R
 debugDescription
 B24@0:8@"Protocol"16
 -- command [arguments]
+notify-tracing-started
 <duration[ms|s|m]>
 <time[ms|s|m|h]>
 list [devices|templates]
-demodel [<options>]
+Make terminal ouput less verbose
+global options:
+symbolicate [<options>] [--dsym path]
+remodel [<options>]
 record [<options>] [--attach | --all-processes | --launch -- command ]
 export [<options>] [--toc | --xpath expression]
 import [<options>]
@@ -1126,6 +1191,9 @@ If target device UDID or name is not specified
 Specifying environment variables or stream redirection is only available when using 
 Some of the importable file types will have default template. In these cases --template
 parameter is optional. The default template for a given import file UTI may change between releases.
+Symbolicate addresses in given .trace file
+Output symbolicated .trace file to the given path
+Use dSYM from given path as source of symbol data
 Remodel data from the given .trace file
 Output remodeled .trace file to given path
 Load Instruments Package from given path for duration of the command
@@ -1141,6 +1209,7 @@ Launch process with the given name or path
 Redirect standard input of the launched process
 Redirect standard output of the launched process
 Set specified environment variable for the launched process
+Send Darwin notification with this name when a recording has started
 Skip any prompts that would be otherwise presented (like privacy warnings)
 Export data from the given .trace file
 Command output is written to the given path, if specified
@@ -1170,12 +1239,15 @@ timeLimit
 windowLimit
 template
 outputPath
+startNotificationName
 skipPrivacyPrompt
 additionalArguments
 globalOptions
 _TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E826PartialRemodelTraceCommand
 inputFilePath
 outputFilePath
+_TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E830PartialSymbolicateTraceCommand
+dsymPath
 _TtCC11XCTraceCore13CommandParserP33_7D8962E7AB2BC320C82E76514E25F2E825PartialExportTraceCommand
 xpathExpression
 provideTableOfContents
@@ -1195,7 +1267,13 @@ sigintHandler
 sigtermHandler
 userStoppedProcess
 alreadyIssuedEndCommand
-Cannot create output document at: 
+OS_ACTIVITY_MODE
+disable
+OS_ACTIVITY_ERROR
+] Cannot load existing document: 
+] Cannot resymbolicate this trace: 
+] Cannot save symbolicated document: 
+] The symbolicated trace was written to '
 Cannot load existing document because of an error: 
 Starting remodel failed
 Remodeling failed with errors. Saving output file...
@@ -1222,15 +1300,16 @@ No devices available for the recording
 \(\d\d\.\d(\)| Internal\))
 == Simulators ==
 xctrace version 
+Cannot create output document at: 
 Because of appending to an existing trace, passed template is getting ignored and one encoded with the trace is used
 Device does not support stdout redirection. Recording failed
 Cannot launch process with provided value: 
 bundled template
 Starting recording failed
 Ctrl-C to stop the recording
-Stopping recording...
 Recording failed with errors. Saving output file...
 Recording completed. Saving output file...
+Stopping recording...
 v16@?0@"XRLogEvent"8
 Cannot write to specified standard input file: 
 Cannot write to specified standard output file: 
@@ -1294,15 +1373,14 @@ No subcommand specified
 Unexpected arguments to 'help' verb
 Unexpected arguments: [ 
 xctrace <command> [options]
-global options:
 Print version of the tool
 List capabilities of the current running environment
  xctrace help <command>
+Symbolicate .trace file using specified dSYM
 Perform new recording using specified template
 Remodel .trace using currently installed modelers
 Export .trace file content to an external format
 Import file of a supported format into .trace file
-v20@0:8B16
 v28@0:8@16B24
 v40@0:8@16{XRTimeRange=QQ}24
 v32@0:8@16q24
@@ -1373,17 +1451,11 @@ SS4path_
 _SS5valuet
 _AAt
 ySSG
-SS6option_SS11descriptiont
-ySS6option_SS11descriptiontG
 6option_SS0A11DescriptiontG
-ySo14XRTemplateItemCG
-ySo8XRDeviceCG
-ySo12NSFileHandleCG
-ySo10PFTProcessCG
-ySnySiGG
-ySsG
-SS7command_SS7purposet
+ySS6option_SS11descriptiontG
+SS6option_SS11descriptiont
 ySS7command_SS7purposetG
+SS7command_SS7purposet
 $ss12CaseIterableP
 ySo14NSUnitDurationCG
 ySo14NSUnitDurationCGSg
@@ -1400,11 +1472,13 @@ SSSgG
 SaySSGG
 SSSgG
 SaySSGG
+SSSgG
 $s11XCTraceCore30UniqueFileIdentifierProvidableP
 $s11XCTraceCore24CommandConfigurationBaseP
 $s11XCTraceCore29DateTimestampStringProvidableP
 Sg_ABt
 ySo14NSUnitDurationCGSg_AEt
+Sg_ABt
 $s11XCTraceCore25CommandLineOptionProviderP
 yypG
 So8NSObjectC
@@ -1413,15 +1487,22 @@ So25OS_dispatch_source_signal_pSg
 ySo7XRTraceC
 So14XRTemplateItemC
 SaySo14XRTemplateItemCG
+ySo14XRTemplateItemCG
+ySo8XRDeviceCG
 So12NSFileHandleC
 yySo10XRLogEventCXBG
 ySo10XRLogEventCXB
+ySo12NSFileHandleCG
 yS2SG
 SDySSypG
 SgXw
+ySo10PFTProcessCG
+SnySiG
+ySnySiGG
 So8XRDeviceC
 So21OS_dispatch_semaphoreC
 _pSg
+ySsG
 So13XRMobileAgentC
 So20XRMobileAgentVisitor_So0aB0CXcSg
 So17XRMobileAgentTeamCSg
@@ -1476,10 +1557,14 @@ discoveredSubcommand
 inputURL
 outputURL
 temporaryPackagePaths
+inputURL
+outputURL
+dsymPath
 record
 importFile
 exportTrace
 remodelTrace
+symbolicateTrace
 list
 version
 AllCases
@@ -1489,6 +1574,7 @@ targetSpecification
 timeLimit
 lastWindow
 skipPrivacyPrompt
+recordingStartedNotificationName
 outputURL
 templateSpecification
 temporaryPackagePaths
@@ -1514,6 +1600,7 @@ importFile
 exportFile
 record
 remodel
+symbolicate
 listTemplates
 listDevices
 version
@@ -1540,11 +1627,13 @@ timeLimit
 windowLimit
 template
 outputPath
+startNotificationName
 skipPrivacyPrompt
 additionalArguments
 globalOptions
 inputFilePath
 outputFilePath
+dsymPath
 xpathExpression
 provideTableOfContents
 externalFormatExports
@@ -1624,6 +1713,7 @@ cannotStartRemodel
 remodelingRuntimeErrorOccured
 externalFormatExportNonDirectoryOutputPassed
 targetReturnsNonZeroExitStatus
+resymbolicationErrorOccured
 notSupportedYet
 baseUsage
 diagnosticStream
@@ -1659,6 +1749,8 @@ trace
 setTrace:
 templateURL
 setTemplateURL:
+templateIsDefault
+setTemplateIsDefault:
 templateNameForLoggingPurposes
 setTemplateNameForLoggingPurposes:
 autoStartCommand
@@ -1718,10 +1810,13 @@ trace:startedCommand:
 trace:endedCommand:
 trace:willEndCommand:reason:
 .cxx_destruct
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 setDelegate:
-setVerbose:
 loadDocument:error:
+close
+symbolicateTrace:withPath:progressUI:error:
+saveDocument:error:
+colorize:withColor:bold:
+setVerbose:
 runData
 runNumbers
 templateRecordCommand
@@ -1730,13 +1825,10 @@ setCommandPurpose:
 integerValue
 setRunNumber:
 startCommand:
-close
-currentRunLoop
-runUntilDate:
 runIssueAccumulator
 runIssueErrorCountForCurrentRun
-saveDocument:error:
-removeItemAtURL:error:
+currentRunLoop
+runUntilDate:
 traceSetupAgentForFileURL:prefersDefaultTemplateChoice:error:
 mainQueueStop
 activateWithFinalDestination:ticket:
@@ -1755,6 +1847,7 @@ deviceIdentifier
 setDeviceDisplayName:
 toolsVersion
 buildVersion
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 closeFile
 setTargetDevice:
 setCommandSource:
@@ -1796,6 +1889,7 @@ registerForDevicesNotifications:
 bootDevice
 unregisterForDeviceNotifications:
 connection
+removeItemAtURL:error:
 mainRunLoop
 runMode:beforeDate:
 createdFiles

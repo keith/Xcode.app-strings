@@ -60,6 +60,7 @@ json
 -[SSRSpeakerRecognitionOrchestrator SSRVoiceActivityDetector:didDetectEndPointAt:]_block_invoke
 com.apple.VoiceTriggerUI.TrainingSessionQueue
 com.apple.VoiceTriggerUI.TrainingManager
+-[SSRVTUITrainingManager updateTrainingManagerForDevice:trainingDeviceUUIDList:]
 -[SSRVTUITrainingManager setLocaleIdentifier:]
 -[SSRVTUITrainingManager createKeywordDetector]
 -[SSRVTUITrainingManager prepareWithCompletion:]_block_invoke
@@ -547,7 +548,6 @@ VoiceControllerCreationQueue
 -[CSVTUIAudioRecorder _voiceControllerWithError:]_block_invoke
 -[CSVTUIAudioRecorder _voiceControllerWithError:]
 -[CSVTUIAudioRecorder setContext:error:]
--[CSVTUIAudioRecorder setCurrentContext:streamHandleId:error:]
 -[CSVTUIAudioRecorder prepareAudioStreamRecordWithStreamHandleId:error:]
 -[CSVTUIAudioRecorder startAudioStreamWithStreamHandleId:error:]
 -[CSVTUIAudioRecorder stopAudioStreamWithStreamHandleId:error:]
@@ -590,7 +590,9 @@ com.apple.MobileAsset.VoiceTriggerAssetsMarsh
 com.apple.MobileAsset.VoiceTriggerAssetsMac
 com.apple.MobileAsset.VoiceTriggerAssetsTV
 com.apple.MobileAsset.SpeakerRecognitionAssets
+com.apple.MobileAsset.SpeechEndpointAssets
 com.apple.MobileAsset.SpeechEndpointAssetsWatch
+com.apple.MobileAsset.SpeechEndpointAssetsTV
 -[SSRMobileAssetProvider _buildAssetQueryForAssetType:]
 -[SSRMobileAssetProvider _installedMobileAssetOfType:forLanguage:]
 -[SSRMobileAssetProvider _findLatestInstalledAsset:]
@@ -709,6 +711,7 @@ multiUserLowScoreThreshold
 multiUserConfidentScoreThreshold
 multiUserDeltaScoreThreshold
 recognizer.json
+-[CSAsset(SpeakerRecognition) containsMultiUserThresholds]
 %s ::: CoreSpeech logging initialized (%s)
 %s ::: SSR logging initialized (%s)
 %s Not supported on this platform
@@ -745,6 +748,7 @@ recognizer.json
 %s SSROrch[%{public}@]:: Discarded speaker scores for session
 %s SSROrch[%{public}@]:: Speech started at - %ldms
 %s SSROrch[%{public}@]:: Starting a new segment of speech - %ldms
+%s Remote device type: %zu, Remote device UUID list: %{private}@
 %s CSVoiceTriggerAsset found: %{public}@
 %s Locale: [%{public}@]
 %s No locale set when creating phrase spotter.
@@ -1104,8 +1108,6 @@ languageCode: %{public}@
 %s Calling AVVC setContext : %@
 %s Failed to get handle id : %{public}@
 %s setContext elapsed time = %{public}lf
-%s Calling AVVC setContextForStream : %{public}@
-%s setCurrentContext elapsed time = %{public}lf
 %s Calling AVVC prepareRecordForStream(%{public}llu) : %{public}@
 %s AVVC prepareRecordForStream failed : %{public}@
 %s prepareRecordForStream elapsed time = %{public}lf
@@ -1228,6 +1230,9 @@ languageCode: %{public}@
 %s Skipping Model {%{public}@, %{public}@} for %{public}@
 %s Skipping Model {%{public}@, %{public}@} as file doesnt exist at %{public}@
 %s ERR: triggering profile retrain for asset %{publiic}@
+%s %{public}@ doesnt exist
+%s Could not read: %{public}@
+%s Could not decode contents of: %{public}@: err: %{public}@
 333333
 softlink:r:path:/System/Library/PrivateFrameworks/CoreAnalytics.framework/CoreAnalytics
 zPLR
@@ -1297,6 +1302,7 @@ CSVTUIEndPointDelegate
 CSVTUITrainingSession
 SSRVoiceProfileManager
 debugDescription
+CSVTUIAudioRecorderRemoteDeviceContext
 CSVTUIAudioRecorder
 AVVoiceControllerRecordDelegate
 CSAudioServerCrashEventProviding
@@ -1692,6 +1698,7 @@ CSVTUITrainingSession:hasTrainUtterance:languageCode:payload:
 endpointer:didDetectStartpointAtTime:
 endpointer:didDetectHardEndpointAtTime:
 voiceProfile
+updateTrainingManagerForDevice:trainingDeviceUUIDList:
 prepareWithCompletion:
 _beginOfSpeechDetected
 _endOfSpeechDetected
@@ -1741,6 +1748,7 @@ registerObserver:
 activateAudioSessionWithReason:streamHandleId:error:
 isRecordingWithStreamHandleId:
 prepareAudioStreamRecordWithStreamHandleId:error:
+updateAudioRecorderForTrainingDevice:deviceUUIDs:
 startAudioStreamWithStreamHandleId:error:
 stopAudioStreamWithStreamHandleId:error:
 deactivateAudioSession:error:
@@ -2423,13 +2431,21 @@ startAlert
 stopAlert
 stopOnErrorAlert
 skipAlert
+initWithRemoteTrainingDeviceType:remoteTrainingDeviceUUIDList:
+remoteTrainingDeviceType
+remoteTrainingDeviceUUIDList
+_remoteTrainingDeviceType
+_remoteTrainingDeviceUUIDList
+TQ,R,N,V_remoteTrainingDeviceType
+T@"NSArray",R,C,N,V_remoteTrainingDeviceUUIDList
 _voiceControllerWithError:
 weakObjectsHashTable
 _destroyVoiceController
 setRecordDelegate:
 initWithError:
 setSynchronousCallbackEnabled:
-setContextForStream:forStream:error:
+hasRemoteCoreSpeech
+hasRemoteBuiltInMic
 _getRecordSettingsWithRequest
 inputRecordingBufferDuration
 initWithStreamID:settings:bufferDuration:
@@ -2442,7 +2458,6 @@ setStopAlert:
 setStopOnErrorAlert:
 startRecordForStream:error:
 stopRecordForStream:error:
-hasRemoteBuiltInMic
 getCurrentStreamState:
 getRecordDeviceInfoForStream:
 recordRoute
@@ -2488,27 +2503,29 @@ voiceControllerWirelessSplitterRouteAvailable:devices:
 voiceControllerDidStartRecording:forStream:successfully:error:
 voiceControllerDidStopRecording:forStream:forReason:
 voiceControllerAudioCallback:forStream:buffer:
+voiceControllerLPCMAudioCallback:forStream:buffer:
 voiceControllerStreamInvalidated:forStream:
 setAudioServerCrashEventDelegate:
 setAudioSessionEventDelegate:
-setCurrentContext:streamHandleId:error:
-_shouldUseRemoteRecordForContext:
 _shouldUseRemoteBuiltInMic:
 voiceControllerCreationQueue
 setVoiceControllerCreationQueue:
 observers
 setObservers:
+remoteDeviceContext
+setRemoteDeviceContext:
 _voiceController
 _interleavedABL
 _pNonInterleavedABL
 _remoteRecordClient
 _latestContext
-_shouldUseRemoteRecord
 _waitingForDidStart
 _voiceControllerCreationQueue
 _observers
+_remoteDeviceContext
 T@"NSObject<OS_dispatch_queue>",&,N,V_voiceControllerCreationQueue
 T@"NSHashTable",&,N,V_observers
+T@"CSVTUIAudioRecorderRemoteDeviceContext",&,N,V_remoteDeviceContext
 _latestVersionedAssetOfType:fromProviders:forLocale:
 scannerWithString:
 scanFloat:
@@ -2664,6 +2681,7 @@ pruningThresholdSAT
 pruningThresholdPSR
 pruningNumRetentionUtterance
 voiceProfilePruningCookie
+containsMultiUserThresholds
 Tf,R,N
 Tq,R,N
 @16@0:8
@@ -2742,6 +2760,7 @@ v24@0:8@"NSData"16
 v24@0:8@"NSError"16
 v32@0:8@16d24
 v32@0:8@"CSVTUIEndpointAnalyzer"16d24
+@32@0:8Q16@24
 v24@0:8@?16
 q36@0:8q16B24@?28
 B24@0:8q16
@@ -2767,7 +2786,9 @@ v44@0:8@"CSVTUIAudioRecorder"16Q24B32@"NSError"36
 v40@0:8@"CSVTUIAudioRecorder"16Q24q32
 v32@0:8@"CSVTUIAudioRecorder"16q24
 v24@0:8@"CSVTUIAudioRecorder"16
+v32@0:8Q16@24
 v24@0:8@"<CSVTUIAudioSessionDelegate>"16
+v32@0:8Q16@"NSArray"24
 v24@0:8@"<Endpointer>"16
 q24@0:8q16
 @"CSVTUIAudioRecorder"
@@ -2781,7 +2802,6 @@ v32@0:8@16@?24
 @"SSRTriggerPhraseDetectorQuasar"
 B32@0:8d16^@24
 v64@0:8@16@24@32@40@48@?56
-@32@0:8Q16@24
 @"CSAsset"32@0:8Q16@"NSString"24
 @"NSArray"32@0:8Q16@"NSString"24
 Q24@0:8I16I20
@@ -2855,7 +2875,6 @@ v32@0:8@"AVVoiceController"16Q24
 v24@0:8@"<CSAudioServerCrashEventProvidingDelegate>"16
 v24@0:8@"<CSAudioSessionEventProvidingDelegate>"16
 Q32@0:8@16^@24
-B40@0:8@16Q24^@32
 B32@0:8Q16^@24
 B24@0:8Q16
 B40@0:8Q16Q24^@32
@@ -2869,6 +2888,7 @@ v32@0:8q16Q24
 ^{AudioBufferList=I[1{AudioBuffer=II^v}]}
 @"CSVTUIRemoteRecordClient"
 @"NSHashTable"
+@"CSVTUIAudioRecorderRemoteDeviceContext"
 f24@0:8@16
 @40@0:8Q16@24@32
 @"<SSRAssetManagerDelegate>"
@@ -2877,7 +2897,6 @@ v32@0:8@"SSRSpeakerRecognitionOrchestrator"16@"NSDictionary"24
 @"SSRSpeakerRecognitionOrchestrator"
 B40@0:8@16@24f32f36
 B40@0:8@16@24Q32
-v32@0:8Q16@24
 v36@0:8@16B24@?28
 @"SSRVoiceProfileStorePrefs"
 v36@0:8@16@24B32
@@ -2958,6 +2977,7 @@ json
 -[SSRSpeakerRecognitionOrchestrator SSRVoiceActivityDetector:didDetectEndPointAt:]_block_invoke
 com.apple.VoiceTriggerUI.TrainingSessionQueue
 com.apple.VoiceTriggerUI.TrainingManager
+-[SSRVTUITrainingManager updateTrainingManagerForDevice:trainingDeviceUUIDList:]
 -[SSRVTUITrainingManager setLocaleIdentifier:]
 -[SSRVTUITrainingManager createKeywordDetector]
 -[SSRVTUITrainingManager prepareWithCompletion:]_block_invoke
@@ -3445,7 +3465,6 @@ VoiceControllerCreationQueue
 -[CSVTUIAudioRecorder _voiceControllerWithError:]_block_invoke
 -[CSVTUIAudioRecorder _voiceControllerWithError:]
 -[CSVTUIAudioRecorder setContext:error:]
--[CSVTUIAudioRecorder setCurrentContext:streamHandleId:error:]
 -[CSVTUIAudioRecorder prepareAudioStreamRecordWithStreamHandleId:error:]
 -[CSVTUIAudioRecorder startAudioStreamWithStreamHandleId:error:]
 -[CSVTUIAudioRecorder stopAudioStreamWithStreamHandleId:error:]
@@ -3488,7 +3507,9 @@ com.apple.MobileAsset.VoiceTriggerAssetsMarsh
 com.apple.MobileAsset.VoiceTriggerAssetsMac
 com.apple.MobileAsset.VoiceTriggerAssetsTV
 com.apple.MobileAsset.SpeakerRecognitionAssets
+com.apple.MobileAsset.SpeechEndpointAssets
 com.apple.MobileAsset.SpeechEndpointAssetsWatch
+com.apple.MobileAsset.SpeechEndpointAssetsTV
 -[SSRMobileAssetProvider _buildAssetQueryForAssetType:]
 -[SSRMobileAssetProvider _installedMobileAssetOfType:forLanguage:]
 -[SSRMobileAssetProvider _findLatestInstalledAsset:]
@@ -3607,6 +3628,7 @@ multiUserLowScoreThreshold
 multiUserConfidentScoreThreshold
 multiUserDeltaScoreThreshold
 recognizer.json
+-[CSAsset(SpeakerRecognition) containsMultiUserThresholds]
 %s ::: CoreSpeech logging initialized (%s)
 %s ::: SSR logging initialized (%s)
 %s Not supported on this platform
@@ -3644,6 +3666,7 @@ recognizer.json
 %s SSROrch[%{public}@]:: Discarded speaker scores for session
 %s SSROrch[%{public}@]:: Speech started at - %ldms
 %s SSROrch[%{public}@]:: Starting a new segment of speech - %ldms
+%s Remote device type: %zu, Remote device UUID list: %{private}@
 %s CSVoiceTriggerAsset found: %{public}@
 %s Locale: [%{public}@]
 %s No locale set when creating phrase spotter.
@@ -4002,8 +4025,6 @@ languageCode: %{public}@
 %s Calling AVVC setContext : %@
 %s Failed to get handle id : %{public}@
 %s setContext elapsed time = %{public}lf
-%s Calling AVVC setContextForStream : %{public}@
-%s setCurrentContext elapsed time = %{public}lf
 %s Calling AVVC prepareRecordForStream(%{public}llu) : %{public}@
 %s AVVC prepareRecordForStream failed : %{public}@
 %s prepareRecordForStream elapsed time = %{public}lf
@@ -4126,6 +4147,9 @@ languageCode: %{public}@
 %s Skipping Model {%{public}@, %{public}@} for %{public}@
 %s Skipping Model {%{public}@, %{public}@} as file doesnt exist at %{public}@
 %s ERR: triggering profile retrain for asset %{publiic}@
+%s %{public}@ doesnt exist
+%s Could not read: %{public}@
+%s Could not decode contents of: %{public}@: err: %{public}@
 333333
 softlink:r:path:/System/Library/PrivateFrameworks/CoreAnalytics.framework/CoreAnalytics
 CSVTUIEndpointAnalyzer
@@ -4185,6 +4209,7 @@ CSVTUIEndPointDelegate
 CSVTUITrainingSession
 SSRVoiceProfileManager
 debugDescription
+CSVTUIAudioRecorderRemoteDeviceContext
 CSVTUIAudioRecorder
 AVVoiceControllerRecordDelegate
 CSAudioServerCrashEventProviding
@@ -4580,6 +4605,7 @@ CSVTUITrainingSession:hasTrainUtterance:languageCode:payload:
 endpointer:didDetectStartpointAtTime:
 endpointer:didDetectHardEndpointAtTime:
 voiceProfile
+updateTrainingManagerForDevice:trainingDeviceUUIDList:
 prepareWithCompletion:
 _beginOfSpeechDetected
 _endOfSpeechDetected
@@ -4629,6 +4655,7 @@ registerObserver:
 activateAudioSessionWithReason:streamHandleId:error:
 isRecordingWithStreamHandleId:
 prepareAudioStreamRecordWithStreamHandleId:error:
+updateAudioRecorderForTrainingDevice:deviceUUIDs:
 startAudioStreamWithStreamHandleId:error:
 stopAudioStreamWithStreamHandleId:error:
 deactivateAudioSession:error:
@@ -5311,13 +5338,21 @@ startAlert
 stopAlert
 stopOnErrorAlert
 skipAlert
+initWithRemoteTrainingDeviceType:remoteTrainingDeviceUUIDList:
+remoteTrainingDeviceType
+remoteTrainingDeviceUUIDList
+_remoteTrainingDeviceType
+_remoteTrainingDeviceUUIDList
+TQ,R,N,V_remoteTrainingDeviceType
+T@"NSArray",R,C,N,V_remoteTrainingDeviceUUIDList
 _voiceControllerWithError:
 weakObjectsHashTable
 _destroyVoiceController
 setRecordDelegate:
 initWithError:
 setSynchronousCallbackEnabled:
-setContextForStream:forStream:error:
+hasRemoteCoreSpeech
+hasRemoteBuiltInMic
 _getRecordSettingsWithRequest
 inputRecordingBufferDuration
 initWithStreamID:settings:bufferDuration:
@@ -5330,7 +5365,6 @@ setStopAlert:
 setStopOnErrorAlert:
 startRecordForStream:error:
 stopRecordForStream:error:
-hasRemoteBuiltInMic
 getCurrentStreamState:
 getRecordDeviceInfoForStream:
 recordRoute
@@ -5376,27 +5410,29 @@ voiceControllerWirelessSplitterRouteAvailable:devices:
 voiceControllerDidStartRecording:forStream:successfully:error:
 voiceControllerDidStopRecording:forStream:forReason:
 voiceControllerAudioCallback:forStream:buffer:
+voiceControllerLPCMAudioCallback:forStream:buffer:
 voiceControllerStreamInvalidated:forStream:
 setAudioServerCrashEventDelegate:
 setAudioSessionEventDelegate:
-setCurrentContext:streamHandleId:error:
-_shouldUseRemoteRecordForContext:
 _shouldUseRemoteBuiltInMic:
 voiceControllerCreationQueue
 setVoiceControllerCreationQueue:
 observers
 setObservers:
+remoteDeviceContext
+setRemoteDeviceContext:
 _voiceController
 _interleavedABL
 _pNonInterleavedABL
 _remoteRecordClient
 _latestContext
-_shouldUseRemoteRecord
 _waitingForDidStart
 _voiceControllerCreationQueue
 _observers
+_remoteDeviceContext
 T@"NSObject<OS_dispatch_queue>",&,N,V_voiceControllerCreationQueue
 T@"NSHashTable",&,N,V_observers
+T@"CSVTUIAudioRecorderRemoteDeviceContext",&,N,V_remoteDeviceContext
 _latestVersionedAssetOfType:fromProviders:forLocale:
 scannerWithString:
 scanFloat:
@@ -5552,6 +5588,7 @@ pruningThresholdSAT
 pruningThresholdPSR
 pruningNumRetentionUtterance
 voiceProfilePruningCookie
+containsMultiUserThresholds
 Tf,R,N
 Tq,R,N
 @16@0:8
@@ -5630,6 +5667,7 @@ v24@0:8@"NSData"16
 v24@0:8@"NSError"16
 v32@0:8@16d24
 v32@0:8@"CSVTUIEndpointAnalyzer"16d24
+@32@0:8Q16@24
 v24@0:8@?16
 q36@0:8q16B24@?28
 B24@0:8q16
@@ -5655,7 +5693,9 @@ v44@0:8@"CSVTUIAudioRecorder"16Q24B32@"NSError"36
 v40@0:8@"CSVTUIAudioRecorder"16Q24q32
 v32@0:8@"CSVTUIAudioRecorder"16q24
 v24@0:8@"CSVTUIAudioRecorder"16
+v32@0:8Q16@24
 v24@0:8@"<CSVTUIAudioSessionDelegate>"16
+v32@0:8Q16@"NSArray"24
 v24@0:8@"<Endpointer>"16
 q24@0:8q16
 @"CSVTUIAudioRecorder"
@@ -5669,7 +5709,6 @@ v32@0:8@16@?24
 @"SSRTriggerPhraseDetectorQuasar"
 B32@0:8d16^@24
 v64@0:8@16@24@32@40@48@?56
-@32@0:8Q16@24
 @"CSAsset"32@0:8Q16@"NSString"24
 @"NSArray"32@0:8Q16@"NSString"24
 Q24@0:8I16I20
@@ -5743,7 +5782,6 @@ v32@0:8@"AVVoiceController"16Q24
 v24@0:8@"<CSAudioServerCrashEventProvidingDelegate>"16
 v24@0:8@"<CSAudioSessionEventProvidingDelegate>"16
 Q32@0:8@16^@24
-B40@0:8@16Q24^@32
 B32@0:8Q16^@24
 B24@0:8Q16
 B40@0:8Q16Q24^@32
@@ -5757,6 +5795,7 @@ v32@0:8q16Q24
 ^{AudioBufferList=I[1{AudioBuffer=II^v}]}
 @"CSVTUIRemoteRecordClient"
 @"NSHashTable"
+@"CSVTUIAudioRecorderRemoteDeviceContext"
 f24@0:8@16
 @40@0:8Q16@24@32
 @"<SSRAssetManagerDelegate>"
@@ -5765,7 +5804,6 @@ v32@0:8@"SSRSpeakerRecognitionOrchestrator"16@"NSDictionary"24
 @"SSRSpeakerRecognitionOrchestrator"
 B40@0:8@16@24f32f36
 B40@0:8@16@24Q32
-v32@0:8Q16@24
 v36@0:8@16B24@?28
 @"SSRVoiceProfileStorePrefs"
 v36@0:8@16@24B32

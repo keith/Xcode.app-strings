@@ -349,6 +349,8 @@ attribute
 assertion
 service
 invalid class (not BLSDurationAttribute subclass) of attribute:%@
+BLSHAssertionAttributeTimer must be invalidated before dealloc:%@
+BLSHDurationAttributeHandler.m
 invalidation duration expired
 timeout duration expired
 backlightAssertionInitialization
@@ -376,7 +378,6 @@ BLSHWatchdogDidFireDate
 BLSHWatchdogDidFireBuildVersion
 BuildVersion
 BLSHWatchdogProvider.m
-!_invalidated
 v16@?0@"BSAbsoluteMachTimer"8
 platformProvider != nil
 BLSHService.m
@@ -409,7 +410,7 @@ updateTo:%@
 _lock_renderSessionAssertion == nil
 BLSHBacklightFBSceneHostEnvironment.m
 RenderSession:%p
-_lock_renderSessionAssertion != nil
+_lock_renderSessionAssertion != nil || ![self sceneWantsProcessAssertion:scene withSceneSettings:[scene settings]]
 @16@?0@"<BLSHBacklightSceneHostEnvironment>"8
 presentationEntries
 context
@@ -439,10 +440,13 @@ com.apple.BacklightServices
 [self invalidated]
 BLSHDefaultsObserver.m
 %@ default set
+j8/Omm6s1lsmTDFsXjsBfA
+deviceSupportsAlwaysOnOverride
+presentationEngine:%@ is not stopped on intitialization
+BLSHBacklightTransitionStateMachine.m
 BLSHBacklightTransitionStateMachine
 safeToUnblank
 pendingUpdateDisplayMode
-BLSHBacklightTransitionStateMachine.m
 %s%@ for %@ since %@
 transitioning to 
 Shouldn't be called
@@ -521,6 +525,7 @@ reason
 source
 didClearDateSpecifiers
 wasReset
+.invalidateAfterFire
 v32@?0@"NSString"8@"<BLSHWatchdogDelegate>"16^B24
 Test watchdog %@
 BLSHAssertionService.m
@@ -721,6 +726,7 @@ must invalidate before deallocating service
 %p added addSpecifier:%{public}@ start date will change:%{public}@->%{public}@ (%.3lfs) (intervalSinceStart:%lf; intervalAfterEnd:%lf) (count:%d->%d)
 %p added invalidation:%{public}@ total bucket count:%d
 %.2lfs watchdog fired:"%{public}@" elapsedTime:%.2lfs abortContext:%{public}@
+watchdog invalidated after firing while waiting for state dump. Carousel's main thread probably hung for a significant amount of time:"%{public}@"
 %.2lfs watchdog fired:"%{public}@" after elapsed time:%.2lfs watchdogEnabled:%{BOOL}u isBeingDebugged:%{BOOL}u
 %.2lfs watchdog invalidated:"%{public}@" elapsedTime:%.2lfs watchdogEnabled:%{BOOL}u isBeingDebugged:%{BOOL}u
 watchdog did fire at %{public}@ on build %{public}@, reset:%{BOOL}u
@@ -732,6 +738,7 @@ did startServer:%{public}@ withLocalAssertionService:%{public}@
 %p:%{public}@ client desired fidelity action failed error:%{public}@ response:%{public}@, requestedFidelityForInactiveContent:Minutes
 %p:%{public}@ requestedFidelityForInactiveContent:%{public}@
 %p:%{public}@ querying requestedFidelityForInactiveContent
+%p:%{public}@ scene:%p wantsProcessAssertions:%{BOOL}u optsOut:%{BOOL}u externalManaged:%{BOOL}u local:%{BOOL}u
 animated=%{BOOL}u but performBacklightRampBlock=%{public}@
 animated=%{BOOL}u but animationCompleteBlock=%{public}@
 %p:%{public}@ nil scene, will not update scene:%{public}@ to visualState:%{public}@ presentationDate:%{public}@ animated:%{BOOL}u event:%{public}@ touchTarget:%{BOOL}u
@@ -775,6 +782,7 @@ proxy is invalid for pid:%d
 %p client now running pid:%d update to backlight state:%{public}@
 %p was not observing from pid:%d
 %p client not running pid:%d will not notify backlight update to state:%{public}@ event:%{public}@
+com.apple.BacklightServices:deviceSupportsAlwaysOnOverride set to YES, will initialize flipbook presentation engine
 %p createdSession:%p with presentation:%{public}@
 %p destroy session:%p with current presentation:%{public}@
 %p created target:%{public}@
@@ -960,6 +968,7 @@ BLSHLocalCountingAssertionAttributeHandler
 BLSHCountingAssertionAttributeEntry
 BLSHDurationAttributeHandler
 BLSHAssertionAttributeTimer
+BSCancellable
 BLSHInvalidationTimer
 BLSHWarningTimer
 BLSHTimeoutTimer
@@ -978,6 +987,7 @@ NSCopying
 BLSHPendingUpdateDisplayMode
 BLSHWatchdogProvider
 BSLHWatchdogTimer
+BLSHWatchdogTiming
 BLSHDisableBacklightWatchdogsAttributeHandler
 BLSHService
 BLSHFlipbookFramesHistogram
@@ -1030,6 +1040,7 @@ BLSHLocalCountingSceneAssertionAttributeHandler
 BLSHBacklightFBSceneEnvironmentActionHandler
 BLSSceneActionHandler
 BLSHFlipbookInvalidationTelemetryData
+BLSHWatchdogTesterTimer
 BLSHWatchdogTester
 BLSHDisableCommitOnWakeMeasurementAttributeHandler
 BLSHAssertionService
@@ -1133,6 +1144,7 @@ localAssertionService
 registerHandlersForService:
 serverWithLocalBacklightProxy:
 displayStateMachine
+stringByAppendingString:
 dictionaryWithObjects:forKeys:count:
 initWithWatchdogTestables:
 serviceForService:withPlatformProvider:osInterfaceProvider:inactiveBudgetPolicy:
@@ -2117,15 +2129,18 @@ initWithExplanation:delegate:provider:
 scheduleWithTimeout:
 isWatchdogEnabled
 abortContext
+isInvalidated
 markWatchdogDidFire
 standardUserDefaults
 dictionaryForKey:
-fireWatchdogWithExplanation:delegate:timeout:elapsedTime:
+fireWatchdogWithTimer:delegate:timeout:elapsedTime:
 clearWatchdogWithExplanation:timeout:elapsedTime:
 setWatchdogEnabled:
 _watchdogEnabled
 watchdogEnabled
 TB,GisWatchdogEnabled,V_watchdogEnabled
+invalidated
+TB,R,N,GisInvalidated
 _explanation
 _lock_timeout
 _lock_watchdogStart
@@ -2211,10 +2226,11 @@ transitionContextClass
 setWithArray:
 setActions:
 updateSettingsWithTransitionBlock:
-bls_setVisualState:
-bls_setPresentationDate:
 bls_optsOutOfProcessAssertions
 activityMode
+isLocal
+bls_setVisualState:
+bls_setPresentationDate:
 adjustedLuminance
 initWithExplanation:processIdentity:duration:
 acquireWithCompletion:
@@ -2315,7 +2331,6 @@ disableFlipbook
 transparentFlipbook
 handlerForKey:attribute:
 addObserver:forKeyPath:options:context:
-invalidated
 setInvalidated:
 boolValue
 updateForNewValue:
@@ -2330,6 +2345,7 @@ acquireWithObserver:
 _key
 _lock_assertion
 initWithDelegate:platformProvider:osInterfaceProvider:
+boolForKey:
 osInterface
 setDisplayMode:
 touchLock
@@ -2524,9 +2540,12 @@ T@"NSString",R,N,V_source
 TB,R,N,V_didClearDateSpecifiers
 TB,R,N,V_wasReset
 T@"BLSHFlipbookFramesHistogram",R,N,V_invalidatedFramesHistogram
+initWithExplanation:
 strongToWeakObjectsMapTable
+hasSuffix:
 _triggerTestWatchdog:
 _testables
+_lock_nextTimerID
 setCommitOnWakeMeasurementDisabled:
 initWithService:osInterfaceProvider:
 setDefaultService:
@@ -3237,6 +3256,8 @@ attribute
 assertion
 service
 invalid class (not BLSDurationAttribute subclass) of attribute:%@
+BLSHAssertionAttributeTimer must be invalidated before dealloc:%@
+BLSHDurationAttributeHandler.m
 invalidation duration expired
 timeout duration expired
 backlightAssertionInitialization
@@ -3264,7 +3285,6 @@ BLSHWatchdogDidFireDate
 BLSHWatchdogDidFireBuildVersion
 BuildVersion
 BLSHWatchdogProvider.m
-!_invalidated
 v16@?0@"BSAbsoluteMachTimer"8
 platformProvider != nil
 BLSHService.m
@@ -3297,7 +3317,7 @@ updateTo:%@
 _lock_renderSessionAssertion == nil
 BLSHBacklightFBSceneHostEnvironment.m
 RenderSession:%p
-_lock_renderSessionAssertion != nil
+_lock_renderSessionAssertion != nil || ![self sceneWantsProcessAssertion:scene withSceneSettings:[scene settings]]
 @16@?0@"<BLSHBacklightSceneHostEnvironment>"8
 presentationEntries
 context
@@ -3327,10 +3347,13 @@ com.apple.BacklightServices
 [self invalidated]
 BLSHDefaultsObserver.m
 %@ default set
+j8/Omm6s1lsmTDFsXjsBfA
+deviceSupportsAlwaysOnOverride
+presentationEngine:%@ is not stopped on intitialization
+BLSHBacklightTransitionStateMachine.m
 BLSHBacklightTransitionStateMachine
 safeToUnblank
 pendingUpdateDisplayMode
-BLSHBacklightTransitionStateMachine.m
 %s%@ for %@ since %@
 transitioning to 
 Shouldn't be called
@@ -3409,6 +3432,7 @@ reason
 source
 didClearDateSpecifiers
 wasReset
+.invalidateAfterFire
 v32@?0@"NSString"8@"<BLSHWatchdogDelegate>"16^B24
 Test watchdog %@
 BLSHAssertionService.m
@@ -3609,6 +3633,7 @@ must invalidate before deallocating service
 %p added addSpecifier:%{public}@ start date will change:%{public}@->%{public}@ (%.3lfs) (intervalSinceStart:%lf; intervalAfterEnd:%lf) (count:%d->%d)
 %p added invalidation:%{public}@ total bucket count:%d
 %.2lfs watchdog fired:"%{public}@" elapsedTime:%.2lfs abortContext:%{public}@
+watchdog invalidated after firing while waiting for state dump. Carousel's main thread probably hung for a significant amount of time:"%{public}@"
 %.2lfs watchdog fired:"%{public}@" after elapsed time:%.2lfs watchdogEnabled:%{BOOL}u isBeingDebugged:%{BOOL}u
 %.2lfs watchdog invalidated:"%{public}@" elapsedTime:%.2lfs watchdogEnabled:%{BOOL}u isBeingDebugged:%{BOOL}u
 watchdog did fire at %{public}@ on build %{public}@, reset:%{BOOL}u
@@ -3620,6 +3645,7 @@ did startServer:%{public}@ withLocalAssertionService:%{public}@
 %p:%{public}@ client desired fidelity action failed error:%{public}@ response:%{public}@, requestedFidelityForInactiveContent:Minutes
 %p:%{public}@ requestedFidelityForInactiveContent:%{public}@
 %p:%{public}@ querying requestedFidelityForInactiveContent
+%p:%{public}@ scene:%p wantsProcessAssertions:%{BOOL}u optsOut:%{BOOL}u externalManaged:%{BOOL}u local:%{BOOL}u
 animated=%{BOOL}u but performBacklightRampBlock=%{public}@
 animated=%{BOOL}u but animationCompleteBlock=%{public}@
 %p:%{public}@ nil scene, will not update scene:%{public}@ to visualState:%{public}@ presentationDate:%{public}@ animated:%{BOOL}u event:%{public}@ touchTarget:%{BOOL}u
@@ -3663,6 +3689,7 @@ proxy is invalid for pid:%d
 %p client now running pid:%d update to backlight state:%{public}@
 %p was not observing from pid:%d
 %p client not running pid:%d will not notify backlight update to state:%{public}@ event:%{public}@
+com.apple.BacklightServices:deviceSupportsAlwaysOnOverride set to YES, will initialize flipbook presentation engine
 %p createdSession:%p with presentation:%{public}@
 %p destroy session:%p with current presentation:%{public}@
 %p created target:%{public}@
@@ -3832,6 +3859,7 @@ BLSHLocalCountingAssertionAttributeHandler
 BLSHCountingAssertionAttributeEntry
 BLSHDurationAttributeHandler
 BLSHAssertionAttributeTimer
+BSCancellable
 BLSHInvalidationTimer
 BLSHWarningTimer
 BLSHTimeoutTimer
@@ -3850,6 +3878,7 @@ NSCopying
 BLSHPendingUpdateDisplayMode
 BLSHWatchdogProvider
 BSLHWatchdogTimer
+BLSHWatchdogTiming
 BLSHDisableBacklightWatchdogsAttributeHandler
 BLSHService
 BLSHFlipbookFramesHistogram
@@ -3902,6 +3931,7 @@ BLSHLocalCountingSceneAssertionAttributeHandler
 BLSHBacklightFBSceneEnvironmentActionHandler
 BLSSceneActionHandler
 BLSHFlipbookInvalidationTelemetryData
+BLSHWatchdogTesterTimer
 BLSHWatchdogTester
 BLSHDisableCommitOnWakeMeasurementAttributeHandler
 BLSHAssertionService
@@ -4005,6 +4035,7 @@ localAssertionService
 registerHandlersForService:
 serverWithLocalBacklightProxy:
 displayStateMachine
+stringByAppendingString:
 dictionaryWithObjects:forKeys:count:
 initWithWatchdogTestables:
 serviceForService:withPlatformProvider:osInterfaceProvider:inactiveBudgetPolicy:
@@ -4989,15 +5020,18 @@ initWithExplanation:delegate:provider:
 scheduleWithTimeout:
 isWatchdogEnabled
 abortContext
+isInvalidated
 markWatchdogDidFire
 standardUserDefaults
 dictionaryForKey:
-fireWatchdogWithExplanation:delegate:timeout:elapsedTime:
+fireWatchdogWithTimer:delegate:timeout:elapsedTime:
 clearWatchdogWithExplanation:timeout:elapsedTime:
 setWatchdogEnabled:
 _watchdogEnabled
 watchdogEnabled
 TB,GisWatchdogEnabled,V_watchdogEnabled
+invalidated
+TB,R,N,GisInvalidated
 _explanation
 _lock_timeout
 _lock_watchdogStart
@@ -5083,10 +5117,11 @@ transitionContextClass
 setWithArray:
 setActions:
 updateSettingsWithTransitionBlock:
-bls_setVisualState:
-bls_setPresentationDate:
 bls_optsOutOfProcessAssertions
 activityMode
+isLocal
+bls_setVisualState:
+bls_setPresentationDate:
 adjustedLuminance
 initWithExplanation:processIdentity:duration:
 acquireWithCompletion:
@@ -5187,7 +5222,6 @@ disableFlipbook
 transparentFlipbook
 handlerForKey:attribute:
 addObserver:forKeyPath:options:context:
-invalidated
 setInvalidated:
 boolValue
 updateForNewValue:
@@ -5202,6 +5236,7 @@ acquireWithObserver:
 _key
 _lock_assertion
 initWithDelegate:platformProvider:osInterfaceProvider:
+boolForKey:
 osInterface
 setDisplayMode:
 touchLock
@@ -5396,9 +5431,12 @@ T@"NSString",R,N,V_source
 TB,R,N,V_didClearDateSpecifiers
 TB,R,N,V_wasReset
 T@"BLSHFlipbookFramesHistogram",R,N,V_invalidatedFramesHistogram
+initWithExplanation:
 strongToWeakObjectsMapTable
+hasSuffix:
 _triggerTestWatchdog:
 _testables
+_lock_nextTimerID
 setCommitOnWakeMeasurementDisabled:
 initWithService:osInterfaceProvider:
 setDefaultService:

@@ -1741,13 +1741,15 @@ FAT_CIGAM    = 0xbebafeca
 FAT_MAGIC_64 = 0xcafebabf
 FAT_CIGAM_64 = 0xbfbafeca
 MACHO_SINATURES = [MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64, FAT_MAGIC, FAT_CIGAM, FAT_MAGIC_64, FAT_CIGAM_64]
-# Returns true if the file is Mach-O executable, or false otherwise.
-def is_macho?(path)
-  # Do a quick check if the beginning of file contains appropriate signature.
-  # If it does not, there's no point to run 'file' tool which is more expensive.
-  return false if File.size(path) < 4
-  magic = IO.binread(path, 4).unpack("I>")[0]
-  return MACHO_SINATURES.include?(magic) && (file_type(path) =~ /Mach-O/) rescue nil
+# Returns true if the file is Mach-O that may be eligible for processing by ipatool
+def is_eligible_macho?(path)
+  # We run this on a lot of files; checking the magic header first is significantly faster than shelling out to `file` right away
+  return false unless MACHO_SINATURES.include?((IO.binread(path, 4) || "").unpack("I>")[0])
+  ft = file_type(path)
+  return false if ft =~ /current ar archive random library/
+  return false if ft =~ /^Mach-O (32|64)-bit object/
+  return ft =~ /Mach-O.*(executable|dynamically linked shared library)/
+  return true
 # Examines the file system entity at the path and returns the most specific kind of node that best represents it.
 def MakeFileSystemNode(path, parentDirectory = nil, enclosingBundle = nil, parentPathForDisplay = nil)
   # Make a quick exit if the path doesn't even exist.
@@ -1777,7 +1779,7 @@ reserved
       end
     else
       # Possibly a Mach-O (we'll need to check the contents to know for sure)
-      machoImages = if is_macho?(path) then GetMachOImagesFromOToolInfoForFile(path) else nil end
+      machoImages = if is_eligible_macho?(path) then GetMachOImagesFromOToolInfoForFile(path) else nil end
       if machoImages && !machoImages.empty? && (!enclosingBundle || machoImages.first.platformIdentifier == enclosingBundle.statedPlatformIdentifier)
         # Instantiate a Mach-O File Node and, if there is an enclosing bundle, add it to the list.
         node = FSMachOFileNode.new(path, enclosingBundle, machoImages)

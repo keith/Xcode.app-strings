@@ -1,4 +1,4 @@
-@(#)PROGRAM:TrialServer  PROJECT:trial-277.5.8
+@(#)PROGRAM:TrialServer  PROJECT:trial-292.11
 ActivateTreatment
 DeactivateTreatment
 FetchTreatment
@@ -134,7 +134,7 @@ assetId != nil
 <TRITreatmentQualifiedAssetIndex | treatmentId:%@ index:%@>
 <TRIAssetMetadata | type:%@ namespaceNameForEncryptionKey:%@ treatmentIndex:%@ downloadSize:%@ compressionMode:%@>
 experimentDeployment != nil
-<TRIExperimentRecord | deploymentEnvironment:%@ experimentDeployment:%@ treatmentId:%@ type:%@ status:%@ startDate:%@ endDate:%@ namespaces:%@ isShadow:%@ artifact:%@>
+<TRIExperimentRecord | deploymentEnvironment:%@ experimentDeployment:%@ treatmentId:%@ type:%@ status:%@ startDate:%@ endDate:%@ namespaces:%@ isShadow:%@ isManuallyTargeted:%@ artifact:%@>
 factorName != nil
 factorPackId != nil
 <TRIFactorPackAsset | factorName:%@ assetId:%@ filePath:%@ factorPackId:%@>
@@ -562,6 +562,7 @@ namespaceMap
 rolloutV2Deployments
 rolloutV2
 targetedFactorPackSet
+rampId
 targetedNamespaceDescriptorSet
 v2/activeFactorProviders.plplist
 factorPacks
@@ -570,7 +571,7 @@ promoted
 legacyPromoted
 provisional.pb
 TRINamespaceResolverStorage.m
--[TRINamespaceResolverStorage rewriteRolloutDeployment:targetedFactorPackSetId:]
+-[TRINamespaceResolverStorage rewriteRolloutDeployment:rampId:targetedFactorPackSetId:]
 factorPackSetPath
 targeting-link-%@
 new-deployment-%@
@@ -699,6 +700,9 @@ v40@?0Q8@"NSArray"16@"NSDate"24@"NSError"32
 B32@?0@"CKRecord"8Q16^B24
 %K > %@
 %K IN %@
+Unable to fetch limited carry experiments, user must be member of INTERNAL population
+ExperimentID
+DeploymentID
 completion
 assetIndexes
 recordId
@@ -824,6 +828,7 @@ Push service muxer unexpectedly nil in server context
 CKSQLiteMock/Database
 CKSQLiteMock/AssetCache
 Failed to instantiate TRISQLiteCKDatabase
+self.fakeCKDatabase
 com.apple.aps.triald
 com.apple.triald.pushServiceQueue
 com.apple.triald.subscriptionRequestQueue
@@ -921,7 +926,6 @@ TRITreatmentBaseTask.m
 <%@:%@,%@,%@>
 com.apple.triald.namespace-management
 com.apple.trial.status
-NSData+TRI.m
 notificationToken
 client_app_bundle_id
 client_app_version
@@ -979,7 +983,6 @@ v16@?0@"TRIRolloutRecord"8
 v16@?0^B8
 rolloutsV2
 rolloutV2Namespaces
-rampId
 isShadow
 activeTargetingRuleIndex
 targetedTargetingRuleIndex
@@ -1081,6 +1084,7 @@ No namespace name on factor pack %@
 v16@?0@"NSString<TRIAssetId>"8
 v24@?0@"NSString<TRIAssetId>"8@"NSError"16
 v24@?0@"NSString<TRIAssetId>"8^B16
+v32@?0@"TRIClientSelectedNamespace"8Q16^B24
 <%@:%@,a:%@,d:%@,r:%d>
 com.apple.triald.tests.taskQueueDeferralSequence
 TRITaskQueue.m
@@ -1180,7 +1184,7 @@ TRIFetchDateManager.m
 teamId required for 3P date lookup
 baseKey
 %@.%d.%@
-Nov  8 2021
+Jan 13 2022
 compilationDateString
 MMM d yyyy
 en_US
@@ -1209,10 +1213,13 @@ TRIExperimentDatabase.m
  WITH experiments_rowids AS (     SELECT rowid FROM             experiments     WHERE             experimentId = :experiment_id         AND deploymentId = :deployment_id     LIMIT 1 ) UPDATE namespaces SET         treatmentPath = :treatment_path WHERE         name = :namespace_name     AND experiments_rowid IN experiments_rowids;
 :treatment_path
 :namespace_name
+ UPDATE experiments SET         isManuallyTargeted = :is_manually_targeted WHERE         experimentId = :experiment_id     AND deploymentId = :deployment_id;
+:is_manually_targeted
 v16@?0@"TRIExperimentRecord"8
 v16@?0@"TRINamespaceRecord"8
 experiments
 endSecondsFromEpoch
+isManuallyTargeted
 Unexpected NULL artifact
 Unexpected NULL experimentId
 treatmentPath
@@ -1309,7 +1316,7 @@ managedDir
 [LOCK_SH] 
 [LOCK_EX] 
 pathToRemove
-+[TRIReferenceManagedDir removeFileInManagedDirWithPath:deferDeleteIfInUse:wasDeleted:]
++[TRIReferenceManagedDir removeFileInManagedDirWithPath:inUseDeletionBehavior:wasDeleted:]
 NSString * _Nonnull stringForUTF8Path(const char * _Nonnull)
 Unable to decode filesystem path as UTF-8: "%s"
 v16@?0@"<TRIXPCInternalServiceProtocol>"8
@@ -1339,10 +1346,13 @@ endTimestamp
 retryCount
 TRIPersistedTaskAttribution
 requiresTreatmentInstallation
+taskOptions
+TRITaskOptions
 failOnUnrecognizedExperiment
 triggerEvent
 TRIDeactivateTreatmentPersistedTask_TriggerEvent
 earliestTimestamp
+limitedCarryOnly
 includeDependencies
 forceUpdate
 deviceId
@@ -1391,7 +1401,7 @@ json
 TRIRetargetAllTask.m
 TRITempDirScopeGuard.m
 prevRefCountBoxed != nil
-TrialXP_Sim-277.5.8
+TrialXP_Sim-292.11
 TRIDServer.m
 com.apple.triald.taskQueue
 TRIDServer failed to create system info
@@ -1407,6 +1417,7 @@ XPC Activity Manager not initialized
 triald_wake_time_ms
 com.apple.notifyd.matching
 com.apple.notifyd.matching handler
+com.apple.ManagedConfiguration.profileListChanged
 com.apple.language.changed
 kAFPreferencesDidChangeDarwinNotification
 AFLanguageCodeDidChangeDarwinNotification
@@ -1491,6 +1502,15 @@ experiment-%@
 rollout-%@
 Periodic
 UserActionExplicit
+/private/var/Managed Preferences/mobile/
+com.apple.internal.trial.limitedcarry
+com.apple.internal.trial.limitedcarry.db
+TRILimitedCarryProfileManager.m
+com.apple.trial.profile-updates-timeout-coalesce
+com.apple.triald.limited carry
+Experiment
+NamespaceName
+self.lcExperiments != nil
 TRIRolloutTargetingTask.m
 rolloutDeployment.deploymentId != kTRIUnspecifiedDeploymentId
 taskQueue != nil
@@ -1563,6 +1583,8 @@ explainQueryPlan-%@-pid_%d-handle_%p.log
  ALTER TABLE rolloutsV2 ADD COLUMN     targetedTargetingRuleIndex INTEGER;
  ALTER TABLE rolloutsV2 ADD COLUMN     respectRefCount INTEGER NOT NULL DEFAULT 1;
  UPDATE rolloutsV2 SET respectRefCount = 0;
+ ALTER TABLE experiments ADD COLUMN     isManuallyTargeted INTEGER NOT NULL DEFAULT 0;
+TritaskOptions.pbobjc.m
 @"TRINamespaceStatus"16@?0@"TRINamespaceStatus"8
 B32@?0@"NSString<TRIAssetId>"8@"TRIFactorLevel"16@"TRIFile"24
 TRIExperimentHistoryDatabase.m
@@ -1591,7 +1613,6 @@ deploymentEnvironments
 remove_hist_rowids
  DELETE FROM     experimentHistoryNamespaces WHERE     experimentHistory_rowid IN %@;
  DELETE FROM     experimentHistory WHERE     rowid IN %@;
-v32@?0@"TRIClientSelectedNamespace"8Q16^B24
 TRIClientRolloutArtifact+Utils.m
 Not able to delete assets in FactorPack %@, moving on to next factorPack
 Received negative run delay %f for hotfix deployment of %{public}@
@@ -1750,11 +1771,11 @@ Unable to parse buffer as TRIPostUpgradeCleanupTask: %{public}@
 %s: unsupported format specifier "%@"
 %s has empty path arg: deployment.rolloutId
 Unable to update rollout %{public}@; targeted factor pack set %{public}@ is missing.
+Failed to write ramp ID into namespace resolve storage at %{public}@: %{public}@
 %s has empty path arg: deployment.experimentId
 Unable to update experiment %{public}@; targeted treatment set %@ is missing.
 Rollout database has conflicting active deployments for rollout %{public}@: (%@, %d)
 Failed to write plplist: %{public}@
-Failed to set permissions on plplist %{public}@: %s (%d))
 Failed write "%{public}@": %{public}@
 Set factor pack %{public}@ as provisional for namespace %{public}@
 Failed to set factor pack %{public}@ as provisional for namespace %{public}@
@@ -1845,7 +1866,6 @@ Can't carry out hotfix targeting activity, task queue not initialized.
 Can't carry out recurrent rollback activity, task queue not initialized.
 Failed to drop reference on artifact for treatment %@.
 Mismatched treatmentId: (exp: %@, act: %@)
-cannot install treatment %@ of experiment %{public}@ -- experiment already has treatment %@
 got %lu factors defined in treatment %@ for experiment %{public}@
 factor message does not contain namespace field in treatment %@ of experiment %{public}@
 no factors defined in treatment %@ for experiment %{public}@
@@ -1876,6 +1896,7 @@ downloaded %llu bytes from treatment %@
 notify namespace download completed: %{public}@
 Unable to parse buffer as TRIFetchTreatmentPersistedTask: %{public}@
 TRIFetchTreatmentPersistedTask encodes unspecified deploymentId.
+Changing TRIFetchTreatmentTask to require inexpensive networking since %@ does not support expensive networking
 scheduling next rollback fetch with interval %fsec and jitter %dsec
 Unable to parse buffer as TRIRecurrentScheduleFetchRollbacksPersistedTask: %{public}@
 Cannot decode message of type %@ with missing field: isRepeatedInstance
@@ -1912,6 +1933,9 @@ received CloudKit record with too old deployment date for experiment %@: %@ < %@
 unable to construct artifact from CKRecord %@ for experiment %@
 generated artifact for experiment %@
 CKNative checking for new experiments since %{public}@
+fetching limited carry experiments
+Unable to fetch limited carry experiments, user must be member of INTERNAL population
+received experiment notification for limited carry ckRecordID %{public}@
 Multiple records retrieved for treatmentId: %@
 CKFetchRecordsOperation did not return a record with recordId %@.
 desiredKeysForAssetIndexes: %@
@@ -1946,6 +1970,7 @@ Received diffable asset record with CKRecordID %{public}@, assetId %{public}@
 Failed to fetch CKRecordID %@ for asset diff with target assetId %{public}@
 On-demand factor fetch was initiated for >1 factor pack and will be excluded from telemetry. Got %{public}@
 Missing TRIFactorName %@ in downloadableFactorNames
+Missing factorname in %@
 attributing on-demand factors fetch for %{public}@ to %{public}@
 Warning: unable to find TRIRolloutRecord for deployment %{public}@; issuing incomplete telemetry.
 preventing fetch for (%{public}@, %{public}@) on cellular, resourceAttributionBundleIdentifier: %{public}@ expensiveNetworkingAllowed: %{public}@
@@ -1977,6 +2002,7 @@ Cannot decode message of type %@ with missing field: namespaceName
 TRIFetchOnDemandFactorsPersistedTask contains empty treatmentId
 TRIFetchOnDemandFactorsPersistedTask contains empty index array
 TRIFetchOnDemandFactorsPersistedTask contains empty asset index array
+Changing TRIFetchOnDemandFactorsTask to require inexpensive networking since %@ does not support expensive networking
 Failure deserializing task of unsupported type %d
 updateStartDateForTaskId: called with invalid id
 directDependenciesOfTaskWithId invoked with missing taskId
@@ -2019,6 +2045,7 @@ Ignoring unsupported notification of type %@ for deploymentEnvironment %@.
 updateStatusForNamespacesWithContext skipping missing app container: %{public}@
 expected namespace to be registered, but could not find descriptor: %{public}@
 Fetch status success but 0 results fetched.
+Unable to fetch limited carry experiments as limitedCarryManager is: %{public}@
 Unable to parse buffer as TRIFetchExperimentNotificationsPersistedTask: %{public}@
 Received an unexpected odd length identifier: %{public}@
 Unexpectedly long channel id for identifier %{public}@
@@ -2106,14 +2133,10 @@ Failed to relocate patch file: %{public}@
 Failed to construct asset %{public}@ by patching asset %{public}@: %{public}@
 Failed to copy asset file to temporary file %{public}@: %{public}@
 Failed to set permissions on file-asset file %{public}@: %s (%d)
-Failed to set file permissions on temporary file %{public}@: %s (%d)
 Failed to create parent directory for asset: %{public}@
 Failed to create directory for dir-asset toplevel %{public}@: %s (%d)
-Failed to set permissions on dir-asset toplevel directory %{public}@: %s (%d)
 Failed to set read-write permissions on dir-asset file %{public}@: %s (%d)
-Failed to set permissions on dir-asset file %{public}@: %s (%d)
 Candidate asset subdirectory was constructed with bad permission bits 0%o: %{public}@
-Failed to set permissions on dir-asset subdirectory %{public}@: %s (%d)
 Removing asset: %{public}@
 %s has empty path arg: currentPath
 %s has empty path arg: futurePath
@@ -2126,7 +2149,6 @@ Failed to create directory %{public}@ for dir-asset: %{public}@
 Failed to create subdirectory %{public}@ for dir-asset: %{public}@
 Failed to enumerate dir-asset for linking: %{public}@
 Failed to link %{public}@ --> %{public}@ for dir-asset: %s (%d)
-Failed to set permissions on %{public}@: %s (%d)
 Failed to enumerate dir-asset for permissions update: %{public}@
 Starting dry run garbage collection with age threshold %u for asset store: %{public}@
 Garbage collection for asset store %{public}@ removed %u dead symlinks.
@@ -2276,11 +2298,12 @@ Factor pack set %{public}@ contains ineligible factor pack. Re-fetching factor p
 Factor pack set %{public}@ is already present; skipping download of factor packs. Path: %@
 Unexpected failure to load namespace descriptor for namespace %{public}@ found in factor pack set %{public}@.
 Factor pack %{public}@ does not declare compatibility with NCV (%{public}@, %u); will be omitted from installation.
-preventing fetch of factor pack set %@ on cellular for namespace %@ of rollout %@, neither resourceAttributionBundleIdentifier nor expensiveNetworkingAllowed is set
+preventing fetch of factor pack set %@ on cellular for namespace %@ of rollout %@, resourceAttributionBundleIdentifier: %@ expensiveNetworkingAllowed: %@
 %tu of %tu required assets are being handled by patching preexisting assets.
 XPC activity was deferred before asset download.
 Unable to parse buffer as TRIFetchFactorPackSetPersistedTask: %{public}@
 Cannot decode message of type %@ with field of length 0: factorPackSetId
+Changing TRIFetchFactorPackSetTask to require inexpensive networking since %@ does not support expensive networking
 handleQueueEmptyNotificationWithGuardedData called but queue not complete processing work
 task queue has completed
 Remove all finalizeBlocks
@@ -2415,6 +2438,7 @@ Error removing on-demand asset, %{public}@
 Ignore removal of asset of factor "%{public}@" in namespace "%{public}@" which is not on-demand
 Ignore removal of asset of factor "%{public}@" in namespace "%{public}@" which does not have local path
 Unable to update treatment %@ with asset removal of %@
+Immediately removing %{public}@
 Nothing to remove. No local asset found.
 could not create experiment artifact from CloudKit record %@
 CloudKit record %@ with experiment %@ is missing the deployment id
@@ -2495,6 +2519,8 @@ Failed to remove GC'd reference-managed directory: %{public}@
 %s has empty path arg: pathToRemove
 Managed directory file at path %{public}@ was not found inside a valid managed directory
 Managed directory file found to be same as root managed directory: %{public}@
+Failed to remove path: %@
+Successfully removed asset immediately: %@
 Failed to remove path: %{public}@
 File removal attempt found active usage of reference-managed directory: %{public}@
 Marking file %{public}@ for deferred deletion
@@ -2509,6 +2535,7 @@ Invalid JSON for experiment content identifier: %{public}@
 Invalid JSON for treatment content identifier: %@
 Invalid JSON for rollout content identifier: %{public}@
 Invalid JSON for factor pack set identifier: %{public}@
+Retargeting is being suppressed for manually-targeted experiment: %@
 Unable to parse buffer as TRIRetargetAllPersistedTask: %{public}@
 Unable to canonicalize %{public}@: %s (%d)
 Canonicalized path is not Unicode: %s
@@ -2527,10 +2554,13 @@ rejecting server context ready promise
 triald failed to initialize - exiting
 triald launched
 received SIGTERM, exiting when clean
+failed to handle limited carry experiment setup - triald failed initialization
+Created Limited Carry manager
 finished server run loop
 set up xpc event stream handler for com.apple.notifyd.matching
 Handled event with no name, returning
 received xpc event %{public}@
+Received LaunchEvent: "com.apple.ManagedConfiguration.profileListChanged", creating transaction for Limited Carry manager
 failed to process %@ - triald failed initialization
 Adding xpc event: %{public}@
 Xpc event: %{public}@, Siri is %{public}@, Siri Locale is: %{public}@
@@ -2658,6 +2688,26 @@ Unable to write serialized namespace treatment: %{public}@
 Failed to read source URL: %{public}@
 Failed to create directory for target file: %{public}@
 Failed to write to target URL: %{public}@
+Initializing profile connection observer
+Missed profile connection observer notification, checking profiles now
+Created transaction for Limited Carry manager
+Issue reading managed preferences for profile %@ at %@: %@
+Found relevant managed preferences file: %@
+Limited carry profile %@ doesn't provide a valid experiment identifier, found: %@
+Limited carry profile %@ doesn't provide a valid deployment identifier, found: %@
+Limited carry profile %@ doesn't provide a valid namespace name, found: %@
+Found experiment %@ for installed profile %@ specifies namespace %{public}@, which is not registered with Trial
+Found deployment %@ for experiment %@ from profile does not match deployment identifier for experiment record: %d
+Profile connection observer received notification
+Error reading data for %@ key in TRIKVStore: %{public}@. 
+Found removed profile: %@
+Error with profile found in database for identifier: %{public}@, profile value was nil. 
+Found replaced profile: %@ -> %@
+Found new profile: %@
+Unable to add tasks to task queue for Limited Carry profile update, task queue was nil
+Unable to add task for profile list changed notification
+Setting persisted Limited Carry profile information failed, key-value store was nil
+Getting persisted Limited Carry profile information failed, key-value store was nil
 Intersecting artifact namespaces: %@ with relevant namespaces: %@ for telemetry
 Unable to parse buffer as TRIRolloutTargetingPersistedTask: %{public}@
 Factor pack {public}%@ has missing level.
@@ -3060,6 +3110,8 @@ TRIAssetMetadataReservedKeys
 TRIDAG
 TRIClientTreatmentStorage
 TRICKOperationGroupFactory
+TRILimitedCarryProfileManager
+MCProfileConnectionObserver
 TRILatencyMetricTelemetryValidator
 TRILatencyMetricTelemetryValidating
 TRIRolloutTargetingTask
@@ -3073,6 +3125,8 @@ TRIServer
 TRIActivateTreatmentBaseTask
 TRIDatabase
 TRIMemoryEfficientFileDigest
+TRITritaskOptionsRoot
+TRITaskOptions
 Tasks
 TRIPeekEnumerator
 TRIUtil
@@ -3090,7 +3144,7 @@ count
 initWithPaths:
 factorPackId
 namespaceName
-updateSavedFactorPackWithId:namespaceName:deletingAssetsWithFactorNames:deferDeleteInUseAssets:
+updateSavedFactorPackWithId:namespaceName:deletingAssetsWithFactorNames:inUseAssetBehavior:
 notifyUpdateForNamespaceName:
 _logPurgedAssetsFromFactorPackWithId:namespaceName:purgeabilityLevel:
 ensureFactorFields
@@ -3508,14 +3562,17 @@ _compressionMode
 T@"NSString",R,N,V_namespaceNameForEncryptionKey
 T@"TRITreatmentQualifiedAssetIndex",R,N,V_treatmentIndex
 TQ,R,N,V_compressionMode
-initWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:artifact:
+initWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:isManuallyTargeted:artifact:
 deploymentEnvironment
 experimentDeployment
 endDate
-recordWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:artifact:
+isManuallyTargeted
+recordWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:isManuallyTargeted:artifact:
 copyWithReplacementDeploymentEnvironment:
 copyWithReplacementExperimentDeployment:
 copyWithReplacementEndDate:
+copyWithReplacementIsManuallyTargeted:
+_isManuallyTargeted
 _deploymentEnvironment
 _experimentDeployment
 _endDate
@@ -3523,6 +3580,7 @@ Ti,R,N,V_deploymentEnvironment
 T@"TRIExperimentDeployment",R,N,V_experimentDeployment
 Ti,R,N,V_type
 T@"NSDate",R,N,V_endDate
+TB,R,N,V_isManuallyTargeted
 T@"TRIClientExperimentArtifact",R,N,V_artifact
 initWithFactorName:assetId:filePath:factorPackId:
 factorName
@@ -3640,7 +3698,7 @@ initWithTaskQueue:
 _queue
 T@"<TRITaskQueuing>",R,N,V_queue
 initWithRollbacksOnly:downloadOptions:
-taskWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:
+taskWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:limitedCarryOnly:
 addObject:
 taskWithNamespaceNames:taskAttribution:
 namespaceDatabase
@@ -3667,7 +3725,7 @@ serialize
 runUsingContext:withTaskQueue:
 runEnqueueHandlerUsingContext:
 runDequeueHandlerUsingContext:
-requiredCapabilities
+requiredCapabilities:
 taskType
 taskName
 startTime
@@ -3861,6 +3919,7 @@ triDataForField:
 keyFromData:
 path
 validateBase64Signature:forFile:
+allReferencedCKRecordKeys
 assetURLFromCKRecord:assetId:
 systemNamespaceName
 levelForFactor:withNamespaceName:
@@ -4009,7 +4068,7 @@ setClientTreatmentId:
 hasStartDate
 asPersistedTaskAttribution
 taskAttributionFromPersistedTask:
-taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:startTime:
+taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:startTime:taskOptions:
 taskWithAttribution:
 taskWithExperiment:treatmentId:taskAttributing:
 cancelTasksWithTag:
@@ -4085,7 +4144,7 @@ deregisterNamespaceWithNamespaceName:completion:
 startDownloadNamespaceWithName:options:completion:
 startDownloadLevelsForFactors:withNamespace:factorsState:options:completion:
 immediateDownloadForNamespaceNames:allowExpensiveNetworking:completion:
-removeLevelsForFactors:withNamespace:factorsState:completion:
+removeLevelsForFactors:withNamespace:factorsState:removeImmediately:completion:
 setPurgeabilityLevelsForFactors:forNamespaceName:completion:
 loadNamespaceMetadataForNamespaceName:completion:
 setProvisionalFactorPackId:forNamespaceName:completion:
@@ -4110,6 +4169,8 @@ enumerateTrackedItemsWithBlock:
 decodeContentIdentifier:
 clearRefsWithContentIdentifier:
 removeExperimentRecordWithExperimentDeployment:
+limitedCarryManager
+removeProfileForExperiment:
 pathsForContainer:asClientProcess:
 _cleanupTreatmentWithTreatmentId:paths:
 identifier
@@ -4393,9 +4454,11 @@ parentDirForExperimentDeployments
 hasFactorPackSetWithId:path:
 initWithDir:
 pathForRolloutDeployment:
+_writeRampId:parentDir:
 symlinkFromCurrentPath:withFuturePath:toManagedPath:
 _pathForRolloutDeployment:
 unlock
+dataUsingEncoding:
 fileURLWithPath:
 _removeUnreferencedDeploymentsWithRefStore:parentDir:removedCount:
 fileSystemRepresentation
@@ -4429,7 +4492,7 @@ legacyPathForFactorPackWithId:namespaceName:
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 getResourceValue:forKey:error:
 providerForTreatmentLayer:
-rewriteRolloutDeployment:targetedFactorPackSetId:
+rewriteRolloutDeployment:rampId:targetedFactorPackSetId:
 rewriteExperimentDeployment:targetedTreatmentId:
 overwriteActiveFactorProvidersUsingTransaction:fromDatabase:
 setProvisionalFactorPackId:forNamespaceName:error:
@@ -4488,6 +4551,8 @@ initWithType:evaluationId:date:evalState:
 valueForKey:
 componentsSeparatedByString:
 lastObject
+hasIsManuallyTargeted
+setManuallyTargeted:forExperimentDeployment:usingTransaction:
 activationEventDatabase
 requiresTreatmentInstallation
 enumerateNamespaceRecordsForExperimentDeployment:usingTransaction:block:
@@ -4498,19 +4563,21 @@ contentIdentifierForTreatmentArtifactWithTreatmentId:container:
 setStartTimestamp:
 setEndTimestamp:
 setRequiresTreatmentInstallation:
+setTaskOptions:
 hasRequiresTreatmentInstallation
 hasStartTimestamp
 startTimestamp
+hasTaskOptions
+taskOptions
 hasEndTimestamp
 endTimestamp
-taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:
+_taskOptions
 failed
 uniqueLines
 standardUserDefaults
 _logQueryWithRecordType:predicate:sortDescriptors:guardedData:
 _openFileIfNeededWithGuardedData:
 stringByReplacingOccurrencesOfString:withString:
-dataUsingEncoding:
 writeData:error:
 synchronizeAndReturnError:
 logDir
@@ -4535,7 +4602,6 @@ registerRecurrentRollbackActivityWithDelay:
 dictionaryWithContentsOfFile:
 assertRegistrationOfLaunchdPlistActivities:
 retryFailuresDescriptor
-completion
 levelForSystemFactor:
 defaultOptionsWithIgnoreDuplicates
 setActivity:
@@ -4556,6 +4622,7 @@ initWithTimeIntervalSince1970:
 timeIntervalSinceDate:
 stopSetupAssistantFetchWithServerContext:namespaceNames:error:
 taskQueueDescriptor
+completion
 clientTriggeredCellularDescriptor
 clientTriggeredCellularCriteria
 clientTriggeredWifiDescriptor
@@ -4690,6 +4757,7 @@ initWithRecordType:predicate:
 setSortDescriptors:
 initWithQuery:
 setZoneID:
+setDesiredKeys:
 setRecordFetchedBlock:
 setQueryCompletionBlock:
 setFetchAllResults:
@@ -4697,7 +4765,7 @@ configurationFromOptions:
 setConfiguration:
 groupForDownloadOptions:
 setGroup:
-queryOperationForRecordType:predicate:sortDescriptors:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationForRecordType:predicate:sortDescriptors:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
 cloudkitIdentifierForContainer:
 containerForIdentifier:serverContext:
 recordZoneForContainerIdentifier:teamId:
@@ -4716,16 +4784,17 @@ sortDescriptorWithKey:ascending:
 sortUsingDescriptors:
 namespaceDescriptorProvider
 artifactFromCKRecordResult:withNamespaceDescriptorProvider:container:teamId:requireDeploymentId:completion:
-queryOperationForRecordType:predicate:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationForRecordType:predicate:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
 groupForExperimentId:
 _fetchExperimentWithExperimentId:deploymentId:options:completion:
 _fetchNotificationsWithQueryType:withCursor:withNamespaceNames:sinceDate:options:resultsHandler:
 reverseObjectEnumerator
 indexOfObjectPassingTest:
 dateProvider
-queryOperationWithCursor:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationWithCursor:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
+lcExperiments
+integerValue
 _fetchExperimentsWithCursor:withNamespaceNames:sinceDate:fetchRollbacksOnly:options:resultsHandler:
-setDesiredKeys:
 initWithRecordIDs:
 setPerRecordProgressBlock:
 setFetchRecordsCompletionBlock:
@@ -4743,6 +4812,7 @@ setPerRecordCompletionBlock:
 unsafeGuardedData
 fetchExperimentNotificationsWithNamespaceNames:rollbacksOnly:lastFetchDateOverride:options:completion:
 fetchExperimentWithExperimentDeployment:options:completion:
+fetchExperimentNotificationsForLimitedCarryExperimentWithManager:options:rollbacksOnly:completion:
 fetchRolloutNotificationsDateAscendingWithOptions:lastFetchDateOverride:namespaceNames:completion:
 fetchRolloutNotificationsDateDescendingWithOptions:completion:
 fetchFactorPackSetWithId:options:completion:
@@ -4879,7 +4949,7 @@ T@"NSDate",C,N,V_startTime
 _signatures:onItems:areValidUsingPublicCertificate:
 initWithData:error:
 isStructurallyValid
-initWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:
+initWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:limitedCarryOnly:
 _nameForNotificationType:
 setFetched:forDynamicNamespaceName:
 _getNextTaskForExperiment:database:taskQueue:
@@ -4891,11 +4961,14 @@ xpcActivityManager
 updateStatusForNamespacesWithContext:
 _checkIfAnyTreatmentPresent:usingContext:
 setEarliestTimestamp:
+setLimitedCarryOnly:
 hasEarliestTimestamp
 earliestTimestamp
+limitedCarryOnly
 initWithStartingFetchDateOverride:container:team:rollbacksOnly:withNamespaceNames:
 nextTaskCount
 _startingFetchDateOverride
+_limitedCarryOnly
 _namespaceNames
 identifierByRemovingTestPrefixFromIdentifier:
 _base64ChannelIdForIdentifier:populationType:
@@ -4925,6 +4998,7 @@ fakeCKDatabase
 setFakeCKDatabase:
 initWithPaths:client:storageManagement:
 setXpcActivityManager:
+setLimitedCarryManager:
 useCKNative
 setUseCKNative:
 setPushServiceMuxer:
@@ -4941,6 +5015,7 @@ _keyValueStore
 _contentTracker
 _fakeCKDatabase
 _failureInjectionDelegate
+_limitedCarryManager
 _xpcActivityManager
 _underlyingDatabase
 _pushServiceMuxer
@@ -4959,6 +5034,7 @@ T@"TRIKVStore",R,N,V_keyValueStore
 T@"TRIContentTracker",R,N,V_contentTracker
 T@"TRISQLiteCKDatabase",&,V_fakeCKDatabase
 T@"TRISQLiteCKDatabaseFailureInjectionDelegate",&,N,V_failureInjectionDelegate
+T@"TRILimitedCarryProfileManager",&,N,V_limitedCarryManager
 T@"<TRIXPCActivityManagementProtocol>",R,W,N,V_xpcActivityManager
 TB,N,V_useCKNative
 pushServiceQueue
@@ -5036,7 +5112,7 @@ saveFromGarbageCollectionItemWithPath:
 triSanitizedPathComponentWithMaxLength:addHash:error:
 linkAssetWithIdentifier:toCurrentPath:futurePath:
 _removeAssetsWithFactorNames:copyingModifiedFactorPackWithPath:appendingToPathsToRemove:tempDirRef:
-removeFileInManagedDirWithPath:deferDeleteIfInUse:wasDeleted:
+removeFileInManagedDirWithPath:inUseDeletionBehavior:wasDeleted:
 _parentDirForFactorPackWithNamespaceName:
 treatmentsDir
 _legacyParentDirForFactorPackWithNamespaceName:
@@ -5155,10 +5231,6 @@ T@"<TRITaskAttributing>",R,N,V_taskAttributing
 registerForService:delegate:
 initWithPromise:
 registerAllServicesWithPromise:
-initWithLength:
-triSha256
-initWithBytesNoCopy:length:encoding:freeWhenDone:
-triSha256Base64String
 hasSelectedNamespace
 hasFactor
 enumerateFactorLevelsWithBlock:
@@ -5395,7 +5467,7 @@ entitlementKeyForApplicationBundleIdentifier
 _startDownloadAssetIndexesByTreatment:usingEntitlementWitness:serverContext:taskQueue:experimentIds:assetIdsByFactorPack:rolloutFactorNames:rolloutDeployments:namespace:taskAttribution:factorsState:notificationKey:
 unsafeFirstAuthenticationState
 _immediateDownloadForNamespaceNames:usingEntitlementWitness:serverContext:taskQueue:allowExpensiveNetworking:taskAttribution:completion:
-_removeAssetFactors:usingEntitlementWitness:serverContext:taskQueue:namespace:factorsState:completion:
+_removeAssetFactors:usingEntitlementWitness:serverContext:taskQueue:namespace:factorsState:removeImmediately:completion:
 _validateNamespaceName:error:
 _setPurgeabilityLevelsForFactors:usingEntitlementWitness:namespace:paths:completion:
 _loadNamespaceMetadataForNamespace:usingEntitlementWitness:withPaths:completion:
@@ -5423,7 +5495,6 @@ resumeTaskQueue:forNetworkOptions:
 deregisterNotificationWithToken:
 registerDownloadNotificationForKey:queue:usingBlock:
 builtTelemetry
-integerValue
 _resumeTaskQueueForDiscretionaryCellularWithQueue:
 _resumeTaskQueueForDiscretionaryWifiWithQueue:
 _reregisterOneShotXPCActivityWithDescriptor:resumingTaskQueue:
@@ -5517,6 +5588,7 @@ setSubscription:namespaceName:error:
 immediatelySchedulePostUpgradeActivityWithError:
 _helper
 tri_assignmentProbabilityWithSeed:
+initWithLength:
 assignmentProbabilityWithSeed:
 tri_setContextValueWithName:value:
 initWithBool:
@@ -5543,6 +5615,8 @@ applicationBundleId
 hasApplicationBundleId
 T@"TRIPersistedNetworkBehavior",&,D,N
 T@"TRIPersistedTaskAttribution",&,D,N
+T@"TRITaskOptions",&,D,N
+hasLimitedCarryOnly
 forceUpdate
 hasForceUpdate
 hasDeviceId
@@ -5583,6 +5657,7 @@ prepareTrialStorage
 _updateSystemInfo
 addUpdateHandlerForNamespaceName:usingBlock:
 _asyncStartWithMetrics:
+initWithTaskQueue:database:
 _registerXpcStreamEventHandler
 _logMetrics:stopwatch:
 currentRunLoop
@@ -5590,6 +5665,7 @@ runMode:beforeDate:
 runBlockWhenDeviceIsClassCUnlocked:
 defaultCenter
 postNotificationName:object:userInfo:
+processLaunchEvent
 _registerSetupAssistantFetchActivityOnce
 dateByAddingTimeInterval:
 _getDiskUsageInBytes
@@ -5720,6 +5796,30 @@ _copyFileFromURL:to:
 setName:
 groupForScheduledFetch
 groupForUserInitiatedFetch
+_gatherProfleUpdatesAndScheduleRelatedTasks
+sharedConnection
+registerObserver:
+_limitedCarryExperiments
+initWithContentsOfURL:error:
+removeProfileWithIdentifier:
+runImmediately
+_getStoredLimitedCarryExperimentsWithError:
+setLcExperiments:
+initWithAllowsCellular:discretionaryBehavior:
+_enqueueTask:
+_setStoredLimitedCarryExperimentsWithError:
+profileConnectionDidReceiveRestrictionChangedNotification:userInfo:
+profileConnectionDidReceivePasscodeChangedNotification:userInfo:
+profileConnectionDidReceivePasscodePolicyChangedNotification:userInfo:
+profileConnectionDidReceiveProfileListChangedNotification:userInfo:
+profileConnectionDidReceiveEffectiveSettingsChangedNotification:userInfo:
+profileConnectionDidReceiveDefaultsChangedNotification:userInfo:
+profileConnectionDidReceiveAppWhitelistChangedNotification:userInfo:
+_weakDatabase
+_profileProcessingQueue
+_checkForUpdates
+_lcExperiments
+T@"NSDictionary",&,N,V_lcExperiments
 namespacesAllowedForLogging
 rolloutDb
 _isRecordContainingAllowedLoggingNamespace:
@@ -5743,7 +5843,7 @@ initWithAllowedDeploymentEnvironments:
 _allowedDeploymentEnvironments
 enumerateRecordsNewerThanDate:matchingDeploymentEnvironments:block:
 initWithEval:factorsState:
-initWithRolloutId:deploymentId:factorPackIds:
+initWithRolloutId:deploymentId:rampId:factorPackIds:
 initWithPromise:auditToken:
 triRemoveItemAtPath:error:
 isEnumeratingDirectoryPostOrder
@@ -5874,7 +5974,7 @@ C16@0:8
 @28@0:8@16I24
 @52@0:8C16@20@28Q36Q44
 @"TRITreatmentQualifiedAssetIndex"
-@84@0:8i16@20@28i36q40@48@56@64B72@76
+@88@0:8i16@20@28i36q40@48@56@64B72B76@80
 @"TRIClientExperimentArtifact"
 @48@0:8@16@24@32@40
 @"NSString<TRIFactorPackId>"
@@ -5888,8 +5988,10 @@ v36@0:8@"TRIRolloutDeployment"16B24d28
 v28@0:8d16B24
 @"<TRITaskQueuing>"
 @28@0:8B16@20
+Q24@0:8@16
 @"TRITaskRunResult"32@0:8@"TRIServerContext"16@"<TRITaskQueueControlling>"24
 v24@0:8@"TRIServerContext"16
+Q24@0:8@"TRIServerContext"16
 @"NSData"16@0:8
 @"NSArray"16@0:8
 @"NSDate"16@0:8
@@ -5973,12 +6075,13 @@ v24@0:8@?<v@?B@"NSError">16
 v56@0:8@16I24@28@36i44@?48
 v56@0:8@16@24@32@40@?48
 v36@0:8@16B24@?28
+v52@0:8@16@24@32B40@?44
 v56@0:8@"NSString"16I24@"NSURL"28@"NSString"36i44@?<v@?B@"NSError">48
 v32@0:8@"NSString"16@?<v@?B@"NSError">24
 v40@0:8@"NSString"16@"TRIDownloadOptions"24@?<v@?B@"NSError">32
 v56@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32@"TRIDownloadOptions"40@?<v@?@"NSString"@"NSError">48
 v36@0:8@"NSSet"16B24@?<v@?@"NSError">28
-v48@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32@?<v@?@"NSError">40
+v52@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32B40@?<v@?@"NSError">44
 v40@0:8@"NSDictionary"16@"NSString"24@?<v@?@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"TRIClientNamespaceMetadata"@"NSError">24
 v40@0:8@"NSString<TRIFactorPackId>"16@"NSString"24@?<v@?B@"NSError">32
@@ -6021,8 +6124,8 @@ B56@0:8@16@24@32@40^@48
 B28@0:8^I16B24
 i40@0:8@16@24@32
 @"TRIMetric"
-@44@0:8@16@24@32B40
-@52@0:8@16@24@32B40@44
+@60@0:8@16@24@32B40@44@52
+@"TRITaskOptions"
 @"NSFileHandle"
 v48@0:8@16@24@32@40
 v24@0:8d16
@@ -6048,6 +6151,7 @@ v40@0:8@16r*24@?32
 @60@0:8i16@20@28@36@44@52
 i24@0:8@16
 v52@0:8@16B24@28@36@?44
+v44@0:8@16@24B32@?36
 @40@0:8@16@24@?32
 @56@0:8@16@24@32@?40@?48
 @64@0:8@16@24@?32@?40@?48@?56
@@ -6055,6 +6159,7 @@ v52@0:8@16B24@28@36@?44
 v52@0:8@"NSSet"16B24@"NSDate"28@"TRIFetchOptions"36@?<v@?Q@"NSArray"@"NSDate"@"NSError">44
 v40@0:8@"TRIExperimentDeployment"16@"TRIFetchOptions"24@?<v@?Q@"TRIClientExperimentArtifact"@"NSDate"@"NSError">32
 v40@0:8@"NSString"16@"TRIFetchOptions"24@?<v@?Q@"TRIClientExperimentArtifact"@"NSDate"@"NSError">32
+v44@0:8@"TRILimitedCarryProfileManager"16@"TRIFetchOptions"24B32@?<v@?Q@"NSArray"@"NSDate"@"NSError">36
 @"<TRIFetchOpCanceling>"40@0:8@"NSString"16@"TRIFetchOptions"24@?<v@?Q@"CKRecordID"@"TRIClientTreatment"Q@"NSDate"@"NSError">32
 @"<TRIFetchOpCanceling>"56@0:8@"NSIndexSet"16@"CKRecordID"24@"TRIFetchOptions"32@?<v@?d>40@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">48
 v48@0:8@"TRIFetchOptions"16@"NSDate"24@"NSSet"32@?<v@?Q@"NSArray"@"NSDate"@"NSError">40
@@ -6065,9 +6170,9 @@ v40@0:8@"NSString<TRIFactorPackSetId>"16@"TRIFetchOptions"24@?<v@?Q@"TRIFactorPa
 @"<TRIFetchOpCanceling>"40@0:8@"NSSet"16@"TRIFetchOptions"24@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">32
 @"<TRIFetchOpCanceling>"64@0:8@"NSDictionary"16@"TRIFetchOptions"24@?<v@?@"CKRecordID"d>32@?<v@?@"CKRecord"@"CKRecordID">40@?<v@?@"CKRecord"@"CKRecordID"@"NSError">48@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">56
 @"<TRIFetchOpCanceling>"48@0:8@"NSSet"16@?<B@?@"NSString<TRIAssetId>">24@"TRIFetchOptions"32@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">40
+@72@0:8@16@24@32@40@48@?56@?64
 @64@0:8@16@24@32@40@?48@?56
 @64@0:8@16@24@32@40@48@56
-@48@0:8@16@24@?32@?40
 v60@0:8@16@24@32B40@44@?52
 v64@0:8Q16@24@32@40@48@?56
 v64@0:8@16@24@32@40@48@?56
@@ -6080,7 +6185,6 @@ v64@0:8@16@24@32@40@48@?56
 v32@0:8@"<TRITaskQueueControlling>"16@"TRIServerContext"24
 {?=C}72@0:8@16@24@32@40@48^Q56^@64
 {?=C}64@0:8@16@24@32^Q40@48^@56
-Q24@0:8@16
 v52@0:8i16@20@28@36@44
 @48@0:8@16@24@32^@40
 v64@0:8@16@24@32^Q40@48@56
@@ -6097,6 +6201,7 @@ B40@0:8@16^B24@32
 @"<TRITaskSetProviding>"
 @44@0:8@16@24B32Q36
 v24@0:8Q16
+@48@0:8@16@24@32B40B44
 @48@0:8@16i24@28B36@40
 B56@0:8@16@24@32@40@48
 B32@0:8*16@24
@@ -6110,6 +6215,7 @@ B32@0:8*16@24
 @"TRIKVStore"
 @"TRIContentTracker"
 @"TRISQLiteCKDatabaseFailureInjectionDelegate"
+@"TRILimitedCarryProfileManager"
 @"<TRIXPCActivityManagementProtocol>"
 @"<TRIPushServiceConnectionMultiplexing>"
 v28@0:8@16B24
@@ -6131,7 +6237,7 @@ v24@0:8@"TRIPushChannelId"16
 {?=C}24@0:8@"NSString"16
 v24@0:8@"NSString"16
 B40@0:8@16^@24^@32
-B44@0:8@16@24@32B40
+B44@0:8@16@24@32C40
 B24@0:8^I16
 @"<TRIAssetExtracting>"
 B28@0:8@16I24
@@ -6193,7 +6299,7 @@ B88@0:8@16@24@32@40@48@56^Q64^@72^@80
 @"<TRITaskPersisting>"
 B32@0:8@"NSString"16@"NSArray"24
 {?=C}40@0:8@16@24^@32
-B32@0:8@"TRIRunningXPCActivityDescriptor"16@?<v@?>24
+v32@0:8@"TRIRunningXPCActivityDescriptor"16@?<v@?>24
 {?=C}32@0:8@"<TRITask>"16@"TRITaskQueuingOptions"24
 {?=C}40@0:8@"<TRITask>"16@"TRITaskQueuingOptions"24^@32
 v24@0:8@?<v@?@"<TRITask>"i@"TRITaskRunResult"@"NSDate">16
@@ -6210,7 +6316,7 @@ v60@0:8@16Q24@32^@40^@48B56
 v88@0:8@16@24I32@36@44@52q60i68@72@?80
 v112@0:8@16@24@32@40@48@56@64@72@80@88@96@104
 v68@0:8@16@24@32@40B48@52@?60
-v72@0:8@16@24@32@40@48@56@?64
+v76@0:8@16@24@32@40@48@56B64@?68
 @56@0:8@16{?=[8I]}24
 i32@0:8@16@24
 {?="val"[8I]}
@@ -6220,6 +6326,7 @@ v40@0:8@16C24i28@32
 @"NSDate"32@0:8C16i20@"NSString"24
 v40@0:8@"NSDate"16C24i28@"NSString"32
 {?=Q}72@0:8@16i24i28q32@40@48@56@64
+B36@0:8B16@20@28
 B28@0:8I16@?20
 v36@0:8i16^@20^@28
 @"<TRIClientNamespaceMetadataStoring>"
@@ -6237,7 +6344,7 @@ B32@0:8Q16Q24
 B40@0:8@16r^{TRIFlockWitness_=i}24^I32
 B56@0:8@16@24r^{TRIFlockWitness_=i}32@40^B48
 B48@0:8@16@24@32^B40
-B36@0:8@16B24^B28
+B36@0:8@16C24^B28
 @24@0:8^@16
 @44@0:8@16i24@28^@36
 @36@0:8i16@20^@28
@@ -6291,9 +6398,12 @@ v40@0:8@"NSSet"16@?<B@?@"NSString"@"NSString">24@?<v@?@"TRIPurgeableFactorPack"@
 @"<TRINamespaceResolving>"
 @32@0:8@16^B24
 @52@0:8@16@24@32@40B48
+@44@0:8@16@24@32B40
 B40@0:8Q16@24@32
 B48@0:8@16@24Q32@40
 B28@0:8@16B24
+v32@0:8@"MCProfileConnection"16@"NSDictionary"24
+@"_PASSimpleCoalescingTimer"
 @"TRITrialRolloutFields"32@0:8@"TRIRolloutDeployment"16@"NSString<TRIFactorPackSetId>"24
 @44@0:8@16B24@28Q36
 @32@0:8i16B20@24
@@ -6307,9 +6417,10 @@ B56@0:8@16Q24@32@40@48
 @"<TRIStorageManagementProtocol>"
 @"NSUserDefaults"
 @"_PASKVOHandler"
-B36@0:8B16@20@28
 @"NSEnumerator"
-@(#)PROGRAM:TrialServer  PROJECT:trial-277.5.8
+@(#)PROGRAM:TrialServer  PROJECT:trial-292.11
+(3>IT
+!$'*-0369<?B
 ActivateTreatment
 DeactivateTreatment
 FetchTreatment
@@ -6445,7 +6556,7 @@ assetId != nil
 <TRITreatmentQualifiedAssetIndex | treatmentId:%@ index:%@>
 <TRIAssetMetadata | type:%@ namespaceNameForEncryptionKey:%@ treatmentIndex:%@ downloadSize:%@ compressionMode:%@>
 experimentDeployment != nil
-<TRIExperimentRecord | deploymentEnvironment:%@ experimentDeployment:%@ treatmentId:%@ type:%@ status:%@ startDate:%@ endDate:%@ namespaces:%@ isShadow:%@ artifact:%@>
+<TRIExperimentRecord | deploymentEnvironment:%@ experimentDeployment:%@ treatmentId:%@ type:%@ status:%@ startDate:%@ endDate:%@ namespaces:%@ isShadow:%@ isManuallyTargeted:%@ artifact:%@>
 factorName != nil
 factorPackId != nil
 <TRIFactorPackAsset | factorName:%@ assetId:%@ filePath:%@ factorPackId:%@>
@@ -6873,6 +6984,7 @@ namespaceMap
 rolloutV2Deployments
 rolloutV2
 targetedFactorPackSet
+rampId
 targetedNamespaceDescriptorSet
 v2/activeFactorProviders.plplist
 factorPacks
@@ -6881,7 +6993,7 @@ promoted
 legacyPromoted
 provisional.pb
 TRINamespaceResolverStorage.m
--[TRINamespaceResolverStorage rewriteRolloutDeployment:targetedFactorPackSetId:]
+-[TRINamespaceResolverStorage rewriteRolloutDeployment:rampId:targetedFactorPackSetId:]
 factorPackSetPath
 targeting-link-%@
 new-deployment-%@
@@ -7010,6 +7122,9 @@ v40@?0Q8@"NSArray"16@"NSDate"24@"NSError"32
 B32@?0@"CKRecord"8Q16^B24
 %K > %@
 %K IN %@
+Unable to fetch limited carry experiments, user must be member of INTERNAL population
+ExperimentID
+DeploymentID
 completion
 assetIndexes
 recordId
@@ -7135,6 +7250,7 @@ Push service muxer unexpectedly nil in server context
 CKSQLiteMock/Database
 CKSQLiteMock/AssetCache
 Failed to instantiate TRISQLiteCKDatabase
+self.fakeCKDatabase
 com.apple.aps.triald
 com.apple.triald.pushServiceQueue
 com.apple.triald.subscriptionRequestQueue
@@ -7232,7 +7348,6 @@ TRITreatmentBaseTask.m
 <%@:%@,%@,%@>
 com.apple.triald.namespace-management
 com.apple.trial.status
-NSData+TRI.m
 notificationToken
 client_app_bundle_id
 client_app_version
@@ -7290,7 +7405,6 @@ v16@?0@"TRIRolloutRecord"8
 v16@?0^B8
 rolloutsV2
 rolloutV2Namespaces
-rampId
 isShadow
 activeTargetingRuleIndex
 targetedTargetingRuleIndex
@@ -7392,6 +7506,7 @@ No namespace name on factor pack %@
 v16@?0@"NSString<TRIAssetId>"8
 v24@?0@"NSString<TRIAssetId>"8@"NSError"16
 v24@?0@"NSString<TRIAssetId>"8^B16
+v32@?0@"TRIClientSelectedNamespace"8Q16^B24
 <%@:%@,a:%@,d:%@,r:%d>
 com.apple.triald.tests.taskQueueDeferralSequence
 TRITaskQueue.m
@@ -7491,7 +7606,7 @@ TRIFetchDateManager.m
 teamId required for 3P date lookup
 baseKey
 %@.%d.%@
-Nov  8 2021
+Jan 13 2022
 compilationDateString
 MMM d yyyy
 en_US
@@ -7520,10 +7635,13 @@ TRIExperimentDatabase.m
  WITH experiments_rowids AS (     SELECT rowid FROM             experiments     WHERE             experimentId = :experiment_id         AND deploymentId = :deployment_id     LIMIT 1 ) UPDATE namespaces SET         treatmentPath = :treatment_path WHERE         name = :namespace_name     AND experiments_rowid IN experiments_rowids;
 :treatment_path
 :namespace_name
+ UPDATE experiments SET         isManuallyTargeted = :is_manually_targeted WHERE         experimentId = :experiment_id     AND deploymentId = :deployment_id;
+:is_manually_targeted
 v16@?0@"TRIExperimentRecord"8
 v16@?0@"TRINamespaceRecord"8
 experiments
 endSecondsFromEpoch
+isManuallyTargeted
 Unexpected NULL artifact
 Unexpected NULL experimentId
 treatmentPath
@@ -7620,7 +7738,7 @@ managedDir
 [LOCK_SH] 
 [LOCK_EX] 
 pathToRemove
-+[TRIReferenceManagedDir removeFileInManagedDirWithPath:deferDeleteIfInUse:wasDeleted:]
++[TRIReferenceManagedDir removeFileInManagedDirWithPath:inUseDeletionBehavior:wasDeleted:]
 NSString * _Nonnull stringForUTF8Path(const char * _Nonnull)
 Unable to decode filesystem path as UTF-8: "%s"
 v16@?0@"<TRIXPCInternalServiceProtocol>"8
@@ -7650,10 +7768,13 @@ endTimestamp
 retryCount
 TRIPersistedTaskAttribution
 requiresTreatmentInstallation
+taskOptions
+TRITaskOptions
 failOnUnrecognizedExperiment
 triggerEvent
 TRIDeactivateTreatmentPersistedTask_TriggerEvent
 earliestTimestamp
+limitedCarryOnly
 includeDependencies
 forceUpdate
 deviceId
@@ -7702,7 +7823,7 @@ json
 TRIRetargetAllTask.m
 TRITempDirScopeGuard.m
 prevRefCountBoxed != nil
-TrialXP_Sim-277.5.8
+TrialXP_Sim-292.11
 TRIDServer.m
 com.apple.triald.taskQueue
 TRIDServer failed to create system info
@@ -7718,6 +7839,7 @@ XPC Activity Manager not initialized
 triald_wake_time_ms
 com.apple.notifyd.matching
 com.apple.notifyd.matching handler
+com.apple.ManagedConfiguration.profileListChanged
 com.apple.language.changed
 kAFPreferencesDidChangeDarwinNotification
 AFLanguageCodeDidChangeDarwinNotification
@@ -7802,6 +7924,15 @@ experiment-%@
 rollout-%@
 Periodic
 UserActionExplicit
+/private/var/Managed Preferences/mobile/
+com.apple.internal.trial.limitedcarry
+com.apple.internal.trial.limitedcarry.db
+TRILimitedCarryProfileManager.m
+com.apple.trial.profile-updates-timeout-coalesce
+com.apple.triald.limited carry
+Experiment
+NamespaceName
+self.lcExperiments != nil
 TRIRolloutTargetingTask.m
 rolloutDeployment.deploymentId != kTRIUnspecifiedDeploymentId
 taskQueue != nil
@@ -7874,6 +8005,8 @@ explainQueryPlan-%@-pid_%d-handle_%p.log
  ALTER TABLE rolloutsV2 ADD COLUMN     targetedTargetingRuleIndex INTEGER;
  ALTER TABLE rolloutsV2 ADD COLUMN     respectRefCount INTEGER NOT NULL DEFAULT 1;
  UPDATE rolloutsV2 SET respectRefCount = 0;
+ ALTER TABLE experiments ADD COLUMN     isManuallyTargeted INTEGER NOT NULL DEFAULT 0;
+TritaskOptions.pbobjc.m
 @"TRINamespaceStatus"16@?0@"TRINamespaceStatus"8
 B32@?0@"NSString<TRIAssetId>"8@"TRIFactorLevel"16@"TRIFile"24
 TRIExperimentHistoryDatabase.m
@@ -7902,7 +8035,6 @@ deploymentEnvironments
 remove_hist_rowids
  DELETE FROM     experimentHistoryNamespaces WHERE     experimentHistory_rowid IN %@;
  DELETE FROM     experimentHistory WHERE     rowid IN %@;
-v32@?0@"TRIClientSelectedNamespace"8Q16^B24
 TRIClientRolloutArtifact+Utils.m
 Not able to delete assets in FactorPack %@, moving on to next factorPack
 Received negative run delay %f for hotfix deployment of %{public}@
@@ -8061,11 +8193,11 @@ Unable to parse buffer as TRIPostUpgradeCleanupTask: %{public}@
 %s: unsupported format specifier "%@"
 %s has empty path arg: deployment.rolloutId
 Unable to update rollout %{public}@; targeted factor pack set %{public}@ is missing.
+Failed to write ramp ID into namespace resolve storage at %{public}@: %{public}@
 %s has empty path arg: deployment.experimentId
 Unable to update experiment %{public}@; targeted treatment set %@ is missing.
 Rollout database has conflicting active deployments for rollout %{public}@: (%@, %d)
 Failed to write plplist: %{public}@
-Failed to set permissions on plplist %{public}@: %s (%d))
 Failed write "%{public}@": %{public}@
 Set factor pack %{public}@ as provisional for namespace %{public}@
 Failed to set factor pack %{public}@ as provisional for namespace %{public}@
@@ -8156,7 +8288,6 @@ Can't carry out hotfix targeting activity, task queue not initialized.
 Can't carry out recurrent rollback activity, task queue not initialized.
 Failed to drop reference on artifact for treatment %@.
 Mismatched treatmentId: (exp: %@, act: %@)
-cannot install treatment %@ of experiment %{public}@ -- experiment already has treatment %@
 got %lu factors defined in treatment %@ for experiment %{public}@
 factor message does not contain namespace field in treatment %@ of experiment %{public}@
 no factors defined in treatment %@ for experiment %{public}@
@@ -8187,6 +8318,7 @@ downloaded %llu bytes from treatment %@
 notify namespace download completed: %{public}@
 Unable to parse buffer as TRIFetchTreatmentPersistedTask: %{public}@
 TRIFetchTreatmentPersistedTask encodes unspecified deploymentId.
+Changing TRIFetchTreatmentTask to require inexpensive networking since %@ does not support expensive networking
 scheduling next rollback fetch with interval %fsec and jitter %dsec
 Unable to parse buffer as TRIRecurrentScheduleFetchRollbacksPersistedTask: %{public}@
 Cannot decode message of type %@ with missing field: isRepeatedInstance
@@ -8223,6 +8355,9 @@ received CloudKit record with too old deployment date for experiment %@: %@ < %@
 unable to construct artifact from CKRecord %@ for experiment %@
 generated artifact for experiment %@
 CKNative checking for new experiments since %{public}@
+fetching limited carry experiments
+Unable to fetch limited carry experiments, user must be member of INTERNAL population
+received experiment notification for limited carry ckRecordID %{public}@
 Multiple records retrieved for treatmentId: %@
 CKFetchRecordsOperation did not return a record with recordId %@.
 desiredKeysForAssetIndexes: %@
@@ -8257,6 +8392,7 @@ Received diffable asset record with CKRecordID %{public}@, assetId %{public}@
 Failed to fetch CKRecordID %@ for asset diff with target assetId %{public}@
 On-demand factor fetch was initiated for >1 factor pack and will be excluded from telemetry. Got %{public}@
 Missing TRIFactorName %@ in downloadableFactorNames
+Missing factorname in %@
 attributing on-demand factors fetch for %{public}@ to %{public}@
 Warning: unable to find TRIRolloutRecord for deployment %{public}@; issuing incomplete telemetry.
 preventing fetch for (%{public}@, %{public}@) on cellular, resourceAttributionBundleIdentifier: %{public}@ expensiveNetworkingAllowed: %{public}@
@@ -8288,6 +8424,7 @@ Cannot decode message of type %@ with missing field: namespaceName
 TRIFetchOnDemandFactorsPersistedTask contains empty treatmentId
 TRIFetchOnDemandFactorsPersistedTask contains empty index array
 TRIFetchOnDemandFactorsPersistedTask contains empty asset index array
+Changing TRIFetchOnDemandFactorsTask to require inexpensive networking since %@ does not support expensive networking
 Failure deserializing task of unsupported type %d
 updateStartDateForTaskId: called with invalid id
 directDependenciesOfTaskWithId invoked with missing taskId
@@ -8330,6 +8467,7 @@ Ignoring unsupported notification of type %@ for deploymentEnvironment %@.
 updateStatusForNamespacesWithContext skipping missing app container: %{public}@
 expected namespace to be registered, but could not find descriptor: %{public}@
 Fetch status success but 0 results fetched.
+Unable to fetch limited carry experiments as limitedCarryManager is: %{public}@
 Unable to parse buffer as TRIFetchExperimentNotificationsPersistedTask: %{public}@
 Received an unexpected odd length identifier: %{public}@
 Unexpectedly long channel id for identifier %{public}@
@@ -8417,14 +8555,10 @@ Failed to relocate patch file: %{public}@
 Failed to construct asset %{public}@ by patching asset %{public}@: %{public}@
 Failed to copy asset file to temporary file %{public}@: %{public}@
 Failed to set permissions on file-asset file %{public}@: %s (%d)
-Failed to set file permissions on temporary file %{public}@: %s (%d)
 Failed to create parent directory for asset: %{public}@
 Failed to create directory for dir-asset toplevel %{public}@: %s (%d)
-Failed to set permissions on dir-asset toplevel directory %{public}@: %s (%d)
 Failed to set read-write permissions on dir-asset file %{public}@: %s (%d)
-Failed to set permissions on dir-asset file %{public}@: %s (%d)
 Candidate asset subdirectory was constructed with bad permission bits 0%o: %{public}@
-Failed to set permissions on dir-asset subdirectory %{public}@: %s (%d)
 Removing asset: %{public}@
 %s has empty path arg: currentPath
 %s has empty path arg: futurePath
@@ -8437,7 +8571,6 @@ Failed to create directory %{public}@ for dir-asset: %{public}@
 Failed to create subdirectory %{public}@ for dir-asset: %{public}@
 Failed to enumerate dir-asset for linking: %{public}@
 Failed to link %{public}@ --> %{public}@ for dir-asset: %s (%d)
-Failed to set permissions on %{public}@: %s (%d)
 Failed to enumerate dir-asset for permissions update: %{public}@
 Starting dry run garbage collection with age threshold %u for asset store: %{public}@
 Garbage collection for asset store %{public}@ removed %u dead symlinks.
@@ -8587,11 +8720,12 @@ Factor pack set %{public}@ contains ineligible factor pack. Re-fetching factor p
 Factor pack set %{public}@ is already present; skipping download of factor packs. Path: %@
 Unexpected failure to load namespace descriptor for namespace %{public}@ found in factor pack set %{public}@.
 Factor pack %{public}@ does not declare compatibility with NCV (%{public}@, %u); will be omitted from installation.
-preventing fetch of factor pack set %@ on cellular for namespace %@ of rollout %@, neither resourceAttributionBundleIdentifier nor expensiveNetworkingAllowed is set
+preventing fetch of factor pack set %@ on cellular for namespace %@ of rollout %@, resourceAttributionBundleIdentifier: %@ expensiveNetworkingAllowed: %@
 %tu of %tu required assets are being handled by patching preexisting assets.
 XPC activity was deferred before asset download.
 Unable to parse buffer as TRIFetchFactorPackSetPersistedTask: %{public}@
 Cannot decode message of type %@ with field of length 0: factorPackSetId
+Changing TRIFetchFactorPackSetTask to require inexpensive networking since %@ does not support expensive networking
 handleQueueEmptyNotificationWithGuardedData called but queue not complete processing work
 task queue has completed
 Remove all finalizeBlocks
@@ -8726,6 +8860,7 @@ Error removing on-demand asset, %{public}@
 Ignore removal of asset of factor "%{public}@" in namespace "%{public}@" which is not on-demand
 Ignore removal of asset of factor "%{public}@" in namespace "%{public}@" which does not have local path
 Unable to update treatment %@ with asset removal of %@
+Immediately removing %{public}@
 Nothing to remove. No local asset found.
 could not create experiment artifact from CloudKit record %@
 CloudKit record %@ with experiment %@ is missing the deployment id
@@ -8806,6 +8941,8 @@ Failed to remove GC'd reference-managed directory: %{public}@
 %s has empty path arg: pathToRemove
 Managed directory file at path %{public}@ was not found inside a valid managed directory
 Managed directory file found to be same as root managed directory: %{public}@
+Failed to remove path: %@
+Successfully removed asset immediately: %@
 Failed to remove path: %{public}@
 File removal attempt found active usage of reference-managed directory: %{public}@
 Marking file %{public}@ for deferred deletion
@@ -8820,6 +8957,7 @@ Invalid JSON for experiment content identifier: %{public}@
 Invalid JSON for treatment content identifier: %@
 Invalid JSON for rollout content identifier: %{public}@
 Invalid JSON for factor pack set identifier: %{public}@
+Retargeting is being suppressed for manually-targeted experiment: %@
 Unable to parse buffer as TRIRetargetAllPersistedTask: %{public}@
 Unable to canonicalize %{public}@: %s (%d)
 Canonicalized path is not Unicode: %s
@@ -8838,10 +8976,13 @@ rejecting server context ready promise
 triald failed to initialize - exiting
 triald launched
 received SIGTERM, exiting when clean
+failed to handle limited carry experiment setup - triald failed initialization
+Created Limited Carry manager
 finished server run loop
 set up xpc event stream handler for com.apple.notifyd.matching
 Handled event with no name, returning
 received xpc event %{public}@
+Received LaunchEvent: "com.apple.ManagedConfiguration.profileListChanged", creating transaction for Limited Carry manager
 failed to process %@ - triald failed initialization
 Adding xpc event: %{public}@
 Xpc event: %{public}@, Siri is %{public}@, Siri Locale is: %{public}@
@@ -8969,6 +9110,26 @@ Unable to write serialized namespace treatment: %{public}@
 Failed to read source URL: %{public}@
 Failed to create directory for target file: %{public}@
 Failed to write to target URL: %{public}@
+Initializing profile connection observer
+Missed profile connection observer notification, checking profiles now
+Created transaction for Limited Carry manager
+Issue reading managed preferences for profile %@ at %@: %@
+Found relevant managed preferences file: %@
+Limited carry profile %@ doesn't provide a valid experiment identifier, found: %@
+Limited carry profile %@ doesn't provide a valid deployment identifier, found: %@
+Limited carry profile %@ doesn't provide a valid namespace name, found: %@
+Found experiment %@ for installed profile %@ specifies namespace %{public}@, which is not registered with Trial
+Found deployment %@ for experiment %@ from profile does not match deployment identifier for experiment record: %d
+Profile connection observer received notification
+Error reading data for %@ key in TRIKVStore: %{public}@. 
+Found removed profile: %@
+Error with profile found in database for identifier: %{public}@, profile value was nil. 
+Found replaced profile: %@ -> %@
+Found new profile: %@
+Unable to add tasks to task queue for Limited Carry profile update, task queue was nil
+Unable to add task for profile list changed notification
+Setting persisted Limited Carry profile information failed, key-value store was nil
+Getting persisted Limited Carry profile information failed, key-value store was nil
 Intersecting artifact namespaces: %@ with relevant namespaces: %@ for telemetry
 Unable to parse buffer as TRIRolloutTargetingPersistedTask: %{public}@
 Factor pack {public}%@ has missing level.
@@ -9302,6 +9463,8 @@ TRIAssetMetadataReservedKeys
 TRIDAG
 TRIClientTreatmentStorage
 TRICKOperationGroupFactory
+TRILimitedCarryProfileManager
+MCProfileConnectionObserver
 TRILatencyMetricTelemetryValidator
 TRILatencyMetricTelemetryValidating
 TRIRolloutTargetingTask
@@ -9315,6 +9478,8 @@ TRIServer
 TRIActivateTreatmentBaseTask
 TRIDatabase
 TRIMemoryEfficientFileDigest
+TRITritaskOptionsRoot
+TRITaskOptions
 Tasks
 TRIPeekEnumerator
 TRIUtil
@@ -9332,7 +9497,7 @@ count
 initWithPaths:
 factorPackId
 namespaceName
-updateSavedFactorPackWithId:namespaceName:deletingAssetsWithFactorNames:deferDeleteInUseAssets:
+updateSavedFactorPackWithId:namespaceName:deletingAssetsWithFactorNames:inUseAssetBehavior:
 notifyUpdateForNamespaceName:
 _logPurgedAssetsFromFactorPackWithId:namespaceName:purgeabilityLevel:
 ensureFactorFields
@@ -9750,14 +9915,17 @@ _compressionMode
 T@"NSString",R,N,V_namespaceNameForEncryptionKey
 T@"TRITreatmentQualifiedAssetIndex",R,N,V_treatmentIndex
 TQ,R,N,V_compressionMode
-initWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:artifact:
+initWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:isManuallyTargeted:artifact:
 deploymentEnvironment
 experimentDeployment
 endDate
-recordWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:artifact:
+isManuallyTargeted
+recordWithDeploymentEnvironment:experimentDeployment:treatmentId:type:status:startDate:endDate:namespaces:isShadow:isManuallyTargeted:artifact:
 copyWithReplacementDeploymentEnvironment:
 copyWithReplacementExperimentDeployment:
 copyWithReplacementEndDate:
+copyWithReplacementIsManuallyTargeted:
+_isManuallyTargeted
 _deploymentEnvironment
 _experimentDeployment
 _endDate
@@ -9765,6 +9933,7 @@ Ti,R,N,V_deploymentEnvironment
 T@"TRIExperimentDeployment",R,N,V_experimentDeployment
 Ti,R,N,V_type
 T@"NSDate",R,N,V_endDate
+TB,R,N,V_isManuallyTargeted
 T@"TRIClientExperimentArtifact",R,N,V_artifact
 initWithFactorName:assetId:filePath:factorPackId:
 factorName
@@ -9882,7 +10051,7 @@ initWithTaskQueue:
 _queue
 T@"<TRITaskQueuing>",R,N,V_queue
 initWithRollbacksOnly:downloadOptions:
-taskWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:
+taskWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:limitedCarryOnly:
 addObject:
 taskWithNamespaceNames:taskAttribution:
 namespaceDatabase
@@ -9909,7 +10078,7 @@ serialize
 runUsingContext:withTaskQueue:
 runEnqueueHandlerUsingContext:
 runDequeueHandlerUsingContext:
-requiredCapabilities
+requiredCapabilities:
 taskType
 taskName
 startTime
@@ -10103,6 +10272,7 @@ triDataForField:
 keyFromData:
 path
 validateBase64Signature:forFile:
+allReferencedCKRecordKeys
 assetURLFromCKRecord:assetId:
 systemNamespaceName
 levelForFactor:withNamespaceName:
@@ -10251,7 +10421,7 @@ setClientTreatmentId:
 hasStartDate
 asPersistedTaskAttribution
 taskAttributionFromPersistedTask:
-taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:startTime:
+taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:startTime:taskOptions:
 taskWithAttribution:
 taskWithExperiment:treatmentId:taskAttributing:
 cancelTasksWithTag:
@@ -10327,7 +10497,7 @@ deregisterNamespaceWithNamespaceName:completion:
 startDownloadNamespaceWithName:options:completion:
 startDownloadLevelsForFactors:withNamespace:factorsState:options:completion:
 immediateDownloadForNamespaceNames:allowExpensiveNetworking:completion:
-removeLevelsForFactors:withNamespace:factorsState:completion:
+removeLevelsForFactors:withNamespace:factorsState:removeImmediately:completion:
 setPurgeabilityLevelsForFactors:forNamespaceName:completion:
 loadNamespaceMetadataForNamespaceName:completion:
 setProvisionalFactorPackId:forNamespaceName:completion:
@@ -10352,6 +10522,8 @@ enumerateTrackedItemsWithBlock:
 decodeContentIdentifier:
 clearRefsWithContentIdentifier:
 removeExperimentRecordWithExperimentDeployment:
+limitedCarryManager
+removeProfileForExperiment:
 pathsForContainer:asClientProcess:
 _cleanupTreatmentWithTreatmentId:paths:
 identifier
@@ -10635,9 +10807,11 @@ parentDirForExperimentDeployments
 hasFactorPackSetWithId:path:
 initWithDir:
 pathForRolloutDeployment:
+_writeRampId:parentDir:
 symlinkFromCurrentPath:withFuturePath:toManagedPath:
 _pathForRolloutDeployment:
 unlock
+dataUsingEncoding:
 fileURLWithPath:
 _removeUnreferencedDeploymentsWithRefStore:parentDir:removedCount:
 fileSystemRepresentation
@@ -10671,7 +10845,7 @@ legacyPathForFactorPackWithId:namespaceName:
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 getResourceValue:forKey:error:
 providerForTreatmentLayer:
-rewriteRolloutDeployment:targetedFactorPackSetId:
+rewriteRolloutDeployment:rampId:targetedFactorPackSetId:
 rewriteExperimentDeployment:targetedTreatmentId:
 overwriteActiveFactorProvidersUsingTransaction:fromDatabase:
 setProvisionalFactorPackId:forNamespaceName:error:
@@ -10730,6 +10904,8 @@ initWithType:evaluationId:date:evalState:
 valueForKey:
 componentsSeparatedByString:
 lastObject
+hasIsManuallyTargeted
+setManuallyTargeted:forExperimentDeployment:usingTransaction:
 activationEventDatabase
 requiresTreatmentInstallation
 enumerateNamespaceRecordsForExperimentDeployment:usingTransaction:block:
@@ -10740,19 +10916,21 @@ contentIdentifierForTreatmentArtifactWithTreatmentId:container:
 setStartTimestamp:
 setEndTimestamp:
 setRequiresTreatmentInstallation:
+setTaskOptions:
 hasRequiresTreatmentInstallation
 hasStartTimestamp
 startTimestamp
+hasTaskOptions
+taskOptions
 hasEndTimestamp
 endTimestamp
-taskWithExperiment:treatmentId:taskAttributing:requiresTreatmentInstallation:
+_taskOptions
 failed
 uniqueLines
 standardUserDefaults
 _logQueryWithRecordType:predicate:sortDescriptors:guardedData:
 _openFileIfNeededWithGuardedData:
 stringByReplacingOccurrencesOfString:withString:
-dataUsingEncoding:
 writeData:error:
 synchronizeAndReturnError:
 logDir
@@ -10777,7 +10955,6 @@ registerRecurrentRollbackActivityWithDelay:
 dictionaryWithContentsOfFile:
 assertRegistrationOfLaunchdPlistActivities:
 retryFailuresDescriptor
-completion
 levelForSystemFactor:
 defaultOptionsWithIgnoreDuplicates
 setActivity:
@@ -10798,6 +10975,7 @@ initWithTimeIntervalSince1970:
 timeIntervalSinceDate:
 stopSetupAssistantFetchWithServerContext:namespaceNames:error:
 taskQueueDescriptor
+completion
 clientTriggeredCellularDescriptor
 clientTriggeredCellularCriteria
 clientTriggeredWifiDescriptor
@@ -10932,6 +11110,7 @@ initWithRecordType:predicate:
 setSortDescriptors:
 initWithQuery:
 setZoneID:
+setDesiredKeys:
 setRecordFetchedBlock:
 setQueryCompletionBlock:
 setFetchAllResults:
@@ -10939,7 +11118,7 @@ configurationFromOptions:
 setConfiguration:
 groupForDownloadOptions:
 setGroup:
-queryOperationForRecordType:predicate:sortDescriptors:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationForRecordType:predicate:sortDescriptors:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
 cloudkitIdentifierForContainer:
 containerForIdentifier:serverContext:
 recordZoneForContainerIdentifier:teamId:
@@ -10958,16 +11137,17 @@ sortDescriptorWithKey:ascending:
 sortUsingDescriptors:
 namespaceDescriptorProvider
 artifactFromCKRecordResult:withNamespaceDescriptorProvider:container:teamId:requireDeploymentId:completion:
-queryOperationForRecordType:predicate:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationForRecordType:predicate:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
 groupForExperimentId:
 _fetchExperimentWithExperimentId:deploymentId:options:completion:
 _fetchNotificationsWithQueryType:withCursor:withNamespaceNames:sinceDate:options:resultsHandler:
 reverseObjectEnumerator
 indexOfObjectPassingTest:
 dateProvider
-queryOperationWithCursor:options:recordFetchedBlock:queryCompletionBlock:
+queryOperationWithCursor:desiredKeys:options:recordFetchedBlock:queryCompletionBlock:
+lcExperiments
+integerValue
 _fetchExperimentsWithCursor:withNamespaceNames:sinceDate:fetchRollbacksOnly:options:resultsHandler:
-setDesiredKeys:
 initWithRecordIDs:
 setPerRecordProgressBlock:
 setFetchRecordsCompletionBlock:
@@ -10985,6 +11165,7 @@ setPerRecordCompletionBlock:
 unsafeGuardedData
 fetchExperimentNotificationsWithNamespaceNames:rollbacksOnly:lastFetchDateOverride:options:completion:
 fetchExperimentWithExperimentDeployment:options:completion:
+fetchExperimentNotificationsForLimitedCarryExperimentWithManager:options:rollbacksOnly:completion:
 fetchRolloutNotificationsDateAscendingWithOptions:lastFetchDateOverride:namespaceNames:completion:
 fetchRolloutNotificationsDateDescendingWithOptions:completion:
 fetchFactorPackSetWithId:options:completion:
@@ -11121,7 +11302,7 @@ T@"NSDate",C,N,V_startTime
 _signatures:onItems:areValidUsingPublicCertificate:
 initWithData:error:
 isStructurallyValid
-initWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:
+initWithStartingFetchDateOverride:namespaceNames:taskAttributing:rollbacksOnly:limitedCarryOnly:
 _nameForNotificationType:
 setFetched:forDynamicNamespaceName:
 _getNextTaskForExperiment:database:taskQueue:
@@ -11133,11 +11314,14 @@ xpcActivityManager
 updateStatusForNamespacesWithContext:
 _checkIfAnyTreatmentPresent:usingContext:
 setEarliestTimestamp:
+setLimitedCarryOnly:
 hasEarliestTimestamp
 earliestTimestamp
+limitedCarryOnly
 initWithStartingFetchDateOverride:container:team:rollbacksOnly:withNamespaceNames:
 nextTaskCount
 _startingFetchDateOverride
+_limitedCarryOnly
 _namespaceNames
 identifierByRemovingTestPrefixFromIdentifier:
 _base64ChannelIdForIdentifier:populationType:
@@ -11167,6 +11351,7 @@ fakeCKDatabase
 setFakeCKDatabase:
 initWithPaths:client:storageManagement:
 setXpcActivityManager:
+setLimitedCarryManager:
 useCKNative
 setUseCKNative:
 setPushServiceMuxer:
@@ -11183,6 +11368,7 @@ _keyValueStore
 _contentTracker
 _fakeCKDatabase
 _failureInjectionDelegate
+_limitedCarryManager
 _xpcActivityManager
 _underlyingDatabase
 _pushServiceMuxer
@@ -11201,6 +11387,7 @@ T@"TRIKVStore",R,N,V_keyValueStore
 T@"TRIContentTracker",R,N,V_contentTracker
 T@"TRISQLiteCKDatabase",&,V_fakeCKDatabase
 T@"TRISQLiteCKDatabaseFailureInjectionDelegate",&,N,V_failureInjectionDelegate
+T@"TRILimitedCarryProfileManager",&,N,V_limitedCarryManager
 T@"<TRIXPCActivityManagementProtocol>",R,W,N,V_xpcActivityManager
 TB,N,V_useCKNative
 pushServiceQueue
@@ -11278,7 +11465,7 @@ saveFromGarbageCollectionItemWithPath:
 triSanitizedPathComponentWithMaxLength:addHash:error:
 linkAssetWithIdentifier:toCurrentPath:futurePath:
 _removeAssetsWithFactorNames:copyingModifiedFactorPackWithPath:appendingToPathsToRemove:tempDirRef:
-removeFileInManagedDirWithPath:deferDeleteIfInUse:wasDeleted:
+removeFileInManagedDirWithPath:inUseDeletionBehavior:wasDeleted:
 _parentDirForFactorPackWithNamespaceName:
 treatmentsDir
 _legacyParentDirForFactorPackWithNamespaceName:
@@ -11397,10 +11584,6 @@ T@"<TRITaskAttributing>",R,N,V_taskAttributing
 registerForService:delegate:
 initWithPromise:
 registerAllServicesWithPromise:
-initWithLength:
-triSha256
-initWithBytesNoCopy:length:encoding:freeWhenDone:
-triSha256Base64String
 hasSelectedNamespace
 hasFactor
 enumerateFactorLevelsWithBlock:
@@ -11637,7 +11820,7 @@ entitlementKeyForApplicationBundleIdentifier
 _startDownloadAssetIndexesByTreatment:usingEntitlementWitness:serverContext:taskQueue:experimentIds:assetIdsByFactorPack:rolloutFactorNames:rolloutDeployments:namespace:taskAttribution:factorsState:notificationKey:
 unsafeFirstAuthenticationState
 _immediateDownloadForNamespaceNames:usingEntitlementWitness:serverContext:taskQueue:allowExpensiveNetworking:taskAttribution:completion:
-_removeAssetFactors:usingEntitlementWitness:serverContext:taskQueue:namespace:factorsState:completion:
+_removeAssetFactors:usingEntitlementWitness:serverContext:taskQueue:namespace:factorsState:removeImmediately:completion:
 _validateNamespaceName:error:
 _setPurgeabilityLevelsForFactors:usingEntitlementWitness:namespace:paths:completion:
 _loadNamespaceMetadataForNamespace:usingEntitlementWitness:withPaths:completion:
@@ -11665,7 +11848,6 @@ resumeTaskQueue:forNetworkOptions:
 deregisterNotificationWithToken:
 registerDownloadNotificationForKey:queue:usingBlock:
 builtTelemetry
-integerValue
 _resumeTaskQueueForDiscretionaryCellularWithQueue:
 _resumeTaskQueueForDiscretionaryWifiWithQueue:
 _reregisterOneShotXPCActivityWithDescriptor:resumingTaskQueue:
@@ -11759,6 +11941,7 @@ setSubscription:namespaceName:error:
 immediatelySchedulePostUpgradeActivityWithError:
 _helper
 tri_assignmentProbabilityWithSeed:
+initWithLength:
 assignmentProbabilityWithSeed:
 tri_setContextValueWithName:value:
 initWithBool:
@@ -11785,6 +11968,8 @@ applicationBundleId
 hasApplicationBundleId
 T@"TRIPersistedNetworkBehavior",&,D,N
 T@"TRIPersistedTaskAttribution",&,D,N
+T@"TRITaskOptions",&,D,N
+hasLimitedCarryOnly
 forceUpdate
 hasForceUpdate
 hasDeviceId
@@ -11825,6 +12010,7 @@ prepareTrialStorage
 _updateSystemInfo
 addUpdateHandlerForNamespaceName:usingBlock:
 _asyncStartWithMetrics:
+initWithTaskQueue:database:
 _registerXpcStreamEventHandler
 _logMetrics:stopwatch:
 currentRunLoop
@@ -11832,6 +12018,7 @@ runMode:beforeDate:
 runBlockWhenDeviceIsClassCUnlocked:
 defaultCenter
 postNotificationName:object:userInfo:
+processLaunchEvent
 _registerSetupAssistantFetchActivityOnce
 dateByAddingTimeInterval:
 _getDiskUsageInBytes
@@ -11962,6 +12149,30 @@ _copyFileFromURL:to:
 setName:
 groupForScheduledFetch
 groupForUserInitiatedFetch
+_gatherProfleUpdatesAndScheduleRelatedTasks
+sharedConnection
+registerObserver:
+_limitedCarryExperiments
+initWithContentsOfURL:error:
+removeProfileWithIdentifier:
+runImmediately
+_getStoredLimitedCarryExperimentsWithError:
+setLcExperiments:
+initWithAllowsCellular:discretionaryBehavior:
+_enqueueTask:
+_setStoredLimitedCarryExperimentsWithError:
+profileConnectionDidReceiveRestrictionChangedNotification:userInfo:
+profileConnectionDidReceivePasscodeChangedNotification:userInfo:
+profileConnectionDidReceivePasscodePolicyChangedNotification:userInfo:
+profileConnectionDidReceiveProfileListChangedNotification:userInfo:
+profileConnectionDidReceiveEffectiveSettingsChangedNotification:userInfo:
+profileConnectionDidReceiveDefaultsChangedNotification:userInfo:
+profileConnectionDidReceiveAppWhitelistChangedNotification:userInfo:
+_weakDatabase
+_profileProcessingQueue
+_checkForUpdates
+_lcExperiments
+T@"NSDictionary",&,N,V_lcExperiments
 namespacesAllowedForLogging
 rolloutDb
 _isRecordContainingAllowedLoggingNamespace:
@@ -11985,7 +12196,7 @@ initWithAllowedDeploymentEnvironments:
 _allowedDeploymentEnvironments
 enumerateRecordsNewerThanDate:matchingDeploymentEnvironments:block:
 initWithEval:factorsState:
-initWithRolloutId:deploymentId:factorPackIds:
+initWithRolloutId:deploymentId:rampId:factorPackIds:
 initWithPromise:auditToken:
 triRemoveItemAtPath:error:
 isEnumeratingDirectoryPostOrder
@@ -12116,7 +12327,7 @@ C16@0:8
 @28@0:8@16I24
 @52@0:8C16@20@28Q36Q44
 @"TRITreatmentQualifiedAssetIndex"
-@84@0:8i16@20@28i36q40@48@56@64B72@76
+@88@0:8i16@20@28i36q40@48@56@64B72B76@80
 @"TRIClientExperimentArtifact"
 @48@0:8@16@24@32@40
 @"NSString<TRIFactorPackId>"
@@ -12130,8 +12341,10 @@ v36@0:8@"TRIRolloutDeployment"16B24d28
 v28@0:8d16B24
 @"<TRITaskQueuing>"
 @28@0:8B16@20
+Q24@0:8@16
 @"TRITaskRunResult"32@0:8@"TRIServerContext"16@"<TRITaskQueueControlling>"24
 v24@0:8@"TRIServerContext"16
+Q24@0:8@"TRIServerContext"16
 @"NSData"16@0:8
 @"NSArray"16@0:8
 @"NSDate"16@0:8
@@ -12215,12 +12428,13 @@ v24@0:8@?<v@?B@"NSError">16
 v56@0:8@16I24@28@36i44@?48
 v56@0:8@16@24@32@40@?48
 v36@0:8@16B24@?28
+v52@0:8@16@24@32B40@?44
 v56@0:8@"NSString"16I24@"NSURL"28@"NSString"36i44@?<v@?B@"NSError">48
 v32@0:8@"NSString"16@?<v@?B@"NSError">24
 v40@0:8@"NSString"16@"TRIDownloadOptions"24@?<v@?B@"NSError">32
 v56@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32@"TRIDownloadOptions"40@?<v@?@"NSString"@"NSError">48
 v36@0:8@"NSSet"16B24@?<v@?@"NSError">28
-v48@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32@?<v@?@"NSError">40
+v52@0:8@"NSArray"16@"NSString"24@"TRIFactorsState"32B40@?<v@?@"NSError">44
 v40@0:8@"NSDictionary"16@"NSString"24@?<v@?@"NSError">32
 v32@0:8@"NSString"16@?<v@?@"TRIClientNamespaceMetadata"@"NSError">24
 v40@0:8@"NSString<TRIFactorPackId>"16@"NSString"24@?<v@?B@"NSError">32
@@ -12263,8 +12477,8 @@ B56@0:8@16@24@32@40^@48
 B28@0:8^I16B24
 i40@0:8@16@24@32
 @"TRIMetric"
-@44@0:8@16@24@32B40
-@52@0:8@16@24@32B40@44
+@60@0:8@16@24@32B40@44@52
+@"TRITaskOptions"
 @"NSFileHandle"
 v48@0:8@16@24@32@40
 v24@0:8d16
@@ -12290,6 +12504,7 @@ v40@0:8@16r*24@?32
 @60@0:8i16@20@28@36@44@52
 i24@0:8@16
 v52@0:8@16B24@28@36@?44
+v44@0:8@16@24B32@?36
 @40@0:8@16@24@?32
 @56@0:8@16@24@32@?40@?48
 @64@0:8@16@24@?32@?40@?48@?56
@@ -12297,6 +12512,7 @@ v52@0:8@16B24@28@36@?44
 v52@0:8@"NSSet"16B24@"NSDate"28@"TRIFetchOptions"36@?<v@?Q@"NSArray"@"NSDate"@"NSError">44
 v40@0:8@"TRIExperimentDeployment"16@"TRIFetchOptions"24@?<v@?Q@"TRIClientExperimentArtifact"@"NSDate"@"NSError">32
 v40@0:8@"NSString"16@"TRIFetchOptions"24@?<v@?Q@"TRIClientExperimentArtifact"@"NSDate"@"NSError">32
+v44@0:8@"TRILimitedCarryProfileManager"16@"TRIFetchOptions"24B32@?<v@?Q@"NSArray"@"NSDate"@"NSError">36
 @"<TRIFetchOpCanceling>"40@0:8@"NSString"16@"TRIFetchOptions"24@?<v@?Q@"CKRecordID"@"TRIClientTreatment"Q@"NSDate"@"NSError">32
 @"<TRIFetchOpCanceling>"56@0:8@"NSIndexSet"16@"CKRecordID"24@"TRIFetchOptions"32@?<v@?d>40@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">48
 v48@0:8@"TRIFetchOptions"16@"NSDate"24@"NSSet"32@?<v@?Q@"NSArray"@"NSDate"@"NSError">40
@@ -12307,9 +12523,9 @@ v40@0:8@"NSString<TRIFactorPackSetId>"16@"TRIFetchOptions"24@?<v@?Q@"TRIFactorPa
 @"<TRIFetchOpCanceling>"40@0:8@"NSSet"16@"TRIFetchOptions"24@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">32
 @"<TRIFetchOpCanceling>"64@0:8@"NSDictionary"16@"TRIFetchOptions"24@?<v@?@"CKRecordID"d>32@?<v@?@"CKRecord"@"CKRecordID">40@?<v@?@"CKRecord"@"CKRecordID"@"NSError">48@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">56
 @"<TRIFetchOpCanceling>"48@0:8@"NSSet"16@?<B@?@"NSString<TRIAssetId>">24@"TRIFetchOptions"32@?<v@?Q@"NSDictionary"@"NSDate"@"NSError">40
+@72@0:8@16@24@32@40@48@?56@?64
 @64@0:8@16@24@32@40@?48@?56
 @64@0:8@16@24@32@40@48@56
-@48@0:8@16@24@?32@?40
 v60@0:8@16@24@32B40@44@?52
 v64@0:8Q16@24@32@40@48@?56
 v64@0:8@16@24@32@40@48@?56
@@ -12322,7 +12538,6 @@ v64@0:8@16@24@32@40@48@?56
 v32@0:8@"<TRITaskQueueControlling>"16@"TRIServerContext"24
 {?=C}72@0:8@16@24@32@40@48^Q56^@64
 {?=C}64@0:8@16@24@32^Q40@48^@56
-Q24@0:8@16
 v52@0:8i16@20@28@36@44
 @48@0:8@16@24@32^@40
 v64@0:8@16@24@32^Q40@48@56
@@ -12339,6 +12554,7 @@ B40@0:8@16^B24@32
 @"<TRITaskSetProviding>"
 @44@0:8@16@24B32Q36
 v24@0:8Q16
+@48@0:8@16@24@32B40B44
 @48@0:8@16i24@28B36@40
 B56@0:8@16@24@32@40@48
 B32@0:8*16@24
@@ -12352,6 +12568,7 @@ B32@0:8*16@24
 @"TRIKVStore"
 @"TRIContentTracker"
 @"TRISQLiteCKDatabaseFailureInjectionDelegate"
+@"TRILimitedCarryProfileManager"
 @"<TRIXPCActivityManagementProtocol>"
 @"<TRIPushServiceConnectionMultiplexing>"
 v28@0:8@16B24
@@ -12373,7 +12590,7 @@ v24@0:8@"TRIPushChannelId"16
 {?=C}24@0:8@"NSString"16
 v24@0:8@"NSString"16
 B40@0:8@16^@24^@32
-B44@0:8@16@24@32B40
+B44@0:8@16@24@32C40
 B24@0:8^I16
 @"<TRIAssetExtracting>"
 B28@0:8@16I24
@@ -12435,7 +12652,7 @@ B88@0:8@16@24@32@40@48@56^Q64^@72^@80
 @"<TRITaskPersisting>"
 B32@0:8@"NSString"16@"NSArray"24
 {?=C}40@0:8@16@24^@32
-B32@0:8@"TRIRunningXPCActivityDescriptor"16@?<v@?>24
+v32@0:8@"TRIRunningXPCActivityDescriptor"16@?<v@?>24
 {?=C}32@0:8@"<TRITask>"16@"TRITaskQueuingOptions"24
 {?=C}40@0:8@"<TRITask>"16@"TRITaskQueuingOptions"24^@32
 v24@0:8@?<v@?@"<TRITask>"i@"TRITaskRunResult"@"NSDate">16
@@ -12452,7 +12669,7 @@ v60@0:8@16Q24@32^@40^@48B56
 v88@0:8@16@24I32@36@44@52q60i68@72@?80
 v112@0:8@16@24@32@40@48@56@64@72@80@88@96@104
 v68@0:8@16@24@32@40B48@52@?60
-v72@0:8@16@24@32@40@48@56@?64
+v76@0:8@16@24@32@40@48@56B64@?68
 @56@0:8@16{?=[8I]}24
 i32@0:8@16@24
 {?="val"[8I]}
@@ -12462,6 +12679,7 @@ v40@0:8@16C24i28@32
 @"NSDate"32@0:8C16i20@"NSString"24
 v40@0:8@"NSDate"16C24i28@"NSString"32
 {?=Q}72@0:8@16i24i28q32@40@48@56@64
+B36@0:8B16@20@28
 B28@0:8I16@?20
 v36@0:8i16^@20^@28
 @"<TRIClientNamespaceMetadataStoring>"
@@ -12479,7 +12697,7 @@ B32@0:8Q16Q24
 B40@0:8@16r^{TRIFlockWitness_=i}24^I32
 B56@0:8@16@24r^{TRIFlockWitness_=i}32@40^B48
 B48@0:8@16@24@32^B40
-B36@0:8@16B24^B28
+B36@0:8@16C24^B28
 @24@0:8^@16
 @44@0:8@16i24@28^@36
 @36@0:8i16@20^@28
@@ -12533,9 +12751,12 @@ v40@0:8@"NSSet"16@?<B@?@"NSString"@"NSString">24@?<v@?@"TRIPurgeableFactorPack"@
 @"<TRINamespaceResolving>"
 @32@0:8@16^B24
 @52@0:8@16@24@32@40B48
+@44@0:8@16@24@32B40
 B40@0:8Q16@24@32
 B48@0:8@16@24Q32@40
 B28@0:8@16B24
+v32@0:8@"MCProfileConnection"16@"NSDictionary"24
+@"_PASSimpleCoalescingTimer"
 @"TRITrialRolloutFields"32@0:8@"TRIRolloutDeployment"16@"NSString<TRIFactorPackSetId>"24
 @44@0:8@16B24@28Q36
 @32@0:8i16B20@24
@@ -12549,5 +12770,4 @@ B56@0:8@16Q24@32@40@48
 @"<TRIStorageManagementProtocol>"
 @"NSUserDefaults"
 @"_PASKVOHandler"
-B36@0:8B16@20@28
 @"NSEnumerator"

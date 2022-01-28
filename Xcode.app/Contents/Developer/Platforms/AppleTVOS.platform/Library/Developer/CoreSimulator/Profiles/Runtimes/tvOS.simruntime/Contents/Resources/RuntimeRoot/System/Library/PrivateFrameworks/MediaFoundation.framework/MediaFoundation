@@ -4,6 +4,10 @@ resolvingError
 stuckOnNonLoadableItem
 stuckOnEmptyQueue
 stuckOnError
+itemDidBecomeCurrent
+itemDownloaded
+itemProgressing
+resumptionAllowed
 assetLoading
 mediaServicesSetup
 Waiting to minimize stalls
@@ -27,6 +31,7 @@ isMovieOrTVShow
 playbackStartTimeOverride
 Td,N
 isAlwaysLive
+initialPlaybackStartTime
 MFQueueControlling
 @48@0:8@16q24q32q40
 @28@0:8@16B24
@@ -50,6 +55,7 @@ MFTimeStamp
 {?=qiIq}16@0:8
 T{?=qiIq},N,R
 userSecondsSinceReferenceDate
+v20@0:8B16
 T@"NSString",N,C
 repeatIndex
 Tq,N
@@ -102,6 +108,7 @@ v52@0:8@"<MFQueuePlayerItem>"16f24@"NSString"28@"NSString"36@"<MFTimeStamp>"44
 v28@0:8f16@"<MFTimeStamp>"20
 v36@0:8B16@"<MFQueuePlayerItem>"20@"<MFTimeStamp>"28
 v40@0:8q16@"<MFQueuePlayerItem>"24@"<MFTimeStamp>"32
+v40@0:8q16@"NSString"24@"<MFTimeStamp>"32
 v32@0:8@"NSString"16@"<MFTimeStamp>"24
 v36@0:8@"NSString"16B24@"<MFTimeStamp>"28
 v36@0:8B16@"<MFRouteChangeMetadata>"20@"<MFTimeStamp>"28
@@ -148,6 +155,7 @@ queueController
 itemLoader
 itemBuffer
 loadingCompletions
+errorController
 _TtC15MediaFoundation10ItemLoader
 loadingItem
 loadingEnabled
@@ -266,6 +274,7 @@ User action failed:
 PlayerController: -[AVAudioSession setMode:%{public}@]
 Unable to set audio session mode to 
 ... Suspending coordinated playback [
+... Resuming coordinated playback ...
 AVPlaybackCoordinator
 Received a request to complete a silent playback failure event for a non-failure event 
 Received a request to complete a silent playback failure event  
@@ -311,7 +320,6 @@ Completing monitored event if required [Pausing in
 Completing monitored event if required [Pausing for an error in 
 Ignoring a setQueue [
 Cancelling a setQueue [
-... Resuming coordinated playback ...
 MFPlayerConfigurable
 MFUserAction
 Tq,N,R
@@ -332,8 +340,6 @@ isAssetLoaded
 description
 DownloadedDurationThreshold
 HLSDownloadedDurationThreshold
-AVPlayerWaitingNoSpecificReason
-MFPlayerItem
 _TtC15MediaFoundation15JumpToTimeState
 targetTime
 initialLoadingShouldPlay
@@ -345,6 +351,8 @@ $__lazy_storage_$_eventStream
 queue
 reporter
 observations
+firstFrameMonitoredItem
+firstFrameMonitoredItemStartTime
 subscriber
 observationToken
 v32@?0{?=qiIq}8
@@ -382,6 +390,8 @@ _TtC15MediaFoundation13RouteMetadata
 routeDescription
 TB,N,R,VisAirplay
 MFRouteChangeMetadata
+timeControlStatusDidChange: 
+firstFrameWillRender:
 relativeVolumeDidChange:
 tracksDidChange:
 currentItemWillChange: 
@@ -406,6 +416,9 @@ itemDidPlayToEnd:
 itemDidFailToLoad:
 itemDidFailToPlayToEnd:
 itemIsReadyToPlay:
+timeControlStatusDidChange:
+currentItemWillChange 
+playbackDidReachQueueEnd
 _TtC15MediaFoundation15EndOfQueueState
 endOfQueueReason
 _TtC15MediaFoundation15TransitionState
@@ -469,6 +482,8 @@ Specified item:
  QUEUE EVENT RECEIVED    
  PLAYER EVENT RECEIVED   
  USER EVENT RECEIVED     
+_TtC15MediaFoundation34AssetLoadingResumptionStateMachine
+currentItemID
 _TtC15MediaFoundation31InternalPlaybackStackController
 currentQueueControllerItem
 loadedQueueControllerItems
@@ -477,13 +492,13 @@ maximumPlayerQueueLength
 mediaServicesAvailable
 playerController
 queueAssetLoader
-errorController
 externalPlaybackController
 backgroundTaskController
 playbackDefaults
 synchronizingToPlayer
 currentQueueRestorationItem
 playerItemStateSnapshot
+resumptionStateMachine
 deferredPlaybackRateForNextSetQueue
 inFlightSetQueueLoadingContext
 currentQueueAssetLoadingContext
@@ -501,6 +516,13 @@ PlaybackStackController - player item did become current:
 PlaybackStackController - player item did become ready to play: 
 PlaybackStackController - itemDidFailToPlayToEnd: - item:
 PlaybackStackController - itemDidFailToLoad: - item:
+finished player item
+finished player item time
+current player item
+current queue item
+current player queue
+AVPlayerItemDidPlayToEndNotification received - AVPlayerItem not matching current queue controller item: 
+Mismatch between finishing AV and queue
 PlaybackStackController - itemDidPlayToEnd:
  [no specific action]
 PlaybackStackController - playbackDidReachQueueEnd - No more items in the controller queue [reached controller queue end]
@@ -508,7 +530,6 @@ Unable to get next item in queue after reaching end of AV queue
 PlaybackStackController - playbackDidReachQueueEnd - There is a next item in queue:
  [Non loadable - waiting for playable item]
  - queue loader state: 
-playbackDidReachQueueEnd
 current queue item loaded but not in player queue
 PlaybackStackController - playbackDidReachQueueEnd - Reloading the current queue item: 
 PlaybackStackController - playbackDidReachQueueEnd - There is a loaded next item in queue:
@@ -539,6 +560,7 @@ PlaybackStackController - Asset loading cannot resume [current item is not loade
 PlaybackStackController - Asset loading cannot resume [maximum number of loaded assets reached]
 PlaybackStackController - Asset loading can resume - loaded queue items: 
 PlaybackStackController - Asset loading cannot resume [asset loader is not ready: 
+Asset resumption FSM state - 
 PlaybackStackController - Error resolution [retry last action] - error: 
 PlaybackStackController - Error resolution [stop playback] - error: 
 Pausing for error 
@@ -563,7 +585,10 @@ PlaybackStackController - queueHasReachedItsEnd - Looping back to first queue it
 PlaybackStackController - queueHasReachedItsEnd - Early return [in idle state no restoration]
 PlaybackStackController - queueHasReachedItsEnd - Updating queue restoration item with first queue item [
 PlaybackStackController - itemDidFinishDownloading:
- [resuming asset loading]
+ - resuming asset loading
+ - not resuming asset loading [current item has not progressed yet]
+PlaybackStackController - itemFirstFrameWillRender:
+ - not resuming asset loading [current item is not fully loaded yet]
  Media Services Died - ItemAtDeath:
  Media Services Back Online - Restored Item:
  - Restored Time:
@@ -646,9 +671,11 @@ PlaybackStackController - reloadQueue - Updating queue restoration item with fir
 PlaybackStackController - Failing setQueueWithInitialItem 
  [Media services unavailable]- identifier:
 PlaybackStackController - Set queue using state restoration item:
+setQueueWithInitialItem receivied
 PlaybackStackController - Set queue using placeholder item:
  [Deferring asset loading until we can] - identifier: 
 Playback stack reset
+Asset resumption FSM event - 
 PlaybackStackController - Current asset loading limit request - limit: 
 User skip received [Immediate execution of first skip] - rootItem:
 User skip received during on-going skip [Aggregating] - rootItem:
@@ -745,21 +772,21 @@ InternalPlayerController - Seek to time proceeding with original target time:
 InternalPlayerController - Seek to time clamped to seekable time ranges 
 InternalPlayerController - Seek to time completed - finished:
  - current timebase time: 
- [seek completed to that time]
+ [seek completed to that time] - player:
 InternalPlayerController - setTargetRate:
 InternalPlayerController - pause received [no item in player -> no-op]
 InternalPlayerController - pause received - AVPlayer current rate:
 InternalPlayerController - play received - AVPlayer current rate:
 InternalPlayerController - Prerolling at rate:
 Inconsistency - We should not receive player event when player is not set - event:
- [rate changing to 0]
- [playback stopping]
+ [rate changing to 0] - player:
+ [playback stopping] - player:
 Inconsistency in current rate while processing 
 InternalPlayerController - Changing event time from 
- [playback start with a resume time]
+ [playback start with a resume time] - player:
 JUMP TO TIME - Completed: 
 InternalPlayerController - AVPlayer [itemDidBecomeCurrent] - current item:
-InternalPlayerController - Ignoring item loaded duration changed [uration changed for non-current item] - item:
+InternalPlayerController - Ignoring item loaded duration changed [duration changed for non-current item] - item:
 InternalPlayerController - Item duration changed - item:
 InternalPlayerController - Downloading completed - item: 
 InternalPlayerController - Ignoring item loaded duration changed [loaded duration changed for non-current item] - item:
@@ -782,7 +809,7 @@ InternalPlayerController - Queue->Player synchronization completed [everything i
 InternalPlayerController - Queue->Player synchronization completed [entire reset of AVPlayer's queue]
 InternalPlayerController - Queue->Player synchronization started [matching current items]
 InternalPlayerController - Queue->Player synchronization started [empty player]
-InternalPlayerController - Queue->Player synchronization completed [removed all player items]
+InternalPlayerController - Queue->Player synchronization completed [removed all player items] - player:
 InternalPlayerController - Unable to resetQueue [no player]
 InternalPlayerController - resetQueue [Start] - keepCurrentItem:
  - AVPlayer items:
@@ -816,10 +843,8 @@ MFAudioSessionConfiguration
 routeSharingPolicy
 errorDomain
 v24@0:8@16
-@80@0:8@16@24@32@40@48@56@64@72
+@88@0:8@16@24@32@40@48@56@64@72@80
 f16@0:8
-v24@0:8@?16
-v20@0:8B16
 v32@0:8q16@?24
 v44@0:8@16B24@28@?36
 v36@0:8f16@20@?28
@@ -840,6 +865,7 @@ T@"NSArray",N,R
 currentQueueItem
 videoViewController
 T@"AVPlayerViewController",N,R
+timeControlStatus
 modeDescription
 isModeSolo
 TB,N,R
@@ -904,9 +930,11 @@ _TtC15MediaFoundation9IdleState
 _TtC15MediaFoundation13EventReporter
 stream
 activeSubsystems
+%{public}@-[%{public}@] %{public}@
 _TtC15MediaFoundation23PlaybackStackController
 internalController
 currentSetQueueIdentifier
+v24@0:8@?16
 MediaFoundation3
 MediaFoundation4
 setupForShared() cannot be called on a managed session
@@ -930,9 +958,16 @@ _TtC15MediaFoundation20ErrorResolutionState
 triggerEvent
 playerItem
 AVAudioSession.interruptionNotification - UserInfo:%@
+MFPlayerItem
 q16@0:8
 v24@0:8q16
 contentItemID
+(AV) waiting for coordinated playback
+(AV) no item to play in AVQueuePlayer
+(AV) waiting for interstitial event
+(AV) evaluating buffering rate
+(AV) waiting to minimize stalls
+AVPlayerWaitingNoSpecificReason
 _TtC15MediaFoundation17UserEventsMonitor
 timeout
 monitors
@@ -1013,6 +1048,7 @@ GIegn_Sg
 ySo17MFQueuePlayerItem_p
 ySo17MFQueuePlayerItem_p
 GytIegnr_
+ySo17MFQueuePlayerItem_p
 ySiy
 ySo17MFQueuePlayerItem_p
 So17MFQueuePlayerItem_p
@@ -1063,13 +1099,9 @@ SdSg
 So8AVPlayerC
 So27AVPlayerPlaybackCoordinatorC
 SgXw
-So8AVPlayerC
-ySo0A19PlaybackCoordinatorCGIeggn_
 ySo27AVPlayerPlaybackCoordinatorCG
 So13AVQueuePlayerC
-Iegg_
 So18MFLeaseControlling_p
-Iegn_
 Sg5state_AB4roott
 5state_AA4roott
 _pSg
@@ -1101,6 +1133,7 @@ $s15MediaFoundation11UserActionsP
 $s15MediaFoundation19InternalUserActionsP
 ySS_
 _pSgtcSg
+So12AVPlayerItemCSgXw
 5Input
 yxGSgXw
 yxGSgXwz_x_
@@ -1128,6 +1161,9 @@ y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
+GGGSay
+y_So13AVQueuePlayerC
+GGGSayACGGG
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 SgGG
@@ -1144,45 +1180,26 @@ y_So13AVQueuePlayerCSo12AVPlayerItemCSgGGGSay
 y_So13AVQueuePlayerCSo12AVPlayerItemCSgGGGSayACGGG
 GA5EG
 GA5FGA6FG
-y_AAy_
-GA5FGA6FGA6FG
+GA5GGA6GGA7GG
 So12AVPlayerItemCSg
 SgXw
-So12AVPlayerItemCSgSbIeggd_
 SaySo12AVPlayerItemCSgGSay
 GIeggo_
 SaySo12AVPlayerItemCSgGSay
 GSgIeggo_
-SfSbIegyd_
-SaySfG
-SgIeggr_
 So12AVPlayerItemC
-SgSbIegyd_
-SgIegyr_
-SbIegyd_
-SgIeggr_
-SgSbIegyd_
-SgIeggr_
 SaySo7NSValueCGSg
 SaySo7NSValueCG
-SaySo7NSValueCGSgSbIeggd_
-SaySo7NSValueCGSg
-SgIeggr_
-SbSgSbIegyd_
-SbSg
-SgIegyr_
 SaySo17AVPlayerItemTrackCGSg
 SaySo17AVPlayerItemTrackCG
-SaySo17AVPlayerItemTrackCGSgSbIeggd_
-SaySo17AVPlayerItemTrackCGSg
-SgIeggr_
-SgIegnr_
+GABy_
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgGADGAEG
+GACy_
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgGAEGAFGG
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgG
 GSay
 GSayACGGG
-GSgIegno_
 GSo17OS_dispatch_queueCG
-SbIeggd_
-SgIeggr_
 $s7Combine9PublisherP
 $s15MediaFoundation19SystemEventHandlingP
 $s15MediaFoundation24SystemEventStateHandlingP
@@ -1235,6 +1252,8 @@ So12MFPlayerItem_p3for_
 9timeStampt
 Sf2to_
 9timeStampt
+6status_SSSg13waitingReason
+9timeStampt
 So12MFPlayerItem_p
 SSSg10identifier_t
 So12MFPlayerItem_pSg
@@ -1272,6 +1291,8 @@ _pSgXw
 So28MFExternalPlaybackController_p
 So18MFPlaybackDefaults_pSg
 SfSg
+ySS_SStG
+SDyS2SG
 SgXw
 SgXwz_Xx
 So17MFQueuePlayerItem_pSg
@@ -1309,7 +1330,6 @@ _yptG
 SgXw
 SgXwz_Xx
 _pz_Xx
-SfIegy_
 SbIegy_Sg
 $s15MediaFoundation21InternalPlayerActionsP
 $s15MediaFoundation16PlaybackDefaultsP
@@ -1344,10 +1364,10 @@ $s15MediaFoundation28ExternalPlaybackConfigurableP
 $s15MediaFoundation26ExternalPlaybackControllerP
 So33MFPlaybackStackControllerDelegate_pSgXw
 _ypt
+yS2SG
 ySSyXlG
 SS_ypt
 SgXw
-Iegy_
 $s15MediaFoundation17UserEventHandlingP
 $s15MediaFoundation22UserEventStateHandlingP
 $s15MediaFoundation27UserEventCompletionHandlingP
@@ -1438,6 +1458,8 @@ Status
 NAVPlayerStatus
 ActionAtItemEnd
 NAVPlayerActionAtItemEnd
+WaitingReason
+NAVPlayerWaitingReason
 CMTime
 AVPlayerExternalPlaybackType
 RouteSharingPolicy
@@ -1450,8 +1472,6 @@ CMTimeRange
 AVMusicAppBehaviorContextUserAction
 __C_Synthesized
 AVError
-WaitingReason
-NAVPlayerWaitingReason
 RateDidChangeReason
 NAVPlayerRateDidChangeReason
 Name
@@ -1540,6 +1560,10 @@ PlayerEventHandling
 PlayerEventStateHandling
 PlayerEvent
 Source
+Unknown
+Stopped
+Waiting
+Playing
 EndOfQueueState
 TransitionState
 NaturalTransitionState
@@ -1552,8 +1576,10 @@ Event
 Reporting
 ReportingEvent
 MediaFoundation
+AssetLoadingResumptionStateMachine
 InternalPlaybackStackController
 SkippingState
+State
 currentItem
 QueueItemReloadReason
 UIApplication
@@ -1597,6 +1623,7 @@ PlayerState
 UserActionType
 UserActionSource
 BufferState
+TimeControlStatus
 ErrorResolution
 ItemRequestReason
 ItemTransition
@@ -1613,6 +1640,10 @@ MFPlaybackStackControllerImplementation
 currentState
 currentTime
 rate
+Unknown
+Stopped
+Waiting
+Playing
 State
 EventTime
 TimeType
@@ -1624,6 +1655,7 @@ UserEvent
 IdleState
 EventReporting
 EventReporter
+ReportingMode
 Subsystem
 No current item
 MediaFoundation
@@ -1783,6 +1815,8 @@ queue
 reporter
 configuration
 observations
+firstFrameMonitoredItem
+firstFrameMonitoredItemStartTime
 subscriber
 observationToken
 timeInterval
@@ -1843,6 +1877,8 @@ seekToTimeCompleted
 currentItemWillChange
 tracksDidChange
 relativeVolumeDidChange
+firstFrameWillRender
+timeControlStatusDidChange
 playerCoordinator
 player
 user
@@ -1893,6 +1929,9 @@ backgroundTask
 didEndBackgroundTask
 avkit
 signpost
+state
+currentItemID
+reporter
 delegate
 currentQueueControllerItem
 loadedQueueControllerItems
@@ -1902,7 +1941,6 @@ mediaServicesAvailable
 playerController
 queueAssetLoader
 queueController
-reporter
 errorController
 externalPlaybackController
 backgroundTaskController
@@ -1910,6 +1948,7 @@ playbackDefaults
 synchronizingToPlayer
 currentQueueRestorationItem
 playerItemStateSnapshot
+resumptionStateMachine
 deferredPlaybackRateForNextSetQueue
 inFlightSetQueueLoadingContext
 currentQueueAssetLoadingContext
@@ -1918,7 +1957,13 @@ assetLoadingId
 isPausedForLeasePrevention
 $__lazy_storage_$_skipAggregator
 skippingState
+idle
+itemDidBecomeCurrent
+itemDownloaded
+itemProgressing
+resumptionAllowed
 skipEvents
+RawValue
 mediaServicesInterruption
 audioFormatChange
 unrecoverableError
@@ -2034,13 +2079,17 @@ skip
 avKitSkip
 stream
 activeSubsystems
+mode
 queue
+identifier
 rawValue
 logCategory
+solo
+shared
+managed
 ArrayLiteralElement
 RawValue
 Element
-playerID
 queueController
 queueAssetLoader
 playerController
@@ -2099,6 +2148,7 @@ isMovieOrTVShow
 playbackStartTimeOverride
 setPlaybackStartTimeOverride:
 isAlwaysLive
+initialPlaybackStartTime
 reset
 updatePlayerPlaybackCoordinator:
 itemToFollowItem:direction:distance:reason:
@@ -2145,9 +2195,11 @@ playbackTimeDidChangeTo:forItem:reason:timeStamp:
 playbackRateDidChangeToRate:forItem:timeStamp:
 playbackRateDidChangeNotifiedForItem:newRate:reason:participantIdentifier:timeStamp:
 relativeVolumeDidChangeTo:timeStamp:
+firstFrameWillRenderForItem:timeStamp:
 playbackIsLikelyToKeepUp:forItem:timeStamp:
 playbackBufferStateDidChangeToState:forItem:timeStamp:
 tracksDidChangeForItem:timeStamp:
+timeControlStatusDidChange:waitingReason:timeStamp:
 didReachEndOfQueueWithReason:
 interruptionDidBeginWithInterruptor:timeStamp:
 interruptionDidFinishForInterruptor:shouldResume:timeStamp:
@@ -2251,6 +2303,7 @@ duration
 loadedTimeRanges
 currentStableVariantID
 CMTimeRangeValue
+loggingIdentifier
 setPrefersSeekOverSkip:
 DownloadedDurationThreshold
 HLSDownloadedDurationThreshold
@@ -2301,13 +2354,14 @@ forPlaybackTimeChangeReason:
 forItemChangeSource:
 forReloadingReason:
 forPlayerSpatializationFormat:
+forTimeControlStatus:
 initWithCategory:routeSharingPolicy:options:
 errorDomain
 maximumPlayerQueueLength
 setMaximumPlayerQueueLength:
 delegate
 setDelegate:
-initWithPlayerID:queueController:assetLoader:errorController:externalPlaybackController:leaseController:defaults:queue:
+initWithPlayerID:engineID:queueController:assetLoader:errorController:externalPlaybackController:leaseController:defaults:queue:
 interruptedState
 currentItemTransition
 effectiveRate
@@ -2369,6 +2423,10 @@ resolvingError
 stuckOnNonLoadableItem
 stuckOnEmptyQueue
 stuckOnError
+itemDidBecomeCurrent
+itemDownloaded
+itemProgressing
+resumptionAllowed
 assetLoading
 mediaServicesSetup
 Waiting to minimize stalls
@@ -2392,6 +2450,7 @@ isMovieOrTVShow
 playbackStartTimeOverride
 Td,N
 isAlwaysLive
+initialPlaybackStartTime
 MFQueueControlling
 @48@0:8@16q24q32q40
 @28@0:8@16B24
@@ -2415,6 +2474,7 @@ MFTimeStamp
 {?=qiIq}16@0:8
 T{?=qiIq},N,R
 userSecondsSinceReferenceDate
+v20@0:8B16
 T@"NSString",N,C
 repeatIndex
 Tq,N
@@ -2467,6 +2527,7 @@ v52@0:8@"<MFQueuePlayerItem>"16f24@"NSString"28@"NSString"36@"<MFTimeStamp>"44
 v28@0:8f16@"<MFTimeStamp>"20
 v36@0:8B16@"<MFQueuePlayerItem>"20@"<MFTimeStamp>"28
 v40@0:8q16@"<MFQueuePlayerItem>"24@"<MFTimeStamp>"32
+v40@0:8q16@"NSString"24@"<MFTimeStamp>"32
 v32@0:8@"NSString"16@"<MFTimeStamp>"24
 v36@0:8@"NSString"16B24@"<MFTimeStamp>"28
 v36@0:8B16@"<MFRouteChangeMetadata>"20@"<MFTimeStamp>"28
@@ -2513,6 +2574,7 @@ queueController
 itemLoader
 itemBuffer
 loadingCompletions
+errorController
 _TtC15MediaFoundation10ItemLoader
 loadingItem
 loadingEnabled
@@ -2631,6 +2693,7 @@ User action failed:
 PlayerController: -[AVAudioSession setMode:%{public}@]
 Unable to set audio session mode to 
 ... Suspending coordinated playback [
+... Resuming coordinated playback ...
 AVPlaybackCoordinator
 Received a request to complete a silent playback failure event for a non-failure event 
 Received a request to complete a silent playback failure event  
@@ -2676,7 +2739,6 @@ Completing monitored event if required [Pausing in
 Completing monitored event if required [Pausing for an error in 
 Ignoring a setQueue [
 Cancelling a setQueue [
-... Resuming coordinated playback ...
 MFPlayerConfigurable
 MFUserAction
 Tq,N,R
@@ -2697,8 +2759,6 @@ isAssetLoaded
 description
 DownloadedDurationThreshold
 HLSDownloadedDurationThreshold
-AVPlayerWaitingNoSpecificReason
-MFPlayerItem
 _TtC15MediaFoundation15JumpToTimeState
 targetTime
 initialLoadingShouldPlay
@@ -2710,6 +2770,8 @@ $__lazy_storage_$_eventStream
 queue
 reporter
 observations
+firstFrameMonitoredItem
+firstFrameMonitoredItemStartTime
 subscriber
 observationToken
 v32@?0{?=qiIq}8
@@ -2747,6 +2809,8 @@ _TtC15MediaFoundation13RouteMetadata
 routeDescription
 TB,N,R,VisAirplay
 MFRouteChangeMetadata
+timeControlStatusDidChange: 
+firstFrameWillRender:
 relativeVolumeDidChange:
 tracksDidChange:
 currentItemWillChange: 
@@ -2771,6 +2835,9 @@ itemDidPlayToEnd:
 itemDidFailToLoad:
 itemDidFailToPlayToEnd:
 itemIsReadyToPlay:
+timeControlStatusDidChange:
+currentItemWillChange 
+playbackDidReachQueueEnd
 _TtC15MediaFoundation15EndOfQueueState
 endOfQueueReason
 _TtC15MediaFoundation15TransitionState
@@ -2834,6 +2901,8 @@ Specified item:
  QUEUE EVENT RECEIVED    
  PLAYER EVENT RECEIVED   
  USER EVENT RECEIVED     
+_TtC15MediaFoundation34AssetLoadingResumptionStateMachine
+currentItemID
 _TtC15MediaFoundation31InternalPlaybackStackController
 currentQueueControllerItem
 loadedQueueControllerItems
@@ -2842,13 +2911,13 @@ maximumPlayerQueueLength
 mediaServicesAvailable
 playerController
 queueAssetLoader
-errorController
 externalPlaybackController
 backgroundTaskController
 playbackDefaults
 synchronizingToPlayer
 currentQueueRestorationItem
 playerItemStateSnapshot
+resumptionStateMachine
 deferredPlaybackRateForNextSetQueue
 inFlightSetQueueLoadingContext
 currentQueueAssetLoadingContext
@@ -2866,6 +2935,13 @@ PlaybackStackController - player item did become current:
 PlaybackStackController - player item did become ready to play: 
 PlaybackStackController - itemDidFailToPlayToEnd: - item:
 PlaybackStackController - itemDidFailToLoad: - item:
+finished player item
+finished player item time
+current player item
+current queue item
+current player queue
+AVPlayerItemDidPlayToEndNotification received - AVPlayerItem not matching current queue controller item: 
+Mismatch between finishing AV and queue
 PlaybackStackController - itemDidPlayToEnd:
  [no specific action]
 PlaybackStackController - playbackDidReachQueueEnd - No more items in the controller queue [reached controller queue end]
@@ -2873,7 +2949,6 @@ Unable to get next item in queue after reaching end of AV queue
 PlaybackStackController - playbackDidReachQueueEnd - There is a next item in queue:
  [Non loadable - waiting for playable item]
  - queue loader state: 
-playbackDidReachQueueEnd
 current queue item loaded but not in player queue
 PlaybackStackController - playbackDidReachQueueEnd - Reloading the current queue item: 
 PlaybackStackController - playbackDidReachQueueEnd - There is a loaded next item in queue:
@@ -2904,6 +2979,7 @@ PlaybackStackController - Asset loading cannot resume [current item is not loade
 PlaybackStackController - Asset loading cannot resume [maximum number of loaded assets reached]
 PlaybackStackController - Asset loading can resume - loaded queue items: 
 PlaybackStackController - Asset loading cannot resume [asset loader is not ready: 
+Asset resumption FSM state - 
 PlaybackStackController - Error resolution [retry last action] - error: 
 PlaybackStackController - Error resolution [stop playback] - error: 
 Pausing for error 
@@ -2928,7 +3004,10 @@ PlaybackStackController - queueHasReachedItsEnd - Looping back to first queue it
 PlaybackStackController - queueHasReachedItsEnd - Early return [in idle state no restoration]
 PlaybackStackController - queueHasReachedItsEnd - Updating queue restoration item with first queue item [
 PlaybackStackController - itemDidFinishDownloading:
- [resuming asset loading]
+ - resuming asset loading
+ - not resuming asset loading [current item has not progressed yet]
+PlaybackStackController - itemFirstFrameWillRender:
+ - not resuming asset loading [current item is not fully loaded yet]
  Media Services Died - ItemAtDeath:
  Media Services Back Online - Restored Item:
  - Restored Time:
@@ -3011,9 +3090,11 @@ PlaybackStackController - reloadQueue - Updating queue restoration item with fir
 PlaybackStackController - Failing setQueueWithInitialItem 
  [Media services unavailable]- identifier:
 PlaybackStackController - Set queue using state restoration item:
+setQueueWithInitialItem receivied
 PlaybackStackController - Set queue using placeholder item:
  [Deferring asset loading until we can] - identifier: 
 Playback stack reset
+Asset resumption FSM event - 
 PlaybackStackController - Current asset loading limit request - limit: 
 User skip received [Immediate execution of first skip] - rootItem:
 User skip received during on-going skip [Aggregating] - rootItem:
@@ -3110,21 +3191,21 @@ InternalPlayerController - Seek to time proceeding with original target time:
 InternalPlayerController - Seek to time clamped to seekable time ranges 
 InternalPlayerController - Seek to time completed - finished:
  - current timebase time: 
- [seek completed to that time]
+ [seek completed to that time] - player:
 InternalPlayerController - setTargetRate:
 InternalPlayerController - pause received [no item in player -> no-op]
 InternalPlayerController - pause received - AVPlayer current rate:
 InternalPlayerController - play received - AVPlayer current rate:
 InternalPlayerController - Prerolling at rate:
 Inconsistency - We should not receive player event when player is not set - event:
- [rate changing to 0]
- [playback stopping]
+ [rate changing to 0] - player:
+ [playback stopping] - player:
 Inconsistency in current rate while processing 
 InternalPlayerController - Changing event time from 
- [playback start with a resume time]
+ [playback start with a resume time] - player:
 JUMP TO TIME - Completed: 
 InternalPlayerController - AVPlayer [itemDidBecomeCurrent] - current item:
-InternalPlayerController - Ignoring item loaded duration changed [uration changed for non-current item] - item:
+InternalPlayerController - Ignoring item loaded duration changed [duration changed for non-current item] - item:
 InternalPlayerController - Item duration changed - item:
 InternalPlayerController - Downloading completed - item: 
 InternalPlayerController - Ignoring item loaded duration changed [loaded duration changed for non-current item] - item:
@@ -3147,7 +3228,7 @@ InternalPlayerController - Queue->Player synchronization completed [everything i
 InternalPlayerController - Queue->Player synchronization completed [entire reset of AVPlayer's queue]
 InternalPlayerController - Queue->Player synchronization started [matching current items]
 InternalPlayerController - Queue->Player synchronization started [empty player]
-InternalPlayerController - Queue->Player synchronization completed [removed all player items]
+InternalPlayerController - Queue->Player synchronization completed [removed all player items] - player:
 InternalPlayerController - Unable to resetQueue [no player]
 InternalPlayerController - resetQueue [Start] - keepCurrentItem:
  - AVPlayer items:
@@ -3181,10 +3262,8 @@ MFAudioSessionConfiguration
 routeSharingPolicy
 errorDomain
 v24@0:8@16
-@80@0:8@16@24@32@40@48@56@64@72
+@88@0:8@16@24@32@40@48@56@64@72@80
 f16@0:8
-v24@0:8@?16
-v20@0:8B16
 v32@0:8q16@?24
 v44@0:8@16B24@28@?36
 v36@0:8f16@20@?28
@@ -3205,6 +3284,7 @@ T@"NSArray",N,R
 currentQueueItem
 videoViewController
 T@"AVPlayerViewController",N,R
+timeControlStatus
 modeDescription
 isModeSolo
 TB,N,R
@@ -3269,9 +3349,11 @@ _TtC15MediaFoundation9IdleState
 _TtC15MediaFoundation13EventReporter
 stream
 activeSubsystems
+%{public}@-[%{public}@] %{public}@
 _TtC15MediaFoundation23PlaybackStackController
 internalController
 currentSetQueueIdentifier
+v24@0:8@?16
 MediaFoundation3
 MediaFoundation4
 setupForShared() cannot be called on a managed session
@@ -3295,9 +3377,16 @@ _TtC15MediaFoundation20ErrorResolutionState
 triggerEvent
 playerItem
 AVAudioSession.interruptionNotification - UserInfo:%@
+MFPlayerItem
 q16@0:8
 v24@0:8q16
 contentItemID
+(AV) waiting for coordinated playback
+(AV) no item to play in AVQueuePlayer
+(AV) waiting for interstitial event
+(AV) evaluating buffering rate
+(AV) waiting to minimize stalls
+AVPlayerWaitingNoSpecificReason
 _TtC15MediaFoundation17UserEventsMonitor
 timeout
 monitors
@@ -3378,6 +3467,7 @@ GIegn_Sg
 ySo17MFQueuePlayerItem_p
 ySo17MFQueuePlayerItem_p
 GytIegnr_
+ySo17MFQueuePlayerItem_p
 ySiy
 ySo17MFQueuePlayerItem_p
 So17MFQueuePlayerItem_p
@@ -3428,13 +3518,9 @@ SdSg
 So8AVPlayerC
 So27AVPlayerPlaybackCoordinatorC
 SgXw
-So8AVPlayerC
-ySo0A19PlaybackCoordinatorCGIeggn_
 ySo27AVPlayerPlaybackCoordinatorCG
 So13AVQueuePlayerC
-Iegg_
 So18MFLeaseControlling_p
-Iegn_
 Sg5state_AB4roott
 5state_AA4roott
 _pSg
@@ -3466,6 +3552,7 @@ $s15MediaFoundation11UserActionsP
 $s15MediaFoundation19InternalUserActionsP
 ySS_
 _pSgtcSg
+So12AVPlayerItemCSgXw
 5Input
 yxGSgXw
 yxGSgXwz_x_
@@ -3493,6 +3580,9 @@ y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
+GGGSay
+y_So13AVQueuePlayerC
+GGGSayACGGG
 y_So13AVQueuePlayerC
 y_So13AVQueuePlayerC
 SgGG
@@ -3509,45 +3599,26 @@ y_So13AVQueuePlayerCSo12AVPlayerItemCSgGGGSay
 y_So13AVQueuePlayerCSo12AVPlayerItemCSgGGGSayACGGG
 GA5EG
 GA5FGA6FG
-y_AAy_
-GA5FGA6FGA6FG
+GA5GGA6GGA7GG
 So12AVPlayerItemCSg
 SgXw
-So12AVPlayerItemCSgSbIeggd_
 SaySo12AVPlayerItemCSgGSay
 GIeggo_
 SaySo12AVPlayerItemCSgGSay
 GSgIeggo_
-SfSbIegyd_
-SaySfG
-SgIeggr_
 So12AVPlayerItemC
-SgSbIegyd_
-SgIegyr_
-SbIegyd_
-SgIeggr_
-SgSbIegyd_
-SgIeggr_
 SaySo7NSValueCGSg
 SaySo7NSValueCG
-SaySo7NSValueCGSgSbIeggd_
-SaySo7NSValueCGSg
-SgIeggr_
-SbSgSbIegyd_
-SbSg
-SgIegyr_
 SaySo17AVPlayerItemTrackCGSg
 SaySo17AVPlayerItemTrackCG
-SaySo17AVPlayerItemTrackCGSgSbIeggd_
-SaySo17AVPlayerItemTrackCGSg
-SgIeggr_
-SgIegnr_
+GABy_
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgGADGAEG
+GACy_
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgGAEGAFGG
+y_So13AVQueuePlayerCSo12AVPlayerItemCSgG
 GSay
 GSayACGGG
-GSgIegno_
 GSo17OS_dispatch_queueCG
-SbIeggd_
-SgIeggr_
 $s7Combine9PublisherP
 $s15MediaFoundation19SystemEventHandlingP
 $s15MediaFoundation24SystemEventStateHandlingP
@@ -3600,6 +3671,8 @@ So12MFPlayerItem_p3for_
 9timeStampt
 Sf2to_
 9timeStampt
+6status_SSSg13waitingReason
+9timeStampt
 So12MFPlayerItem_p
 SSSg10identifier_t
 So12MFPlayerItem_pSg
@@ -3637,6 +3710,8 @@ _pSgXw
 So28MFExternalPlaybackController_p
 So18MFPlaybackDefaults_pSg
 SfSg
+ySS_SStG
+SDyS2SG
 SgXw
 SgXwz_Xx
 So17MFQueuePlayerItem_pSg
@@ -3674,7 +3749,6 @@ _yptG
 SgXw
 SgXwz_Xx
 _pz_Xx
-SfIegy_
 SbIegy_Sg
 $s15MediaFoundation21InternalPlayerActionsP
 $s15MediaFoundation16PlaybackDefaultsP
@@ -3709,10 +3783,10 @@ $s15MediaFoundation28ExternalPlaybackConfigurableP
 $s15MediaFoundation26ExternalPlaybackControllerP
 So33MFPlaybackStackControllerDelegate_pSgXw
 _ypt
+yS2SG
 ySSyXlG
 SS_ypt
 SgXw
-Iegy_
 $s15MediaFoundation17UserEventHandlingP
 $s15MediaFoundation22UserEventStateHandlingP
 $s15MediaFoundation27UserEventCompletionHandlingP
@@ -3803,6 +3877,8 @@ Status
 NAVPlayerStatus
 ActionAtItemEnd
 NAVPlayerActionAtItemEnd
+WaitingReason
+NAVPlayerWaitingReason
 CMTime
 AVPlayerExternalPlaybackType
 RouteSharingPolicy
@@ -3815,8 +3891,6 @@ CMTimeRange
 AVMusicAppBehaviorContextUserAction
 __C_Synthesized
 AVError
-WaitingReason
-NAVPlayerWaitingReason
 RateDidChangeReason
 NAVPlayerRateDidChangeReason
 Name
@@ -3893,7 +3967,6 @@ currentItem.playbackBufferEmpty
 currentItem.tracks
 PlayerPeriodicTimePublisher
 PlayerObserverError
--ZZZZZZZx
 PausedState
 SeekingState
 ChangingQueueState
@@ -3908,6 +3981,10 @@ PlayerEventHandling
 PlayerEventStateHandling
 PlayerEvent
 Source
+Unknown
+Stopped
+Waiting
+Playing
 EndOfQueueState
 1PrPPP
 1PrPPP
@@ -3927,11 +4004,11 @@ DDDDDDDDD
 T888
 Reporting
 ReportingEvent
-9Rbrz
-PY^e
 MediaFoundation
+AssetLoadingResumptionStateMachine
 InternalPlaybackStackController
 SkippingState
+State
 currentItem
 QueueItemReloadReason
 UIApplication
@@ -3941,6 +4018,7 @@ BackgroundTask
 BackgroundTaskController
 Category
 Error
+88888888
 a.....
 InitialLoadingState
 InitialPreLoadingState
@@ -3979,6 +4057,7 @@ PlayerState
 UserActionType
 UserActionSource
 BufferState
+TimeControlStatus
 ErrorResolution
 ItemRequestReason
 ItemTransition
@@ -3995,6 +4074,10 @@ MFPlaybackStackControllerImplementation
 currentState
 currentTime
 rate
+Unknown
+Stopped
+Waiting
+Playing
 State
 EventTime
 TimeType
@@ -4007,6 +4090,7 @@ IdleState
 333""U"fDDD""
 EventReporting
 EventReporter
+ReportingMode
 Subsystem
 No current item
 MediaFoundation
@@ -4167,6 +4251,8 @@ queue
 reporter
 configuration
 observations
+firstFrameMonitoredItem
+firstFrameMonitoredItemStartTime
 subscriber
 observationToken
 timeInterval
@@ -4227,6 +4313,8 @@ seekToTimeCompleted
 currentItemWillChange
 tracksDidChange
 relativeVolumeDidChange
+firstFrameWillRender
+timeControlStatusDidChange
 playerCoordinator
 player
 user
@@ -4277,6 +4365,9 @@ backgroundTask
 didEndBackgroundTask
 avkit
 signpost
+state
+currentItemID
+reporter
 delegate
 currentQueueControllerItem
 loadedQueueControllerItems
@@ -4286,7 +4377,6 @@ mediaServicesAvailable
 playerController
 queueAssetLoader
 queueController
-reporter
 errorController
 externalPlaybackController
 backgroundTaskController
@@ -4294,6 +4384,7 @@ playbackDefaults
 synchronizingToPlayer
 currentQueueRestorationItem
 playerItemStateSnapshot
+resumptionStateMachine
 deferredPlaybackRateForNextSetQueue
 inFlightSetQueueLoadingContext
 currentQueueAssetLoadingContext
@@ -4302,7 +4393,13 @@ assetLoadingId
 isPausedForLeasePrevention
 $__lazy_storage_$_skipAggregator
 skippingState
+idle
+itemDidBecomeCurrent
+itemDownloaded
+itemProgressing
+resumptionAllowed
 skipEvents
+RawValue
 mediaServicesInterruption
 audioFormatChange
 unrecoverableError
@@ -4418,13 +4515,17 @@ skip
 avKitSkip
 stream
 activeSubsystems
+mode
 queue
+identifier
 rawValue
 logCategory
+solo
+shared
+managed
 ArrayLiteralElement
 RawValue
 Element
-playerID
 queueController
 queueAssetLoader
 playerController
@@ -4483,6 +4584,7 @@ isMovieOrTVShow
 playbackStartTimeOverride
 setPlaybackStartTimeOverride:
 isAlwaysLive
+initialPlaybackStartTime
 reset
 updatePlayerPlaybackCoordinator:
 itemToFollowItem:direction:distance:reason:
@@ -4529,9 +4631,11 @@ playbackTimeDidChangeTo:forItem:reason:timeStamp:
 playbackRateDidChangeToRate:forItem:timeStamp:
 playbackRateDidChangeNotifiedForItem:newRate:reason:participantIdentifier:timeStamp:
 relativeVolumeDidChangeTo:timeStamp:
+firstFrameWillRenderForItem:timeStamp:
 playbackIsLikelyToKeepUp:forItem:timeStamp:
 playbackBufferStateDidChangeToState:forItem:timeStamp:
 tracksDidChangeForItem:timeStamp:
+timeControlStatusDidChange:waitingReason:timeStamp:
 didReachEndOfQueueWithReason:
 interruptionDidBeginWithInterruptor:timeStamp:
 interruptionDidFinishForInterruptor:shouldResume:timeStamp:
@@ -4635,6 +4739,7 @@ duration
 loadedTimeRanges
 currentStableVariantID
 CMTimeRangeValue
+loggingIdentifier
 setPrefersSeekOverSkip:
 DownloadedDurationThreshold
 HLSDownloadedDurationThreshold
@@ -4685,13 +4790,14 @@ forPlaybackTimeChangeReason:
 forItemChangeSource:
 forReloadingReason:
 forPlayerSpatializationFormat:
+forTimeControlStatus:
 initWithCategory:routeSharingPolicy:options:
 errorDomain
 maximumPlayerQueueLength
 setMaximumPlayerQueueLength:
 delegate
 setDelegate:
-initWithPlayerID:queueController:assetLoader:errorController:externalPlaybackController:leaseController:defaults:queue:
+initWithPlayerID:engineID:queueController:assetLoader:errorController:externalPlaybackController:leaseController:defaults:queue:
 interruptedState
 currentItemTransition
 effectiveRate

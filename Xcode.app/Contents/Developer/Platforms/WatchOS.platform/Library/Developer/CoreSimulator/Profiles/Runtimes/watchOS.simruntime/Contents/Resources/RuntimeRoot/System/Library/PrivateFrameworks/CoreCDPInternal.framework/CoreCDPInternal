@@ -187,6 +187,7 @@ END [%lld] %fs: SecureChannelSendPayload
 "Auth observer ignoring: %s"
 "Checking recovery key status from Secure Backup"
 "Invalid context, assuming no primary account available"
+"Recovery key verification UI flow completed with %d - %@"
 "Recovery key UI flow completed with %d - %@"
 "Recovery Key verified!"
 "Failed to persist RK verifier: %@"
@@ -368,6 +369,9 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Data privacy is enabled on IdMS. Moving on to roll the keys on Security."
 "Enabling data privacy failed on Security. Error - %@"
 "Keys are rolled on Security. Data Privacy should be enabled now."
+"Denying access to data recovery, missing entitlements."
+"Fetching escrow record devices..."
+"Fetched escrow record devices with error: %@"
 "Denying access to state machine. Missing entitlement."
 "Starting state machine..."
 "Forcing _useSecureBackupCachedPassphrase=YES for iOS/watchOS Buddy on a device with a local secret present"
@@ -402,6 +406,7 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "info recovery completed with error: %@"
 "Denying access to recovery key operation. Missing entitlement."
 "Denying access recovery key operation. Missing entitlement."
+"Denying verify recovery key operation. Missing entitlement."
 "Error geting data privacy status from security - %@"
 "Returing (%lu) for data privacy status."
 "Error updating data privacy status - %@"
@@ -807,6 +812,8 @@ backupRecoveryThroughRemoteSecretDidReset
 backupRecoveryThroughRemoteSecretDidFail
 joinMethod
 attemptedMethods
+availableMethods
+escrowDeviceCount
 callingProcessBundleID
 zPLR
 zPLR
@@ -872,7 +879,7 @@ CDPDAuthObserver
 CDPDRecoveryKeyController
 CDPDRecoveryKeyValidatorInternalDelegate
 CDPDDeviceSecretValidator
-CDPRemoteDeviceSecretValidatorProtocol
+CDPRemoteDeviceSecretValidatorProtocolInternal
 CDPDataPrivacyAppleAccountProxy
 CDPAppleAccountProxy
 CDPDRecoveryKeyValidatorImpl
@@ -1523,6 +1530,7 @@ initWithContext:uiProvider:authProvider:
 initWithContext:uiProvider:authProvider:circleProxy:secureBackupProxy:octagonTrustProxy:pcsProxy:
 initWithContext:secureBackupProxy:octagonTrustProxy:
 supportsRecoveryKey
+cdpContext:promptForRecoveryKeyWithSecretValidator:completion:
 recoveryKeyVerified
 generateVerifierWithRecoveryKey:error:
 cdpContext:presentRecoveryKeyWithValidator:completion:
@@ -1534,6 +1542,7 @@ enableBackupWithRecoveryKey:completion:
 recoverState:
 recoverAndSynchronizeStateWithServer:
 isRecoveryKeyAvailable
+verifyRecoveryKey:
 generateNewRecoveryKey:
 deleteRecoveryKey:
 generateRandomRecoveryKey:
@@ -1609,6 +1618,7 @@ recordDate
 laterDate:
 handleCDPDevices:
 fetchAllEscrowRecordsWithOptionForceFetch:completion:
+setValidEscrowDeviceCount:
 fetchEscrowRecordsWithOptionForceFetch:completion:
 desiresAllRecords
 setRecordDate:
@@ -1807,6 +1817,7 @@ _securityInterface
 T@"<CDPDAuthProviderInternal>",&,N,V_authKitInterface
 T@"<CDPAppleAccountProxy>",&,N,V_appleAccountInterface
 T@"<CDPDSecureBackupProxy>",&,N,V_securityInterface
+_allowDataRecovery
 _allowStateMachineAccess
 set_useSecureBackupCachedPassphrase:
 setSupportsSkipSignIn:
@@ -1826,7 +1837,6 @@ addObserverForName:object:queue:usingBlock:
 removeObserver:
 attemptToEscrowPreRecord:context:completion:
 _allowFollowUps
-_allowDataRecovery
 idmsMasterKeyRecovery
 set_authProvider:
 _performRecoveryWithContext:uiProvider:authProvider:errorProviuder:resultParser:secureBackUpController:completion:
@@ -1843,6 +1853,7 @@ recoverAndSynchronizeSquirrelWithContext:uiProvider:completion:
 recoverSquirrelWithContext:uiProvider:completion:
 localSecretChangedTo:secretType:context:uiProvider:completion:
 finishOfflineLocalSecretChangeWithContext:uiProvider:completion:
+verifyRecoveryKeyWithContext:uiProvider:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:uiProvider:completion:
 generateNewRecoveryKeyWithContext:uiProvider:completion:
 deleteRecoveryKeyWithContext:uiProvider:completion:
@@ -1854,6 +1865,7 @@ isUserVisibleKeychainSyncEnabledWithCompletion:
 removeNonViewAwarePeersFromCircleWithContext:completion:
 performRecoveryWithContext:uiProvider:authProvider:completion:
 clearFollowUpWithContext:completion:
+fetchEscrowRecordDevicesWithContext:usingCache:completion:
 attemptToEscrowPreRecord:preRecordUUID:secretType:context:completion:
 _allowUtilityAccess
 _connection
@@ -2066,8 +2078,12 @@ _clientsLock
 _clientsByUUID
 _networkReach
 bundleID
+_supportsCustodianRecovery
+validEscrowDeviceCount
 backupRecoverySetJoinFromBundleID:
 _attemptedMethods
+_availableMethods
+_escrowDeviceCount
 pairingChannelInitiator
 exchangePacket:complete:error:
 pairingChannelAcceptor
@@ -2223,6 +2239,7 @@ B32@0:8@16@?24
 v56@0:8@16Q24@32@40@?48
 Vv24@0:8@?16
 Vv32@0:8@16@?24
+Vv36@0:8@16B24@?28
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?BB@"NSError">32
 v32@0:8@"CDPContext"16@?<v@?B@"NSError">24
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?B@"NSError">32
@@ -2238,6 +2255,7 @@ v48@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@"<CDPAuthProviderInterna
 v32@0:8@"CDPFollowUpContext"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?Q@"NSError">16
 Vv32@0:8@"CDPUpdateDataPrivacyContext"16@?<v@?@"CDPUpdateDataPrivacyContext"@"NSError">24
+Vv36@0:8@"CDPContext"16B24@?<v@?@"NSArray"@"NSError">28
 v32@0:8@"ACAccount"16@?<v@?@"NSDictionary"@"NSError">24
 @40@0:8@16Q24Q32
 v56@0:8@16@24Q32@40@?48
@@ -2452,6 +2470,7 @@ END [%lld] %fs: SecureChannelSendPayload
 "Auth observer ignoring: %s"
 "Checking recovery key status from Secure Backup"
 "Invalid context, assuming no primary account available"
+"Recovery key verification UI flow completed with %d - %@"
 "Recovery key UI flow completed with %d - %@"
 "Recovery Key verified!"
 "Failed to persist RK verifier: %@"
@@ -2633,6 +2652,9 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Data privacy is enabled on IdMS. Moving on to roll the keys on Security."
 "Enabling data privacy failed on Security. Error - %@"
 "Keys are rolled on Security. Data Privacy should be enabled now."
+"Denying access to data recovery, missing entitlements."
+"Fetching escrow record devices..."
+"Fetched escrow record devices with error: %@"
 "Denying access to state machine. Missing entitlement."
 "Starting state machine..."
 "Forcing _useSecureBackupCachedPassphrase=YES for iOS/watchOS Buddy on a device with a local secret present"
@@ -2667,6 +2689,7 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "info recovery completed with error: %@"
 "Denying access to recovery key operation. Missing entitlement."
 "Denying access recovery key operation. Missing entitlement."
+"Denying verify recovery key operation. Missing entitlement."
 "Error geting data privacy status from security - %@"
 "Returing (%lu) for data privacy status."
 "Error updating data privacy status - %@"
@@ -3072,6 +3095,8 @@ backupRecoveryThroughRemoteSecretDidReset
 backupRecoveryThroughRemoteSecretDidFail
 joinMethod
 attemptedMethods
+availableMethods
+escrowDeviceCount
 callingProcessBundleID
 CDPDTermsInfoBackupController
 CDPDCircleStateObserver
@@ -3123,7 +3148,7 @@ CDPDAuthObserver
 CDPDRecoveryKeyController
 CDPDRecoveryKeyValidatorInternalDelegate
 CDPDDeviceSecretValidator
-CDPRemoteDeviceSecretValidatorProtocol
+CDPRemoteDeviceSecretValidatorProtocolInternal
 CDPDataPrivacyAppleAccountProxy
 CDPAppleAccountProxy
 CDPDRecoveryKeyValidatorImpl
@@ -3774,6 +3799,7 @@ initWithContext:uiProvider:authProvider:
 initWithContext:uiProvider:authProvider:circleProxy:secureBackupProxy:octagonTrustProxy:pcsProxy:
 initWithContext:secureBackupProxy:octagonTrustProxy:
 supportsRecoveryKey
+cdpContext:promptForRecoveryKeyWithSecretValidator:completion:
 recoveryKeyVerified
 generateVerifierWithRecoveryKey:error:
 cdpContext:presentRecoveryKeyWithValidator:completion:
@@ -3785,6 +3811,7 @@ enableBackupWithRecoveryKey:completion:
 recoverState:
 recoverAndSynchronizeStateWithServer:
 isRecoveryKeyAvailable
+verifyRecoveryKey:
 generateNewRecoveryKey:
 deleteRecoveryKey:
 generateRandomRecoveryKey:
@@ -3860,6 +3887,7 @@ recordDate
 laterDate:
 handleCDPDevices:
 fetchAllEscrowRecordsWithOptionForceFetch:completion:
+setValidEscrowDeviceCount:
 fetchEscrowRecordsWithOptionForceFetch:completion:
 desiresAllRecords
 setRecordDate:
@@ -4058,6 +4086,7 @@ _securityInterface
 T@"<CDPDAuthProviderInternal>",&,N,V_authKitInterface
 T@"<CDPAppleAccountProxy>",&,N,V_appleAccountInterface
 T@"<CDPDSecureBackupProxy>",&,N,V_securityInterface
+_allowDataRecovery
 _allowStateMachineAccess
 set_useSecureBackupCachedPassphrase:
 setSupportsSkipSignIn:
@@ -4077,7 +4106,6 @@ addObserverForName:object:queue:usingBlock:
 removeObserver:
 attemptToEscrowPreRecord:context:completion:
 _allowFollowUps
-_allowDataRecovery
 idmsMasterKeyRecovery
 set_authProvider:
 _performRecoveryWithContext:uiProvider:authProvider:errorProviuder:resultParser:secureBackUpController:completion:
@@ -4094,6 +4122,7 @@ recoverAndSynchronizeSquirrelWithContext:uiProvider:completion:
 recoverSquirrelWithContext:uiProvider:completion:
 localSecretChangedTo:secretType:context:uiProvider:completion:
 finishOfflineLocalSecretChangeWithContext:uiProvider:completion:
+verifyRecoveryKeyWithContext:uiProvider:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:uiProvider:completion:
 generateNewRecoveryKeyWithContext:uiProvider:completion:
 deleteRecoveryKeyWithContext:uiProvider:completion:
@@ -4105,6 +4134,7 @@ isUserVisibleKeychainSyncEnabledWithCompletion:
 removeNonViewAwarePeersFromCircleWithContext:completion:
 performRecoveryWithContext:uiProvider:authProvider:completion:
 clearFollowUpWithContext:completion:
+fetchEscrowRecordDevicesWithContext:usingCache:completion:
 attemptToEscrowPreRecord:preRecordUUID:secretType:context:completion:
 _allowUtilityAccess
 _connection
@@ -4317,8 +4347,12 @@ _clientsLock
 _clientsByUUID
 _networkReach
 bundleID
+_supportsCustodianRecovery
+validEscrowDeviceCount
 backupRecoverySetJoinFromBundleID:
 _attemptedMethods
+_availableMethods
+_escrowDeviceCount
 pairingChannelInitiator
 exchangePacket:complete:error:
 pairingChannelAcceptor
@@ -4474,6 +4508,7 @@ B32@0:8@16@?24
 v56@0:8@16Q24@32@40@?48
 Vv24@0:8@?16
 Vv32@0:8@16@?24
+Vv36@0:8@16B24@?28
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?BB@"NSError">32
 v32@0:8@"CDPContext"16@?<v@?B@"NSError">24
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?B@"NSError">32
@@ -4489,6 +4524,7 @@ v48@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@"<CDPAuthProviderInterna
 v32@0:8@"CDPFollowUpContext"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?Q@"NSError">16
 Vv32@0:8@"CDPUpdateDataPrivacyContext"16@?<v@?@"CDPUpdateDataPrivacyContext"@"NSError">24
+Vv36@0:8@"CDPContext"16B24@?<v@?@"NSArray"@"NSError">28
 v32@0:8@"ACAccount"16@?<v@?@"NSDictionary"@"NSError">24
 @40@0:8@16Q24Q32
 v56@0:8@16@24Q32@40@?48

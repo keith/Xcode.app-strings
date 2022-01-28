@@ -1,6 +1,7 @@
 SiriPhone
 FaceTimeNoFanOut
 CRRHandleRecommendation
+FaceTimeInvitation
 v8@?0
 com.apple.TelephonyUtilities.PhoneIntentHandler.%@
 B16@?0@"TUConversation"8
@@ -36,6 +37,7 @@ ANY remoteParticipantHandles.value ==[c] %@
 service_provider = %@
 call_category == %@
 read == %d
+NoLinkGenerated
 LocalEmergency
 NonLocalEmergency
 None
@@ -74,10 +76,13 @@ found_in_app_contacts
 v16@?0@"IMSPIChat"8
 com.apple.messages.imcore.spi.qos-unspecified
 Contacts map did not contain UUID of recommended contact.
+v16@?0@"NSNotification"8
+v24@?0@"TUConversationLink"8@"NSError"16
 com.apple.calls.intenthandler
 Default
 SiriPhone/FaceTimeNoFanOut: %@
 SiriPhone/crrHandleRecommendation: %@
+SiriPhone/FaceTimeInvitation: %@
 sortMatchingContactsWithIdentifiers
 Person contains %ld contact IDs. Person: %@
 Looking up contact in the contact store matching identifiers: %@
@@ -146,6 +151,8 @@ crrHandleRecommendation is true
  enableTelemetry=YES 
 Handling start call intent: %@
 handleStartCall
+found a FaceTimeable personHandle: %@
+found a non-FaceTimeable personHandle: %@
 responseForDialRequest
 Determining response for dial request: %@
 responseForJoinRequest
@@ -200,6 +207,13 @@ deviceIdiom %ld supports video calling.
 Call capabilities do not support FaceTime video calls
 Devices primary display is disabled, e.g. user is on carDND mode. 
 GroupFaceTime is disabled for China SKU devices
+Resolving faceTimeLink for start call intent: %@
+Resolving faceTimeLink for person: %@
+Returning empty string as this is a telephony call or featureflag is disabled or destinations was empty
+No non-FaceTime handles found. Returning nil.
+This is watchOS or tvOS. Sending a placeholder string for returning unsupported dialog
+Link generation failed and nil was returned. Setting empty string.
+Returning FaceTimeLink resolution result: %@
 Resolving call provider for start call intent: %@
 The call provider %@ for redial or call back is not supported
 Telephony call was requested from a watch or for an emergency call and telephony is not supported. isWatch: %d, isEmergencyCall: %d
@@ -372,6 +386,11 @@ Handling Siri request to hang up: %@
 An incoming call exists. Declining it and returning success: %@
 At least one call exists. Hanging up and returning success
 No calls exist. Since call was hung up between confirm and handle, return success.
+starting dispatch semaphore for TUIDSLookupManagerStatusChangedNotification
+ending dispatch semaphore for TUIDSLookupManagerStatusChangedNotification
+canonical address: %@
+Failed to generate FaceTime link with error %@
+Successfully generated FaceTime link: %@
 Before deduping: %ld, After deduping: %ld
 All persons have equivalent handle values
 Converting CHRecentCall %@ to INCallRecord.
@@ -420,6 +439,7 @@ ConversationPersonFilter
 HangUpCallIntentHandler
 INHangUpCallIntentHandling
 ContactSlotResolutionHelper
+FaceTimeUtilities
 INPersonWrapper
 INPersonDeduplicator
 CallRecordConverter
@@ -447,6 +467,7 @@ TQ,R
 T#,R
 T@"NSString",R,C
 faceTimeNoFanOutEnabled
+faceTimeInvitationEnabled
 crrHandleRecommendation
 TB,R,N
 countByEnumeratingWithState:objects:count:
@@ -816,6 +837,9 @@ initWithDispatchQueue:
 isGreenTea
 featureFlags
 contacts
+faceTimeUtilities
+isFaceTimeable:
+normalizedHandleWithDestinationID:
 setConfirmationReason:
 setRestrictedContacts:
 intentHasUnresolvedLocalEmergencyContact:
@@ -849,6 +873,12 @@ successWithResolvedCallCapability:
 hasCamera
 isChinaSKUDevice
 isGroupCall
+isFaceTimeInvitationEnabled
+successWithResolvedString:
+runIDSQueryForStartCallIntent:
+sortFaceTimeHandles:faceTimeHandles:nonFaceTimeHandles:
+generateFaceTimeLink:
+absoluteString
 providerId
 globalEmergencyNumbers
 supportsTelephonyCalls
@@ -950,11 +980,13 @@ resolveDestinationTypeForStartCall:withCompletion:
 resolveContactsForStartCall:withCompletion:
 resolveCallCapabilityForStartCall:withCompletion:
 initWithFeatureFlags:
+initWithFeatureFlags:faceTimeUtilities:
 appResolver
 isFaceTimeNoFanOutEnabled
 responseForDialRequest:intent:
 responseForJoinRequest:intent:callProvider:
 callCapabilityFromRecentCall:
+resolveFaceTimeLinkForStartCall:withCompletion:
 resolvePreferredCallProviderForStartCall:withCompletion:
 setDataSource:
 setCoreAnalyticsLogger:
@@ -962,13 +994,16 @@ setAppResolver:
 setHandlesConfirmed:
 setContactIdentifiersConfirmed:
 setFeatureFlags:
+setFaceTimeUtilities:
 _appResolver
 _handlesConfirmed
 _contactIdentifiersConfirmed
 _featureFlags
+_faceTimeUtilities
 T@"NSMutableOrderedSet",&,N,V_handlesConfirmed
 T@"NSMutableOrderedSet",&,N,V_contactIdentifiersConfirmed
 T@"IntentHandlerFeatureFlags",&,N,V_featureFlags
+T@"FaceTimeUtilities",&,N,V_faceTimeUtilities
 T@"<StartCallIntentHandlerDataSource>",&,N,V_dataSource
 T@"<IntentHandlerCoreAnalyticsLogging>",&,N,V_coreAnalyticsLogger
 T@"<AppResolving>",&,N,V_appResolver
@@ -1081,6 +1116,20 @@ _unresolvedPerson
 _availableContacts
 T@"INPerson",R,N,V_unresolvedPerson
 T@"ContactPool",R,N,V_availableContacts
+canonicalAddressesForAddresses:
+defaultCenter
+mainQueue
+addObserverForName:object:queue:usingBlock:
+sharedManager
+beginQueryWithDestinations:
+removeObserver:
+isFaceTimeAudioAvailableForAnyDestinationInDestinations:
+isFaceTimeVideoAvailableForAnyDestinationInDestinations:
+isFaceTimeMultiwayAvailableForAnyDestinationInDestinations:
+provider
+conversationManager
+generateLinkWithInvitedMemberHandles:completionHandler:
+fetchSenderTUHandle:
 initWithINPerson:
 inPerson
 tuHandle
@@ -1212,6 +1261,7 @@ B40@0:8@16@24@32
 @"<AppResolving>"
 @"NSMutableOrderedSet"
 @"IntentHandlerFeatureFlags"
+@"FaceTimeUtilities"
 B24@0:8@"CNContact"16
 B32@0:8@"TUHandle"16@"NSArray"24
 @"CNFavorites"
@@ -1236,6 +1286,10 @@ v24@0:8@"NSObject<OS_dispatch_queue>"16
 @"INPerson"
 v32@0:8@"INHangUpCallIntent"16@?<v@?@"INHangUpCallIntentResponse">24
 @32@0:8@16q24
+v24@0:8@"NSArray"16
+B24@0:8@"NSArray"16
+@"TUHandle"24@0:8@"TUDialRequest"16
+@"TUConversationLink"24@0:8@"NSSet"16
 @"TUHandle"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1358,6 +1412,7 @@ v32@0:8@"INHangUpCallIntent"16@?<v@?@"INHangUpCallIntentResponse">24
 SiriPhone
 FaceTimeNoFanOut
 CRRHandleRecommendation
+FaceTimeInvitation
 v8@?0
 com.apple.TelephonyUtilities.PhoneIntentHandler.%@
 B16@?0@"TUConversation"8
@@ -1393,6 +1448,7 @@ ANY remoteParticipantHandles.value ==[c] %@
 service_provider = %@
 call_category == %@
 read == %d
+NoLinkGenerated
 LocalEmergency
 NonLocalEmergency
 None
@@ -1431,10 +1487,13 @@ found_in_app_contacts
 v16@?0@"IMSPIChat"8
 com.apple.messages.imcore.spi.qos-unspecified
 Contacts map did not contain UUID of recommended contact.
+v16@?0@"NSNotification"8
+v24@?0@"TUConversationLink"8@"NSError"16
 com.apple.calls.intenthandler
 Default
 SiriPhone/FaceTimeNoFanOut: %@
 SiriPhone/crrHandleRecommendation: %@
+SiriPhone/FaceTimeInvitation: %@
 sortMatchingContactsWithIdentifiers
 Person contains %ld contact IDs. Person: %@
 Looking up contact in the contact store matching identifiers: %@
@@ -1503,6 +1562,8 @@ crrHandleRecommendation is true
  enableTelemetry=YES 
 Handling start call intent: %@
 handleStartCall
+found a FaceTimeable personHandle: %@
+found a non-FaceTimeable personHandle: %@
 responseForDialRequest
 Determining response for dial request: %@
 responseForJoinRequest
@@ -1557,6 +1618,13 @@ deviceIdiom %ld supports video calling.
 Call capabilities do not support FaceTime video calls
 Devices primary display is disabled, e.g. user is on carDND mode. 
 GroupFaceTime is disabled for China SKU devices
+Resolving faceTimeLink for start call intent: %@
+Resolving faceTimeLink for person: %@
+Returning empty string as this is a telephony call or featureflag is disabled or destinations was empty
+No non-FaceTime handles found. Returning nil.
+This is watchOS or tvOS. Sending a placeholder string for returning unsupported dialog
+Link generation failed and nil was returned. Setting empty string.
+Returning FaceTimeLink resolution result: %@
 Resolving call provider for start call intent: %@
 The call provider %@ for redial or call back is not supported
 Telephony call was requested from a watch or for an emergency call and telephony is not supported. isWatch: %d, isEmergencyCall: %d
@@ -1729,6 +1797,11 @@ Handling Siri request to hang up: %@
 An incoming call exists. Declining it and returning success: %@
 At least one call exists. Hanging up and returning success
 No calls exist. Since call was hung up between confirm and handle, return success.
+starting dispatch semaphore for TUIDSLookupManagerStatusChangedNotification
+ending dispatch semaphore for TUIDSLookupManagerStatusChangedNotification
+canonical address: %@
+Failed to generate FaceTime link with error %@
+Successfully generated FaceTime link: %@
 Before deduping: %ld, After deduping: %ld
 All persons have equivalent handle values
 Converting CHRecentCall %@ to INCallRecord.
@@ -1777,6 +1850,7 @@ ConversationPersonFilter
 HangUpCallIntentHandler
 INHangUpCallIntentHandling
 ContactSlotResolutionHelper
+FaceTimeUtilities
 INPersonWrapper
 INPersonDeduplicator
 CallRecordConverter
@@ -1804,6 +1878,7 @@ TQ,R
 T#,R
 T@"NSString",R,C
 faceTimeNoFanOutEnabled
+faceTimeInvitationEnabled
 crrHandleRecommendation
 TB,R,N
 countByEnumeratingWithState:objects:count:
@@ -2173,6 +2248,9 @@ initWithDispatchQueue:
 isGreenTea
 featureFlags
 contacts
+faceTimeUtilities
+isFaceTimeable:
+normalizedHandleWithDestinationID:
 setConfirmationReason:
 setRestrictedContacts:
 intentHasUnresolvedLocalEmergencyContact:
@@ -2206,6 +2284,12 @@ successWithResolvedCallCapability:
 hasCamera
 isChinaSKUDevice
 isGroupCall
+isFaceTimeInvitationEnabled
+successWithResolvedString:
+runIDSQueryForStartCallIntent:
+sortFaceTimeHandles:faceTimeHandles:nonFaceTimeHandles:
+generateFaceTimeLink:
+absoluteString
 providerId
 globalEmergencyNumbers
 supportsTelephonyCalls
@@ -2307,11 +2391,13 @@ resolveDestinationTypeForStartCall:withCompletion:
 resolveContactsForStartCall:withCompletion:
 resolveCallCapabilityForStartCall:withCompletion:
 initWithFeatureFlags:
+initWithFeatureFlags:faceTimeUtilities:
 appResolver
 isFaceTimeNoFanOutEnabled
 responseForDialRequest:intent:
 responseForJoinRequest:intent:callProvider:
 callCapabilityFromRecentCall:
+resolveFaceTimeLinkForStartCall:withCompletion:
 resolvePreferredCallProviderForStartCall:withCompletion:
 setDataSource:
 setCoreAnalyticsLogger:
@@ -2319,13 +2405,16 @@ setAppResolver:
 setHandlesConfirmed:
 setContactIdentifiersConfirmed:
 setFeatureFlags:
+setFaceTimeUtilities:
 _appResolver
 _handlesConfirmed
 _contactIdentifiersConfirmed
 _featureFlags
+_faceTimeUtilities
 T@"NSMutableOrderedSet",&,N,V_handlesConfirmed
 T@"NSMutableOrderedSet",&,N,V_contactIdentifiersConfirmed
 T@"IntentHandlerFeatureFlags",&,N,V_featureFlags
+T@"FaceTimeUtilities",&,N,V_faceTimeUtilities
 T@"<StartCallIntentHandlerDataSource>",&,N,V_dataSource
 T@"<IntentHandlerCoreAnalyticsLogging>",&,N,V_coreAnalyticsLogger
 T@"<AppResolving>",&,N,V_appResolver
@@ -2438,6 +2527,20 @@ _unresolvedPerson
 _availableContacts
 T@"INPerson",R,N,V_unresolvedPerson
 T@"ContactPool",R,N,V_availableContacts
+canonicalAddressesForAddresses:
+defaultCenter
+mainQueue
+addObserverForName:object:queue:usingBlock:
+sharedManager
+beginQueryWithDestinations:
+removeObserver:
+isFaceTimeAudioAvailableForAnyDestinationInDestinations:
+isFaceTimeVideoAvailableForAnyDestinationInDestinations:
+isFaceTimeMultiwayAvailableForAnyDestinationInDestinations:
+provider
+conversationManager
+generateLinkWithInvitedMemberHandles:completionHandler:
+fetchSenderTUHandle:
 initWithINPerson:
 inPerson
 tuHandle
@@ -2569,6 +2672,7 @@ B40@0:8@16@24@32
 @"<AppResolving>"
 @"NSMutableOrderedSet"
 @"IntentHandlerFeatureFlags"
+@"FaceTimeUtilities"
 B24@0:8@"CNContact"16
 B32@0:8@"TUHandle"16@"NSArray"24
 @"CNFavorites"
@@ -2593,6 +2697,10 @@ v24@0:8@"NSObject<OS_dispatch_queue>"16
 @"INPerson"
 v32@0:8@"INHangUpCallIntent"16@?<v@?@"INHangUpCallIntentResponse">24
 @32@0:8@16q24
+v24@0:8@"NSArray"16
+B24@0:8@"NSArray"16
+@"TUHandle"24@0:8@"TUDialRequest"16
+@"TUConversationLink"24@0:8@"NSSet"16
 @"TUHandle"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

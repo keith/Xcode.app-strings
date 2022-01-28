@@ -17,6 +17,9 @@ v8@?0
 v16@?0@"NSError"8
 v24@?0@"SCLSchoolModeServerSettings"8@"NSError"16
 v20@?0B8@"NSError"12
+initial
+resumed
+invalidated
 version
 isEnabled
 recurrences
@@ -47,7 +50,6 @@ B24@?0@"SCLTransportController"8@"NSDictionary"16
 IDSCopyIDForDevice returned nil for device %@
 acquired
 unacquired
-invalidated
 <%@ %p (%@); %@>
 v24@?0@"SCLSuppressSchoolModeAssertion"8@"NSError"16
 -[SCLSchoolMode init]
@@ -116,6 +118,7 @@ com.apple.schooltime
 Cannot overwrite existing schedule for initial sync.
 v16@?0@"SCLPersistentSettings"8
 The schedule is invalid
+Activation was rejected because Schooltime is no longer in schedule.
 com.apple.Schooltime.unscheduledActivation
 isAltAccount
 @"NSDictionary"8@?0
@@ -208,15 +211,17 @@ recoveryHistory
 [%{public}@] Connection was interrupted.
 [%{public}@] Connection was invalidated remotely.
 Resume SCLSchoolMode
-Activate SCLSchoolMode %@
-Failed to get initial settings for school mode: %@
+Activate SCLSchoolMode %{public}@
+Cannot resume an invalidated client %{public}@
+[%{public}@] Failed to get initial settings for school mode: %@
+[%{public}@] Failed to get settings for reconnecting to school mode: %@
 synchronous, updating server settings before applying
 Reconnect SCLSchoolMode
-[%{public}@] made new connection for reconnect: %{BOOL}d; isRunning: %{BOOL}d
+[%{public}@] made new connection for reconnect: %{BOOL}d; clientState: %@
 [%{public}@] new connection and previously running, resuming
 [%@] setActive %{BOOL}u error %@
 [%@] setActive %{BOOL}u success %{BOOL}u error %@
-Dropping connection and NOT reconnecting %@ - %@
+Marking connection as interrupted and NOT reconnecting %@ - %@
 [%{public}@] Applying server settings, oldState %@, newState %@
 Type: %d
 No transport controller for incoming message from %@; %@
@@ -231,7 +236,7 @@ Acquire suppression assertion sync
 Suppression connection interrupted - needs reconnect = %{BOOL}d
 Suppression connection invalidated. Further attempts to acquire suppression assertion will fail.
 SetActive
-[%@] setActive:%{BOOL}d
+[%@] setActive:%{BOOL}d options:%@
 [%@] setActive complete success:%{BOOL}d; error %@
 ApplyScheduleSettings
 Apply schedule settings: %{public}@
@@ -625,6 +630,10 @@ configuration
 targetQueue
 _reconnectToServer
 dealloc
+clientState
+setInvalidationHandler:
+setInterruptionHandler:
+invalidate
 testingEndpoint
 initWithListenerEndpoint:
 initWithMachServiceName:options:
@@ -632,9 +641,8 @@ setExportedObject:
 setExportedInterface:
 setRemoteObjectInterface:
 _setQueue:
-_dropConnection
-setInterruptionHandler:
-setInvalidationHandler:
+_connectionDidInterrupt
+_connectionDidInvalidate
 resume
 applyServerSettings:
 loadsSynchronously
@@ -643,14 +651,13 @@ remoteObjectProxyWithErrorHandler:
 pairingID
 state
 connectWithPairingID:identifier:completion:
-isRunning
 scheduleSettings
 isLoaded
+setClientState:
 connection
-invalidate
 serverWithErrorHandler:
 applySchedule:completion:
-setActive:completion:
+setActive:options:completion:
 fetchRecentUnlockHistoryItemsWithCompletion:
 addUnlockHistoryItem:completion:
 deleteHistoryWithCompletion:
@@ -668,20 +675,22 @@ applyScheduleSettings:completion:
 setDelegate:
 setConnection:
 setConfiguration:
-setRunning:
+connectionState
+setConnectionState:
 _lock
 _connectionLock
 _serverSettings
 _restartNotificationToken
-_running
 _delegate
 _connection
 _configuration
+_connectionState
+_clientState
 T@"<SCLSchoolModeXPCClientDelegate>",W,N,V_delegate
 T@"NSXPCConnection",&,N,V_connection
 T@"SCLSchoolModeConfiguration",&,N,V_configuration
-running
-TB,N,GisRunning,V_running
+Tq,N,V_connectionState
+Tq,N,V_clientState
 T@"SCLState",R,N
 T@"SCLScheduleSettings",R,N
 loaded
@@ -1010,6 +1019,7 @@ schoolModeDidUpdateUnlockHistory:
 schoolMode:didLoadScheduleSettings:
 schoolModeDidLoad:
 initWithIdentifier:
+setActive:completion:
 _xpcClient
 _resumeState
 TQ,V_resumeState
@@ -1337,6 +1347,7 @@ activeDurationAnalyticsSource
 addClient:
 removeClient:
 applySchedule:error:
+setActive:options:error:
 purgeOldHistoryItems
 nrDevice
 isReady
@@ -1780,9 +1791,10 @@ B32@0:8@16@24
 Vv24@0:8@16
 Vv24@0:8@"SCLSchoolModeServerSettings"16
 v32@0:8@16@?24
-v28@0:8B16@?20
+v36@0:8B16Q20@?28
 v24@0:8@?16
 @24@0:8@?16
+v24@0:8q16
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"SCLSchoolModeServerSettings"
 @"<SCLSchoolModeXPCClientDelegate>"
@@ -1792,7 +1804,6 @@ v24@0:8@?16
 @"NSMutableArray"
 {?="version"b1"isEnabled"b1}
 @"SCLScheduleTime"
-v24@0:8q16
 v32@0:8@16@24
 @"SCLSettingsSyncStateMachine"
 @24@0:8q16
@@ -1860,6 +1871,7 @@ B24@0:8o^@16
 v40@0:8@"SCLSchoolModeXPCClient"16@"SCLState"24@"SCLState"32
 v32@0:8@"SCLSchoolModeXPCClient"16@"SCLScheduleSettings"24
 v24@0:8@"SCLSchoolModeXPCClient"16
+v28@0:8B16@?20
 @"SCLSchoolModeXPCClient"
 @"NSXPCListenerEndpoint"
 @"<SCLSchoolModeDelegate>"
@@ -1917,6 +1929,7 @@ v36@0:8@"SCLTransportController"16@"SCLScheduleSettings"24B32
 ^{os_state_data_s=I(?=b32I){os_state_data_decoder_s=[64c][64c]}[64c][0C]}24@0:8^{os_state_hints_s=I*II}16
 B32@0:8@16^@24
 B36@0:8@16B24^@28
+B36@0:8B16Q20^@28
 @"SCLSchoolModeCoordinatorConfiguration"
 @"NSMutableSet"
 @"NSURL"
@@ -1957,11 +1970,11 @@ v24@0:8@"SCLSuppressSchoolModeAssertionClient"16
 q24@0:8@16
 @40@0:8@16Q24@32
 Vv32@0:8@16@?24
-Vv28@0:8B16@?20
+Vv36@0:8B16Q20@?28
 Vv24@0:8@?16
 Vv40@0:8@"NSUUID"16@"NSString"24@?<v@?@"SCLSchoolModeServerSettings"@"NSError">32
 Vv32@0:8@"SCLScheduleSettings"16@?<v@?B@"NSError">24
-Vv28@0:8B16@?<v@?B@"NSError">20
+Vv36@0:8B16Q20@?<v@?B@"NSError">28
 Vv24@0:8@?<v@?@"NSArray"@"NSError">16
 Vv32@0:8@"SCLUnlockHistoryItem"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?B@"NSError">16
@@ -1997,6 +2010,9 @@ v8@?0
 v16@?0@"NSError"8
 v24@?0@"SCLSchoolModeServerSettings"8@"NSError"16
 v20@?0B8@"NSError"12
+initial
+resumed
+invalidated
 version
 isEnabled
 recurrences
@@ -2027,7 +2043,6 @@ B24@?0@"SCLTransportController"8@"NSDictionary"16
 IDSCopyIDForDevice returned nil for device %@
 acquired
 unacquired
-invalidated
 <%@ %p (%@); %@>
 v24@?0@"SCLSuppressSchoolModeAssertion"8@"NSError"16
 -[SCLSchoolMode init]
@@ -2096,6 +2111,7 @@ com.apple.schooltime
 Cannot overwrite existing schedule for initial sync.
 v16@?0@"SCLPersistentSettings"8
 The schedule is invalid
+Activation was rejected because Schooltime is no longer in schedule.
 com.apple.Schooltime.unscheduledActivation
 isAltAccount
 @"NSDictionary"8@?0
@@ -2188,15 +2204,17 @@ recoveryHistory
 [%{public}@] Connection was interrupted.
 [%{public}@] Connection was invalidated remotely.
 Resume SCLSchoolMode
-Activate SCLSchoolMode %@
-Failed to get initial settings for school mode: %@
+Activate SCLSchoolMode %{public}@
+Cannot resume an invalidated client %{public}@
+[%{public}@] Failed to get initial settings for school mode: %@
+[%{public}@] Failed to get settings for reconnecting to school mode: %@
 synchronous, updating server settings before applying
 Reconnect SCLSchoolMode
-[%{public}@] made new connection for reconnect: %{BOOL}d; isRunning: %{BOOL}d
+[%{public}@] made new connection for reconnect: %{BOOL}d; clientState: %@
 [%{public}@] new connection and previously running, resuming
 [%@] setActive %{BOOL}u error %@
 [%@] setActive %{BOOL}u success %{BOOL}u error %@
-Dropping connection and NOT reconnecting %@ - %@
+Marking connection as interrupted and NOT reconnecting %@ - %@
 [%{public}@] Applying server settings, oldState %@, newState %@
 No transport controller for incoming message from %@; %@
 Type: %d
@@ -2211,7 +2229,7 @@ Acquire suppression assertion sync
 Suppression connection interrupted - needs reconnect = %{BOOL}d
 Suppression connection invalidated. Further attempts to acquire suppression assertion will fail.
 SetActive
-[%@] setActive:%{BOOL}d
+[%@] setActive:%{BOOL}d options:%@
 [%@] setActive complete success:%{BOOL}d; error %@
 ApplyScheduleSettings
 Apply schedule settings: %{public}@
@@ -2588,6 +2606,10 @@ configuration
 targetQueue
 _reconnectToServer
 dealloc
+clientState
+setInvalidationHandler:
+setInterruptionHandler:
+invalidate
 testingEndpoint
 initWithListenerEndpoint:
 initWithMachServiceName:options:
@@ -2595,9 +2617,8 @@ setExportedObject:
 setExportedInterface:
 setRemoteObjectInterface:
 _setQueue:
-_dropConnection
-setInterruptionHandler:
-setInvalidationHandler:
+_connectionDidInterrupt
+_connectionDidInvalidate
 resume
 applyServerSettings:
 loadsSynchronously
@@ -2606,14 +2627,13 @@ remoteObjectProxyWithErrorHandler:
 pairingID
 state
 connectWithPairingID:identifier:completion:
-isRunning
 scheduleSettings
 isLoaded
+setClientState:
 connection
-invalidate
 serverWithErrorHandler:
 applySchedule:completion:
-setActive:completion:
+setActive:options:completion:
 fetchRecentUnlockHistoryItemsWithCompletion:
 addUnlockHistoryItem:completion:
 deleteHistoryWithCompletion:
@@ -2631,20 +2651,22 @@ applyScheduleSettings:completion:
 setDelegate:
 setConnection:
 setConfiguration:
-setRunning:
+connectionState
+setConnectionState:
 _lock
 _connectionLock
 _serverSettings
 _restartNotificationToken
-_running
 _delegate
 _connection
 _configuration
+_connectionState
+_clientState
 T@"<SCLSchoolModeXPCClientDelegate>",W,N,V_delegate
 T@"NSXPCConnection",&,N,V_connection
 T@"SCLSchoolModeConfiguration",&,N,V_configuration
-running
-TB,N,GisRunning,V_running
+Tq,N,V_connectionState
+Tq,N,V_clientState
 T@"SCLState",R,N
 T@"SCLScheduleSettings",R,N
 loaded
@@ -2973,6 +2995,7 @@ schoolModeDidUpdateUnlockHistory:
 schoolMode:didLoadScheduleSettings:
 schoolModeDidLoad:
 initWithIdentifier:
+setActive:completion:
 _xpcClient
 _resumeState
 TQ,V_resumeState
@@ -3300,6 +3323,7 @@ activeDurationAnalyticsSource
 addClient:
 removeClient:
 applySchedule:error:
+setActive:options:error:
 purgeOldHistoryItems
 nrDevice
 isReady
@@ -3743,9 +3767,10 @@ B32@0:8@16@24
 Vv24@0:8@16
 Vv24@0:8@"SCLSchoolModeServerSettings"16
 v32@0:8@16@?24
-v28@0:8B16@?20
+v36@0:8B16Q20@?28
 v24@0:8@?16
 @24@0:8@?16
+v24@0:8q16
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"SCLSchoolModeServerSettings"
 @"<SCLSchoolModeXPCClientDelegate>"
@@ -3755,7 +3780,6 @@ v24@0:8@?16
 @"NSMutableArray"
 {?="version"b1"isEnabled"b1}
 @"SCLScheduleTime"
-v24@0:8q16
 v32@0:8@16@24
 @"SCLSettingsSyncStateMachine"
 @24@0:8q16
@@ -3823,6 +3847,7 @@ B24@0:8o^@16
 v40@0:8@"SCLSchoolModeXPCClient"16@"SCLState"24@"SCLState"32
 v32@0:8@"SCLSchoolModeXPCClient"16@"SCLScheduleSettings"24
 v24@0:8@"SCLSchoolModeXPCClient"16
+v28@0:8B16@?20
 @"SCLSchoolModeXPCClient"
 @"NSXPCListenerEndpoint"
 @"<SCLSchoolModeDelegate>"
@@ -3880,6 +3905,7 @@ v36@0:8@"SCLTransportController"16@"SCLScheduleSettings"24B32
 ^{os_state_data_s=I(?=b32I){os_state_data_decoder_s=[64c][64c]}[64c][0C]}24@0:8^{os_state_hints_s=I*II}16
 B32@0:8@16^@24
 B36@0:8@16B24^@28
+B36@0:8B16Q20^@28
 @"SCLSchoolModeCoordinatorConfiguration"
 @"NSMutableSet"
 @"NSURL"
@@ -3920,11 +3946,11 @@ v24@0:8@"SCLSuppressSchoolModeAssertionClient"16
 q24@0:8@16
 @40@0:8@16Q24@32
 Vv32@0:8@16@?24
-Vv28@0:8B16@?20
+Vv36@0:8B16Q20@?28
 Vv24@0:8@?16
 Vv40@0:8@"NSUUID"16@"NSString"24@?<v@?@"SCLSchoolModeServerSettings"@"NSError">32
 Vv32@0:8@"SCLScheduleSettings"16@?<v@?B@"NSError">24
-Vv28@0:8B16@?<v@?B@"NSError">20
+Vv36@0:8B16Q20@?<v@?B@"NSError">28
 Vv24@0:8@?<v@?@"NSArray"@"NSError">16
 Vv32@0:8@"SCLUnlockHistoryItem"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?B@"NSError">16

@@ -71,6 +71,7 @@ END [%lld] %fs: TryUserCredentialsAndDSID  Error=%{public,signpost.telemetry:num
 "Obtaining recovery key from security for custodian recovery with UUID: %@"
 "Failed to obtain custodian recovery key from security with error: %@"
 "Attempting to recover octagon usign custodian recovery key"
+"Not implemented"
 cdp: enabled status check
 "XPC Error while checking if iCDP is enabled for DSID %@: %@"
 "Checking iCDP status for DSID %@ (checkWithServer=%i)"
@@ -221,6 +222,9 @@ cdp/generate-rk
 cdp/delete-rk
 "XPC Error while deleting a recovery key: %@"
 "Attempting to delete a recovery key"
+cdp/verify-rk
+"XPC Error while verifying a recovery key: %@"
+"Attempting to verify the recovery key"
 "XPC Error while fetching recovery key state: %@"
 cdp/rk-availability
 "Attempting to fetch recovery key state"
@@ -228,6 +232,9 @@ cdp/rk-availability
 "Recovery key availability - %@"
 "XPC Error while fetching recovery key availability."
 "Handling URL action: %@"
+cdp/fetch-escrow-devices
+"Failed to get remote object proxy for CDP daemon: %@"
+"Requesting list of escrow-record associated devices"
 cdp: recovery flow
 "XPC Error while recovering data: %@"
 "XPC Error while checking if the local device has a secret: %@"
@@ -273,6 +280,7 @@ _duplexSession
 _resumeContext
 _sharingChannel
 _type
+_isAttemptingBackupRestore
 _findMyiPhoneUUID
 _supportsSkipSignIn
 _altDSID
@@ -284,13 +292,15 @@ _beneficiaryAccount
 _beneficiaryWrappedKeyData
 __supportsCustodianRecovery
 _bundleID
+_validEscrowDeviceCount
 CDPContext was missing DSID when CircleProxyImpl was initialized. Its OTClique was not created.
 -[CDPCircleProxyImpl waitForUpdate]
 v16@?0@"NSError"8
+v8@?0
+v24@?0B8B12@"NSError"16
 ENABLED
 DISABLED
 v12@?0B8
-v8@?0
 personID
 escrowProxyUrl
 com.apple.Dataclass.Account
@@ -320,6 +330,8 @@ backupRecoveryThroughRemoteSecretDidReset
 backupRecoveryThroughRemoteSecretDidFail
 joinMethod
 attemptedMethods
+availableMethods
+escrowDeviceCount
 callingProcessBundleID
 iphone
 IPHONE
@@ -368,7 +380,6 @@ duration
 __OSINSTALL_ENVIRONMENT
 __AKSYNCBUBBLE
 <%@: %p> EventName: [%@], ReportData: %@
-v24@?0B8B12@"NSError"16
 v16@?0Q8
 v24@?0@"NSString"8@"NSError"16
 com.apple.cdp
@@ -389,6 +400,7 @@ command
 rejoin
 offline-secret-change
 regenerate
+v24@?0@"NSArray"8@"NSError"16
 findMyPhoneIdentity
 marketing-name
 HWModelStr
@@ -428,6 +440,7 @@ NSCopying
 Account
 CDPCircleProxyImpl
 CDPDCircleProxy
+CDPRecoveryKeySecretValidatorProxyImpl
 CDPAccount
 CDPAuthProviderProxy
 CDPCustodianRecoveryKeyController
@@ -516,6 +529,7 @@ cdpContext:showError:withCompletion:
 cdpContext:showError:withDefaultIndex:withCompletion:
 cdpContext:presentRecoveryKeyWithValidator:completion:
 cdpContext:promptForRecoveryKeyWithValidator:completion:
+cdpContext:promptForRecoveryKeyWithSecretValidator:completion:
 cdpContext:promptForBeneficiaryAccessKeyWithCompletion:
 interfaceWithProtocol:
 setClasses:forSelector:argumentIndex:ofReply:
@@ -551,6 +565,7 @@ recoverSquirrelWithContext:uiProvider:completion:
 localSecretChangedTo:secretType:context:uiProvider:completion:
 attemptToEscrowPreRecord:context:completion:
 finishOfflineLocalSecretChangeWithContext:uiProvider:completion:
+verifyRecoveryKeyWithContext:uiProvider:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:uiProvider:completion:
 generateNewRecoveryKeyWithContext:uiProvider:completion:
 deleteRecoveryKeyWithContext:uiProvider:completion:
@@ -566,6 +581,7 @@ clearFollowUpWithContext:completion:
 postFollowUpWithContext:completion:
 statusForDataPrivacyWithCompletion:
 updateDataPrivacyWithContext:completion:
+fetchEscrowRecordDevicesWithContext:usingCache:completion:
 saveTermsAcceptance:completion:
 fetchTermsAcceptanceForAccount:completion:
 setShouldNotify:
@@ -603,6 +619,8 @@ TB,N,V_force
 setRepairType:
 repairType
 contextForStateRepair
+bundleForClass:
+bundleIdentifier
 objectForKeyedSubscript:
 boolValue
 unsignedIntegerValue
@@ -653,6 +671,8 @@ didUseSMSVerification
 setDidUseSMSVerification:
 type
 setType:
+isAttemptingBackupRestore
+setIsAttemptingBackupRestore:
 cachedLocalSecret
 setCachedLocalSecret:
 cachedLocalSecretType
@@ -670,6 +690,8 @@ setDuplexSession:
 setResumeContext:
 failSignInOnError
 setFailSignInOnError:
+validEscrowDeviceCount
+setValidEscrowDeviceCount:
 _supportsCustodianRecovery
 set_supportsCustodianRecovery:
 setSharingChannel:
@@ -697,6 +719,7 @@ _isHSA2Account
 _isFederatedAccount
 _isBeneficiaryAccount
 _didUseSMSVerification
+_isAttemptingBackupRestore
 _guestMode
 _supportsSkipSignIn
 _failSignInOnError
@@ -721,6 +744,7 @@ _beneficiaryIdentifier
 __authProvider
 _duplexSession
 _resumeContext
+_validEscrowDeviceCount
 _sharingChannel
 __recoveryToken
 _custodianRecoveryInfo
@@ -730,6 +754,7 @@ T@"<CDPAuthProviderInternal>",&,N,V__authProvider
 T@"KCAESGCMDuplexSession",&,N,V_duplexSession
 T@"AKCircleRequestContext",&,N,V_resumeContext
 TB,N,V_failSignInOnError
+Tq,N,V_validEscrowDeviceCount
 T@"CDPCABackupRecoveryReporter",R,N
 TB,N,V__supportsCustodianRecovery
 T@"CUMessageSession",&,N,V_sharingChannel
@@ -754,6 +779,7 @@ TB,N,V_isHSA2Account
 TB,N,V_isFederatedAccount
 TB,N,V_isBeneficiaryAccount
 TB,N,V_didUseSMSVerification
+TB,N,V_isAttemptingBackupRestore
 T@"NSString",C,N,V_cachedLocalSecret
 TQ,N,V_cachedLocalSecretType
 TB,N,V_guestMode
@@ -852,6 +878,9 @@ sos_circleStatus:
 _clique
 _cdpContext
 T@"CDPContext",R,N,V_cdpContext
+initWithRemoteObject:
+_validator
+TQ,N,VsupportedEscapeOfferMask
 isICDPEnabledForDSID:checkWithServer:
 synchronousDaemonWithErrorHandler:
 connection
@@ -934,7 +963,6 @@ secretType
 cdpContext:beginRemoteApprovalWithValidator:
 reachabilityForInternetConnection
 currentReachabilityStatus
-initWithRemoteObject:
 initWithUIProvider:
 uiProvider
 setUiProvider:
@@ -952,6 +980,8 @@ backupRecoveryDidReset
 backupRecoverySetJoinFromBundleID:
 backupRecoveryDidFailWithError:
 _attemptedMethods
+_availableMethods
+_escrowDeviceCount
 dealloc
 postFollowUpWithContext:error:
 clearFollowUpWithContext:error:
@@ -962,14 +992,16 @@ addEntriesFromDictionary:
 setupDictionaryWithContext:
 lowercaseString
 containsString:
-stringByAppendingString:
 builderForKey:
+stringByAppendingString:
+builderForKey:inTable:
 addDeviceClass:
 addUnqualifiedDeviceClass:
 addSecretType:
 localizedString
 currentKey
 _key
+_table
 wrappingKeyData
 length
 wrappedKeyData
@@ -1087,7 +1119,6 @@ _initTime
 _clock_timebase
 _executeSyncOnMainThreadIfNeeded:
 isMainThread
-_validator
 context
 _handlerProxy
 _context
@@ -1125,7 +1156,6 @@ T@"NSString",C,N,V_icsc
 T@"NSString",C,N,V_recoveryKey
 T@"AKInheritanceAccessKey",C,N,V_accessKey
 isInternalBuild
-bundleForClass:
 localizedStringForKey:value:table:
 isPrimaryAccountHSA2
 _checkSecurityEligibility:
@@ -1162,6 +1192,7 @@ localSecretChangedTo:secretType:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:
 shouldPerformRepairWithOptionForceFetch:error:
 deleteRecoveryKey:
+verifyRecoveryKey:
 deleteRecoveryKeyWithError:
 isRecoveryKeyAvailableWithError:
 generateRandomRecoveryKey:
@@ -1252,6 +1283,7 @@ v32@0:8@"CDPContext"16@?<v@?@"NSDictionary"@"NSError">24
 v40@0:8@"CDPContext"16@"NSError"24@?<v@?q>32
 v48@0:8@"CDPContext"16@"NSError"24q32@?<v@?q>40
 v40@0:8@"CDPContext"16@"<CDPRecoveryKeyValidatorInternal>"24@?<v@?B@"NSError">32
+v40@0:8@"CDPContext"16@"<CDPRemoteDeviceSecretValidatorProtocolInternal>"24@?<v@?B@"NSError">32
 v32@0:8@"CDPContext"16@?<v@?@"AKInheritanceAccessKey"@"NSError">24
 v32@0:8@16Q24
 v24@0:8@16
@@ -1279,6 +1311,7 @@ Vv24@0:8@?16
 v28@0:8B16@?20
 v48@0:8@16@24@32@?40
 Vv32@0:8@16@?24
+Vv36@0:8@16B24@?28
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?BB@"NSError">32
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?B@"NSError">32
 v36@0:8@"CDPContext"16B24@?<v@?B@"NSError">28
@@ -1293,6 +1326,7 @@ v48@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@"<CDPAuthProviderInterna
 v32@0:8@"CDPFollowUpContext"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?Q@"NSError">16
 Vv32@0:8@"CDPUpdateDataPrivacyContext"16@?<v@?@"CDPUpdateDataPrivacyContext"@"NSError">24
+Vv36@0:8@"CDPContext"16B24@?<v@?@"NSArray"@"NSError">28
 v32@0:8@"NSDictionary"16@?<v@?@"NSError">24
 v32@0:8@"ACAccount"16@?<v@?@"NSDictionary"@"NSError">24
 @24@0:8@16
@@ -1335,12 +1369,14 @@ q24@0:8^@16
 B20@0:8B16
 @"OTClique"
 @"CDPContext"
+@"<CDPRemoteDeviceSecretValidatorProtocol>"
 B28@0:8@16B24
 @"<CDPAuthProvider>"
 @24@0:8Q16
 @"NSArray"
 @"<CDPStateUIProvider>"
 @"CDPDaemonConnection"
+@32@0:8@16@24
 @"NSDate"
 B24@0:8q16
 @24@0:8q16
@@ -1348,8 +1384,6 @@ B24@0:8q16
 d24@0:8Q16
 @"NSMutableDictionary"
 {mach_timebase_info="numer"I"denom"I}
-@32@0:8@16@24
-@"<CDPRemoteDeviceSecretValidatorProtocol>"
 @"<CDPLocalDeviceSecretHandlerProtocol>"
 @"<CDPRecoveryKeyValidator>"
 v40@0:8@16@?24@?32
@@ -1444,6 +1478,7 @@ END [%lld] %fs: TryUserCredentialsAndDSID  Error=%{public,signpost.telemetry:num
 "Obtaining recovery key from security for custodian recovery with UUID: %@"
 "Failed to obtain custodian recovery key from security with error: %@"
 "Attempting to recover octagon usign custodian recovery key"
+"Not implemented"
 cdp: enabled status check
 "XPC Error while checking if iCDP is enabled for DSID %@: %@"
 "Checking iCDP status for DSID %@ (checkWithServer=%i)"
@@ -1594,6 +1629,9 @@ cdp/generate-rk
 cdp/delete-rk
 "XPC Error while deleting a recovery key: %@"
 "Attempting to delete a recovery key"
+cdp/verify-rk
+"XPC Error while verifying a recovery key: %@"
+"Attempting to verify the recovery key"
 "XPC Error while fetching recovery key state: %@"
 cdp/rk-availability
 "Attempting to fetch recovery key state"
@@ -1601,6 +1639,9 @@ cdp/rk-availability
 "Recovery key availability - %@"
 "XPC Error while fetching recovery key availability."
 "Handling URL action: %@"
+cdp/fetch-escrow-devices
+"Failed to get remote object proxy for CDP daemon: %@"
+"Requesting list of escrow-record associated devices"
 cdp: recovery flow
 "XPC Error while recovering data: %@"
 "XPC Error while checking if the local device has a secret: %@"
@@ -1646,6 +1687,7 @@ _duplexSession
 _resumeContext
 _sharingChannel
 _type
+_isAttemptingBackupRestore
 _findMyiPhoneUUID
 _supportsSkipSignIn
 _altDSID
@@ -1657,13 +1699,15 @@ _beneficiaryAccount
 _beneficiaryWrappedKeyData
 __supportsCustodianRecovery
 _bundleID
+_validEscrowDeviceCount
 CDPContext was missing DSID when CircleProxyImpl was initialized. Its OTClique was not created.
 -[CDPCircleProxyImpl waitForUpdate]
 v16@?0@"NSError"8
+v8@?0
+v24@?0B8B12@"NSError"16
 ENABLED
 DISABLED
 v12@?0B8
-v8@?0
 personID
 escrowProxyUrl
 com.apple.Dataclass.Account
@@ -1693,6 +1737,8 @@ backupRecoveryThroughRemoteSecretDidReset
 backupRecoveryThroughRemoteSecretDidFail
 joinMethod
 attemptedMethods
+availableMethods
+escrowDeviceCount
 callingProcessBundleID
 iphone
 IPHONE
@@ -1741,7 +1787,6 @@ duration
 __OSINSTALL_ENVIRONMENT
 __AKSYNCBUBBLE
 <%@: %p> EventName: [%@], ReportData: %@
-v24@?0B8B12@"NSError"16
 v16@?0Q8
 v24@?0@"NSString"8@"NSError"16
 com.apple.cdp
@@ -1762,6 +1807,7 @@ command
 rejoin
 offline-secret-change
 regenerate
+v24@?0@"NSArray"8@"NSError"16
 findMyPhoneIdentity
 marketing-name
 HWModelStr
@@ -1801,6 +1847,7 @@ NSCopying
 Account
 CDPCircleProxyImpl
 CDPDCircleProxy
+CDPRecoveryKeySecretValidatorProxyImpl
 CDPAccount
 CDPAuthProviderProxy
 CDPCustodianRecoveryKeyController
@@ -1889,6 +1936,7 @@ cdpContext:showError:withCompletion:
 cdpContext:showError:withDefaultIndex:withCompletion:
 cdpContext:presentRecoveryKeyWithValidator:completion:
 cdpContext:promptForRecoveryKeyWithValidator:completion:
+cdpContext:promptForRecoveryKeyWithSecretValidator:completion:
 cdpContext:promptForBeneficiaryAccessKeyWithCompletion:
 interfaceWithProtocol:
 setClasses:forSelector:argumentIndex:ofReply:
@@ -1924,6 +1972,7 @@ recoverSquirrelWithContext:uiProvider:completion:
 localSecretChangedTo:secretType:context:uiProvider:completion:
 attemptToEscrowPreRecord:context:completion:
 finishOfflineLocalSecretChangeWithContext:uiProvider:completion:
+verifyRecoveryKeyWithContext:uiProvider:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:uiProvider:completion:
 generateNewRecoveryKeyWithContext:uiProvider:completion:
 deleteRecoveryKeyWithContext:uiProvider:completion:
@@ -1939,6 +1988,7 @@ clearFollowUpWithContext:completion:
 postFollowUpWithContext:completion:
 statusForDataPrivacyWithCompletion:
 updateDataPrivacyWithContext:completion:
+fetchEscrowRecordDevicesWithContext:usingCache:completion:
 saveTermsAcceptance:completion:
 fetchTermsAcceptanceForAccount:completion:
 setShouldNotify:
@@ -1976,6 +2026,8 @@ TB,N,V_force
 setRepairType:
 repairType
 contextForStateRepair
+bundleForClass:
+bundleIdentifier
 objectForKeyedSubscript:
 boolValue
 unsignedIntegerValue
@@ -2026,6 +2078,8 @@ didUseSMSVerification
 setDidUseSMSVerification:
 type
 setType:
+isAttemptingBackupRestore
+setIsAttemptingBackupRestore:
 cachedLocalSecret
 setCachedLocalSecret:
 cachedLocalSecretType
@@ -2043,6 +2097,8 @@ setDuplexSession:
 setResumeContext:
 failSignInOnError
 setFailSignInOnError:
+validEscrowDeviceCount
+setValidEscrowDeviceCount:
 _supportsCustodianRecovery
 set_supportsCustodianRecovery:
 setSharingChannel:
@@ -2070,6 +2126,7 @@ _isHSA2Account
 _isFederatedAccount
 _isBeneficiaryAccount
 _didUseSMSVerification
+_isAttemptingBackupRestore
 _guestMode
 _supportsSkipSignIn
 _failSignInOnError
@@ -2094,6 +2151,7 @@ _beneficiaryIdentifier
 __authProvider
 _duplexSession
 _resumeContext
+_validEscrowDeviceCount
 _sharingChannel
 __recoveryToken
 _custodianRecoveryInfo
@@ -2103,6 +2161,7 @@ T@"<CDPAuthProviderInternal>",&,N,V__authProvider
 T@"KCAESGCMDuplexSession",&,N,V_duplexSession
 T@"AKCircleRequestContext",&,N,V_resumeContext
 TB,N,V_failSignInOnError
+Tq,N,V_validEscrowDeviceCount
 T@"CDPCABackupRecoveryReporter",R,N
 TB,N,V__supportsCustodianRecovery
 T@"CUMessageSession",&,N,V_sharingChannel
@@ -2127,6 +2186,7 @@ TB,N,V_isHSA2Account
 TB,N,V_isFederatedAccount
 TB,N,V_isBeneficiaryAccount
 TB,N,V_didUseSMSVerification
+TB,N,V_isAttemptingBackupRestore
 T@"NSString",C,N,V_cachedLocalSecret
 TQ,N,V_cachedLocalSecretType
 TB,N,V_guestMode
@@ -2225,6 +2285,9 @@ sos_circleStatus:
 _clique
 _cdpContext
 T@"CDPContext",R,N,V_cdpContext
+initWithRemoteObject:
+_validator
+TQ,N,VsupportedEscapeOfferMask
 isICDPEnabledForDSID:checkWithServer:
 synchronousDaemonWithErrorHandler:
 connection
@@ -2307,7 +2370,6 @@ secretType
 cdpContext:beginRemoteApprovalWithValidator:
 reachabilityForInternetConnection
 currentReachabilityStatus
-initWithRemoteObject:
 initWithUIProvider:
 uiProvider
 setUiProvider:
@@ -2325,6 +2387,8 @@ backupRecoveryDidReset
 backupRecoverySetJoinFromBundleID:
 backupRecoveryDidFailWithError:
 _attemptedMethods
+_availableMethods
+_escrowDeviceCount
 dealloc
 postFollowUpWithContext:error:
 clearFollowUpWithContext:error:
@@ -2335,14 +2399,16 @@ addEntriesFromDictionary:
 setupDictionaryWithContext:
 lowercaseString
 containsString:
-stringByAppendingString:
 builderForKey:
+stringByAppendingString:
+builderForKey:inTable:
 addDeviceClass:
 addUnqualifiedDeviceClass:
 addSecretType:
 localizedString
 currentKey
 _key
+_table
 wrappingKeyData
 length
 wrappedKeyData
@@ -2460,7 +2526,6 @@ _initTime
 _clock_timebase
 _executeSyncOnMainThreadIfNeeded:
 isMainThread
-_validator
 context
 _handlerProxy
 _context
@@ -2498,7 +2563,6 @@ T@"NSString",C,N,V_icsc
 T@"NSString",C,N,V_recoveryKey
 T@"AKInheritanceAccessKey",C,N,V_accessKey
 isInternalBuild
-bundleForClass:
 localizedStringForKey:value:table:
 isPrimaryAccountHSA2
 _checkSecurityEligibility:
@@ -2535,6 +2599,7 @@ localSecretChangedTo:secretType:completion:
 finishCyrusFlowAfterTermsAgreementWithContext:
 shouldPerformRepairWithOptionForceFetch:error:
 deleteRecoveryKey:
+verifyRecoveryKey:
 deleteRecoveryKeyWithError:
 isRecoveryKeyAvailableWithError:
 generateRandomRecoveryKey:
@@ -2625,6 +2690,7 @@ v32@0:8@"CDPContext"16@?<v@?@"NSDictionary"@"NSError">24
 v40@0:8@"CDPContext"16@"NSError"24@?<v@?q>32
 v48@0:8@"CDPContext"16@"NSError"24q32@?<v@?q>40
 v40@0:8@"CDPContext"16@"<CDPRecoveryKeyValidatorInternal>"24@?<v@?B@"NSError">32
+v40@0:8@"CDPContext"16@"<CDPRemoteDeviceSecretValidatorProtocolInternal>"24@?<v@?B@"NSError">32
 v32@0:8@"CDPContext"16@?<v@?@"AKInheritanceAccessKey"@"NSError">24
 v32@0:8@16Q24
 v24@0:8@16
@@ -2652,6 +2718,7 @@ Vv24@0:8@?16
 v28@0:8B16@?20
 v48@0:8@16@24@32@?40
 Vv32@0:8@16@?24
+Vv36@0:8@16B24@?28
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?BB@"NSError">32
 v40@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@?<v@?B@"NSError">32
 v36@0:8@"CDPContext"16B24@?<v@?B@"NSError">28
@@ -2666,6 +2733,7 @@ v48@0:8@"CDPContext"16@"<CDPStateUIProviderInternal>"24@"<CDPAuthProviderInterna
 v32@0:8@"CDPFollowUpContext"16@?<v@?B@"NSError">24
 Vv24@0:8@?<v@?Q@"NSError">16
 Vv32@0:8@"CDPUpdateDataPrivacyContext"16@?<v@?@"CDPUpdateDataPrivacyContext"@"NSError">24
+Vv36@0:8@"CDPContext"16B24@?<v@?@"NSArray"@"NSError">28
 v32@0:8@"NSDictionary"16@?<v@?@"NSError">24
 v32@0:8@"ACAccount"16@?<v@?@"NSDictionary"@"NSError">24
 @24@0:8@16
@@ -2708,12 +2776,14 @@ q24@0:8^@16
 B20@0:8B16
 @"OTClique"
 @"CDPContext"
+@"<CDPRemoteDeviceSecretValidatorProtocol>"
 B28@0:8@16B24
 @"<CDPAuthProvider>"
 @24@0:8Q16
 @"NSArray"
 @"<CDPStateUIProvider>"
 @"CDPDaemonConnection"
+@32@0:8@16@24
 @"NSDate"
 B24@0:8q16
 @24@0:8q16
@@ -2721,8 +2791,6 @@ B24@0:8q16
 d24@0:8Q16
 @"NSMutableDictionary"
 {mach_timebase_info="numer"I"denom"I}
-@32@0:8@16@24
-@"<CDPRemoteDeviceSecretValidatorProtocol>"
 @"<CDPLocalDeviceSecretHandlerProtocol>"
 @"<CDPRecoveryKeyValidator>"
 v40@0:8@16@?24@?32
