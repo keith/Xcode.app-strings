@@ -31,13 +31,13 @@
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19T5210s</string>
+<string>19T5220s</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
 <string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19T5210s</string>
+<string>19T5220s</string>
 <key>DTSDKName</key>
 <string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
@@ -410,6 +410,9 @@ sandbox-media-api-host
 language-tag
 storekit1-media-api-rollout-rate
 allowed-custom-buy-params
+storekit-external-link-sheet-url
+storekit-external-purchases-sheet-url
+storekit-external-purchases-app-delete-alert
 automatic-downloads2/downloads-url
 pendingApps
 songDownloadDone
@@ -834,6 +837,7 @@ v16@?0@"MigratorConfiguration"8
 com.apple.appstored.MigrateQueue
 quantity
 com.apple.
+hasBeenAuthedForBuy
 NO_ACCOUNT_ON_WATCH_TITLE
 NO_ACCOUNT_ON_WATCH_MESSAGE
 NO_ACCOUNT_ON_WATCH_BUTTON
@@ -852,6 +856,7 @@ Received purchase response without a transaction but including an action URL wit
 In App
 No client available to handle authentication request
 No client available to handle dialog request
+Auth payment was cancelled
 No transactions in response
 Received SiWA purchase result without a credential or error
 iap_info_iaps
@@ -1024,12 +1029,14 @@ Miscellaneous
 attempts
 values
 CREATE TABLE IF NOT EXISTS iap_receipts (transaction_id TEXT, bundle_id TEXT, product_id TEXT, product_type INTEGER, transaction_date DATETIME, expiration_date DATETIME, revocation_date DATETIME, is_upgraded BOOL DEFAULT false, is_finished BOOL DEFAULT false, receipt TEXT NOT NULL, PRIMARY KEY (transaction_id, bundle_id) ON CONFLICT REPLACE);
-CREATE TABLE IF NOT EXISTS iap_subscription_status (bundle_id TEXT, subscription_group_id TEXT, last_updated DATETIME, renewal_info BLOB, PRIMARY KEY (bundle_id, subscription_group_id) ON CONFLICT REPLACE);
+CREATE TABLE IF NOT EXISTS iap_subscription_status (bundle_id TEXT, subscription_group_id TEXT, last_updated DATETIME, grace_period_expiration_date DATETIME, renewal_info BLOB, PRIMARY KEY (bundle_id, subscription_group_id) ON CONFLICT REPLACE);
 CREATE TABLE IF NOT EXISTS iap_receipts_properties (bundle_id TEXT PRIMARY KEY, revision TEXT, token TEXT, last_updated DATETIME)
 storekit_receipts
 DROP TABLE IF EXISTS iap_receipts;
 DROP TABLE IF EXISTS iap_subscription_status;
 DROP TABLE IF EXISTS iap_receipts_properties;
+ALTER TABLE iap_subscription_status ADD COLUMN grace_period_expiration_date DATETIME;
+v32@?0@"SQLiteEntity"8Q16^B24
 applicationSite
 accountSecurityLevel
 statusCode
@@ -1171,6 +1178,9 @@ purchase completed
 (CODE = %ld) %@
 code
 dictionary
+assetURL
+bundleIdentifier
+variantProduct
 deferredUpdates
 %@/%ld
 B16@?0@"NSError"8
@@ -1261,11 +1271,23 @@ repairError
 result
 com.apple.appstored.automaticUpdates
 AutomaticUpdatesAreEnabled
+com.apple.appstored.appInstallationMetadata
 appStoreAppsCount
 testFlightCount
 LastWeeklyAnalyticsPostDate
 @"NSDictionary"8@?0
 com.apple.appstored.repair
+com.apple.appstored.skanimpressioncreated
+com.apple.appstored.skanimpressionfailed
+com.apple.appstored.skanimpressionsent
+com.apple.appstored.skanreceivedbadpostback
+com.apple.appstored.skanpostbackmismatcheddata
+com.apple.appstored.skadnetworkpingbackcreated
+com.apple.appstored.skadnetworkpingbackcreationfailed
+com.apple.appstored.skadnetworkpingbacksucceeded
+com.apple.appstored.skadnetworkpingbackfailed
+com.apple.appstored.skadnetworkasyncpingbackfetchfailed
+com.apple.appstored.skadnetworkasyncpingbackfetchwarning
 watchos
 v32@?0@"MigratorConfiguration"8Q16^B24
 v32@?0@"NSString"8@"MigratorConfiguration"16^B24
@@ -1316,6 +1338,7 @@ packageURL
 taskMetrics
 storekit_revocations
 iap_subscription_status
+grace_period_expiration_date
 last_updated
 renewal_info
 subscription_group_id
@@ -1592,6 +1615,7 @@ adHocSignature
 adHocTimestamp
 transaction-id
 expiresDate
+gracePeriodExpiresDate
 hasMore
 isUpgraded
 lastTransactions
@@ -1703,7 +1727,6 @@ com.apple.itunesstored.private
 com.apple.storekit.client-override
 com.apple.storekit.request-data
 com.apple.developer.storekit.request-data
-NSAdvertisingAttributionReportEndpoint
 com.apple.appstored.StoreKit.MessageQueue
 %@(%ld)
 In-app purchases not allowed in App Clip
@@ -1725,7 +1748,6 @@ com.apple.developer.arcade-operations
 pbid
 paid
 offercodes
-Info.plist
 No client available to handled authenticate request
 No client available to handled server dialog
 No client available to handle engagement request
@@ -1761,6 +1783,7 @@ background
 Data consumer is missing
 v32@?0^{__CFURL=}8^{__CFDictionary=}16^{__CFError=}24
 Apple-Download-Type
+v16@?0@"DiagnosticMessage"8
 EnableDownloadBoosting
 com.apple.appstored.AppStoreService
 Could not find App Store
@@ -1864,6 +1887,8 @@ COMMIT TRANSACTION
 i16@?0^B8
 BEGIN DEFERRED TRANSACTION
 Statement from a different connection
+NSAdvertisingAttributionReportEndpoint
+Info.plist
 databases/%ld/items/edit
 com.apple.appstored.Environment
 storeSystem.db
@@ -2206,7 +2231,6 @@ INSERT OR REPLACE INTO
 DELETE FROM %@ WHERE %@ = ?;
 Unable to purchase discretionary item with no account
 Unable to authenticate for purchase with dsID but no username
-hasBeenAuthedForBuy
 There is no active account on the paired device
 Blocking sign in as there is no active account on the device
 SIGN_IN_TO_APP_STORE_TITLE
@@ -2540,7 +2564,6 @@ octaneClientUUID
 v24@?0@"ACAccount"8@"NSArray"16
 @"<NSCopying>"16@?0@"<UpdatableApp>"8
 background 
-v16@?0@"DiagnosticMessage"8
 v32@?0@"StoreItem"8Q16^B24
 com.apple.appstored.ThermalPressureMonitor
 elevated
@@ -3152,6 +3175,9 @@ countryCode2Char
 countryCode3Char
 createAppReceiptURL
 disablePurchaseIntentNotifications
+externalLinkSheetURL
+externalPurchasesSheetURL
+externalPurchasesSpringBoardAppDeleteAlertIsEnabled
 inAppPendingQueueURL
 inAppPendingQueueCountURL
 inAppTransactionDoneURL
@@ -3356,7 +3382,7 @@ reconcileUnfinishedTransactionIDs:forBundleID:logKey:
 currentRevisionForBundleID:
 initWithSubscriptionGroupID:reason:client:
 statuses
-setSubscriptionRenewalInfo:forGroupID:bundleID:logKey:
+setSubscriptionRenewalInfo:forGroupID:bundleID:gracePeriodExpirationDate:logKey:
 connectionForClient:
 remoteObject
 receivedStatuses:
@@ -3465,6 +3491,8 @@ unregisterNotificationClient:
 removeObject:
 setInvalidationHandler:
 registerNotificationClient:
+enableDiagnostics
+updateSharedPublisher:
 newServerWithCatalog:forMachServiceName:
 listener:shouldAcceptNewConnection:
 activeClientWithProcessInfo:
@@ -3880,13 +3908,16 @@ _status
 T@"IXAppInstallCoordinator",R,V_coordinator
 T@"NSUUID",R,V_externalID
 Tq,R,V_status
-initWithClientID:teamID:
+initWithClientID:teamID:serviceID:
 clientID
 teamID
+serviceID
 _clientID
 _teamID
+_serviceID
 T@"NSString",R,N,V_clientID
 T@"NSString",R,N,V_teamID
+T@"NSString",R,N,V_serviceID
 setValuesWithStoreItem:
 isUserInitiated
 updateType
@@ -4871,10 +4902,13 @@ setAuditTokenData:
 hasPrefix:
 ams_storefront
 ams_localiTunesAccountForAccountMediaType:
+isTestFlight
+_authenticateWithClientInfo:accountInfo:error:
 purchasesDisabledForAppClip
 shouldContinueTransactionWithNewStorefront:replyBlock:
 initWithPurchaseType:buyParams:
 setTeamID:
+setServiceID:
 setAdditionalHeaders:
 initWithPurchaseSIWA:bag:
 productIdentifier
@@ -4927,7 +4961,6 @@ purchase:handleAuthenticateRequest:completion:
 purchase:handleDialogRequest:completion:
 purchase:handleEngagementRequest:completion:
 initWithBuyParams:client:apiVersion:paymentDelegate:siwaAuthorizationInfo:
-_authenticateWithClientInfo:error:
 setAdditionalBuyParams:
 setAppAccountToken:
 setApplicationUsername:
@@ -6244,9 +6277,12 @@ T@"NSString",R,V_productVersion
 T@"NSUUID",R,V_bootSession
 device_decorateHeadersUsingDevice:
 _propertyForKey:bundleID:
+enumerateReceiptsForSubscriptionsInGracePeriodForBundleID:usingBlock:
 transactionForID:bundleID:
 isFinished
 distantPast
+_statusesForRenewalInfoBlob:subscriptionGroupID:bundleID:
+_latestTransactionReceiptForUnarchivedRenewalInfo:subscriptionGroupID:bundleID:outProductID:
 close
 _appInstallationMetadataDictionary
 _topicStringForTopic:
@@ -6386,7 +6422,6 @@ deliverNotifications:withBarrierBlock:
 deliverProgress:withBarrierBlock:
 hasConnection
 isDialogObserverAvailable
-enableDiagnostics
 _auditTokenData
 _enableDiagnostics
 hasSeenAppStore
@@ -6581,7 +6616,7 @@ validateSKAdNetworkImpression:withPublicKey:forBundleID:completion:
 addPostbacksFromDictionaries:forBundleID:completion:
 retrieveTestPostbacksForBundleID:completion:
 sendTestPingbackForBundleID:completion:
-developerPostbackURLForBundleID:urlString:completion:
+developerPostbackURLForBundleID:completion:
 invalidateBag
 transactionDeleted:productID:forBundleID:
 updatePort:
@@ -6678,9 +6713,10 @@ setIntegerValue:forIdentifier:forBundleID:
 getStringValueForIdentifier:forBundleID:
 setStringValue:forIdentifier:forBundleID:
 dataWithBytesNoCopy:length:freeWhenDone:
-serviceClient
 publisherWithServiceClient:
+serviceClient
 publishMessage:
+sharedPublisher
 publisherWithRequestToken:
 logCode:usingBlock:
 _initWithProgressCache:
@@ -7333,6 +7369,7 @@ TB,V_requiresPowerPluggedIn
 Tq,V_requestReason
 T@"NSUUID",&,V_requestUUID
 T@"NSNumber",&,V_taskPriority
+T@"NSString",&,V_variantID
 setValue:forKey:
 appUpdatesToFinish
 asyncTasks
@@ -7439,7 +7476,7 @@ downloadStatusChanged:
 downloadRemoved:
 allowPurchaseRequestData
 processDownloadsForTransactions:
-initWithContentsOfFile:
+advertisingAttributionReportEndpoint
 ams_message
 initialize
 downloadManager:updatedStatus:
@@ -7475,6 +7512,9 @@ refundRequestForTransactionId:replyBlock:
 manageSubscriptionsRequestWithReply:
 xcodeTestCertificatesWithReply:
 xcodeTestServerPortWithReplyBlock:
+canOpenGatewayWithReply:
+openGatewayWithReply:
+openAlternativeWithReply:
 registerArcadeAppWithRandomFromLib:randomFromLibLength:resultHandler:
 arcadeSubscriptionStatusWithNonce:resultHandler:
 repairArcadeApp
@@ -7494,6 +7534,7 @@ _finishPaymentQueue
 _paymentQueue
 _productRequestQueue
 _appTerminationQueue
+_galetteQueue
 _messageQueue
 _remoteObject
 T@"<ASDStoreKitClientProtocol>",R,N,V_remoteObject
@@ -7799,6 +7840,7 @@ _transactionWantsRollback
 T@"NSError",R,C,N
 T@"SQLiteConnectionOptions",R,C,N,V_options
 T@"<SQLiteConnectionDelegate>",W,N,V_delegate
+initWithContentsOfURL:error:
 initWithItems:
 _userDatabase
 _systemDatabase
@@ -8178,7 +8220,7 @@ shouldCancelPurchaseBatch
 setShouldCancelPurchaseBatch:
 setTriggeredQueueCheck:
 installAttributionPingbackFetchURLString
-installAttributionError
+installAttributionErrorString
 _itemErrors
 _isPreorder
 _shouldCancelPurchaseBatch
@@ -8188,7 +8230,7 @@ _clusterMappings
 _keybag
 _rangesToLoad
 _installAttributionPingbackFetchURLString
-_installAttributionError
+_installAttributionErrorString
 T@"NSArray",R,V_anonymousPings
 T@"NSArray",R,V_clusterMappings
 T@"NSData",R,V_keybag
@@ -8199,7 +8241,7 @@ TB,V_shouldCancelPurchaseBatch
 TB,V_triggeredQueueCheck
 T@"NSString",V_clientID
 T@"NSString",R,V_installAttributionPingbackFetchURLString
-T@"NSError",R,V_installAttributionError
+T@"NSString",R,V_installAttributionErrorString
 T@"SQLiteDatabaseStoreDescriptor",R
 modifyUsingTransactionClass:withBlock:
 database
@@ -8547,8 +8589,8 @@ containsString:
 receiptDataString
 isDSIDless
 _clientOverrides
-isTestFlight
 processID
+signerOrganization
 _clientOverrideEntitled
 _ignorePaymentRestriction
 _purchasesDisabledForAppClip
@@ -8558,6 +8600,7 @@ _isAppClip
 _processID
 _requestBundleID
 _deviceVendorIdentifier
+_signerOrganization
 _auditToken
 T{?=[8I]},R,N,V_auditToken
 Ti,R,N,V_processID
@@ -8575,6 +8618,8 @@ T@"NSString",R,N,V_requestBundleID
 Tq,R,N,V_storeExternalVersionID
 Tq,R,N,V_storeItemID
 TB,R,N,V_purchasesDisabledForAppClip
+T@"NSString",R,N,V_vendorName
+T@"NSString",R,N,V_signerOrganization
 _showInternalConnectionDialogWithError:
 _messageForError:
 _results
@@ -8808,6 +8853,7 @@ T@"NSArray",C,N,V_orderedBundleIDs
 removeConnectionWithUUID:
 subscriptionGroupID
 _parseResponse:
+_replaceDate:ifBeforeDate:
 _subscriptionGroupID
 _statuses
 T@"NSString",R,N,V_subscriptionGroupID
@@ -9552,6 +9598,7 @@ _cacheFamilyInfoLookupResult:forAccount:
 performTaskWithBlock:
 _pathForCachedFamilyInfoLookupResult
 _currentCachedFamilyInfoWithLogKey:
+initWithContentsOfFile:
 T@"<AMSBagProtocol>",&,N,V_bag
 lib_rfc3339String
 lib_dateHasPassed
@@ -10046,6 +10093,7 @@ AppInstallEntity
 XDCInstallRequest
 XDCCancelInstallResponse
 SQLiteConnection
+SKAN
 PurchaseHistoryHideShowRequest
 Environment
 InAppPurchaseIntentDatabaseSession
@@ -10695,7 +10743,7 @@ v48@0:8@"NSString"16Q24@"NSString"32@?<v@?@"NSError">40
 v48@0:8@"NSDictionary"16@"NSString"24@"NSString"32@?<v@?@"NSError">40
 v32@0:8@"NSString"16@?<v@?@"NSArray">24
 v32@0:8@"NSString"16@?<v@?@"NSDictionary">24
-v40@0:8@"NSString"16@"NSString"24@?<v@?@"NSString">32
+v32@0:8@"NSString"16@?<v@?@"NSURL">24
 v40@0:8Q16@24@32
 v40@0:8Q16@"NSString"24@"NSString"32
 v32@0:8@"NSArray"16@"NSString"24
@@ -10927,7 +10975,7 @@ v24@0:8d16
 @40@0:8i16@20@28B36
 {?=[8I]}16@0:8
 {?="val"[8I]}
-B48@0:8@16@24@32@40
+B56@0:8@16@24@32@40@48
 v32@0:8@"ASDAppEvent"16@?<v@?B@"NSError">24
 v32@0:8@"NSString"16@?<v@?B>24
 v32@0:8@"NSData"16@?<v@?@"NSData"@"NSError">24
@@ -10978,6 +11026,7 @@ q60@0:8@16@24B32@36@44^@52
 v48@0:8@16@24q32@40
 Q40@0:8@16@24^@32
 @"UpdatesContext"
+v32@0:8^@16@24
 v40@0:8^@16r^@24q32
 v40@0:8@16@24^@32
 v44@0:8@16@24B32^@36
@@ -11356,9 +11405,11 @@ Migrating from build: %{public}@ to build: %{public}@
 Upgrade Migration
 Queuing migration task: %{public}@
 Waiting for network before runing migrations
+[%{public}@] TF account not detected.
+[%{public}@] Attempting to use existing account.
 [%{public}@] Blocking sign in as there is no active account on the device
 [%{public}@] shouldContinueTransaction timed out for bundle ID: %{public}@. Not continuing transaction.
-[%{public}@] Running auth payment for %{public}@.
+[%{public}@] Running auth payment for %{public}@ with teamID: %{public}@ clientID: %{public}@ serviceID: %{public}@
 [%{public}@] Running payment for %@
 [%{public}@] Payment failed: %{public}@
 [%{public}@] Failed payment had a trigger queue check.
@@ -11378,8 +11429,10 @@ Waiting for network before runing migrations
 [%{public}@] Sending engagement request to the app store for purchase %{public}@.
 [%{public}@] Sending engagement request to the app store for purchase %{public}@
 [%{public}@] Payment result contained error: %{public}@
+[%{public}@] Auth payment result contained error: %{public}@
 [%{public}@] Payment completed with no transactions
 [%{public}@] Payment received more than one transaction: %@ Using only the first.
+[%{public}@][%{public}@] Auth credential archive error: %{public}@
 [%{public}@][%{public}@] Received SiWA purchase result without a credential or error
 [%{public}@]: Skipping import due to lack for bundleID / clusterID / clusterID for mapping: %{public}@
 [%{public}@]: Updated existing cluster mapping for: %{public}@
@@ -11642,6 +11695,12 @@ failed to get kern.bootsessionuuid
 [RF] Skipping transaction because the signed expiration date has passed
 Ignoring subscription renewal info with invalid group ID %{public}@
 Last updated date is invalid for %{public}@
+Failed to unarchive renewal info blob for %{public}@: %{public}@
+Failed to unarchive renewal info blob for %{public}@
+Failed to parse renewal info payload when checking for billing grace period for %{public}@: %{public}@
+Status for %{public}@ had no renewal info in a grace period
+Failed to unarchive renewal info data blob for %{public}@: %{public}@
+Failed to parse JWS when getting latest transaction for renewal info for %{public}@: %{public}@
 Ignoring subscription renewal info for %{public}@ with invalid product ID %{public}@
 Ignoring subscription renewal info for %{public}@ with no transaction data
 Recording weekly analytics events
@@ -11777,6 +11836,7 @@ Download::Unzip/BackPressureWait
 Attempting app usage migration
 Using the slow path to locate coordinator: %{public}@
 Unable to determine intent for coordinator: %{public}@
+Failed to parse renewal info JWS, assuming no grace period expiration field: %{public}@
 [%{public}@] No unified receipt in response
 [%{public}@] %ld transactions in response
 [%{public}@] No transaction receipt in response
@@ -11784,6 +11844,7 @@ Unable to determine intent for coordinator: %{public}@
 [%{public}@] Syncing server transactions
 [%{public}@] Error syncing server transactions %{public}@
 [%{public}@] Finished syncing server transactions
+Failed to unarchive renewal info blob: %{public}@
 [%{public}@] Receipt data string is not valid base64 %{private}@
 [%{public}@] Receipt format invalid in response %{private}@
 [%{public}@]: Found %ld products in receipt with ID %{public}@
@@ -11899,9 +11960,7 @@ Failed to renew app receipt for informing about revoked entitlements
 %{public}@: Processed download with ID: %{public}@
 Failed to get code redemption URL, error: %{public}@
 Failed to add query params to redeem URL
-[SKAdNetwork: Did not find Info.plist for app: %{public}@
-[SKAdNetwork: Did not find developer pingback domain in Info.plist
-[SKAdNetwork: Developer pingback domain is of unexpected type in Info.plist
+Failed to find app record: %@
 [%{public}@] [%{public}@]  Timed out refreshing receipt
 Stopping for idle-exit
 There are %lu open transaction(s):
@@ -12035,6 +12094,9 @@ Encountered exception while in transaction: %{public}@
 [%@]: Truncating database after corruption: %{public}@
 [%@]: Reopening database after IO error: %{public}@
 [%@]: Asking delegate to reset database after reopen: %{public}@
+[SKAdNetwork: Did not find Info.plist for app: %{public}@
+[SKAdNetwork: Did not find developer pingback domain in Info.plist
+[SKAdNetwork: Developer pingback domain is of unexpected type in Info.plist
 [%{public}@] Could not load download manifest with underlying error: %{public}@
 Got message URL from response
 Error in messages response: %{public}@
@@ -12586,7 +12648,7 @@ Purchased
 softlink:r:path:/System/Library/PrivateFrameworks/ASOctaneSupport.framework/ASOctaneSupport
 softlink:r:path:/System/Library/PrivateFrameworks/CoreDuet.framework/CoreDuet
 softlink:r:path:/System/Library/PrivateFrameworks/WebKitLegacy.framework/WebKitLegacy
-QHI"
+zPLR
 zPLR
 zPLR
 zPLR
@@ -12710,13 +12772,13 @@ zPLR
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19T5210s</string>
+<string>19T5220s</string>
 <key>DTPlatformName</key>
 <string>watchsimulator</string>
 <key>DTPlatformVersion</key>
 <string>8.5</string>
 <key>DTSDKBuild</key>
-<string>19T5210s</string>
+<string>19T5220s</string>
 <key>DTSDKName</key>
 <string>watchsimulator8.5.internal</string>
 <key>DTXcode</key>
@@ -13089,6 +13151,9 @@ sandbox-media-api-host
 language-tag
 storekit1-media-api-rollout-rate
 allowed-custom-buy-params
+storekit-external-link-sheet-url
+storekit-external-purchases-sheet-url
+storekit-external-purchases-app-delete-alert
 automatic-downloads2/downloads-url
 pendingApps
 songDownloadDone
@@ -13513,6 +13578,7 @@ v16@?0@"MigratorConfiguration"8
 com.apple.appstored.MigrateQueue
 quantity
 com.apple.
+hasBeenAuthedForBuy
 NO_ACCOUNT_ON_WATCH_TITLE
 NO_ACCOUNT_ON_WATCH_MESSAGE
 NO_ACCOUNT_ON_WATCH_BUTTON
@@ -13531,6 +13597,7 @@ Received purchase response without a transaction but including an action URL wit
 In App
 No client available to handle authentication request
 No client available to handle dialog request
+Auth payment was cancelled
 No transactions in response
 Received SiWA purchase result without a credential or error
 iap_info_iaps
@@ -13703,12 +13770,14 @@ Miscellaneous
 attempts
 values
 CREATE TABLE IF NOT EXISTS iap_receipts (transaction_id TEXT, bundle_id TEXT, product_id TEXT, product_type INTEGER, transaction_date DATETIME, expiration_date DATETIME, revocation_date DATETIME, is_upgraded BOOL DEFAULT false, is_finished BOOL DEFAULT false, receipt TEXT NOT NULL, PRIMARY KEY (transaction_id, bundle_id) ON CONFLICT REPLACE);
-CREATE TABLE IF NOT EXISTS iap_subscription_status (bundle_id TEXT, subscription_group_id TEXT, last_updated DATETIME, renewal_info BLOB, PRIMARY KEY (bundle_id, subscription_group_id) ON CONFLICT REPLACE);
+CREATE TABLE IF NOT EXISTS iap_subscription_status (bundle_id TEXT, subscription_group_id TEXT, last_updated DATETIME, grace_period_expiration_date DATETIME, renewal_info BLOB, PRIMARY KEY (bundle_id, subscription_group_id) ON CONFLICT REPLACE);
 CREATE TABLE IF NOT EXISTS iap_receipts_properties (bundle_id TEXT PRIMARY KEY, revision TEXT, token TEXT, last_updated DATETIME)
 storekit_receipts
 DROP TABLE IF EXISTS iap_receipts;
 DROP TABLE IF EXISTS iap_subscription_status;
 DROP TABLE IF EXISTS iap_receipts_properties;
+ALTER TABLE iap_subscription_status ADD COLUMN grace_period_expiration_date DATETIME;
+v32@?0@"SQLiteEntity"8Q16^B24
 applicationSite
 accountSecurityLevel
 statusCode
@@ -13850,6 +13919,9 @@ purchase completed
 (CODE = %ld) %@
 code
 dictionary
+assetURL
+bundleIdentifier
+variantProduct
 deferredUpdates
 %@/%ld
 B16@?0@"NSError"8
@@ -13940,11 +14012,23 @@ repairError
 result
 com.apple.appstored.automaticUpdates
 AutomaticUpdatesAreEnabled
+com.apple.appstored.appInstallationMetadata
 appStoreAppsCount
 testFlightCount
 LastWeeklyAnalyticsPostDate
 @"NSDictionary"8@?0
 com.apple.appstored.repair
+com.apple.appstored.skanimpressioncreated
+com.apple.appstored.skanimpressionfailed
+com.apple.appstored.skanimpressionsent
+com.apple.appstored.skanreceivedbadpostback
+com.apple.appstored.skanpostbackmismatcheddata
+com.apple.appstored.skadnetworkpingbackcreated
+com.apple.appstored.skadnetworkpingbackcreationfailed
+com.apple.appstored.skadnetworkpingbacksucceeded
+com.apple.appstored.skadnetworkpingbackfailed
+com.apple.appstored.skadnetworkasyncpingbackfetchfailed
+com.apple.appstored.skadnetworkasyncpingbackfetchwarning
 watchos
 v32@?0@"MigratorConfiguration"8Q16^B24
 v32@?0@"NSString"8@"MigratorConfiguration"16^B24
@@ -13995,6 +14079,7 @@ packageURL
 taskMetrics
 storekit_revocations
 iap_subscription_status
+grace_period_expiration_date
 last_updated
 renewal_info
 subscription_group_id
@@ -14271,6 +14356,7 @@ adHocSignature
 adHocTimestamp
 transaction-id
 expiresDate
+gracePeriodExpiresDate
 hasMore
 isUpgraded
 lastTransactions
@@ -14382,7 +14468,6 @@ com.apple.itunesstored.private
 com.apple.storekit.client-override
 com.apple.storekit.request-data
 com.apple.developer.storekit.request-data
-NSAdvertisingAttributionReportEndpoint
 com.apple.appstored.StoreKit.MessageQueue
 %@(%ld)
 In-app purchases not allowed in App Clip
@@ -14404,7 +14489,6 @@ com.apple.developer.arcade-operations
 pbid
 paid
 offercodes
-Info.plist
 No client available to handled authenticate request
 No client available to handled server dialog
 No client available to handle engagement request
@@ -14440,6 +14524,7 @@ background
 Data consumer is missing
 v32@?0^{__CFURL=}8^{__CFDictionary=}16^{__CFError=}24
 Apple-Download-Type
+v16@?0@"DiagnosticMessage"8
 EnableDownloadBoosting
 com.apple.appstored.AppStoreService
 Could not find App Store
@@ -14543,6 +14628,8 @@ COMMIT TRANSACTION
 i16@?0^B8
 BEGIN DEFERRED TRANSACTION
 Statement from a different connection
+NSAdvertisingAttributionReportEndpoint
+Info.plist
 databases/%ld/items/edit
 com.apple.appstored.Environment
 storeSystem.db
@@ -14885,7 +14972,6 @@ INSERT OR REPLACE INTO
 DELETE FROM %@ WHERE %@ = ?;
 Unable to purchase discretionary item with no account
 Unable to authenticate for purchase with dsID but no username
-hasBeenAuthedForBuy
 There is no active account on the paired device
 Blocking sign in as there is no active account on the device
 SIGN_IN_TO_APP_STORE_TITLE
@@ -15219,7 +15305,6 @@ octaneClientUUID
 v24@?0@"ACAccount"8@"NSArray"16
 @"<NSCopying>"16@?0@"<UpdatableApp>"8
 background 
-v16@?0@"DiagnosticMessage"8
 v32@?0@"StoreItem"8Q16^B24
 com.apple.appstored.ThermalPressureMonitor
 elevated
@@ -15831,6 +15916,9 @@ countryCode2Char
 countryCode3Char
 createAppReceiptURL
 disablePurchaseIntentNotifications
+externalLinkSheetURL
+externalPurchasesSheetURL
+externalPurchasesSpringBoardAppDeleteAlertIsEnabled
 inAppPendingQueueURL
 inAppPendingQueueCountURL
 inAppTransactionDoneURL
@@ -16035,7 +16123,7 @@ reconcileUnfinishedTransactionIDs:forBundleID:logKey:
 currentRevisionForBundleID:
 initWithSubscriptionGroupID:reason:client:
 statuses
-setSubscriptionRenewalInfo:forGroupID:bundleID:logKey:
+setSubscriptionRenewalInfo:forGroupID:bundleID:gracePeriodExpirationDate:logKey:
 connectionForClient:
 remoteObject
 receivedStatuses:
@@ -16144,6 +16232,8 @@ unregisterNotificationClient:
 removeObject:
 setInvalidationHandler:
 registerNotificationClient:
+enableDiagnostics
+updateSharedPublisher:
 newServerWithCatalog:forMachServiceName:
 listener:shouldAcceptNewConnection:
 activeClientWithProcessInfo:
@@ -16559,13 +16649,16 @@ _status
 T@"IXAppInstallCoordinator",R,V_coordinator
 T@"NSUUID",R,V_externalID
 Tq,R,V_status
-initWithClientID:teamID:
+initWithClientID:teamID:serviceID:
 clientID
 teamID
+serviceID
 _clientID
 _teamID
+_serviceID
 T@"NSString",R,N,V_clientID
 T@"NSString",R,N,V_teamID
+T@"NSString",R,N,V_serviceID
 setValuesWithStoreItem:
 isUserInitiated
 updateType
@@ -17550,10 +17643,13 @@ setAuditTokenData:
 hasPrefix:
 ams_storefront
 ams_localiTunesAccountForAccountMediaType:
+isTestFlight
+_authenticateWithClientInfo:accountInfo:error:
 purchasesDisabledForAppClip
 shouldContinueTransactionWithNewStorefront:replyBlock:
 initWithPurchaseType:buyParams:
 setTeamID:
+setServiceID:
 setAdditionalHeaders:
 initWithPurchaseSIWA:bag:
 productIdentifier
@@ -17606,7 +17702,6 @@ purchase:handleAuthenticateRequest:completion:
 purchase:handleDialogRequest:completion:
 purchase:handleEngagementRequest:completion:
 initWithBuyParams:client:apiVersion:paymentDelegate:siwaAuthorizationInfo:
-_authenticateWithClientInfo:error:
 setAdditionalBuyParams:
 setAppAccountToken:
 setApplicationUsername:
@@ -18923,9 +19018,12 @@ T@"NSString",R,V_productVersion
 T@"NSUUID",R,V_bootSession
 device_decorateHeadersUsingDevice:
 _propertyForKey:bundleID:
+enumerateReceiptsForSubscriptionsInGracePeriodForBundleID:usingBlock:
 transactionForID:bundleID:
 isFinished
 distantPast
+_statusesForRenewalInfoBlob:subscriptionGroupID:bundleID:
+_latestTransactionReceiptForUnarchivedRenewalInfo:subscriptionGroupID:bundleID:outProductID:
 close
 _appInstallationMetadataDictionary
 _topicStringForTopic:
@@ -19065,7 +19163,6 @@ deliverNotifications:withBarrierBlock:
 deliverProgress:withBarrierBlock:
 hasConnection
 isDialogObserverAvailable
-enableDiagnostics
 _auditTokenData
 _enableDiagnostics
 hasSeenAppStore
@@ -19260,7 +19357,7 @@ validateSKAdNetworkImpression:withPublicKey:forBundleID:completion:
 addPostbacksFromDictionaries:forBundleID:completion:
 retrieveTestPostbacksForBundleID:completion:
 sendTestPingbackForBundleID:completion:
-developerPostbackURLForBundleID:urlString:completion:
+developerPostbackURLForBundleID:completion:
 invalidateBag
 transactionDeleted:productID:forBundleID:
 updatePort:
@@ -19357,9 +19454,10 @@ setIntegerValue:forIdentifier:forBundleID:
 getStringValueForIdentifier:forBundleID:
 setStringValue:forIdentifier:forBundleID:
 dataWithBytesNoCopy:length:freeWhenDone:
-serviceClient
 publisherWithServiceClient:
+serviceClient
 publishMessage:
+sharedPublisher
 publisherWithRequestToken:
 logCode:usingBlock:
 _initWithProgressCache:
@@ -20012,6 +20110,7 @@ TB,V_requiresPowerPluggedIn
 Tq,V_requestReason
 T@"NSUUID",&,V_requestUUID
 T@"NSNumber",&,V_taskPriority
+T@"NSString",&,V_variantID
 setValue:forKey:
 appUpdatesToFinish
 asyncTasks
@@ -20118,7 +20217,7 @@ downloadStatusChanged:
 downloadRemoved:
 allowPurchaseRequestData
 processDownloadsForTransactions:
-initWithContentsOfFile:
+advertisingAttributionReportEndpoint
 ams_message
 initialize
 downloadManager:updatedStatus:
@@ -20154,6 +20253,9 @@ refundRequestForTransactionId:replyBlock:
 manageSubscriptionsRequestWithReply:
 xcodeTestCertificatesWithReply:
 xcodeTestServerPortWithReplyBlock:
+canOpenGatewayWithReply:
+openGatewayWithReply:
+openAlternativeWithReply:
 registerArcadeAppWithRandomFromLib:randomFromLibLength:resultHandler:
 arcadeSubscriptionStatusWithNonce:resultHandler:
 repairArcadeApp
@@ -20173,6 +20275,7 @@ _finishPaymentQueue
 _paymentQueue
 _productRequestQueue
 _appTerminationQueue
+_galetteQueue
 _messageQueue
 _remoteObject
 T@"<ASDStoreKitClientProtocol>",R,N,V_remoteObject
@@ -20478,6 +20581,7 @@ _transactionWantsRollback
 T@"NSError",R,C,N
 T@"SQLiteConnectionOptions",R,C,N,V_options
 T@"<SQLiteConnectionDelegate>",W,N,V_delegate
+initWithContentsOfURL:error:
 initWithItems:
 _userDatabase
 _systemDatabase
@@ -20857,7 +20961,7 @@ shouldCancelPurchaseBatch
 setShouldCancelPurchaseBatch:
 setTriggeredQueueCheck:
 installAttributionPingbackFetchURLString
-installAttributionError
+installAttributionErrorString
 _itemErrors
 _isPreorder
 _shouldCancelPurchaseBatch
@@ -20867,7 +20971,7 @@ _clusterMappings
 _keybag
 _rangesToLoad
 _installAttributionPingbackFetchURLString
-_installAttributionError
+_installAttributionErrorString
 T@"NSArray",R,V_anonymousPings
 T@"NSArray",R,V_clusterMappings
 T@"NSData",R,V_keybag
@@ -20878,7 +20982,7 @@ TB,V_shouldCancelPurchaseBatch
 TB,V_triggeredQueueCheck
 T@"NSString",V_clientID
 T@"NSString",R,V_installAttributionPingbackFetchURLString
-T@"NSError",R,V_installAttributionError
+T@"NSString",R,V_installAttributionErrorString
 T@"SQLiteDatabaseStoreDescriptor",R
 modifyUsingTransactionClass:withBlock:
 database
@@ -21226,8 +21330,8 @@ containsString:
 receiptDataString
 isDSIDless
 _clientOverrides
-isTestFlight
 processID
+signerOrganization
 _clientOverrideEntitled
 _ignorePaymentRestriction
 _purchasesDisabledForAppClip
@@ -21237,6 +21341,7 @@ _isAppClip
 _processID
 _requestBundleID
 _deviceVendorIdentifier
+_signerOrganization
 _auditToken
 T{?=[8I]},R,N,V_auditToken
 Ti,R,N,V_processID
@@ -21254,6 +21359,8 @@ T@"NSString",R,N,V_requestBundleID
 Tq,R,N,V_storeExternalVersionID
 Tq,R,N,V_storeItemID
 TB,R,N,V_purchasesDisabledForAppClip
+T@"NSString",R,N,V_vendorName
+T@"NSString",R,N,V_signerOrganization
 _showInternalConnectionDialogWithError:
 _messageForError:
 _results
@@ -21487,6 +21594,7 @@ T@"NSArray",C,N,V_orderedBundleIDs
 removeConnectionWithUUID:
 subscriptionGroupID
 _parseResponse:
+_replaceDate:ifBeforeDate:
 _subscriptionGroupID
 _statuses
 T@"NSString",R,N,V_subscriptionGroupID
@@ -22231,6 +22339,7 @@ _cacheFamilyInfoLookupResult:forAccount:
 performTaskWithBlock:
 _pathForCachedFamilyInfoLookupResult
 _currentCachedFamilyInfoWithLogKey:
+initWithContentsOfFile:
 T@"<AMSBagProtocol>",&,N,V_bag
 lib_rfc3339String
 lib_dateHasPassed
@@ -22725,6 +22834,7 @@ AppInstallEntity
 XDCInstallRequest
 XDCCancelInstallResponse
 SQLiteConnection
+SKAN
 PurchaseHistoryHideShowRequest
 Environment
 InAppPurchaseIntentDatabaseSession
@@ -23374,7 +23484,7 @@ v48@0:8@"NSString"16Q24@"NSString"32@?<v@?@"NSError">40
 v48@0:8@"NSDictionary"16@"NSString"24@"NSString"32@?<v@?@"NSError">40
 v32@0:8@"NSString"16@?<v@?@"NSArray">24
 v32@0:8@"NSString"16@?<v@?@"NSDictionary">24
-v40@0:8@"NSString"16@"NSString"24@?<v@?@"NSString">32
+v32@0:8@"NSString"16@?<v@?@"NSURL">24
 v40@0:8Q16@24@32
 v40@0:8Q16@"NSString"24@"NSString"32
 v32@0:8@"NSArray"16@"NSString"24
@@ -23606,7 +23716,7 @@ v24@0:8d16
 @40@0:8i16@20@28B36
 {?=[8I]}16@0:8
 {?="val"[8I]}
-B48@0:8@16@24@32@40
+B56@0:8@16@24@32@40@48
 v32@0:8@"ASDAppEvent"16@?<v@?B@"NSError">24
 v32@0:8@"NSString"16@?<v@?B>24
 v32@0:8@"NSData"16@?<v@?@"NSData"@"NSError">24
@@ -23657,6 +23767,7 @@ q60@0:8@16@24B32@36@44^@52
 v48@0:8@16@24q32@40
 Q40@0:8@16@24^@32
 @"UpdatesContext"
+v32@0:8^@16@24
 v40@0:8^@16r^@24q32
 v40@0:8@16@24^@32
 v44@0:8@16@24B32^@36
@@ -24036,9 +24147,11 @@ Migrating from build: %{public}@ to build: %{public}@
 Upgrade Migration
 Queuing migration task: %{public}@
 Waiting for network before runing migrations
+[%{public}@] TF account not detected.
+[%{public}@] Attempting to use existing account.
 [%{public}@] Blocking sign in as there is no active account on the device
 [%{public}@] shouldContinueTransaction timed out for bundle ID: %{public}@. Not continuing transaction.
-[%{public}@] Running auth payment for %{public}@.
+[%{public}@] Running auth payment for %{public}@ with teamID: %{public}@ clientID: %{public}@ serviceID: %{public}@
 [%{public}@] Running payment for %@
 [%{public}@] Payment failed: %{public}@
 [%{public}@] Failed payment had a trigger queue check.
@@ -24058,8 +24171,10 @@ Waiting for network before runing migrations
 [%{public}@] Sending engagement request to the app store for purchase %{public}@.
 [%{public}@] Sending engagement request to the app store for purchase %{public}@
 [%{public}@] Payment result contained error: %{public}@
+[%{public}@] Auth payment result contained error: %{public}@
 [%{public}@] Payment completed with no transactions
 [%{public}@] Payment received more than one transaction: %@ Using only the first.
+[%{public}@][%{public}@] Auth credential archive error: %{public}@
 [%{public}@][%{public}@] Received SiWA purchase result without a credential or error
 [%{public}@]: Skipping import due to lack for bundleID / clusterID / clusterID for mapping: %{public}@
 [%{public}@]: Updated existing cluster mapping for: %{public}@
@@ -24321,6 +24436,12 @@ failed to get kern.bootsessionuuid
 [RF] Skipping transaction because the signed expiration date has passed
 Ignoring subscription renewal info with invalid group ID %{public}@
 Last updated date is invalid for %{public}@
+Failed to unarchive renewal info blob for %{public}@: %{public}@
+Failed to unarchive renewal info blob for %{public}@
+Failed to parse renewal info payload when checking for billing grace period for %{public}@: %{public}@
+Status for %{public}@ had no renewal info in a grace period
+Failed to unarchive renewal info data blob for %{public}@: %{public}@
+Failed to parse JWS when getting latest transaction for renewal info for %{public}@: %{public}@
 Ignoring subscription renewal info for %{public}@ with invalid product ID %{public}@
 Ignoring subscription renewal info for %{public}@ with no transaction data
 Recording weekly analytics events
@@ -24456,6 +24577,7 @@ Download::Unzip/BackPressureWait
 Attempting app usage migration
 Using the slow path to locate coordinator: %{public}@
 Unable to determine intent for coordinator: %{public}@
+Failed to parse renewal info JWS, assuming no grace period expiration field: %{public}@
 [%{public}@] No unified receipt in response
 [%{public}@] %ld transactions in response
 [%{public}@] No transaction receipt in response
@@ -24463,6 +24585,7 @@ Unable to determine intent for coordinator: %{public}@
 [%{public}@] Syncing server transactions
 [%{public}@] Error syncing server transactions %{public}@
 [%{public}@] Finished syncing server transactions
+Failed to unarchive renewal info blob: %{public}@
 [%{public}@] Receipt data string is not valid base64 %{private}@
 [%{public}@] Receipt format invalid in response %{private}@
 [%{public}@]: Found %ld products in receipt with ID %{public}@
@@ -24578,9 +24701,7 @@ Failed to renew app receipt for informing about revoked entitlements
 %{public}@: Processed download with ID: %{public}@
 Failed to get code redemption URL, error: %{public}@
 Failed to add query params to redeem URL
-[SKAdNetwork: Did not find Info.plist for app: %{public}@
-[SKAdNetwork: Did not find developer pingback domain in Info.plist
-[SKAdNetwork: Developer pingback domain is of unexpected type in Info.plist
+Failed to find app record: %@
 [%{public}@] [%{public}@]  Timed out refreshing receipt
 Stopping for idle-exit
 There are %lu open transaction(s):
@@ -24714,6 +24835,9 @@ Encountered exception while in transaction: %{public}@
 [%@]: Truncating database after corruption: %{public}@
 [%@]: Reopening database after IO error: %{public}@
 [%@]: Asking delegate to reset database after reopen: %{public}@
+[SKAdNetwork: Did not find Info.plist for app: %{public}@
+[SKAdNetwork: Did not find developer pingback domain in Info.plist
+[SKAdNetwork: Developer pingback domain is of unexpected type in Info.plist
 [%{public}@] Could not load download manifest with underlying error: %{public}@
 Got message URL from response
 Error in messages response: %{public}@

@@ -1,3 +1,4 @@
+P(~A
 WARNING: CADEventPredicate must be given non nil startDate and endDate
 startDate
 endDate
@@ -379,6 +380,7 @@ com.apple.calendar.daemon.databasecleanup
 com.apple.calendar.daemon.analytics
 com.apple.calendar.daemon.attachmentcleanup
 com.apple.calendar.daemon.changetablecleanup
+com.apple.calendar.daemon.conferencerenewal
 CADLastKnownContactsAuthorization
 v24@?0@"NSObject<OS_tcc_authorization_record>"8^{__CFError=}16
 v20@?0B8@"NSError"12
@@ -454,6 +456,7 @@ CalEntityGetPropertyIDFromName
 Read
 Write
 Unknown
+ConferenceRenewalDate
 ClientId
 Suffix
 ClientId: {%@}
@@ -791,6 +794,29 @@ Value of class '%@' not handled.
 Unknown property typeId %ld for name %@. Assume its a value type and proceed.
 Unknown property type %d for name %@
 Invalid entity type [%d] passed to [%s].
+ConferenceRenewal: Starting. Checking whether it is time to run conference link renewal.
+ConferenceRenewal: Database is nil. Cannot check renewal dates. Aborting
+ConferenceRenewal: Found next scheduled run date: %@
+ConferenceRenewal: Current date (%@) is after next scheduled run date (%@). Performing link renewal.
+ConferenceRenewal: No date found for next scheduled run date. Will generate one within 45 days.
+ConferenceRenewal: Setting next scheduled run date to %@
+ConferenceRenewal: Complete.
+setNextConferenceLinkRenewalDate: Database is nil. Cannot set renewal date. Aborting
+ConferenceRenewal: conference URL search returning nil because no URLString was provided.
+ConferenceRenewal: Starting search for conference URLs with base host: %@
+ConferenceRenewal: searching for events containing the base URL %@
+ConferenceRenewal: Search for events containing URL %@ returned %lu results
+ConferenceRenewal: Of those, %lu have recurrences
+ConferenceRenewal: Also found %lu events in the future
+ConferenceRenewal: And of those, %lu events with future occurrences.
+ConferenceRenewal: No events found with occurrences after date.
+ConferenceRenewal: Search for events containing URL %@ returned nil
+ConferenceRenewal: Occurrence cache is nil. Will not perform link renewal.
+ConferenceRenewal: Search completed. Found %lu URLs with host %@
+ConferenceRenewal. Search completed. Unable to find URLs for with host %@
+ConferenceRenewal: adding URL: %@
+ConferenceRenewal: Skipping a found event because was unable to deserialize conference data
+ConferenceRenewal: Skipping a found event because it has no notes
 Internal error: missed entity type in CADEntityAccessIsDenied: %i (from original entityType %i)
 Unknown entity type in CADCopyEntity (type = %i)
 Unknown entity type in _CADDeleteEntity (%i)
@@ -965,6 +991,7 @@ CADInternalOperationGroup
 CADRespondedEventsPredicate
 CADTestingOperationGroup
 CADEventsForConferenceURLPredicate
+CADConferenceUtils
 CADChangeTrackingClientId
 CADDefaultPermissionValidator
 CADPermissionValidator
@@ -1765,6 +1792,8 @@ CADScheduledTaskCacheGetDaysAndTaskCounts:
 CADPushItemsToSpotlight:reply:
 CADWaitForSpotlightUpdatesWithReply:
 CADInternalForceStatCollection:
+CADInternalSetNextConferenceLinkRenewalToNow:
+CADInternalRemoveConferenceLinkRenewalDate:
 CADTestingSimulateDaemonCrash
 CADTestingCloseDatabase:
 CADMigrateDatabaseIfNeeded:
@@ -2070,10 +2099,12 @@ _registerForDatabaseCleanup
 _registerForAnalyticsCollection
 _registerForAttachmentCleanup
 _registerForChangeTableCleanup
+_registerForConferenceURLRenewal
 cleanupDatabase:
 _registerActivityWithIdentifier:block:
 cleanUpOrphanedFiles
 _cleanupChangeTablesInDatabase:
+performConferenceLinkRenewalIfNeeded
 serverIdleChangeTrackingCleanupInfo
 languishPeriod
 numberOfChanges
@@ -2238,6 +2269,8 @@ _lastIndex
 _boostToken
 _internalAccessGranted
 internalAccessLevelGranted
+setNextConferenceLinkRenewalDate:
+removeNextConferenceLinkRenewalDate
 absoluteString
 setUrlString:
 urlString
@@ -2246,6 +2279,14 @@ initWithURL:limit:
 _urlString
 T@"NSString",C,N,V_urlString
 initWithSet:
+_performConferenceURLRenewalWithDatabase:
+dateWithTimeIntervalSinceNow:
+_extractURLStringsFromCalEvent:
+deserializeConference:
+conference
+joinMethods
+isTUConversationLink:
+_conferenceURLsToRenewWithDatabase:URLString:
 customClientId
 suffix
 stringByAppendingFormat:
@@ -2582,6 +2623,7 @@ I16@0:8
 @"CalSearch"
 @"NSObject<OS_dispatch_semaphore>"
 @"<NSObject>"
+B24@0:8^{CalDatabase={__CFRuntimeBase=QAQ}i^{CPRecordStore}^{CalEventOccurrenceCache}^{CalScheduledTaskCache}^{__CFDictionary}^{__CFDictionary}{_opaque_pthread_mutex_t=q[56c]}II^{__CFArray}^{__CFString}^{__CFArray}ii^{__CFString}^{__CFURL}^{__CFString}^{__CFString}i@?{_opaque_pthread_mutex_t=q[56c]}B^{__CFArray}^{__CFArray}^{__CFArray}^{__CFArray}@BBB^{__CFSet}@@iBB}16
 B28@0:8@16B24
 @72@0:8@16@24@32@40@48Q56@64
 B24@0:8Q16
@@ -2971,6 +3013,7 @@ com.apple.calendar.daemon.databasecleanup
 com.apple.calendar.daemon.analytics
 com.apple.calendar.daemon.attachmentcleanup
 com.apple.calendar.daemon.changetablecleanup
+com.apple.calendar.daemon.conferencerenewal
 CADLastKnownContactsAuthorization
 v24@?0@"NSObject<OS_tcc_authorization_record>"8^{__CFError=}16
 v20@?0B8@"NSError"12
@@ -3046,6 +3089,7 @@ CalEntityGetPropertyIDFromName
 Read
 Write
 Unknown
+ConferenceRenewalDate
 ClientId
 Suffix
 ClientId: {%@}
@@ -3087,6 +3131,7 @@ com.apple.calendardaemon.delegationaccountcache
 8@HPX`h
 4GJPSVgjmpsv
 +.14
+P(~A
 "%(147I:
 BJR((Zbjr
 nil icbu URL given for backup
@@ -3388,6 +3433,29 @@ Value of class '%@' not handled.
 Unknown property typeId %ld for name %@. Assume its a value type and proceed.
 Unknown property type %d for name %@
 Invalid entity type [%d] passed to [%s].
+ConferenceRenewal: Starting. Checking whether it is time to run conference link renewal.
+ConferenceRenewal: Database is nil. Cannot check renewal dates. Aborting
+ConferenceRenewal: Found next scheduled run date: %@
+ConferenceRenewal: Current date (%@) is after next scheduled run date (%@). Performing link renewal.
+ConferenceRenewal: No date found for next scheduled run date. Will generate one within 45 days.
+ConferenceRenewal: Setting next scheduled run date to %@
+ConferenceRenewal: Complete.
+setNextConferenceLinkRenewalDate: Database is nil. Cannot set renewal date. Aborting
+ConferenceRenewal: conference URL search returning nil because no URLString was provided.
+ConferenceRenewal: Starting search for conference URLs with base host: %@
+ConferenceRenewal: searching for events containing the base URL %@
+ConferenceRenewal: Search for events containing URL %@ returned %lu results
+ConferenceRenewal: Of those, %lu have recurrences
+ConferenceRenewal: Also found %lu events in the future
+ConferenceRenewal: And of those, %lu events with future occurrences.
+ConferenceRenewal: No events found with occurrences after date.
+ConferenceRenewal: Search for events containing URL %@ returned nil
+ConferenceRenewal: Occurrence cache is nil. Will not perform link renewal.
+ConferenceRenewal: Search completed. Found %lu URLs with host %@
+ConferenceRenewal. Search completed. Unable to find URLs for with host %@
+ConferenceRenewal: adding URL: %@
+ConferenceRenewal: Skipping a found event because was unable to deserialize conference data
+ConferenceRenewal: Skipping a found event because it has no notes
 Internal error: missed entity type in CADEntityAccessIsDenied: %i (from original entityType %i)
 Unknown entity type in CADCopyEntity (type = %i)
 Unknown entity type in _CADDeleteEntity (%i)
@@ -3562,6 +3630,7 @@ CADInternalOperationGroup
 CADRespondedEventsPredicate
 CADTestingOperationGroup
 CADEventsForConferenceURLPredicate
+CADConferenceUtils
 CADChangeTrackingClientId
 CADDefaultPermissionValidator
 CADPermissionValidator
@@ -4362,6 +4431,8 @@ CADScheduledTaskCacheGetDaysAndTaskCounts:
 CADPushItemsToSpotlight:reply:
 CADWaitForSpotlightUpdatesWithReply:
 CADInternalForceStatCollection:
+CADInternalSetNextConferenceLinkRenewalToNow:
+CADInternalRemoveConferenceLinkRenewalDate:
 CADTestingSimulateDaemonCrash
 CADTestingCloseDatabase:
 CADMigrateDatabaseIfNeeded:
@@ -4667,10 +4738,12 @@ _registerForDatabaseCleanup
 _registerForAnalyticsCollection
 _registerForAttachmentCleanup
 _registerForChangeTableCleanup
+_registerForConferenceURLRenewal
 cleanupDatabase:
 _registerActivityWithIdentifier:block:
 cleanUpOrphanedFiles
 _cleanupChangeTablesInDatabase:
+performConferenceLinkRenewalIfNeeded
 serverIdleChangeTrackingCleanupInfo
 languishPeriod
 numberOfChanges
@@ -4835,6 +4908,8 @@ _lastIndex
 _boostToken
 _internalAccessGranted
 internalAccessLevelGranted
+setNextConferenceLinkRenewalDate:
+removeNextConferenceLinkRenewalDate
 absoluteString
 setUrlString:
 urlString
@@ -4843,6 +4918,14 @@ initWithURL:limit:
 _urlString
 T@"NSString",C,N,V_urlString
 initWithSet:
+_performConferenceURLRenewalWithDatabase:
+dateWithTimeIntervalSinceNow:
+_extractURLStringsFromCalEvent:
+deserializeConference:
+conference
+joinMethods
+isTUConversationLink:
+_conferenceURLsToRenewWithDatabase:URLString:
 customClientId
 suffix
 stringByAppendingFormat:
@@ -5179,6 +5262,7 @@ I16@0:8
 @"CalSearch"
 @"NSObject<OS_dispatch_semaphore>"
 @"<NSObject>"
+B24@0:8^{CalDatabase={__CFRuntimeBase=QAQ}i^{CPRecordStore}^{CalEventOccurrenceCache}^{CalScheduledTaskCache}^{__CFDictionary}^{__CFDictionary}{_opaque_pthread_mutex_t=q[56c]}II^{__CFArray}^{__CFString}^{__CFArray}ii^{__CFString}^{__CFURL}^{__CFString}^{__CFString}i@?{_opaque_pthread_mutex_t=q[56c]}B^{__CFArray}^{__CFArray}^{__CFArray}^{__CFArray}@BBB^{__CFSet}@@iBB}16
 B28@0:8@16B24
 @72@0:8@16@24@32@40@48Q56@64
 B24@0:8Q16

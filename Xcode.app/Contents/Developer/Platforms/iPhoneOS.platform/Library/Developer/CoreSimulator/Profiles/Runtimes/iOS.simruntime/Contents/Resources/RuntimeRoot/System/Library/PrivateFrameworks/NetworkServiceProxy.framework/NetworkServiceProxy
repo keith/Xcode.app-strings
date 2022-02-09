@@ -475,6 +475,10 @@ com.apple.nsp.outageReasonStats
 -[NSPOutageReasonStats analyticsDict]
 com.apple.nsp.privateRelayIncompatibleNetworkStats
 -[NSPPrivateRelayIncompatibleNetworkStats analyticsDict]
+com.apple.nsp.badTokenInfoStats
+-[NSPBadTokenInfoStats analyticsDict]
+ConfigAge
+ConfigTag
 /System/Library/PrivateFrameworks/NetworkServiceProxy.framework
 /System/Library/PrivateFrameworks/UIKitCore.framework
 UIDevice
@@ -1010,6 +1014,7 @@ proxyTokenFetchRetryDate
 proxyTokenUseDefaultInterface
 proxyTokenSubscriber
 proxyTokenReportTokenFetchOutage
+proxyTokenNetworkSignature
 com.apple.networkserviceproxy.removeExpiredTokens
 com.apple.networkserviceproxy.flushProxyTokens
 com.apple.networkserviceproxy.tokenManagerRefreshPool
@@ -1017,7 +1022,6 @@ v16@?0@"NSString"8
 -[NSPProxyTokenInfo cacheTokens:expirationTime:]
 com.apple.networkserviceproxy.checkCachedTokenCount
 Retry-After
-com.apple.networkserviceproxy.tokenFetchFailureWithHttpStatusCode
 -[NSPProxyTokenInfo requestTokensWithAccessToken:completionHandler:]
 com.apple.networkserviceproxy.tokenRateLimited
 com.apple.networkserviceproxy.tokenRefreshPoolKeyChanged
@@ -1026,6 +1030,7 @@ X-Apple-Client-Action
 Switch-Proxy
 com.apple.networkserviceproxy.switchProxy
 v48@?0B8@"NSHTTPURLResponse"12@"NSError"20@"NSArray"28@"NSDate"36B44
+com.apple.networkserviceproxy.tokenOutage
 com.apple.NetworkServiceProxy.ProxyToken
 Network Characteristics
 Proxy success
@@ -1313,8 +1318,8 @@ com.apple.networkserviceproxy.proxyConnectivityCheck
 -[NSPPrivacyProxyAgentManager setProxyOutageReason:]
 ProxyCertError
 ProxyConnectionDNSError
--[NSPPrivacyProxyAgentManager probeSuccess:]
 com.apple.networkserviceproxy.probeSuccess
+-[NSPPrivacyProxyAgentManager probeSuccess:]
 -[NSPPrivacyProxyAgentManager probeFailed:]
 -[NSPPrivacyProxyAgentManager probeRedirected:]
 -[NSPPrivacyProxyAgentManager probeServerError:]
@@ -1525,11 +1530,12 @@ Privacy Token Manager
 PrivacyProxyTokenFetch
 -[NSPPrivacyTokenManager generateRandomTokens:]
 -[NSPPrivacyTokenManager generateTokensUsingTokenBlinder:tokenCount:]
--[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:]
+-[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:retryAttempt:completionHandler:]
 POST
 X-Mask-User-Tier
 X-Mask-Subscription-Token
 True-Client-Ip
+Retry-Attempt
 x-apple-request-uuid
 v36@?0i8@"NSData"12@"NSURLResponse"20@"NSError"28
 -[NSPPrivacyTokenManager copyTokenInfo:]
@@ -1768,6 +1774,7 @@ Failed to parse additional record %u
 %s called with null self.outageReasonSubType
 %s called with null self.tierType
 %s called with null self.interfaceType
+%s called with null self.tokenProxy
 %s: bundle %@ class %@
 [super init] failed
 no saved status manager info
@@ -2150,41 +2157,43 @@ Creating a new policy session
 %@: flow divert provider started successfully
 %@: NSPFlowDivert: resetPolicies failed
 %@: didFailWithError called with: %@
-reset token fetch timer
+reset token fetch timer for "%@"
 Dealloc: 
 Proxy Token Info : %@:%@
 %s called with null delegate
 %s called with null proxyInfo
 %s called with null path
-self.tokenCount < tokenInfo.tokens.count for %@
+self.tokenCount < tokenInfo.tokens.count for "%@"
 Cleaned up %lu expired tokens for %@
-Proxy %@, hit low water mark
-Flushing tokens for %@
+Proxy "%@", hit low water mark
+Flushing tokens for "%@"
 %s called with null (tokens.count > 0)
-Cache %lu tokens for proxy %@, expiration %@
+Cache %lu tokens for proxy "%@", expiration %@
 adding %lu tokens to token agent[%@]
-Retry fetching tokens for %@[%@] on network or key change
-Failed to fetch tokens for %@[%@] after %u attempts
-Retry: fetching token for %@[%@] after %lu seconds
+Retry fetching tokens for "%@" on network or key change
+Failed to fetch tokens for "%@" after %u attempts
+Retry: fetching token for "%@" after %lu seconds
 Token fetch retry timer fired
 %s called with null self.proxyInfo
-token fetch request for %@[%@] is already pending
-token fetch request for %@[%@] has a pending timer
-deferring token fetch for %@[%@], path is not satisfied
-ignoring token fetch for %@[%@], token count %lu
-Fetch tokens for %@[%@] on %@
-Token fetch successful for %@[%@]
-Token fetch failed for %@[%@] with too many requests
+token fetch request for "%@" is already pending
+token fetch request for "%@" has a pending timer
+deferring token fetch for "%@", path is not satisfied
+ignoring token fetch for "%@", token count %lu
+Fetch tokens for "%@" on %@
+Token fetch successful for "%@"
+Token fetch failed for "%@" with too many requests
 Token fetch failed, retrying immediately
-Token fetch failed for %@[%@] with %lu, error %@
-Received switch proxy from server for %@[%@]
+Token fetch failed for "%@" with %lu, error %@
+Received switch proxy from server for "%@"
+set token replenish timer
+Replenish timer fired
 Failed to convert from PID (%d) to process name
-Received error (%d) from %s for %@ agent
+Received error (%d) from %s for "%@" agent
 archivedDataWithRootObject for token info list failed with error: %@
-Saving proxy tokens for %@ in the keychain
+Saving %lu proxy tokens for "%@" in the keychain
 unarchivedObjectOfClass for token info list failed with error: %@
-Received %lu tokens from keychain for %@
-Removing proxy tokens for %@ from keychain
+Received %lu tokens from keychain for "%@"
+Removing proxy tokens for "%@" from keychain
 %s called with null ingressProxy
 %s called with null egressProxy
 %s called with null proxyTokenInfo
@@ -2224,7 +2233,7 @@ Probe[%@] connected
 %s called with null matchEgressProxy
 %s called with null (proxyPath.proxiesCount == MAX_PROXIES_ON_PATH)
 %s called with null matchProxy
-Token key changed for %@[%@]
+Token key changed for "%@"
 Dealloc: 
 Proxy Agent Manager: %@
 Detected proxy path restore interval in preferences file: %{public}@
@@ -2239,7 +2248,7 @@ proxy agent: network signature changed
 Removing proxy info keychain
 Token issuance limit timer fired
 %s called with null (proxyTokenInfo.proxyInfo.proxyHop == NSPPrivacyProxyProxyInfo_ProxyHop_EGRESS_ONLY)
-remove %@ from proxy path enumerator
+remove "%@" from proxy path enumerator
 %s called with null ingressProxyURL
 %s called with null egressProxyURL
 Proxy path enumerator restore timer fired
@@ -2248,13 +2257,13 @@ Proxy path enumerator restore timer fired
 %s called with null egressProxyInfo
 %s called with null ingressProxyTokenInfo
 %s called with null egressProxyTokenInfo
-Setting candidate proxy path (%@[%@]-%@[%@])
-Setting quic proxy path (%@[%@]-%@[%@])
+Setting candidate proxy path ([%@]-[%@])
+Setting quic proxy path ([%@]-[%@])
 Token for Quic[%@] fetch %@
 %s called with null self.candidatePreferredQUICProxyPaths
 %s called with null vendor
 Candidate preferred proxy path for vendor %@ (%@-%@) is not valid
-No preferred path found for vendor %@
+No preferred path found for vendor "%@"
 Preferred proxy path for vendor %@ (%@-%@) has been removed
 Preferred proxy path for vendor %@ (%@-%@) is not valid
 Domain filter for Quic[%@] fetch %@
@@ -2275,13 +2284,12 @@ Quic proxy path (%@-%@) is not valid
 Candidate Quic proxy path (%@-%@) is not valid
 Candidate Fallback proxy path (%@-%@) is not valid
 %@: token cache low water mark hit
-Token for %@ fetched %@
-%@: tokens added
+Token for "%@" fetched %@
+"%@" tokens added
 Setting quic proxy path (%@-%@)
 Setting fallback proxy path (%@-%@)
-ignoring token fetch outage, path status %ld last path unsatisfied date %@, last interface change date %@
-%@: switch proxy
-%@: token info invalid
+"%@": switch proxy
+"%@": token info invalid
 %@: token rate limited for %f
 Received RTC report request for type: %ld, errorcode: %d
 failed to create RTC report payload for type [%ld], error code [%d]
@@ -2292,12 +2300,12 @@ failed to create RTC report payload for service outage type %@
 sent service outage RTC report %@
 quic proxy path, multi hop agent registered
 fallback proxy path, multi hop agent registered
-Preferred QUIC proxy path for %@, multi hop agent registered
+Preferred QUIC proxy path for "%@", multi hop agent registered
 quic proxy path, single hop agent registered
 fallback proxy path, single hop agent registered
 quic proxy path, multihop agent unregistered
 fallback proxy path, multihop agent unregistered
-Preferred QUIC proxy path for %@, multi hop agent unregistered
+Preferred QUIC proxy path for "%@", multi hop agent unregistered
 quic proxy path, single hop agent unregistered
 fallback proxy path, single hop agent unregistered
 %s called with null outageReasonSubType
@@ -2314,8 +2322,8 @@ Fallback proxy multihop path is reporting origin proxy error
 Start probing[%@]
 Bad probing reason %ld
 Already probing for %@
-%s called with null (prober == self.directPathProber)
 Probing(%@): Proxy path probe successful
+%s called with null (prober == self.directPathProber)
 Probing(%@): Direct path probe successful %lu times
 Invalid probing reason: %@
 Probing(%@): Direct path probe failed but connected to the server %lu times
@@ -2515,6 +2523,7 @@ NSPDeviceIdentityStats
 NSPProxyAgentStats
 NSPOutageReasonStats
 NSPPrivateRelayIncompatibleNetworkStats
+NSPBadTokenInfoStats
 PrivacyProxyNetworkStatusTime
 NSPServiceStatusManager
 NSPPrivacyProxyResolverInfo
@@ -3872,6 +3881,14 @@ T@"NSString",&,N,V_fallbackEgressProxy
 T@"NSString",&,N,V_odohProxy
 T@"NSString",&,N,V_tokenProxy
 T@"NSString",&,N,V_interfaceType
+configAgeHours
+configTag
+setConfigAgeHours:
+setConfigTag:
+_configAgeHours
+_configTag
+TQ,N,V_configAgeHours
+T@"NSString",&,N,V_configTag
 copy
 standardUserDefaults
 arrayForKey:
@@ -5526,6 +5543,7 @@ setTokenFetchRetryDate:
 updateUserEventAgentData
 setUserEventAgentTokenFetchParameters
 resetPendingFetches
+cleanupReplenishTokenAgentTimer
 mergeTokenStats:
 tokenRegistration
 teardownTokenAgent
@@ -5541,8 +5559,6 @@ useDefaultInterface
 subscriber
 reportTokenFetchOutage
 setProxyInfo:
-tokenInfoList
-setTokenInfoList:
 setTokenCount:
 setTokenRegistration:
 setTokenAgentUUID:
@@ -5568,37 +5584,40 @@ badTokenCount
 setBadTokenCount:
 missingTokenCount
 setMissingTokenCount:
+saveTokensToKeychain:
+tokenLowWaterMark
 tokenLowWaterMarkReached:
+removeTokensFromKeychain
 requestTokensWithAccessToken:completionHandler:
 requestAccessToken:
 registerTokenAgent:
 removeExpiredTokens
 addToken:
-setLowWaterMark:
+tokenAdded:
 retryTokenFetchOnNetworkOrTokenKeyChangeFetch
 dateWithTimeIntervalSinceNow:
 numberFromString:
-tokenFetchOutage:
 networkInterface
 sharedTokenManager
 cacheTokens:expirationTime:
-tokenAdded:
 checkCachedTokenCount
 retryIntervalFromHTTPResponse:
 tokenRateLimited:untilDate:
 tokenInfoInvalid:
 switchProxy:
-tokenFetchFailureWithHttpStatusCode:error:
 reportTokenFetchFailure:statusCode:
-fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:
+fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:retryAttempt:completionHandler:
+replenishTokenTimer
+setReplenishTokenTimer:
+tokenFetchOutage:
 pathForClientID:
 flushTokens
 flushProxyTokens
+setReplenishTokenAgentTimer
 reportErrorForTokenRegistration:error:withOptions:
 initWithDelegate:proxyInfo:path:subscriber:useDefaultInterface:
 setup
 handlePathChange:
-handleProxyKeyChanged
 handleTierChange:
 tokenFetchActive
 _tokenRequestPending
@@ -5607,7 +5626,6 @@ _useDefaultInterface
 _subscriber
 _reportTokenFetchOutage
 _proxyInfo
-_tokenInfoList
 _tokenCount
 _tokenRegistration
 _tokenAgentUUID
@@ -5623,9 +5641,9 @@ _agentLowWaterMarkHitCount
 _cacheLowWaterMarkHitCount
 _badTokenCount
 _missingTokenCount
+_replenishTokenTimer
 T@"<NSPProxyTokenDelegate>",W,V_delegate
 T@"NSPPrivacyProxyProxyInfo",&,N,V_proxyInfo
-T@"NSMutableArray",&,N,V_tokenInfoList
 TQ,N,V_tokenCount
 T@"NSPPrivacyProxyTokenRegistration",&,N,V_tokenRegistration
 T@"NSUUID",&,N,V_tokenAgentUUID
@@ -5646,6 +5664,7 @@ TQ,N,V_agentLowWaterMarkHitCount
 TQ,N,V_cacheLowWaterMarkHitCount
 TQ,N,V_badTokenCount
 TQ,N,V_missingTokenCount
+T@"NSObject<OS_dispatch_source>",&,N,V_replenishTokenTimer
 networkCharacteristics
 proxyConnectionSuccess
 ingressProxyConnectionTimeout
@@ -5988,10 +6007,9 @@ fallbackProxyPathWithIngressProxyURL:egressProxyURL:
 nextFallbackProxyPathWithOverride
 setupFallbackProxyPath
 updateProxyTokenInfoArray:
-isProbingActive
-startProbingForReason:
 removeProxyURLFromProxyEnumerator:
 removeProxyURLFromFallbackProxyEnumerator:
+badTokenInfoForProxy:
 tokenIssuanceLimitReached
 stringWithCString:encoding:
 errorDescriptionForRawErrorCode:
@@ -6009,7 +6027,9 @@ preferredProxyAgentRegistered:agentUUID:domainFilter:
 preferredProxyAgentUnregistered:
 reportPrivacyProxySuccessOnInterface:
 checkPrivacyProxyConnectivityOnInterface:proxyConnectivityCheckType:outageReasonStats:completionHandler:
+isProbingActive
 setProxyOutageReason:
+startProbingForReason:
 connectionTimeoutProxyPath:interface:
 connectionRefusedProxyPath:interface:
 dnsTimeoutProxyPath:interface:
@@ -6488,6 +6508,7 @@ _authURL
 T@"NSString",&,N,V_authURL
 tokenAgentRegistration
 tokenAgent
+setLowWaterMark:
 resetTokenAgentFileHandle
 setTokenAgent:
 setTokenAgentRegistration:
@@ -6897,7 +6918,7 @@ v36@0:8@"NSPPrivacyProxyTokenAgent"16i24@"NSDictionary"28
 @"<NSPPrivacyProxyTokenRegistrationDelegate>"
 @"NSPPrivacyProxyTokenAgent"
 B32@0:8@16i24B28
-v80@0:8@16@24@32@40@48Q56@64@?72
+v88@0:8@16@24@32@40@48Q56@64Q72@?80
 v24@0:8#16
 0123456789abcdef
 "3DUfw
@@ -7387,6 +7408,10 @@ com.apple.nsp.outageReasonStats
 -[NSPOutageReasonStats analyticsDict]
 com.apple.nsp.privateRelayIncompatibleNetworkStats
 -[NSPPrivateRelayIncompatibleNetworkStats analyticsDict]
+com.apple.nsp.badTokenInfoStats
+-[NSPBadTokenInfoStats analyticsDict]
+ConfigAge
+ConfigTag
 /System/Library/PrivateFrameworks/NetworkServiceProxy.framework
 /System/Library/PrivateFrameworks/UIKitCore.framework
 UIDevice
@@ -7922,6 +7947,7 @@ proxyTokenFetchRetryDate
 proxyTokenUseDefaultInterface
 proxyTokenSubscriber
 proxyTokenReportTokenFetchOutage
+proxyTokenNetworkSignature
 com.apple.networkserviceproxy.removeExpiredTokens
 com.apple.networkserviceproxy.flushProxyTokens
 com.apple.networkserviceproxy.tokenManagerRefreshPool
@@ -7929,7 +7955,6 @@ v16@?0@"NSString"8
 -[NSPProxyTokenInfo cacheTokens:expirationTime:]
 com.apple.networkserviceproxy.checkCachedTokenCount
 Retry-After
-com.apple.networkserviceproxy.tokenFetchFailureWithHttpStatusCode
 -[NSPProxyTokenInfo requestTokensWithAccessToken:completionHandler:]
 com.apple.networkserviceproxy.tokenRateLimited
 com.apple.networkserviceproxy.tokenRefreshPoolKeyChanged
@@ -7938,6 +7963,7 @@ X-Apple-Client-Action
 Switch-Proxy
 com.apple.networkserviceproxy.switchProxy
 v48@?0B8@"NSHTTPURLResponse"12@"NSError"20@"NSArray"28@"NSDate"36B44
+com.apple.networkserviceproxy.tokenOutage
 com.apple.NetworkServiceProxy.ProxyToken
 Network Characteristics
 Proxy success
@@ -8225,8 +8251,8 @@ com.apple.networkserviceproxy.proxyConnectivityCheck
 -[NSPPrivacyProxyAgentManager setProxyOutageReason:]
 ProxyCertError
 ProxyConnectionDNSError
--[NSPPrivacyProxyAgentManager probeSuccess:]
 com.apple.networkserviceproxy.probeSuccess
+-[NSPPrivacyProxyAgentManager probeSuccess:]
 -[NSPPrivacyProxyAgentManager probeFailed:]
 -[NSPPrivacyProxyAgentManager probeRedirected:]
 -[NSPPrivacyProxyAgentManager probeServerError:]
@@ -8437,11 +8463,12 @@ Privacy Token Manager
 PrivacyProxyTokenFetch
 -[NSPPrivacyTokenManager generateRandomTokens:]
 -[NSPPrivacyTokenManager generateTokensUsingTokenBlinder:tokenCount:]
--[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:]
+-[NSPPrivacyTokenManager fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:retryAttempt:completionHandler:]
 POST
 X-Mask-User-Tier
 X-Mask-Subscription-Token
 True-Client-Ip
+Retry-Attempt
 x-apple-request-uuid
 v36@?0i8@"NSData"12@"NSURLResponse"20@"NSError"28
 -[NSPPrivacyTokenManager copyTokenInfo:]
@@ -8680,6 +8707,7 @@ Failed to parse additional record %u
 %s called with null self.outageReasonSubType
 %s called with null self.tierType
 %s called with null self.interfaceType
+%s called with null self.tokenProxy
 %s: bundle %@ class %@
 [super init] failed
 no saved status manager info
@@ -9062,41 +9090,43 @@ Creating a new policy session
 %@: flow divert provider started successfully
 %@: NSPFlowDivert: resetPolicies failed
 %@: didFailWithError called with: %@
-reset token fetch timer
+reset token fetch timer for "%@"
 Dealloc: 
 Proxy Token Info : %@:%@
 %s called with null delegate
 %s called with null proxyInfo
 %s called with null path
-self.tokenCount < tokenInfo.tokens.count for %@
+self.tokenCount < tokenInfo.tokens.count for "%@"
 Cleaned up %lu expired tokens for %@
-Proxy %@, hit low water mark
-Flushing tokens for %@
+Proxy "%@", hit low water mark
+Flushing tokens for "%@"
 %s called with null (tokens.count > 0)
-Cache %lu tokens for proxy %@, expiration %@
+Cache %lu tokens for proxy "%@", expiration %@
 adding %lu tokens to token agent[%@]
-Retry fetching tokens for %@[%@] on network or key change
-Failed to fetch tokens for %@[%@] after %u attempts
-Retry: fetching token for %@[%@] after %lu seconds
+Retry fetching tokens for "%@" on network or key change
+Failed to fetch tokens for "%@" after %u attempts
+Retry: fetching token for "%@" after %lu seconds
 Token fetch retry timer fired
 %s called with null self.proxyInfo
-token fetch request for %@[%@] is already pending
-token fetch request for %@[%@] has a pending timer
-deferring token fetch for %@[%@], path is not satisfied
-ignoring token fetch for %@[%@], token count %lu
-Fetch tokens for %@[%@] on %@
-Token fetch successful for %@[%@]
-Token fetch failed for %@[%@] with too many requests
+token fetch request for "%@" is already pending
+token fetch request for "%@" has a pending timer
+deferring token fetch for "%@", path is not satisfied
+ignoring token fetch for "%@", token count %lu
+Fetch tokens for "%@" on %@
+Token fetch successful for "%@"
+Token fetch failed for "%@" with too many requests
 Token fetch failed, retrying immediately
-Token fetch failed for %@[%@] with %lu, error %@
-Received switch proxy from server for %@[%@]
+Token fetch failed for "%@" with %lu, error %@
+Received switch proxy from server for "%@"
+set token replenish timer
+Replenish timer fired
 Failed to convert from PID (%d) to process name
-Received error (%d) from %s for %@ agent
+Received error (%d) from %s for "%@" agent
 archivedDataWithRootObject for token info list failed with error: %@
-Saving proxy tokens for %@ in the keychain
+Saving %lu proxy tokens for "%@" in the keychain
 unarchivedObjectOfClass for token info list failed with error: %@
-Received %lu tokens from keychain for %@
-Removing proxy tokens for %@ from keychain
+Received %lu tokens from keychain for "%@"
+Removing proxy tokens for "%@" from keychain
 %s called with null ingressProxy
 %s called with null egressProxy
 %s called with null proxyTokenInfo
@@ -9136,7 +9166,7 @@ Probe[%@] connected
 %s called with null matchEgressProxy
 %s called with null (proxyPath.proxiesCount == MAX_PROXIES_ON_PATH)
 %s called with null matchProxy
-Token key changed for %@[%@]
+Token key changed for "%@"
 Dealloc: 
 Proxy Agent Manager: %@
 Detected proxy path restore interval in preferences file: %{public}@
@@ -9151,7 +9181,7 @@ proxy agent: network signature changed
 Removing proxy info keychain
 Token issuance limit timer fired
 %s called with null (proxyTokenInfo.proxyInfo.proxyHop == NSPPrivacyProxyProxyInfo_ProxyHop_EGRESS_ONLY)
-remove %@ from proxy path enumerator
+remove "%@" from proxy path enumerator
 %s called with null ingressProxyURL
 %s called with null egressProxyURL
 Proxy path enumerator restore timer fired
@@ -9160,13 +9190,13 @@ Proxy path enumerator restore timer fired
 %s called with null egressProxyInfo
 %s called with null ingressProxyTokenInfo
 %s called with null egressProxyTokenInfo
-Setting candidate proxy path (%@[%@]-%@[%@])
-Setting quic proxy path (%@[%@]-%@[%@])
+Setting candidate proxy path ([%@]-[%@])
+Setting quic proxy path ([%@]-[%@])
 Token for Quic[%@] fetch %@
 %s called with null self.candidatePreferredQUICProxyPaths
 %s called with null vendor
 Candidate preferred proxy path for vendor %@ (%@-%@) is not valid
-No preferred path found for vendor %@
+No preferred path found for vendor "%@"
 Preferred proxy path for vendor %@ (%@-%@) has been removed
 Preferred proxy path for vendor %@ (%@-%@) is not valid
 Domain filter for Quic[%@] fetch %@
@@ -9187,13 +9217,12 @@ Quic proxy path (%@-%@) is not valid
 Candidate Quic proxy path (%@-%@) is not valid
 Candidate Fallback proxy path (%@-%@) is not valid
 %@: token cache low water mark hit
-Token for %@ fetched %@
-%@: tokens added
+Token for "%@" fetched %@
+"%@" tokens added
 Setting quic proxy path (%@-%@)
 Setting fallback proxy path (%@-%@)
-ignoring token fetch outage, path status %ld last path unsatisfied date %@, last interface change date %@
-%@: switch proxy
-%@: token info invalid
+"%@": switch proxy
+"%@": token info invalid
 %@: token rate limited for %f
 Received RTC report request for type: %ld, errorcode: %d
 failed to create RTC report payload for type [%ld], error code [%d]
@@ -9204,12 +9233,12 @@ failed to create RTC report payload for service outage type %@
 sent service outage RTC report %@
 quic proxy path, multi hop agent registered
 fallback proxy path, multi hop agent registered
-Preferred QUIC proxy path for %@, multi hop agent registered
+Preferred QUIC proxy path for "%@", multi hop agent registered
 quic proxy path, single hop agent registered
 fallback proxy path, single hop agent registered
 quic proxy path, multihop agent unregistered
 fallback proxy path, multihop agent unregistered
-Preferred QUIC proxy path for %@, multi hop agent unregistered
+Preferred QUIC proxy path for "%@", multi hop agent unregistered
 quic proxy path, single hop agent unregistered
 fallback proxy path, single hop agent unregistered
 %s called with null outageReasonSubType
@@ -9226,8 +9255,8 @@ Fallback proxy multihop path is reporting origin proxy error
 Start probing[%@]
 Bad probing reason %ld
 Already probing for %@
-%s called with null (prober == self.directPathProber)
 Probing(%@): Proxy path probe successful
+%s called with null (prober == self.directPathProber)
 Probing(%@): Direct path probe successful %lu times
 Invalid probing reason: %@
 Probing(%@): Direct path probe failed but connected to the server %lu times
@@ -9427,6 +9456,7 @@ NSPDeviceIdentityStats
 NSPProxyAgentStats
 NSPOutageReasonStats
 NSPPrivateRelayIncompatibleNetworkStats
+NSPBadTokenInfoStats
 PrivacyProxyNetworkStatusTime
 NSPServiceStatusManager
 NSPPrivacyProxyResolverInfo
@@ -10784,6 +10814,14 @@ T@"NSString",&,N,V_fallbackEgressProxy
 T@"NSString",&,N,V_odohProxy
 T@"NSString",&,N,V_tokenProxy
 T@"NSString",&,N,V_interfaceType
+configAgeHours
+configTag
+setConfigAgeHours:
+setConfigTag:
+_configAgeHours
+_configTag
+TQ,N,V_configAgeHours
+T@"NSString",&,N,V_configTag
 copy
 standardUserDefaults
 arrayForKey:
@@ -12438,6 +12476,7 @@ setTokenFetchRetryDate:
 updateUserEventAgentData
 setUserEventAgentTokenFetchParameters
 resetPendingFetches
+cleanupReplenishTokenAgentTimer
 mergeTokenStats:
 tokenRegistration
 teardownTokenAgent
@@ -12453,8 +12492,6 @@ useDefaultInterface
 subscriber
 reportTokenFetchOutage
 setProxyInfo:
-tokenInfoList
-setTokenInfoList:
 setTokenCount:
 setTokenRegistration:
 setTokenAgentUUID:
@@ -12480,37 +12517,40 @@ badTokenCount
 setBadTokenCount:
 missingTokenCount
 setMissingTokenCount:
+saveTokensToKeychain:
+tokenLowWaterMark
 tokenLowWaterMarkReached:
+removeTokensFromKeychain
 requestTokensWithAccessToken:completionHandler:
 requestAccessToken:
 registerTokenAgent:
 removeExpiredTokens
 addToken:
-setLowWaterMark:
+tokenAdded:
 retryTokenFetchOnNetworkOrTokenKeyChangeFetch
 dateWithTimeIntervalSinceNow:
 numberFromString:
-tokenFetchOutage:
 networkInterface
 sharedTokenManager
 cacheTokens:expirationTime:
-tokenAdded:
 checkCachedTokenCount
 retryIntervalFromHTTPResponse:
 tokenRateLimited:untilDate:
 tokenInfoInvalid:
 switchProxy:
-tokenFetchFailureWithHttpStatusCode:error:
 reportTokenFetchFailure:statusCode:
-fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:completionHandler:
+fetchPrivacyTokensOnInterface:tierType:proxyURL:tokenVendor:tokenIssuancePublicKey:tokenCount:accessToken:retryAttempt:completionHandler:
+replenishTokenTimer
+setReplenishTokenTimer:
+tokenFetchOutage:
 pathForClientID:
 flushTokens
 flushProxyTokens
+setReplenishTokenAgentTimer
 reportErrorForTokenRegistration:error:withOptions:
 initWithDelegate:proxyInfo:path:subscriber:useDefaultInterface:
 setup
 handlePathChange:
-handleProxyKeyChanged
 handleTierChange:
 tokenFetchActive
 _tokenRequestPending
@@ -12519,7 +12559,6 @@ _useDefaultInterface
 _subscriber
 _reportTokenFetchOutage
 _proxyInfo
-_tokenInfoList
 _tokenCount
 _tokenRegistration
 _tokenAgentUUID
@@ -12535,9 +12574,9 @@ _agentLowWaterMarkHitCount
 _cacheLowWaterMarkHitCount
 _badTokenCount
 _missingTokenCount
+_replenishTokenTimer
 T@"<NSPProxyTokenDelegate>",W,V_delegate
 T@"NSPPrivacyProxyProxyInfo",&,N,V_proxyInfo
-T@"NSMutableArray",&,N,V_tokenInfoList
 TQ,N,V_tokenCount
 T@"NSPPrivacyProxyTokenRegistration",&,N,V_tokenRegistration
 T@"NSUUID",&,N,V_tokenAgentUUID
@@ -12558,6 +12597,7 @@ TQ,N,V_agentLowWaterMarkHitCount
 TQ,N,V_cacheLowWaterMarkHitCount
 TQ,N,V_badTokenCount
 TQ,N,V_missingTokenCount
+T@"NSObject<OS_dispatch_source>",&,N,V_replenishTokenTimer
 networkCharacteristics
 proxyConnectionSuccess
 ingressProxyConnectionTimeout
@@ -12900,10 +12940,9 @@ fallbackProxyPathWithIngressProxyURL:egressProxyURL:
 nextFallbackProxyPathWithOverride
 setupFallbackProxyPath
 updateProxyTokenInfoArray:
-isProbingActive
-startProbingForReason:
 removeProxyURLFromProxyEnumerator:
 removeProxyURLFromFallbackProxyEnumerator:
+badTokenInfoForProxy:
 tokenIssuanceLimitReached
 stringWithCString:encoding:
 errorDescriptionForRawErrorCode:
@@ -12921,7 +12960,9 @@ preferredProxyAgentRegistered:agentUUID:domainFilter:
 preferredProxyAgentUnregistered:
 reportPrivacyProxySuccessOnInterface:
 checkPrivacyProxyConnectivityOnInterface:proxyConnectivityCheckType:outageReasonStats:completionHandler:
+isProbingActive
 setProxyOutageReason:
+startProbingForReason:
 connectionTimeoutProxyPath:interface:
 connectionRefusedProxyPath:interface:
 dnsTimeoutProxyPath:interface:
@@ -13400,6 +13441,7 @@ _authURL
 T@"NSString",&,N,V_authURL
 tokenAgentRegistration
 tokenAgent
+setLowWaterMark:
 resetTokenAgentFileHandle
 setTokenAgent:
 setTokenAgentRegistration:
@@ -13809,7 +13851,7 @@ v36@0:8@"NSPPrivacyProxyTokenAgent"16i24@"NSDictionary"28
 @"<NSPPrivacyProxyTokenRegistrationDelegate>"
 @"NSPPrivacyProxyTokenAgent"
 B32@0:8@16i24B28
-v80@0:8@16@24@32@40@48Q56@64@?72
+v88@0:8@16@24@32@40@48Q56@64Q72@?80
 v24@0:8#16
 0123456789abcdef
 "3DUfw
