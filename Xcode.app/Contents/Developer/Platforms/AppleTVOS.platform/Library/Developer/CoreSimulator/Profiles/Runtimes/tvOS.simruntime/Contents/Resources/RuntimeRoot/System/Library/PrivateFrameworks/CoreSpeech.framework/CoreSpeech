@@ -470,6 +470,11 @@ com.apple.corespeech.corespeechd.activation.xpc
 event
 +[CSUtils(LanguageCode) getSiriLanguageWithFallback:]
 +[CSUtils(LanguageCode) getSiriLanguageWithEndpointId:fallbackLanguage:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin updateSplitterState:shouldDisableSpeakerVerificationInSplitterMode:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin splitterState]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin _startMonitoringWithQueue:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin _stopMonitoring]
+v20@?0Q8B16
 CSStopRecordingReasonDefault
 CSStopRecordingForClientEndpoint
 CSStopRecordingForServerEndpoint
@@ -1066,6 +1071,7 @@ v16@?0@"<AFMyriadContextMutating>"8
 -[CSSiriLauncher notifyBluetoothDeviceVoiceTrigger:deviceId:completion:]_block_invoke
 -[CSSiriLauncher notifyWakeKeywordSpokenBluetoothDevice:deviceId:]_block_invoke
 -[CSSiriLauncher deactivateSiriActivationConnectionWithReason:withOptions:withContext:]_block_invoke
+-[CSSiriLauncher notifyDarwinVoiceTrigger:deviceId:myriadPHash:myriadLateActivationExpirationTime:completion:]_block_invoke
 -[CSAudioRouteChangeMonitor _startMonitoringWithQueue:]
 CSAudioRouteChangeMonitor.m
 -[CSAudioRouteChangeMonitor _stopMonitoring]
@@ -1887,6 +1893,7 @@ Recording transaction
 -[CSAudioProvider _scheduleDidStopRecordingDelegateWatchDog]
 -[CSAudioProvider _scheduleDidStopRecordingDelegateWatchDog:]
 -[CSAudioProvider _clearDidStopRecordingDelegateWatchDog]
+-[CSAudioProvider _updateRemoteDeviceIdFromAVVCIfNeeded]
 -[CSListeningEnabledPolicyWatch _addListeningEnabledConditions]_block_invoke
 -[NSArray(XPCObject) _cs_initWithXPCObject:]
 -[NSArray(XPCObject) _cs_initWithXPCObject:]_block_invoke
@@ -2236,6 +2243,9 @@ com.apple.transcribe.Transcriber
 -[CSNetworkAvailabilityMonitor _availabilityChanged]
 -[CSSpeechDetectionDevicePresentMonitor handleSpeechDetectionVADPresentChange:]
 -[CSSpeechDetectionDevicePresentMonitor _systemControllerDied:]
+-[CSLanguageCodeUpdateMonitorImplDarwin _startMonitoringWithQueue:]
+-[CSLanguageCodeUpdateMonitorImplDarwin _stopMonitoring]
+-[CSLanguageCodeUpdateMonitorImplDarwin _didReceiveLanguageCodeUpdate:]
 -[CSAttSiriMitigationAssetHandler _receivedNewAssetUpdate:]
 -[CSAttSiriMitigationAssetHandler trialAssetDownloadMonitorDelegate:didInstallNewAsset:assetType:]
 isRemoteDevice
@@ -2585,6 +2595,10 @@ CSOpportuneSpeakEventMonitor
 %s Siri language is nil, falling back to %@
 %s endpointUUID not provided, fallback to legacy query
 %s Failed to query language code with endpointId %@, trying legacy query
+%s splitterState : %{public}lu, shouldDisableSpeakerVerification : %{public}@
+%s This call is not supported on darwinOS device (splitterState)
+%s Start monitoring : Wireless Splitter start
+%s Stop monitoring : Wireless Splitter
 %s Advert data: %{public}@
 %s advert data write failed
 %s %{public}.2f ms after firstBufferStart
@@ -2982,6 +2996,8 @@ Invalidating
 %s Invoked Siri client for voice trigger from Jarvis
 %s Cannot invoke Siri client for voice trigger from Jarvis : %{public}@
 %s SiriActivationConnection deactivated due to %ld
+%s Invoked Siri client for voice trigger from Darwin
+%s Cannot invoke Siri client for voice trigger from Darwin : %{public}@
 %s SmartSiriVolume cannot be resumed since Siri is speaking
 %s Dealloc CSAudioInjectionEngineRemoraEngine : %@
 %s Cannot create de-interleaver using AudioConverterNew: %{public}d
@@ -3555,6 +3571,8 @@ Invalidating
 %s stopRecordingWatchDogDidFire : %{public}@, currentToken : %{public}@
 %s stopRecordingWatchDogToken doesn't match. Ignore this WDT fire
 %s Clearing didStopRecordingDelegate WatchDogTimer : %{public}@
+%s Update remote deviceUId fetched from AVVC : %{public}@ (this must be deviceUID of Darwin device only)
+%s Failed to fetch remote deviceUId from AVVC
 %s Listening on watch cannot be turned on since speech detection VAD is disabled
 %s Listening on watch cannot be turned on since Siri is disabled
 %s Listening on watch cannot be turned on since SpringBoard is not started
@@ -3871,6 +3889,7 @@ SpeechRecorder
 %s Start monitoring : network availability
 %s Stop monitoring : network availability
 %s Network availability changed
+%s language code already up-to-date : %{public}@
 %s Updated cache with new Trial asset %@
 %s Cache already contains Trial asset, ignore MA asset update
 %s Updated cache with new MA asset %@
@@ -3960,6 +3979,7 @@ SpeechRecorder
 %s AVVC sampling rate = %{public}f
 %s AVVC doesn't return sampleRate, assume it is default sample rate
 %s isNarrowBand = NO for streamHandleId = %{public}lu
+%s (darwinOS) : isNarrowBand = NO for streamHandleId = %{public}lu
 %s isNarrowBand = %{public}@ for streamHandleId = %{public}lu
 %s Calling AVVC setSessionActive for Prewarm
 %s Prewarm AudioSession has failed : %{public}@
@@ -4078,6 +4098,7 @@ CSOtherAppRecordingStateMonitor
 CSBenchmarkService
 CSAssetDownloadingOption
 CSBluetoothManager
+CSHostLauncherDarwin
 CSSiriAssertionMonitor
 CSXPCConnectionDelegate
 CSAccessorySiriClientBehaviorMonitor
@@ -4108,6 +4129,7 @@ CSEndpointAnalyzer
 CSActivationXPCClient
 CSLanguageDetector
 LanguageCode
+CSBluetoothWirelessSplitterMonitorImplDarwin
 CSStopRecordingOptions
 CSMacWakeSleepMonitor
 CSMyriadSelfTriggerCoordinator
@@ -4377,6 +4399,7 @@ CSKeywordAnalyzerQuasar
 _EARSpeechRecognitionResultStream
 CSNetworkAvailabilityMonitor
 CSSpeechDetectionDevicePresentMonitor
+CSLanguageCodeUpdateMonitorImplDarwin
 CSAttSiriMitigationAssetHandler
 CSAudioRecordDeviceInfo
 CSOpportuneSpeakListnerTestService
@@ -4385,6 +4408,7 @@ CSAudioConverter
 CSLanguageCodeUpdateMonitor
 CSVoiceTriggerEventInfoProvider
 CSAudioInjectionServices
+CSRemoteDarwinDeviceInfo
 CSAdBlockerAssetDecoderV3
 Trial
 CSGestureDropEvent
@@ -4679,6 +4703,7 @@ Tf,R,N
 _startMonitoringWithQueue:
 phoneCallState
 defaultOption
+isDarwinOS
 _notifyObserver:mediaIsPlayingState:
 enumerateObserversInQueue:
 defaultCenter
@@ -5255,6 +5280,7 @@ T^{BTLocalDeviceImpl=},N,V_localDevice
 T@"NSArray",&,N,V_pairedDeviceAddresses
 T@"NSArray",&,N,V_connectedDeviceAddresses
 T@"NSObject<OS_dispatch_group>",&,N,V_bluetoothSessionSetupGroup
+wakeHostForVoiceTrigger
 isEnabled
 CSSiriAssertionMonitor:didReceiveEnabled:
 handleXPCMessage:messageBody:client:
@@ -5757,7 +5783,15 @@ setInteractionIDforCurrentRequest:
 cancelCurrentRequest
 resetForNewRequest:
 T@"<CSLanguageDetectorDelegate>",W,N,V_delegate
+languageCodeDarwin
 getSiriLanguageWithEndpointId:fallbackLanguage:
+_didReceiveWirelessSplitterStateChange
+_notifyObserver:splitterState:shouldDisableSpeakerVerificationInSplitterMode:
+splitterState:
+CSBluetoothWirelessSplitterMonitor:didReceiveSplitterStateChange:shouldDisableSpeakerVerificationInSplitterMode:
+updateSplitterState:shouldDisableSpeakerVerificationInSplitterMode:
+_splitterState
+_shouldDisableSpeakerVerificationInSplitterMode
 stringWithString:
 stopRecordingReason
 setStopRecordingReason:
@@ -7206,6 +7240,8 @@ setOverrideState:
 setVoiceTriggerEverUsed
 initWithServicePort:
 deactivateForReason:options:context:completion:
+setActivationSource:
+setActivationExpirationTime:
 sharedLauncher
 notifyBuiltInVoiceTriggerPrewarm:completion:
 notifyBuiltInVoiceTrigger:myriadPHash:completion:
@@ -7220,6 +7256,8 @@ notifyRemoraVoiceTriggerPrewarm:deviceId:completion:
 notifyRemoraVoiceTrigger:myriadPHash:deviceId:completion:
 notifyWakeKeywordSpokenRemora:deviceId:
 deactivateSiriActivationConnectionWithReason:withOptions:withContext:
+notifyDarwinVoiceTriggerPrewarmWithCompletion:
+notifyDarwinVoiceTrigger:deviceId:myriadPHash:myriadLateActivationExpirationTime:completion:
 _addSmartSiriVolumeEnabledConditions
 _createDeInterleaverIfNeeded
 _startAudioFeedingTimer
@@ -7276,6 +7314,7 @@ T^{AudioBufferList=I[1{AudioBuffer=II^v}]},N,V_pNonInterleavedABL
 TB,N,V_didSetScaleFactor
 Tf,N,V_scaleFactor
 hasRemoteBuiltInMic
+isRemoteDarwinWithDeviceId:
 assetChangeMonitorDidDetectAssetChange:
 sharedMonitor
 startMonitoring
@@ -7300,7 +7339,6 @@ batteryState
 isRestricted
 isSoftwareUpdateCheckingRunning
 supportHangUp
-splitterState:
 siriClientBehaviorMonitor:fetchedSiriClientAudioStream:successfully:
 siriClientBehaviorMonitor:preparedSiriClientAudioStream:successfully:
 siriClientBehaviorMonitor:willStartStreamWithContext:option:
@@ -7486,6 +7524,7 @@ useDeviceSpeakerForTTS
 _audioAlertStyleForListenAfterSpeakingWithRecordRoute:playbackRoute:echoCancellation:useDeviceSpeakerForTTS:
 vibratesForDeviceRingerSwitchState:
 startAlertEnabled
+hasRemoteCoreSpeech
 startingAlertBehavior
 beepSoundID
 _audioSessionActiveDelayUserPerceptionWithType:
@@ -8930,6 +8969,9 @@ initWithDescription:
 _onAudioPacketWatchdogFire
 _schduleDidStartRecordingDelegateWatchDogWithToken:
 _scheduleDidStopRecordingDelegateWatchDog:
+supportRemoteDarwinVoiceTrigger
+hasDarwinDeviceConnected
+remoteDeviceUIDString
 _tearDownCircularBufferIfNeeded
 notifyProviderContextChanged
 recordQueue
@@ -9626,13 +9668,14 @@ _notifyObserver:withNetworkAvailability:
 CSNetworkAvailabilityMonitor:didReceiveNetworkAvailabilityChanged:
 _startObservingSpeechDetectionVADPresence
 handleSpeechDetectionVADPresentChange:
+setSiriLanguageCodeDarwin:
+_didReceiveLanguageCodeUpdate:
 assetProvider
 _receivedNewAssetUpdate:
 getMitigationAssetWithEndpointId:completion:
 initWithRoute:isRemoteDevice:remoteDeviceUID:remoteDeviceProductIdentifier:remoteDeviceUIDString:
 isRemoteDevice
 remoteProductIdentifier
-remoteDeviceUIDString
 initWithAVVCRecordDeviceInfo:
 remoteDeviceProductIdentifier
 _isRemoteDevice
@@ -9662,6 +9705,9 @@ _lastArrivalTimestampToAudioRecorder
 _outPacketSizeInSec
 T@"<CSAudioConverterDelegate>",W,V_delegate
 _isBuiltInDeviceFromDeviceId:
+isDarwinVoiceTriggered
+fetchDeviceUUIDStringFromUID:
+getMachTimeAdjustedVoiceTriggerEventInfoForDeviceUUID:
 fetchVoiceTriggerInfoWithAudioContext:triggerInfoProviding:resultVoiceTriggerInfo:resultRTSTriggerInfo:
 rtsTriggerInfo
 setRtsTriggerInfo:
@@ -9681,6 +9727,15 @@ enableProgrammableAudioInjection:
 getAudioInjectionXPCConnection
 injectAudio:toDeviceWithUUID:withfadingTimeWindowLength:completion:
 setAudioInjectionMode:
+deviceConnectedWithUUID:
+deviceDisconnectedWithUUID:
+allDeviceDisconnected
+notifyVoiceTriggerEnabledWithDeviceUUID:
+notifyVoiceTriggerDisabledWithDeviceUUID:
+hasDarwinDeviceHandleVoiceTrigger
+isRemoteDarwinConnectedWithUUID:
+fetchRichDeviceUIDStringFromUUID:
+isPrimaryVoiceTriggerDeviceWithUUID:
 getAssetTypeForNamespace:
 getTrialIdsForAssetType:withCompletion:
 initWithDroppingPrediction:droppedPrediction:timestamp:
@@ -9697,6 +9752,7 @@ Td,R,N,V_timestamp
 isRecordContextBuiltInVoiceTrigger:
 isRecordContextHearstVoiceTrigger:
 isRecordContextJarvisVoiceTrigger:
+isRecordContextDarwinVoiceTrigger:
 isRecordContextRemoraVoiceTrigger:
 isRecordContextHearstDoubleTap:
 isRecordContextRaiseToSpeak:
@@ -9830,6 +9886,7 @@ stopRecordForStream:error:
 getCurrentSessionState
 getCurrentStreamState:
 isRemoteDeviceGibraltar
+isRemoteDeviceDarwin
 getRecordDeviceInfoForStream:
 outputs
 endpointType
@@ -10199,6 +10256,8 @@ v28@0:8@"CSServerEndpointFeatures"16B24
 @"<CSEndpointAnalyzerDelegate>"
 @"<CSEndpointAnalyzerImplDelegate>"
 @"<CSLanguageDetectorDelegate>"
+v28@0:8Q16B24
+v36@0:8@16Q24B32
 v32@0:8@"CSSelfTriggerDetector"16@"NSDictionary"24
 @"<CSMyriadSelfTriggerCoordinatorDelegate>"
 v40@0:8Q16Q24Q32
@@ -10410,7 +10469,6 @@ v28@0:8@"CSAutomaticVolumeEnabledMonitor"16B24
 @48@0:8Q16@24@32Q40
 d20@0:8f16
 v48@0:8Q16@24@32@?40
-v28@0:8Q16B24
 v40@0:8@16Q24@?32
 v40@0:8@16@?24@?32
 @40@0:8@16Q24@32
@@ -10782,7 +10840,7 @@ fff?
  %*/
 mcpl,
  #&),/
-::::
+>>>;
 @mcpl
 mcpl
 @xeps
@@ -11247,6 +11305,11 @@ com.apple.corespeech.corespeechd.activation.xpc
 event
 +[CSUtils(LanguageCode) getSiriLanguageWithFallback:]
 +[CSUtils(LanguageCode) getSiriLanguageWithEndpointId:fallbackLanguage:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin updateSplitterState:shouldDisableSpeakerVerificationInSplitterMode:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin splitterState]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin _startMonitoringWithQueue:]
+-[CSBluetoothWirelessSplitterMonitorImplDarwin _stopMonitoring]
+v20@?0Q8B16
 CSStopRecordingReasonDefault
 CSStopRecordingForClientEndpoint
 CSStopRecordingForServerEndpoint
@@ -11843,6 +11906,7 @@ v16@?0@"<AFMyriadContextMutating>"8
 -[CSSiriLauncher notifyBluetoothDeviceVoiceTrigger:deviceId:completion:]_block_invoke
 -[CSSiriLauncher notifyWakeKeywordSpokenBluetoothDevice:deviceId:]_block_invoke
 -[CSSiriLauncher deactivateSiriActivationConnectionWithReason:withOptions:withContext:]_block_invoke
+-[CSSiriLauncher notifyDarwinVoiceTrigger:deviceId:myriadPHash:myriadLateActivationExpirationTime:completion:]_block_invoke
 -[CSAudioRouteChangeMonitor _startMonitoringWithQueue:]
 CSAudioRouteChangeMonitor.m
 -[CSAudioRouteChangeMonitor _stopMonitoring]
@@ -12664,6 +12728,7 @@ Recording transaction
 -[CSAudioProvider _scheduleDidStopRecordingDelegateWatchDog]
 -[CSAudioProvider _scheduleDidStopRecordingDelegateWatchDog:]
 -[CSAudioProvider _clearDidStopRecordingDelegateWatchDog]
+-[CSAudioProvider _updateRemoteDeviceIdFromAVVCIfNeeded]
 -[CSListeningEnabledPolicyWatch _addListeningEnabledConditions]_block_invoke
 -[NSArray(XPCObject) _cs_initWithXPCObject:]
 -[NSArray(XPCObject) _cs_initWithXPCObject:]_block_invoke
@@ -13013,6 +13078,9 @@ com.apple.transcribe.Transcriber
 -[CSNetworkAvailabilityMonitor _availabilityChanged]
 -[CSSpeechDetectionDevicePresentMonitor handleSpeechDetectionVADPresentChange:]
 -[CSSpeechDetectionDevicePresentMonitor _systemControllerDied:]
+-[CSLanguageCodeUpdateMonitorImplDarwin _startMonitoringWithQueue:]
+-[CSLanguageCodeUpdateMonitorImplDarwin _stopMonitoring]
+-[CSLanguageCodeUpdateMonitorImplDarwin _didReceiveLanguageCodeUpdate:]
 -[CSAttSiriMitigationAssetHandler _receivedNewAssetUpdate:]
 -[CSAttSiriMitigationAssetHandler trialAssetDownloadMonitorDelegate:didInstallNewAsset:assetType:]
 isRemoteDevice
@@ -13362,6 +13430,10 @@ CSOpportuneSpeakEventMonitor
 %s Siri language is nil, falling back to %@
 %s endpointUUID not provided, fallback to legacy query
 %s Failed to query language code with endpointId %@, trying legacy query
+%s splitterState : %{public}lu, shouldDisableSpeakerVerification : %{public}@
+%s This call is not supported on darwinOS device (splitterState)
+%s Start monitoring : Wireless Splitter start
+%s Stop monitoring : Wireless Splitter
 %s Advert data: %{public}@
 %s advert data write failed
 %s %{public}.2f ms after firstBufferStart
@@ -13761,6 +13833,8 @@ Invalidating
 %s Invoked Siri client for voice trigger from Jarvis
 %s Cannot invoke Siri client for voice trigger from Jarvis : %{public}@
 %s SiriActivationConnection deactivated due to %ld
+%s Invoked Siri client for voice trigger from Darwin
+%s Cannot invoke Siri client for voice trigger from Darwin : %{public}@
 %s SmartSiriVolume cannot be resumed since Siri is speaking
 %s Dealloc CSAudioInjectionEngineRemoraEngine : %@
 %s Cannot create de-interleaver using AudioConverterNew: %{public}d
@@ -14334,6 +14408,8 @@ Invalidating
 %s stopRecordingWatchDogDidFire : %{public}@, currentToken : %{public}@
 %s stopRecordingWatchDogToken doesn't match. Ignore this WDT fire
 %s Clearing didStopRecordingDelegate WatchDogTimer : %{public}@
+%s Update remote deviceUId fetched from AVVC : %{public}@ (this must be deviceUID of Darwin device only)
+%s Failed to fetch remote deviceUId from AVVC
 %s Listening on watch cannot be turned on since speech detection VAD is disabled
 %s Listening on watch cannot be turned on since Siri is disabled
 %s Listening on watch cannot be turned on since SpringBoard is not started
@@ -14649,6 +14725,7 @@ EndpointHandled
 %s Start monitoring : network availability
 %s Stop monitoring : network availability
 %s Network availability changed
+%s language code already up-to-date : %{public}@
 %s Updated cache with new Trial asset %@
 %s Cache already contains Trial asset, ignore MA asset update
 %s Updated cache with new MA asset %@
@@ -14738,6 +14815,7 @@ EndpointHandled
 %s AVVC sampling rate = %{public}f
 %s AVVC doesn't return sampleRate, assume it is default sample rate
 %s isNarrowBand = NO for streamHandleId = %{public}lu
+%s (darwinOS) : isNarrowBand = NO for streamHandleId = %{public}lu
 %s isNarrowBand = %{public}@ for streamHandleId = %{public}lu
 %s Calling AVVC setSessionActive for Prewarm
 %s Prewarm AudioSession has failed : %{public}@
@@ -14855,6 +14933,7 @@ CSOtherAppRecordingStateMonitor
 CSBenchmarkService
 CSAssetDownloadingOption
 CSBluetoothManager
+CSHostLauncherDarwin
 CSSiriAssertionMonitor
 CSXPCConnectionDelegate
 CSAccessorySiriClientBehaviorMonitor
@@ -14885,6 +14964,7 @@ CSEndpointAnalyzer
 CSActivationXPCClient
 CSLanguageDetector
 LanguageCode
+CSBluetoothWirelessSplitterMonitorImplDarwin
 CSStopRecordingOptions
 CSMacWakeSleepMonitor
 CSMyriadSelfTriggerCoordinator
@@ -15154,6 +15234,7 @@ CSKeywordAnalyzerQuasar
 _EARSpeechRecognitionResultStream
 CSNetworkAvailabilityMonitor
 CSSpeechDetectionDevicePresentMonitor
+CSLanguageCodeUpdateMonitorImplDarwin
 CSAttSiriMitigationAssetHandler
 CSAudioRecordDeviceInfo
 CSOpportuneSpeakListnerTestService
@@ -15162,6 +15243,7 @@ CSAudioConverter
 CSLanguageCodeUpdateMonitor
 CSVoiceTriggerEventInfoProvider
 CSAudioInjectionServices
+CSRemoteDarwinDeviceInfo
 CSAdBlockerAssetDecoderV3
 Trial
 CSGestureDropEvent
@@ -15456,6 +15538,7 @@ Tf,R,N
 _startMonitoringWithQueue:
 phoneCallState
 defaultOption
+isDarwinOS
 _notifyObserver:mediaIsPlayingState:
 enumerateObserversInQueue:
 defaultCenter
@@ -16032,6 +16115,7 @@ T^{BTLocalDeviceImpl=},N,V_localDevice
 T@"NSArray",&,N,V_pairedDeviceAddresses
 T@"NSArray",&,N,V_connectedDeviceAddresses
 T@"NSObject<OS_dispatch_group>",&,N,V_bluetoothSessionSetupGroup
+wakeHostForVoiceTrigger
 isEnabled
 CSSiriAssertionMonitor:didReceiveEnabled:
 handleXPCMessage:messageBody:client:
@@ -16534,7 +16618,15 @@ setInteractionIDforCurrentRequest:
 cancelCurrentRequest
 resetForNewRequest:
 T@"<CSLanguageDetectorDelegate>",W,N,V_delegate
+languageCodeDarwin
 getSiriLanguageWithEndpointId:fallbackLanguage:
+_didReceiveWirelessSplitterStateChange
+_notifyObserver:splitterState:shouldDisableSpeakerVerificationInSplitterMode:
+splitterState:
+CSBluetoothWirelessSplitterMonitor:didReceiveSplitterStateChange:shouldDisableSpeakerVerificationInSplitterMode:
+updateSplitterState:shouldDisableSpeakerVerificationInSplitterMode:
+_splitterState
+_shouldDisableSpeakerVerificationInSplitterMode
 stringWithString:
 stopRecordingReason
 setStopRecordingReason:
@@ -17983,6 +18075,8 @@ setOverrideState:
 setVoiceTriggerEverUsed
 initWithServicePort:
 deactivateForReason:options:context:completion:
+setActivationSource:
+setActivationExpirationTime:
 sharedLauncher
 notifyBuiltInVoiceTriggerPrewarm:completion:
 notifyBuiltInVoiceTrigger:myriadPHash:completion:
@@ -17997,6 +18091,8 @@ notifyRemoraVoiceTriggerPrewarm:deviceId:completion:
 notifyRemoraVoiceTrigger:myriadPHash:deviceId:completion:
 notifyWakeKeywordSpokenRemora:deviceId:
 deactivateSiriActivationConnectionWithReason:withOptions:withContext:
+notifyDarwinVoiceTriggerPrewarmWithCompletion:
+notifyDarwinVoiceTrigger:deviceId:myriadPHash:myriadLateActivationExpirationTime:completion:
 _addSmartSiriVolumeEnabledConditions
 _createDeInterleaverIfNeeded
 _startAudioFeedingTimer
@@ -18053,6 +18149,7 @@ T^{AudioBufferList=I[1{AudioBuffer=II^v}]},N,V_pNonInterleavedABL
 TB,N,V_didSetScaleFactor
 Tf,N,V_scaleFactor
 hasRemoteBuiltInMic
+isRemoteDarwinWithDeviceId:
 assetChangeMonitorDidDetectAssetChange:
 sharedMonitor
 startMonitoring
@@ -18077,7 +18174,6 @@ batteryState
 isRestricted
 isSoftwareUpdateCheckingRunning
 supportHangUp
-splitterState:
 siriClientBehaviorMonitor:fetchedSiriClientAudioStream:successfully:
 siriClientBehaviorMonitor:preparedSiriClientAudioStream:successfully:
 siriClientBehaviorMonitor:willStartStreamWithContext:option:
@@ -18263,6 +18359,7 @@ useDeviceSpeakerForTTS
 _audioAlertStyleForListenAfterSpeakingWithRecordRoute:playbackRoute:echoCancellation:useDeviceSpeakerForTTS:
 vibratesForDeviceRingerSwitchState:
 startAlertEnabled
+hasRemoteCoreSpeech
 startingAlertBehavior
 beepSoundID
 _audioSessionActiveDelayUserPerceptionWithType:
@@ -19707,6 +19804,9 @@ initWithDescription:
 _onAudioPacketWatchdogFire
 _schduleDidStartRecordingDelegateWatchDogWithToken:
 _scheduleDidStopRecordingDelegateWatchDog:
+supportRemoteDarwinVoiceTrigger
+hasDarwinDeviceConnected
+remoteDeviceUIDString
 _tearDownCircularBufferIfNeeded
 notifyProviderContextChanged
 recordQueue
@@ -20403,13 +20503,14 @@ _notifyObserver:withNetworkAvailability:
 CSNetworkAvailabilityMonitor:didReceiveNetworkAvailabilityChanged:
 _startObservingSpeechDetectionVADPresence
 handleSpeechDetectionVADPresentChange:
+setSiriLanguageCodeDarwin:
+_didReceiveLanguageCodeUpdate:
 assetProvider
 _receivedNewAssetUpdate:
 getMitigationAssetWithEndpointId:completion:
 initWithRoute:isRemoteDevice:remoteDeviceUID:remoteDeviceProductIdentifier:remoteDeviceUIDString:
 isRemoteDevice
 remoteProductIdentifier
-remoteDeviceUIDString
 initWithAVVCRecordDeviceInfo:
 remoteDeviceProductIdentifier
 _isRemoteDevice
@@ -20439,6 +20540,9 @@ _lastArrivalTimestampToAudioRecorder
 _outPacketSizeInSec
 T@"<CSAudioConverterDelegate>",W,V_delegate
 _isBuiltInDeviceFromDeviceId:
+isDarwinVoiceTriggered
+fetchDeviceUUIDStringFromUID:
+getMachTimeAdjustedVoiceTriggerEventInfoForDeviceUUID:
 fetchVoiceTriggerInfoWithAudioContext:triggerInfoProviding:resultVoiceTriggerInfo:resultRTSTriggerInfo:
 rtsTriggerInfo
 setRtsTriggerInfo:
@@ -20458,6 +20562,15 @@ enableProgrammableAudioInjection:
 getAudioInjectionXPCConnection
 injectAudio:toDeviceWithUUID:withfadingTimeWindowLength:completion:
 setAudioInjectionMode:
+deviceConnectedWithUUID:
+deviceDisconnectedWithUUID:
+allDeviceDisconnected
+notifyVoiceTriggerEnabledWithDeviceUUID:
+notifyVoiceTriggerDisabledWithDeviceUUID:
+hasDarwinDeviceHandleVoiceTrigger
+isRemoteDarwinConnectedWithUUID:
+fetchRichDeviceUIDStringFromUUID:
+isPrimaryVoiceTriggerDeviceWithUUID:
 getAssetTypeForNamespace:
 getTrialIdsForAssetType:withCompletion:
 initWithDroppingPrediction:droppedPrediction:timestamp:
@@ -20474,6 +20587,7 @@ Td,R,N,V_timestamp
 isRecordContextBuiltInVoiceTrigger:
 isRecordContextHearstVoiceTrigger:
 isRecordContextJarvisVoiceTrigger:
+isRecordContextDarwinVoiceTrigger:
 isRecordContextRemoraVoiceTrigger:
 isRecordContextHearstDoubleTap:
 isRecordContextRaiseToSpeak:
@@ -20607,6 +20721,7 @@ stopRecordForStream:error:
 getCurrentSessionState
 getCurrentStreamState:
 isRemoteDeviceGibraltar
+isRemoteDeviceDarwin
 getRecordDeviceInfoForStream:
 outputs
 endpointType
@@ -20976,6 +21091,8 @@ v28@0:8@"CSServerEndpointFeatures"16B24
 @"<CSEndpointAnalyzerDelegate>"
 @"<CSEndpointAnalyzerImplDelegate>"
 @"<CSLanguageDetectorDelegate>"
+v28@0:8Q16B24
+v36@0:8@16Q24B32
 v32@0:8@"CSSelfTriggerDetector"16@"NSDictionary"24
 @"<CSMyriadSelfTriggerCoordinatorDelegate>"
 v40@0:8Q16Q24Q32
@@ -21187,7 +21304,6 @@ v28@0:8@"CSAutomaticVolumeEnabledMonitor"16B24
 @48@0:8Q16@24@32Q40
 d20@0:8f16
 v48@0:8Q16@24@32@?40
-v28@0:8Q16B24
 v40@0:8@16Q24@?32
 v40@0:8@16@?24@?32
 @40@0:8@16Q24@32
