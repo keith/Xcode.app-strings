@@ -577,7 +577,6 @@ v24@?0@"NSString"8@"NSError"16
 +[CSCoreSpeechServices getCurrentVoiceTriggerLocaleWithEndpointId:completion:]
 +[CSCoreSpeechServices getCurrentVoiceTriggerLocaleWithEndpointId:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:accessoryRTModelType:endpointId:downloadedModels:preinstalledModels:completion:]_block_invoke
-+[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:downloadedModels:preinstalledModels:completion:]
 +[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:downloadedModels:preinstalledModels:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerJarvisLanguageList:jarvisSelectedLanguage:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerJarvisLanguageList:jarvisSelectedLanguage:completion:]
@@ -653,6 +652,7 @@ RecordedAudio
 TrimmedAudio
 com.apple.corespeech.endpointer.xpc.client
 com.apple.corespeech.endpointer.xpc.connection
+com.apple.corespeech.endpointer.xpc.delegate
 -[CSEndpointerXPCClient endpointerModelVersion]_block_invoke_2
 v24@?0@"NSError"8@"NSString"16
 -[CSEndpointerXPCClient endpointerModelVersion]_block_invoke
@@ -672,8 +672,8 @@ v24@?0@"NSError"8Q16
 -[CSEndpointerXPCClient _getRemoteServiceProxyObject]_block_invoke
 com.apple.corespeech.corespeechd.endpointer.service
 -[CSEndpointerXPCClient _createClientConnection]_block_invoke
--[CSEndpointerXPCClient didDetectHardEndpointAtTime:withTotalAudioRecorded:endpointBufferHostTime:featuresAtEndpoint:endpointerType:serverFeatureLatencyDistribution:additionalMetrics:]
--[CSEndpointerXPCClient didDetectHardEndpointAtTime:withMetrics:]
+-[CSEndpointerXPCClient didDetectHardEndpointAtTime:withTotalAudioRecorded:endpointBufferHostTime:featuresAtEndpoint:endpointerType:serverFeatureLatencyDistribution:additionalMetrics:]_block_invoke
+-[CSEndpointerXPCClient didDetectHardEndpointAtTime:withMetrics:]_block_invoke
 allocator<T>::allocate(size_t n) 'n' exceeds maximum supported size
 deque
 -[NviDirectionalitySignalProvider initWithDataSource:assetsProvider:]
@@ -2431,6 +2431,7 @@ Builtin Microphone
 [stopOnErrorAlert = %d]
 [skipAlert = %@]
 -[CSAudioRecorder initWithQueue:error:]
+-[CSAudioRecorder userSessionActivateMonitor:didReceivedUserSessionActiveHasChanged:]_block_invoke
 -[CSAudioRecorder willDestroy]
 -[CSAudioRecorder dealloc]
 -[CSAudioRecorder _destroyVoiceController]
@@ -3144,7 +3145,7 @@ Invalidating
 %s VoiceTrigger cannot be turned on since Siri is restricted on lock screen
 %s VoiceTrigger cannot be turned on since Software Update Checking is running
 %s VoiceTrigger cannot be turned on since we are not in a desired call state
-%s VoiceTrigger cannot be turned on because we are in a ringtone and hearstState: %d builtInState: %d isInSplitterMode: %d
+%s VoiceTrigger cannot be turned on because we are in a ringtone and HSPhoneCallCapableHeadsetConnected: %d builtInState: %d isInSplitterMode: %d
 %s Successfully ? %{public}@
 %s Notify release of audio session
 %s Start monitoring : speech endpoint asset meta update
@@ -4078,6 +4079,7 @@ SpeechRecorder
 %s OldTrigPh: %@, NewTrigPh: %@
 %s Failed to create AVVC : %{public}@
 %s Create new CSAudioRecorder = %{public}p
+%s Tear down _remoteRecordClient if needed
 %s CSAudioRecorder %{public}p deallocated
 %s AVVC initialization failed
 %s Successfully create AVVC : %{public}p
@@ -4566,6 +4568,7 @@ CSAudioRecorder
 AVVoiceControllerRecordDelegate
 CSAudioFileReaderDelegate
 CSRemoteRecordClientDelegate
+CSUserSessionActiveMonitorDelegate
 CSAudioServerCrashEventProviding
 CSAudioSessionEventProviding
 CSCommandControlBehaviorMonitor
@@ -6401,15 +6404,19 @@ setEndpointerDelegate:
 setXpcConnectionQueue:
 xpcClientQueue
 setXpcClientQueue:
+xpcDelegateQueue
+setXpcDelegateQueue:
 setRemoteObjectProxy:
 _endpointerDelegate
 _endpointerConnection
 _xpcConnectionQueue
 _xpcClientQueue
+_xpcDelegateQueue
 _remoteObjectProxy
 T@"NSXPCConnection",&,N,V_endpointerConnection
 T@"NSObject<OS_dispatch_queue>",&,N,V_xpcConnectionQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_xpcClientQueue
+T@"NSObject<OS_dispatch_queue>",&,N,V_xpcDelegateQueue
 T@,&,N,V_remoteObjectProxy
 initWithDataSource:assetsProvider:
 addDelegate:
@@ -9177,6 +9184,7 @@ _deliverHistoricalAudioToStreamsWithRemoteVAD:
 _cancelAudioPacketWatchDog
 _clearDidStartRecordingDelegateWatchDog
 _releaseRecordingTransactionIfNeeded
+audioPreprocessor
 _clearDidStopRecordingDelegateWatchDog
 _preEpilogueAudioStream
 stopPendingStreams
@@ -9185,7 +9193,6 @@ _postEpilogueAudioStream
 _shouldHandleStartPendingOnStopping:withStopReason:
 objectEnumerator
 _stopAudioStream:option:completion:
-audioPreprocessor
 _cs_isHashTableEmpty
 _shouldStopRecording
 _scheduleDidStopRecordingDelegateWatchDog
@@ -10229,6 +10236,7 @@ remoteRecordDidStopRecordingWithWithStreamHandleId:error:
 remoteRecordLPCMBufferAvailable:streamHandleId:
 remoteRecordTwoShotDetectedAtTime:
 remoteRecordConnectionDisconnected:
+userSessionActivateMonitor:didReceivedUserSessionActiveHasChanged:
 setMixWithOthersForStream:
 _shouldUseRemoteBuiltInMic:
 voiceControllerCreationQueue
@@ -11103,6 +11111,7 @@ v32@0:8@"CSAudioFileReader"16q24
 v32@0:8Q16@"NSError"24
 v32@0:8@"NSData"16Q24
 v24@0:8@"CSRemoteRecordClient"16
+v28@0:8@"CSUserSessionActiveMonitor"16B24
 v24@0:8@"<CSAudioServerCrashEventProvidingDelegate>"16
 v24@0:8@"<CSAudioSessionEventProvidingDelegate>"16
 v60@0:8@16Q24@32Q40Q48i56
@@ -11713,7 +11722,6 @@ v24@?0@"NSString"8@"NSError"16
 +[CSCoreSpeechServices getCurrentVoiceTriggerLocaleWithEndpointId:completion:]
 +[CSCoreSpeechServices getCurrentVoiceTriggerLocaleWithEndpointId:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:accessoryRTModelType:endpointId:downloadedModels:preinstalledModels:completion:]_block_invoke
-+[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:downloadedModels:preinstalledModels:completion:]
 +[CSCoreSpeechServices voiceTriggerRTModelForVersion:minorVersion:downloadedModels:preinstalledModels:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerJarvisLanguageList:jarvisSelectedLanguage:completion:]_block_invoke
 +[CSCoreSpeechServices voiceTriggerJarvisLanguageList:jarvisSelectedLanguage:completion:]
@@ -11789,6 +11797,7 @@ RecordedAudio
 TrimmedAudio
 com.apple.corespeech.endpointer.xpc.client
 com.apple.corespeech.endpointer.xpc.connection
+com.apple.corespeech.endpointer.xpc.delegate
 -[CSEndpointerXPCClient endpointerModelVersion]_block_invoke_2
 v24@?0@"NSError"8@"NSString"16
 -[CSEndpointerXPCClient endpointerModelVersion]_block_invoke
@@ -11808,8 +11817,8 @@ v24@?0@"NSError"8Q16
 -[CSEndpointerXPCClient _getRemoteServiceProxyObject]_block_invoke
 com.apple.corespeech.corespeechd.endpointer.service
 -[CSEndpointerXPCClient _createClientConnection]_block_invoke
--[CSEndpointerXPCClient didDetectHardEndpointAtTime:withTotalAudioRecorded:endpointBufferHostTime:featuresAtEndpoint:endpointerType:serverFeatureLatencyDistribution:additionalMetrics:]
--[CSEndpointerXPCClient didDetectHardEndpointAtTime:withMetrics:]
+-[CSEndpointerXPCClient didDetectHardEndpointAtTime:withTotalAudioRecorded:endpointBufferHostTime:featuresAtEndpoint:endpointerType:serverFeatureLatencyDistribution:additionalMetrics:]_block_invoke
+-[CSEndpointerXPCClient didDetectHardEndpointAtTime:withMetrics:]_block_invoke
 allocator<T>::allocate(size_t n) 'n' exceeds maximum supported size
 deque
 -[NviDirectionalitySignalProvider initWithDataSource:assetsProvider:]
@@ -13567,6 +13576,7 @@ Builtin Microphone
 [stopOnErrorAlert = %d]
 [skipAlert = %@]
 -[CSAudioRecorder initWithQueue:error:]
+-[CSAudioRecorder userSessionActivateMonitor:didReceivedUserSessionActiveHasChanged:]_block_invoke
 -[CSAudioRecorder willDestroy]
 -[CSAudioRecorder dealloc]
 -[CSAudioRecorder _destroyVoiceController]
@@ -14282,7 +14292,7 @@ Invalidating
 %s VoiceTrigger cannot be turned on since Siri is restricted on lock screen
 %s VoiceTrigger cannot be turned on since Software Update Checking is running
 %s VoiceTrigger cannot be turned on since we are not in a desired call state
-%s VoiceTrigger cannot be turned on because we are in a ringtone and hearstState: %d builtInState: %d isInSplitterMode: %d
+%s VoiceTrigger cannot be turned on because we are in a ringtone and HSPhoneCallCapableHeadsetConnected: %d builtInState: %d isInSplitterMode: %d
 %s Successfully ? %{public}@
 %s Notify release of audio session
 %s Start monitoring : speech endpoint asset meta update
@@ -15215,6 +15225,7 @@ EndpointHandled
 %s OldTrigPh: %@, NewTrigPh: %@
 %s Failed to create AVVC : %{public}@
 %s Create new CSAudioRecorder = %{public}p
+%s Tear down _remoteRecordClient if needed
 %s CSAudioRecorder %{public}p deallocated
 %s AVVC initialization failed
 %s Successfully create AVVC : %{public}p
@@ -15702,6 +15713,7 @@ CSAudioRecorder
 AVVoiceControllerRecordDelegate
 CSAudioFileReaderDelegate
 CSRemoteRecordClientDelegate
+CSUserSessionActiveMonitorDelegate
 CSAudioServerCrashEventProviding
 CSAudioSessionEventProviding
 CSCommandControlBehaviorMonitor
@@ -17537,15 +17549,19 @@ setEndpointerDelegate:
 setXpcConnectionQueue:
 xpcClientQueue
 setXpcClientQueue:
+xpcDelegateQueue
+setXpcDelegateQueue:
 setRemoteObjectProxy:
 _endpointerDelegate
 _endpointerConnection
 _xpcConnectionQueue
 _xpcClientQueue
+_xpcDelegateQueue
 _remoteObjectProxy
 T@"NSXPCConnection",&,N,V_endpointerConnection
 T@"NSObject<OS_dispatch_queue>",&,N,V_xpcConnectionQueue
 T@"NSObject<OS_dispatch_queue>",&,N,V_xpcClientQueue
+T@"NSObject<OS_dispatch_queue>",&,N,V_xpcDelegateQueue
 T@,&,N,V_remoteObjectProxy
 initWithDataSource:assetsProvider:
 addDelegate:
@@ -20313,6 +20329,7 @@ _deliverHistoricalAudioToStreamsWithRemoteVAD:
 _cancelAudioPacketWatchDog
 _clearDidStartRecordingDelegateWatchDog
 _releaseRecordingTransactionIfNeeded
+audioPreprocessor
 _clearDidStopRecordingDelegateWatchDog
 _preEpilogueAudioStream
 stopPendingStreams
@@ -20321,7 +20338,6 @@ _postEpilogueAudioStream
 _shouldHandleStartPendingOnStopping:withStopReason:
 objectEnumerator
 _stopAudioStream:option:completion:
-audioPreprocessor
 _cs_isHashTableEmpty
 _shouldStopRecording
 _scheduleDidStopRecordingDelegateWatchDog
@@ -21365,6 +21381,7 @@ remoteRecordDidStopRecordingWithWithStreamHandleId:error:
 remoteRecordLPCMBufferAvailable:streamHandleId:
 remoteRecordTwoShotDetectedAtTime:
 remoteRecordConnectionDisconnected:
+userSessionActivateMonitor:didReceivedUserSessionActiveHasChanged:
 setMixWithOthersForStream:
 _shouldUseRemoteBuiltInMic:
 voiceControllerCreationQueue
@@ -22239,6 +22256,7 @@ v32@0:8@"CSAudioFileReader"16q24
 v32@0:8Q16@"NSError"24
 v32@0:8@"NSData"16Q24
 v24@0:8@"CSRemoteRecordClient"16
+v28@0:8@"CSUserSessionActiveMonitor"16B24
 v24@0:8@"<CSAudioServerCrashEventProvidingDelegate>"16
 v24@0:8@"<CSAudioSessionEventProvidingDelegate>"16
 v60@0:8@16Q24@32Q40Q48i56

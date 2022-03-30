@@ -1,4 +1,4 @@
-@(#)PROGRAM:CloudKitDaemon  PROJECT:CloudKit-1950.29
+@(#)PROGRAM:CloudKitDaemon  PROJECT:CloudKit-1950.31.1
 (knN
 com.apple.cloudd
 Error fetching registered bundle ids from server: %@
@@ -223,7 +223,7 @@ B16@?0@"NSString"8
 Container %@ is not allowed to set an operation sourceApplicationSecondaryIdentifier to %@ without an entitlement
 Expected non-nil error for operation %@
 PublicIdentities
-Thu Jan 20 14:31:59 2022
+Wed Feb  9 14:57:46 2022
 %@ is CloudKit SPI and requires an entitlement. Please add the com.apple.private.cloudkit.spi entitlement to this process. This will become a hard failure.
 com.apple.cloudkit.accountStatus
 approved
@@ -1331,7 +1331,7 @@ AnonymousAccount
 <%@ %p> ("%@" Account ID: %@)
 Can't update account properties because we have no account
 com.apple.cloudkit.account.authQueue
-Can't renew our auth token since the account is asking us not to
+Can't renew our auth token since account is suspended and renewal is rate limited
 Can't renew our auth token since we don't have access to the account
 Can't renew credentials because we don't have an account
 @"NSString"16@?0^@8
@@ -2625,7 +2625,7 @@ needsCallback=%lu
 finished=%lu
 fetchInfos (%@) = %@
 Can't send a fetch request when another one is still outstanding
-/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.29/Daemon/Operations/Database/CKDRecordFetchAggregator.m
+/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.31.1/Daemon/Operations/Database/CKDRecordFetchAggregator.m
 Trying to invoke the record fetch completion block on completed operation %@ with record %@ and record ID %@%@%@
 Didn't get any fetch infos for record with ID %@
 We didn't get a callback for record %@
@@ -3174,7 +3174,7 @@ Download Assets
 Updating Records
 CKDFetchRecordsOperation.m
 Invalid desired key %@, which should have been caught earlier
-/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.29/Daemon/Operations/Database/Records/CKDFetchRecordsOperation.m
+/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.31.1/Daemon/Operations/Database/Records/CKDFetchRecordsOperation.m
 Request with UUID %@ invoked progress callout after completion callout.  Progress recordID %@
 v36@?0@"CKRecord"8@"CKRecordID"16B24@"CKDPResponseOperationResult"28
 v24@?0@"CKRecord"8@"NSError"16
@@ -3451,6 +3451,7 @@ Can't return account credentials for account %@ because the account needs to ver
 Didn't get account credentials for account %@ with no error
 Couldn't get cloudKitAuthToken from credential
 Couldn't get iCloudAuthToken from credential
+ not
 apsEnv
 Failed to renew account credential
 User rejected a prompt to enter their iCloud account password
@@ -3592,12 +3593,14 @@ Empty dictionary returned while copying identities. Can't add identities for %@ 
 Couldn't add app-specific service identity (%@) to new identity set: %@
 No account DSID, so we can't create an identity
 Couldn't create a new identity set
+Couldn't fetch PCS identities from stingray
 Account %@ is not a CKDBackingFakeAccount
 Error fetching iCloud auth token
 com.apple.Dataclass.KeychainSync
 escrowProxyUrl
 com.apple.Dataclass.Ubiquity
-Couldn't fetch PCS identities from stingray
+Couldn't setup PCS identities from stingray
+Couldn't get a public identity
 Couldn't create a sharing identity from public key %@
 Couldn't create data from web sharing identity %@
 Couldn't create a sharing identity from data %@
@@ -3606,6 +3609,7 @@ NSCocoaErrorDomain
 The connection to service named com.apple.securityd.general was invalidated.
 MasqueradeAsManateeIdentity
 SetManateeUnavailable
+RefetchPCSIdentitySet
 Identity Set: %p
 Primary service name: %@
 Current key: %p
@@ -3872,7 +3876,6 @@ Trying to perform something on the db queue but it doesn't exist yet
 You must implement %@
 com.apple.CloudKit.PCSCache.dbQueue
 v24@?0@"LSBundleProxy"8^B16
- not
 perform%@:withBlock:
 v32@?0@"CKDAppContainerAccountTuple"8@"CKDOperationInfoMetadata"16^B24
 data
@@ -4984,7 +4987,7 @@ Created fake backing account with account override info "%@" and ID "%@"
 Warn: Couldn't determine server preferred push environment from backing account %@
 No backing account, so allowing cellular access from account perspective.
 The CloudKit auth token for account %@ has changed since the last one we attempted. Trying again with the new token.
-Account asked me not to renew, so failing this auth token renew request
+Account is suspended and we did attempt a renewal recently. Rate limiting this renewal request
 Can't access the account with ID %@, so failing this auth token renew request
 Waiting on a credential renewal for account %@
 Credential renewal for account %@ finished %{public}@successfully.%{public}@%@
@@ -6023,6 +6026,7 @@ New CK account save failed: %p: %@: %@
 Saved new CK Account %p: %@
 Error getting cloudKitAuthToken: %@
 Error getting iCloudAuthToken: %@
+It has been %f since suspended account %@ last renewal date %@. Can%@ renew credentials
 Re-fetching our auth token
 Renew result was %{public}@. error=%@
 Can't renew auth token because we don't have an account or an account store
@@ -6139,12 +6143,13 @@ Warn: Did not get any public keys for service %{public}@.
 Current identity public key data is %{public}@
 Warn: Error generating fingerprint for current self identity: %@
 Couldn't create a new identity set: %@
-Error fetching iCloud auth token for account %@: %@
 Fetching PCS identity set for account %@
 Error fetching PCS identity set: %@
 PCS identity set fetched:
 service: %{public}@ <%{public}@>
 Error copying per-silo identities: %@
+Error fetching iCloud auth token for account %@: %@
+Error setting up PCS identity set: %@
 Refusing to try to create a sharing identity from a nil public key
 Couldn't create a sharing identity from public key %{public}@: %@
 Created sharing identity %@ from public key %{public}@
@@ -11572,7 +11577,9 @@ updateAccountPropertiesAndSaveAccount:
 globalAuthTokenQueue
 authTokenQueue
 authTokenCallbackQueue
-canRenew
+isAccountSuspended
+canSuspendedAccountRenewCredentials
+noteSuspendedAccountRenewalDate
 renewAuthTokenWithOptions:completionHandler:
 setLastFailedCloudKitAuthToken:
 _lockedCloudKitAuthTokenWithContainer:error:
@@ -17018,10 +17025,12 @@ aa_regionInfo
 aa_isPrimaryEmailVerified
 isEnabledForDataclass:
 aa_useCellularForDataclass:
-aa_isSuspended
 credentialWithError:
 _accountCredentialForAccount:withError:
 aa_authToken
+isCurrentAppleAccountSuspended
+aa_isSuspended
+credentialRenewalDatesBySuspendedAccountID
 renewCredentialsForAccount:options:completion:
 setReason:
 setIsUsernameEditable:
@@ -17321,6 +17330,7 @@ setPCSIdentityWrappersByServiceName:
 PCSIdentityWrappersByServiceName
 serviceIsManatee:
 manateeIsAvailableWithError:
+refetchPCSIdentitySet
 cachedAccountDSID
 _copyTestAccountIdentitySetForService:forBackingFakeAccount:withError:
 _createIdentitySetForService:dsid:error:
@@ -17331,6 +17341,7 @@ _copyIdentityForService:useCache:validateCurrentKey:error:
 _copyPublicKeyDataForIdentitySet:withService:withError:
 _copyPublicKeyDataForAllIdentitiesInSet:withService:
 _addIdentitiesFromServiceNamed:dsid:toMutableSet:
+_generatePCSIdentityOptionsForService:forBackingFakeAccount:withError:
 sharedFakeIdentitySetsByServiceByUsername
 _copyStingrayIdentitiesForService:forBackingFakeAccount:withError:
 _getTestAccountIdentitySetForService:forBackingFakeAccount:withError:
@@ -17338,13 +17349,16 @@ forceManateeUnavailableForUnitTests
 setForceSecurityErrorOnIdentityValidation:
 setServiceIsManateeForUnitTests:
 setForceManateeUnavailableForUnitTests:
+setRefetchPCSIdentitySet:
 forceSecurityErrorOnIdentityValidation
+_rollTestAccountIdentitySetForService:forBackingFakeAccount:withError:
 debugIdentity
 setDebugIdentity:
 serviceIsManateeForUnitTests
 _forceSecurityErrorOnIdentityValidation
 _forceManateeUnavailableForUnitTests
 _serviceIsManateeForUnitTests
+_refetchPCSIdentitySet
 _cachedAccountDSID
 _PCSIdentityWrappersByServiceName
 _debugIdentity
@@ -17354,6 +17368,7 @@ T^{_PCSIdentityData=},N,V_debugIdentity
 TB,N,V_forceSecurityErrorOnIdentityValidation
 TB,N,V_forceManateeUnavailableForUnitTests
 TB,N,V_serviceIsManateeForUnitTests
+TB,N,V_refetchPCSIdentitySet
 T@"NSString",R,N,V_serviceName
 setAttestationResponse:
 _attestationResponse
@@ -19399,7 +19414,7 @@ rg6T
 J((T
 /UG[
 wpEvI
-@(#)PROGRAM:CloudKitDaemon  PROJECT:CloudKit-1950.29
+@(#)PROGRAM:CloudKitDaemon  PROJECT:CloudKit-1950.31.1
 .7I[[_
 (/9Kh
 !$'0%
@@ -19681,7 +19696,7 @@ B16@?0@"NSString"8
 Container %@ is not allowed to set an operation sourceApplicationSecondaryIdentifier to %@ without an entitlement
 Expected non-nil error for operation %@
 PublicIdentities
-Thu Jan 20 14:31:59 2022
+Wed Feb  9 14:57:46 2022
 %@ is CloudKit SPI and requires an entitlement. Please add the com.apple.private.cloudkit.spi entitlement to this process. This will become a hard failure.
 com.apple.cloudkit.accountStatus
 approved
@@ -20789,7 +20804,7 @@ AnonymousAccount
 <%@ %p> ("%@" Account ID: %@)
 Can't update account properties because we have no account
 com.apple.cloudkit.account.authQueue
-Can't renew our auth token since the account is asking us not to
+Can't renew our auth token since account is suspended and renewal is rate limited
 Can't renew our auth token since we don't have access to the account
 Can't renew credentials because we don't have an account
 @"NSString"16@?0^@8
@@ -22083,7 +22098,7 @@ needsCallback=%lu
 finished=%lu
 fetchInfos (%@) = %@
 Can't send a fetch request when another one is still outstanding
-/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.29/Daemon/Operations/Database/CKDRecordFetchAggregator.m
+/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.31.1/Daemon/Operations/Database/CKDRecordFetchAggregator.m
 Trying to invoke the record fetch completion block on completed operation %@ with record %@ and record ID %@%@%@
 Didn't get any fetch infos for record with ID %@
 We didn't get a callback for record %@
@@ -22632,7 +22647,7 @@ Download Assets
 Updating Records
 CKDFetchRecordsOperation.m
 Invalid desired key %@, which should have been caught earlier
-/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.29/Daemon/Operations/Database/Records/CKDFetchRecordsOperation.m
+/Library/Caches/com.apple.xbs/Sources/CloudKitTools_Sim/CloudKit-1950.31.1/Daemon/Operations/Database/Records/CKDFetchRecordsOperation.m
 Request with UUID %@ invoked progress callout after completion callout.  Progress recordID %@
 v36@?0@"CKRecord"8@"CKRecordID"16B24@"CKDPResponseOperationResult"28
 v24@?0@"CKRecord"8@"NSError"16
@@ -22909,6 +22924,7 @@ Can't return account credentials for account %@ because the account needs to ver
 Didn't get account credentials for account %@ with no error
 Couldn't get cloudKitAuthToken from credential
 Couldn't get iCloudAuthToken from credential
+ not
 apsEnv
 Failed to renew account credential
 User rejected a prompt to enter their iCloud account password
@@ -23050,12 +23066,14 @@ Empty dictionary returned while copying identities. Can't add identities for %@ 
 Couldn't add app-specific service identity (%@) to new identity set: %@
 No account DSID, so we can't create an identity
 Couldn't create a new identity set
+Couldn't fetch PCS identities from stingray
 Account %@ is not a CKDBackingFakeAccount
 Error fetching iCloud auth token
 com.apple.Dataclass.KeychainSync
 escrowProxyUrl
 com.apple.Dataclass.Ubiquity
-Couldn't fetch PCS identities from stingray
+Couldn't setup PCS identities from stingray
+Couldn't get a public identity
 Couldn't create a sharing identity from public key %@
 Couldn't create data from web sharing identity %@
 Couldn't create a sharing identity from data %@
@@ -23064,6 +23082,7 @@ NSCocoaErrorDomain
 The connection to service named com.apple.securityd.general was invalidated.
 MasqueradeAsManateeIdentity
 SetManateeUnavailable
+RefetchPCSIdentitySet
 Identity Set: %p
 Primary service name: %@
 Current key: %p
@@ -23330,7 +23349,6 @@ Trying to perform something on the db queue but it doesn't exist yet
 You must implement %@
 com.apple.CloudKit.PCSCache.dbQueue
 v24@?0@"LSBundleProxy"8^B16
- not
 perform%@:withBlock:
 v32@?0@"CKDAppContainerAccountTuple"8@"CKDOperationInfoMetadata"16^B24
 data
@@ -24442,7 +24460,7 @@ Created fake backing account with account override info "%@" and ID "%@"
 Warn: Couldn't determine server preferred push environment from backing account %@
 No backing account, so allowing cellular access from account perspective.
 The CloudKit auth token for account %@ has changed since the last one we attempted. Trying again with the new token.
-Account asked me not to renew, so failing this auth token renew request
+Account is suspended and we did attempt a renewal recently. Rate limiting this renewal request
 Can't access the account with ID %@, so failing this auth token renew request
 Waiting on a credential renewal for account %@
 Credential renewal for account %@ finished %{public}@successfully.%{public}@%@
@@ -25481,6 +25499,7 @@ New CK account save failed: %p: %@: %@
 Saved new CK Account %p: %@
 Error getting cloudKitAuthToken: %@
 Error getting iCloudAuthToken: %@
+It has been %f since suspended account %@ last renewal date %@. Can%@ renew credentials
 Re-fetching our auth token
 Renew result was %{public}@. error=%@
 Can't renew auth token because we don't have an account or an account store
@@ -25597,12 +25616,13 @@ Warn: Did not get any public keys for service %{public}@.
 Current identity public key data is %{public}@
 Warn: Error generating fingerprint for current self identity: %@
 Couldn't create a new identity set: %@
-Error fetching iCloud auth token for account %@: %@
 Fetching PCS identity set for account %@
 Error fetching PCS identity set: %@
 PCS identity set fetched:
 service: %{public}@ <%{public}@>
 Error copying per-silo identities: %@
+Error fetching iCloud auth token for account %@: %@
+Error setting up PCS identity set: %@
 Refusing to try to create a sharing identity from a nil public key
 Couldn't create a sharing identity from public key %{public}@: %@
 Created sharing identity %@ from public key %{public}@
@@ -31031,7 +31051,9 @@ updateAccountPropertiesAndSaveAccount:
 globalAuthTokenQueue
 authTokenQueue
 authTokenCallbackQueue
-canRenew
+isAccountSuspended
+canSuspendedAccountRenewCredentials
+noteSuspendedAccountRenewalDate
 renewAuthTokenWithOptions:completionHandler:
 setLastFailedCloudKitAuthToken:
 _lockedCloudKitAuthTokenWithContainer:error:
@@ -36477,10 +36499,12 @@ aa_regionInfo
 aa_isPrimaryEmailVerified
 isEnabledForDataclass:
 aa_useCellularForDataclass:
-aa_isSuspended
 credentialWithError:
 _accountCredentialForAccount:withError:
 aa_authToken
+isCurrentAppleAccountSuspended
+aa_isSuspended
+credentialRenewalDatesBySuspendedAccountID
 renewCredentialsForAccount:options:completion:
 setReason:
 setIsUsernameEditable:
@@ -36780,6 +36804,7 @@ setPCSIdentityWrappersByServiceName:
 PCSIdentityWrappersByServiceName
 serviceIsManatee:
 manateeIsAvailableWithError:
+refetchPCSIdentitySet
 cachedAccountDSID
 _copyTestAccountIdentitySetForService:forBackingFakeAccount:withError:
 _createIdentitySetForService:dsid:error:
@@ -36790,6 +36815,7 @@ _copyIdentityForService:useCache:validateCurrentKey:error:
 _copyPublicKeyDataForIdentitySet:withService:withError:
 _copyPublicKeyDataForAllIdentitiesInSet:withService:
 _addIdentitiesFromServiceNamed:dsid:toMutableSet:
+_generatePCSIdentityOptionsForService:forBackingFakeAccount:withError:
 sharedFakeIdentitySetsByServiceByUsername
 _copyStingrayIdentitiesForService:forBackingFakeAccount:withError:
 _getTestAccountIdentitySetForService:forBackingFakeAccount:withError:
@@ -36797,13 +36823,16 @@ forceManateeUnavailableForUnitTests
 setForceSecurityErrorOnIdentityValidation:
 setServiceIsManateeForUnitTests:
 setForceManateeUnavailableForUnitTests:
+setRefetchPCSIdentitySet:
 forceSecurityErrorOnIdentityValidation
+_rollTestAccountIdentitySetForService:forBackingFakeAccount:withError:
 debugIdentity
 setDebugIdentity:
 serviceIsManateeForUnitTests
 _forceSecurityErrorOnIdentityValidation
 _forceManateeUnavailableForUnitTests
 _serviceIsManateeForUnitTests
+_refetchPCSIdentitySet
 _cachedAccountDSID
 _PCSIdentityWrappersByServiceName
 _debugIdentity
@@ -36813,6 +36842,7 @@ T^{_PCSIdentityData=},N,V_debugIdentity
 TB,N,V_forceSecurityErrorOnIdentityValidation
 TB,N,V_forceManateeUnavailableForUnitTests
 TB,N,V_serviceIsManateeForUnitTests
+TB,N,V_refetchPCSIdentitySet
 T@"NSString",R,N,V_serviceName
 setAttestationResponse:
 _attestationResponse
