@@ -17,6 +17,7 @@
 "%s Context Type: %@"
 "%s Escape available: other devices"
 "Requesting UI provider prompt for a remote device secret from one of %lu devices (offeringRemoteApproval=%i)"
+"Invoking cdpContext:promptForRemoteSecretWithDevices in CDPDRecoveryFlowController"
 "Requesting UI provider prompt for an ICSC isNumeric=%i numericLength=%@"
 "Fetching backup record devices"
 "Failed to fetch backup record devices: %@"
@@ -117,7 +118,7 @@ END [%lld] %fs: FetchEscrowRecords  resultError=%{public,signpost.telemetry:numb
 "Attempting to persist verifier: %@ for %@"
 "Managed config (%@) reports isPasscodeSet=%i"
 "Already sent CDPCA event %@"
-"Sending report %@ (time: %f)"
+"Sending report %@ (time: %f), data - %@"
 SecureChannelSendPayload
 BEGIN [%lld]: SecureChannelSendPayload  enableTelemetry=YES 
 "Response received: %@"
@@ -378,6 +379,8 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Denying access to state machine. Missing entitlement."
 "Starting state machine..."
 "Forcing _useSecureBackupCachedPassphrase=YES for iOS/watchOS Buddy on a device with a local secret present"
+"Joined CDP without valid method. Please file report with sysdiagnose."
+"Failed to join without an error. Please file report with sysdiagnose."
 "Starting state repair..."
 "Denying access to state repair. Missing entitlement."
 "Starting accepting side server..."
@@ -447,8 +450,11 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Failed to join circle and recovery is not needed, aborting (error as %@)"
 "iCDP is enabled, but the account is not HSA2 enabled. Rolling back iCDP enrollment..."
 "Failed to disable iCDP on non-HSA2 account. Disallowing sign-in: %@"
+"Failed to disable recovery key with error: %@"
+"Successfully disabled recovery key!"
 "Hold on to your hats. User has requested a CDP reset."
 "CDP reset succeeded, attempting to join/create the circle again"
+"Joined circle after CDP reset. Attempting to disable RK..."
 "Joined circle after CDP reset. Enabling secure backup..."
 "Finished enabling secure backup after CDP reset with didEnable=%i error=%@..."
 "Joined circle after CDP reset. Skipping secure backup because we don't have a secret"
@@ -506,6 +512,7 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "User requested reset of their CDP state!"
 "Error prompting user for remote device secret - %@"
 @"_enableCustodianRecoveryIfAvailableForContext: returning %i"
+"Context has disabled async secure backup enrollment"
 "Pref to disable async enable was set..."
 "Finished asynchronous enabling Secure Backup"
 "Attempting to enable secure backup using the cached secret"
@@ -516,8 +523,6 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Asking the UI provider to prompt for the local device secret"
 "Failed to enable SecureBackup because no UI provider is present to request the local device secret"
 "Failed to delete all backup records with error: %@"
-"Failed to disable recovery key with error: %@"
-"Successfully disabled recovery key!"
 "Disabling iCDP..."
 "Disabled iCDP, proceeding with deleting all backup records"
 "Deleted all backup records after rolling back from iCDP"
@@ -708,6 +713,7 @@ com.apple.cdp.repair.recoverykey
 com.apple.cdp.offlinesecret.continue
 com.apple.cdp.secureterms.continue
 com.apple.cdp.confirmexistingsecret.continue
+com.apple.cdp.dismissfollowup
 com.apple.purplebuddy.revisitSkippedSteps
 flowSkipIdentifiers
 faceID
@@ -835,7 +841,6 @@ CDPDAccountRecoveryValidator
 CDPRecoveryKeyValidatorInternal
 CDPDRecoveryFlowController
 CDPDDeviceSecretValidatorDelegate
-CDPDRecoveryFlowContext
 CDPDXPCListener
 NSXPCListenerDelegate
 CDPBroadcaster
@@ -1038,16 +1043,11 @@ _recoveryContext
 _circleController
 _secureBackupController
 _uiProvider
-T@"CDPDRecoveryFlowContext",&,N,V_recoveryContext
+T@"CDPRecoveryFlowContext",&,N,V_recoveryContext
 T@"CDPDCircleController",&,N,V_circleController
 T@"CDPDSecureBackupController",&,N,V_secureBackupController
 T@"<CDPStateUIProviderInternal>",&,N,V_uiProvider
 T@"<CDPRemoteDeviceSecretValidatorProtocol>",&,N,V_validator
-setContext:
-setHasPeersForRemoteApproval:
-_hasPeersForRemoteApproval
-T@"CDPContext",&,N,V_context
-TB,N,V_hasPeersForRemoteApproval
 initWithMachServiceName:
 setDelegate:
 resume
@@ -1207,8 +1207,10 @@ enableCDPWithCompletion:
 disableCDPWithCompletion:
 pcsProxy
 setPcsProxy:
+setContext:
 _pcsProxy
 T@"<CDPProtectedCloudStorageProxy>",&,N,V_pcsProxy
+T@"CDPContext",&,N,V_context
 _contextForPrimaryAccountSilentAuth
 _authWithContext:completion:
 _authContextForContext:
@@ -1301,6 +1303,7 @@ didJoin
 setDidJoin:
 needsBackupRecovery
 setNeedsBackupRecovery:
+setHasPeersForRemoteApproval:
 hasPeersWithCDPBackupRecords
 setHasPeersWithCDPBackupRecords:
 requiresEscrowRecordsFetch
@@ -1312,6 +1315,7 @@ circleStatus
 setCircleStatus:
 _didJoin
 _needsBackupRecovery
+_hasPeersForRemoteApproval
 _hasPeersWithCDPBackupRecords
 _requiresEscrowRecordsFetch
 _requiresInitialSync
@@ -1714,10 +1718,9 @@ accountPropertyForKey:
 setAccountProperty:forKey:
 defaultStore
 saveVerifiedAccount:error:
-isICDPEnabledForDSID:checkWithServer:
 hasDisabledKeychainExplicitly
 setHasDisabledKeychainExplicitly:
-isICDPEnabledForDSID:
+isICDPEnabledForDSID:checkWithServer:
 TB,N
 followUpType
 contextToIdentifierMap
@@ -1832,6 +1835,7 @@ _removeObserver
 _reportCDPJoinMetricsWithContext:didJoin:withError:
 handleCloudDataProtectionStateWithCompletion:
 backupRecoveryDidSucceed
+joinMethod
 backupRecoveryDidFailWithError:
 preflightContext:
 augmentWithCredentialsFromContext:
@@ -1890,6 +1894,7 @@ reportSuccess
 error
 reportFailure:
 failSignInOnError
+isICDPEnabledForDSID:
 _handleCloudDataProtectionStateWithCompletion:
 beneficiaryIdentifier
 _handleBeneficiaryTrustWithCompletion:
@@ -1911,6 +1916,7 @@ _handleJoinResult:completion:
 _handleRecoveryResetRequestWithCompletion:
 _recoverSecureBackupWithCircleJoinResult:completion:
 _disableCloudDataProtectionWithCompletion:
+_disableRecoveryKeyWithCompletion:
 _enableSecureBackupWithCircleJoinResult:completion:
 successResult
 _resetAccountCDPStateWithCompletion:
@@ -1953,6 +1959,7 @@ backupRecoveryDidReset
 authKitAccountWithAltDSID:
 set_supportsCustodianRecovery:
 custodianEnabledForAccount:
+_disableAsyncSecureBackupEnrollment
 _disableAsyncModeRequested
 cdpContext:promptForAdoptionOfMultipleICSC:
 _predicateForRecordUpgradeCheck
@@ -2087,6 +2094,8 @@ backupRecoverySetJoinFromBundleID:
 _attemptedMethods
 _availableMethods
 _escrowDeviceCount
+_joinMethod
+TQ,R,N
 pairingChannelInitiator
 exchangePacket:complete:error:
 pairingChannelAcceptor
@@ -2140,16 +2149,16 @@ v48@0:8@"CDPDDeviceSecretValidator"16@"CDPDevice"24@"NSError"32@?<v@?B@"NSError"
 Q24@0:8@16
 v36@0:8@16B24@28
 @"<CDPRemoteDeviceSecretValidatorProtocol>"
-@"CDPDRecoveryFlowContext"
+@"CDPRecoveryFlowContext"
 @"CDPDCircleController"
 @"CDPDSecureBackupController"
 @"<CDPStateUIProviderInternal>"
-v20@0:8B16
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 B24@0:8Q16
 @"NSXPCListener"
 v32@0:8@16@24
 v24@0:8Q16
+v20@0:8B16
 @"CDPDevice"
 @"OTClique"
 @32@0:8@16^@24
@@ -2303,6 +2312,7 @@ v20@0:8I16
 "%s Context Type: %@"
 "%s Escape available: other devices"
 "Requesting UI provider prompt for a remote device secret from one of %lu devices (offeringRemoteApproval=%i)"
+"Invoking cdpContext:promptForRemoteSecretWithDevices in CDPDRecoveryFlowController"
 "Requesting UI provider prompt for an ICSC isNumeric=%i numericLength=%@"
 "Fetching backup record devices"
 "Failed to fetch backup record devices: %@"
@@ -2403,7 +2413,7 @@ END [%lld] %fs: FetchEscrowRecords  resultError=%{public,signpost.telemetry:numb
 "Attempting to persist verifier: %@ for %@"
 "Managed config (%@) reports isPasscodeSet=%i"
 "Already sent CDPCA event %@"
-"Sending report %@ (time: %f)"
+"Sending report %@ (time: %f), data - %@"
 SecureChannelSendPayload
 BEGIN [%lld]: SecureChannelSendPayload  enableTelemetry=YES 
 "Response received: %@"
@@ -2664,6 +2674,8 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Denying access to state machine. Missing entitlement."
 "Starting state machine..."
 "Forcing _useSecureBackupCachedPassphrase=YES for iOS/watchOS Buddy on a device with a local secret present"
+"Joined CDP without valid method. Please file report with sysdiagnose."
+"Failed to join without an error. Please file report with sysdiagnose."
 "Starting state repair..."
 "Denying access to state repair. Missing entitlement."
 "Starting accepting side server..."
@@ -2733,8 +2745,11 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Failed to join circle and recovery is not needed, aborting (error as %@)"
 "iCDP is enabled, but the account is not HSA2 enabled. Rolling back iCDP enrollment..."
 "Failed to disable iCDP on non-HSA2 account. Disallowing sign-in: %@"
+"Failed to disable recovery key with error: %@"
+"Successfully disabled recovery key!"
 "Hold on to your hats. User has requested a CDP reset."
 "CDP reset succeeded, attempting to join/create the circle again"
+"Joined circle after CDP reset. Attempting to disable RK..."
 "Joined circle after CDP reset. Enabling secure backup..."
 "Finished enabling secure backup after CDP reset with didEnable=%i error=%@..."
 "Joined circle after CDP reset. Skipping secure backup because we don't have a secret"
@@ -2792,6 +2807,7 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "User requested reset of their CDP state!"
 "Error prompting user for remote device secret - %@"
 @"_enableCustodianRecoveryIfAvailableForContext: returning %i"
+"Context has disabled async secure backup enrollment"
 "Pref to disable async enable was set..."
 "Finished asynchronous enabling Secure Backup"
 "Attempting to enable secure backup using the cached secret"
@@ -2802,8 +2818,6 @@ END [%lld] %fs: OTCPerformEscrowRecovery  Error=%{public,signpost.telemetry:numb
 "Asking the UI provider to prompt for the local device secret"
 "Failed to enable SecureBackup because no UI provider is present to request the local device secret"
 "Failed to delete all backup records with error: %@"
-"Failed to disable recovery key with error: %@"
-"Successfully disabled recovery key!"
 "Disabling iCDP..."
 "Disabled iCDP, proceeding with deleting all backup records"
 "Deleted all backup records after rolling back from iCDP"
@@ -2994,6 +3008,7 @@ com.apple.cdp.repair.recoverykey
 com.apple.cdp.offlinesecret.continue
 com.apple.cdp.secureterms.continue
 com.apple.cdp.confirmexistingsecret.continue
+com.apple.cdp.dismissfollowup
 com.apple.purplebuddy.revisitSkippedSteps
 flowSkipIdentifiers
 faceID
@@ -3121,7 +3136,6 @@ CDPDAccountRecoveryValidator
 CDPRecoveryKeyValidatorInternal
 CDPDRecoveryFlowController
 CDPDDeviceSecretValidatorDelegate
-CDPDRecoveryFlowContext
 CDPDXPCListener
 NSXPCListenerDelegate
 CDPBroadcaster
@@ -3324,16 +3338,11 @@ _recoveryContext
 _circleController
 _secureBackupController
 _uiProvider
-T@"CDPDRecoveryFlowContext",&,N,V_recoveryContext
+T@"CDPRecoveryFlowContext",&,N,V_recoveryContext
 T@"CDPDCircleController",&,N,V_circleController
 T@"CDPDSecureBackupController",&,N,V_secureBackupController
 T@"<CDPStateUIProviderInternal>",&,N,V_uiProvider
 T@"<CDPRemoteDeviceSecretValidatorProtocol>",&,N,V_validator
-setContext:
-setHasPeersForRemoteApproval:
-_hasPeersForRemoteApproval
-T@"CDPContext",&,N,V_context
-TB,N,V_hasPeersForRemoteApproval
 initWithMachServiceName:
 setDelegate:
 resume
@@ -3493,8 +3502,10 @@ enableCDPWithCompletion:
 disableCDPWithCompletion:
 pcsProxy
 setPcsProxy:
+setContext:
 _pcsProxy
 T@"<CDPProtectedCloudStorageProxy>",&,N,V_pcsProxy
+T@"CDPContext",&,N,V_context
 _contextForPrimaryAccountSilentAuth
 _authWithContext:completion:
 _authContextForContext:
@@ -3587,6 +3598,7 @@ didJoin
 setDidJoin:
 needsBackupRecovery
 setNeedsBackupRecovery:
+setHasPeersForRemoteApproval:
 hasPeersWithCDPBackupRecords
 setHasPeersWithCDPBackupRecords:
 requiresEscrowRecordsFetch
@@ -3598,6 +3610,7 @@ circleStatus
 setCircleStatus:
 _didJoin
 _needsBackupRecovery
+_hasPeersForRemoteApproval
 _hasPeersWithCDPBackupRecords
 _requiresEscrowRecordsFetch
 _requiresInitialSync
@@ -4000,10 +4013,9 @@ accountPropertyForKey:
 setAccountProperty:forKey:
 defaultStore
 saveVerifiedAccount:error:
-isICDPEnabledForDSID:checkWithServer:
 hasDisabledKeychainExplicitly
 setHasDisabledKeychainExplicitly:
-isICDPEnabledForDSID:
+isICDPEnabledForDSID:checkWithServer:
 TB,N
 followUpType
 contextToIdentifierMap
@@ -4118,6 +4130,7 @@ _removeObserver
 _reportCDPJoinMetricsWithContext:didJoin:withError:
 handleCloudDataProtectionStateWithCompletion:
 backupRecoveryDidSucceed
+joinMethod
 backupRecoveryDidFailWithError:
 preflightContext:
 augmentWithCredentialsFromContext:
@@ -4176,6 +4189,7 @@ reportSuccess
 error
 reportFailure:
 failSignInOnError
+isICDPEnabledForDSID:
 _handleCloudDataProtectionStateWithCompletion:
 beneficiaryIdentifier
 _handleBeneficiaryTrustWithCompletion:
@@ -4197,6 +4211,7 @@ _handleJoinResult:completion:
 _handleRecoveryResetRequestWithCompletion:
 _recoverSecureBackupWithCircleJoinResult:completion:
 _disableCloudDataProtectionWithCompletion:
+_disableRecoveryKeyWithCompletion:
 _enableSecureBackupWithCircleJoinResult:completion:
 successResult
 _resetAccountCDPStateWithCompletion:
@@ -4239,6 +4254,7 @@ backupRecoveryDidReset
 authKitAccountWithAltDSID:
 set_supportsCustodianRecovery:
 custodianEnabledForAccount:
+_disableAsyncSecureBackupEnrollment
 _disableAsyncModeRequested
 cdpContext:promptForAdoptionOfMultipleICSC:
 _predicateForRecordUpgradeCheck
@@ -4373,6 +4389,8 @@ backupRecoverySetJoinFromBundleID:
 _attemptedMethods
 _availableMethods
 _escrowDeviceCount
+_joinMethod
+TQ,R,N
 pairingChannelInitiator
 exchangePacket:complete:error:
 pairingChannelAcceptor
@@ -4426,16 +4444,16 @@ v48@0:8@"CDPDDeviceSecretValidator"16@"CDPDevice"24@"NSError"32@?<v@?B@"NSError"
 Q24@0:8@16
 v36@0:8@16B24@28
 @"<CDPRemoteDeviceSecretValidatorProtocol>"
-@"CDPDRecoveryFlowContext"
+@"CDPRecoveryFlowContext"
 @"CDPDCircleController"
 @"CDPDSecureBackupController"
 @"<CDPStateUIProviderInternal>"
-v20@0:8B16
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 B24@0:8Q16
 @"NSXPCListener"
 v32@0:8@16@24
 v24@0:8Q16
+v20@0:8B16
 @"CDPDevice"
 @"OTClique"
 @32@0:8@16^@24

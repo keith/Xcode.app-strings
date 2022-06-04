@@ -475,6 +475,7 @@ quic_frame_process_NEW_CONNECTION_ID
 NEW_CONNECTION_ID on a CID-less connection
 NEW_CONNECTION_ID: invalid sequence number or token
 NEW_CONNECTION_ID: invalid retire prior field
+NEW_CONNECTION_ID: unable to allocate a new DCID
 quic_frame_write_NEW_CONNECTION_ID
 seq=%llx cid_len=%u cid=%s token=
 quic_frame_parse_RETIRE_CONNECTION_ID
@@ -544,9 +545,11 @@ tls_cipher
 original_destination_connection_id
 retry_source_connection_id
 initial_source_connection_id
-disable_active_migration
-max_ack_delay
-initial_max_stream_data_bidi_local
+max_idle_timeout
+initial_max_data
+initial_max_stream_data_bidi_remote
+initial_max_stream_data_uni
+initial_max_streams_bidi
 packet_type
 -[QUICLog processPacketSentAndPacketRecieved:]
 is_coalesced
@@ -607,6 +610,7 @@ retire_prior_to
 connection_id
 retire_connection_id
 path_challenge
+0x%llx
 data
 path_response
 connection_close
@@ -634,6 +638,9 @@ PACKET_LOST
 STREAM_TYPE_SET
 local
 remote
+unknown
+initial
+handshake
 0RTT
 1RTT
 retry
@@ -648,7 +655,6 @@ recovery
 reordering_threshold
 time_threshold
 pto_expired
-client
 false
 error parsing JSON: %@
 quiclog_packet_sent
@@ -687,15 +693,13 @@ quic_tp_get_stateless_reset_token
 quic_tp_get_preferred_address
 quic_tp_foreach
 original_dcid
-max_idle_timeout
 stateless_reset_token
 max_udp_payload_size
-initial_max_data
-initial_max_stream_data_bidi_remote
-initial_max_stream_data_uni
-initial_max_streams_bidi
+initial_max_stream_data_bidi_local
 initial_max_streams_uni
 ack_delay_exponent
+max_ack_delay
+disable_active_migration
 preferred_address
 active_connection_id_limit
 initial_scid
@@ -1011,6 +1015,7 @@ B16@?0^v8
 quic_stream_closed_already
 inconsistent next inbound stream ID
 server
+client
 invalid stream ID
 exceeded maximum stream ID
 quic_stream_create_inbound
@@ -1040,13 +1045,12 @@ stream->last_offset
 exceeded flow control limits
 quic_stream_process_inner
 quic_conn_set_mss
-B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b16[4c]}16
+B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b15[4c]}16
 quic_conn_set_application_error
 quic_compute_post_connect_mss
 quic_setup_pmtud
 quic_conn_write_quiclog
 com.apple.network.quic.quiclog
-unknown
 %s/%s-%d-%s.qlog
 %s data is NULL
 quic_conn_notify_connection_id_change
@@ -1137,7 +1141,6 @@ INVALID_TOKEN
 APPLICATION_ERROR
 CRYPTO_BUFFER_EXCEEDED
 CRYPTO_ERROR
-0x%llx
 PADDING
 ACK_ECN
 RESET_STREAM
@@ -1194,8 +1197,6 @@ strict_calloc
 %s strict_calloc count * size would overflow
 %s strict_calloc(%zu, %zu) failed
 B24@?0Q8Q16
-initial
-handshake
 0-rtt
 phase0
 phase1
@@ -1484,6 +1485,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s flow != NW_PROTOCOL_INVALID_FLOW is null or 0
 %{public}s stream is null or 0
 %{public}s [S%llu] application read %llu bytes
+%{public}s connection bytes read %llu > inorder offset %llu
+%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] dequeued more data than available
 %{public}s [S%llu] delivering FIN
 %{public}s max_idle_timeout is not configured by any endpoint
@@ -1731,6 +1734,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] received NEW_CONNECTION_ID frame on with retire prior to field larger than seq field
 %{public}s %{public}s [%{public}s-%{public}s] received request to retire current dcid: retire prior to seq %llu, current dcid seq %llu
 %{public}s %{public}s [%{public}s-%{public}s] migrating DCID from %{public}s to %{public}s
+%{public}s %{public}s [%{public}s-%{public}s] asked to retire current DCID but could not allocate a new DCID
 %{public}s Connection ID length must not be 0.
 %{public}s invalid RETIRE_CONNECTION_ID sequence
 %{public}s   << %{public}s seq=%llx
@@ -2782,6 +2786,7 @@ quic_frame_process_NEW_CONNECTION_ID
 NEW_CONNECTION_ID on a CID-less connection
 NEW_CONNECTION_ID: invalid sequence number or token
 NEW_CONNECTION_ID: invalid retire prior field
+NEW_CONNECTION_ID: unable to allocate a new DCID
 quic_frame_write_NEW_CONNECTION_ID
 seq=%llx cid_len=%u cid=%s token=
 quic_frame_parse_RETIRE_CONNECTION_ID
@@ -3347,7 +3352,7 @@ stream->last_offset
 exceeded flow control limits
 quic_stream_process_inner
 quic_conn_set_mss
-B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b16[4c]}16
+B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b15[4c]}16
 quic_conn_set_application_error
 quic_compute_post_connect_mss
 quic_setup_pmtud
@@ -3791,6 +3796,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s flow != NW_PROTOCOL_INVALID_FLOW is null or 0
 %{public}s stream is null or 0
 %{public}s [S%llu] application read %llu bytes
+%{public}s connection bytes read %llu > inorder offset %llu
+%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] dequeued more data than available
 %{public}s [S%llu] delivering FIN
 %{public}s max_idle_timeout is not configured by any endpoint
@@ -4038,6 +4045,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] received NEW_CONNECTION_ID frame on with retire prior to field larger than seq field
 %{public}s %{public}s [%{public}s-%{public}s] received request to retire current dcid: retire prior to seq %llu, current dcid seq %llu
 %{public}s %{public}s [%{public}s-%{public}s] migrating DCID from %{public}s to %{public}s
+%{public}s %{public}s [%{public}s-%{public}s] asked to retire current DCID but could not allocate a new DCID
 %{public}s Connection ID length must not be 0.
 %{public}s invalid RETIRE_CONNECTION_ID sequence
 %{public}s   << %{public}s seq=%llx

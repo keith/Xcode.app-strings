@@ -257,9 +257,10 @@ v16@?0@"NSMutableDictionary"8
 @16@?0@"MRAVOutputDevice"8
 B16@?0@"NSString"8
 B16@?0@"MRAVOutputContext"8
-@"MRAVOutputContext"16@?0@"AVOutputContext"8
+@"MRAVConcreteOutputContext"16@?0@"AVOutputContext"8
 @16@?0@"MRAVOutputDeviceDescription"8
-AVAudioSessionMediaServicesWereResetNotification
+AVSystemController_ServerConnectionDiedNotification
+AVSystemController_SubscribeToNotificationsAttribute
 PBSMediaRemoteServiceDialogOptionTitleKey
 PineBoardServices
 PBSMediaRemoteServiceDialogOptionPINKey
@@ -382,6 +383,7 @@ defaultGroupUID
 LOCAL
 DeviceInfo.plist
 com.apple.mediaremote.MRDIDSRemoteControlServiceConnection.workerQueue
+v16@?0@"MRProtocolMessage"8
 v32@?0@"MRIDSMessage"8@"NSString"16@"NSString"24
 %@ %p
 IDSWatch: %@
@@ -395,6 +397,7 @@ MRDIDSRemoteControlService.setConnectionState
 IDSDiscoveryChannel
 New replacement connection %@-%@ established
 IDSRemoteControlChannel-<%@/%@>
+Tried to connect to endpoint but its groupLeader changed from %@ to %@
 v16@?0@"MRIDSMessage"8
 v24@?0q8@?<v@?@"NSString">16
 v32@?0@"NSString"8@"MRDIDSRemoteControlServiceConnection"16^B24
@@ -464,11 +467,9 @@ Default
 AirPlayPortExtendedInfo.deviceID
 AVAudioRoute_Speaker
 AVAudioRoute_Headphone
-AVSystemController_ServerConnectionDiedNotification
 AVSystemController_CurrentExternalScreenAttribute
 AVSystemController_RouteAwayFromAirPlayAttribute
 AVSystemController_CurrentRouteHasVolumeControlNotificationParameter
-AVSystemController_SubscribeToNotificationsAttribute
 AVSystemController_CurrentRouteHasVolumeControlDidChangeNotification
 AVSystemController_ExternalScreenDidChangeNotification
 AVSystemController_PortStatusDidChangeNotification
@@ -554,7 +555,6 @@ Connection %@ exited in the middle of a migration
 v24@?0@"MRPlaybackSessionRequest"8@"MRPlayerPath"16
 B16@?0@"MRDExternalDeviceServerClientConnection"8
 com.apple.MediaRemote.MRTelevisionRemoteServer.WorkerQueue
-v16@?0@"MRProtocolMessage"8
 SBSUndimScreen
 SpringBoardServices
 v24@?0@"CUPairedPeer"8Q16
@@ -842,6 +842,7 @@ B16@?0@"MRAVEndpoint"8
 PreventUserIdleSystemSleep
 com.apple.mediaremote.powerassertion
 TimeoutActionRelease
+MRDAVOutputContextExternalDeviceDiscoveryLocalClusterTypeDidChangeNotification
 MRDAVOutputContextExternalDevice.serialQueue
 MRDAVOutputContextExternalDevice.workerQueue
 MRDAVOutputContextExternalDevice.notificationQueue
@@ -861,6 +862,7 @@ v36@?0@"MRPlayerPath"8I16@"NSDictionary"20@?<v@?@"MRCommandResult">28
 v24@?0@"MRPlaybackSession"8@"NSError"16
 handleRemoteCommand
 @"MRCommandResult"16@?0@"NSError"8
+Failed to commit group leader to output context
 createPlayerAndWaitForConnection
 Could not find xpcClient for playerPath %@
 v24@?0@"MRPlayerPath"8@"NSError"16
@@ -881,7 +883,9 @@ Failed to find devices with UIDs: %@
 v32@?0@"NSString"8@"MRAVConcreteOutputDevice"16^B24
 MRDAVOutputContextExternalDevice
 %@ %@
+Local device changed clusterType in discovery
 Local device changed clusterType to %u
+External device is invalid (no designatedGroupLeader)
 OutputContextExternalDevice-%@-%@:%@<%@>
 com.apple.MediaRemote.connectionMonitor
 <%@ %p : %@>
@@ -945,6 +949,7 @@ _handleModifyOutputContextMessage
 MRXPC_MESSAGE_CUSTOM_ID_KEY
 MRXPC_CONTEXT_MODIFICATION_DATA_KEY
 ContextID=%@ %@
+B16@?0@"MRAVConcreteOutputContext"8
 Failed to create output context with UID=%@
 v16@?0@"MSVSystemDialogResponse"8
 AIRPLAY_PIN_ALERT_TITLE
@@ -1276,6 +1281,7 @@ objectForKey:
 intValue
 enumerateKeysAndObjectsUsingBlock:
 activeSystemEndpointStartupDelayToAllowAllPreviousClientsTimeToInitializeInterval
+isLocal
 isEqual:
 clusterID
 groupedDevices
@@ -1330,7 +1336,6 @@ initWithHandlerStatuses:sendError:
 _isCommandCacheable:
 numberWithUnsignedInt:
 broadcastRemoteControlCommand:completion:
-isLocal
 remoteControlClients
 sendRemoteControlCommand:toClients:completion:
 commandID
@@ -1711,6 +1716,7 @@ nowPlayingPlayerClient:playbackStateDidChange:
 nowPlayingPlayerClient:supportedCommandsDidChange:
 nowPlayingPlayerClient:playbackQueueDidChange:
 nowPlayingPlayerClient:playbackQueueCapabilitiesDidChange:
+initWithArray:copyItems:
 nowPlayingPlayerClient:playbackQueueContentItemsDidChange:
 nowPlayingPlayerClient:playbackQueueArtworkContentItemsDidChange:
 setPushStateIsPlaying:
@@ -2244,10 +2250,13 @@ mr_map:
 componentsJoinedByString:
 inactiveOutputContexts
 reservedOutputContexts
+arrayByAddingObjectsFromArray:
 registerCommunicationChannelForOutputContext:
 outputContextForOutputDeviceUID:
 outputContextForOutputDeviceUIDs:strict:
 setWithArray:
+sharedController
+clusterUID
 anyObject
 containsUID:
 mr_all:
@@ -2275,6 +2284,7 @@ allSharedAudioOutputContexts
 clusterComposition
 addObjectsFromArray:
 outputContexts
+populatedOutputContexts
 registerCommunicationsChannels
 outputContextForOutputDevice:
 outputContextForOutputDevices:strict:
@@ -2325,7 +2335,6 @@ T@"NSString",R,N,V_routeUID
 outputContextDidRemoveLocalDeviceNotification:
 outputContextModificationDidBeginNotification:
 outputContextModificationDidFinishNotification:
-sharedController
 registerObserver:
 onQueue_commitLocalDeviceIfNeededWithReason:completion:
 activeNowPlayingBundleIdentifiers
@@ -2870,7 +2879,9 @@ _writeDeviceInfo:toPath:
 currentDeviceInfo
 initWithEndpointFeatures:
 propertyListWithData:options:format:error:
-_onWorkerQueue_connectRemoteControlChannelForDestination:session:options:message:
+protobufData
+replyWithData:priority:
+_onWorkerQueue_connectRemoteControlChannelForDestination:session:options:completion:
 setMessageHandler:forType:
 _handleCompanionDeviceConnectedNotification:
 _handleCompanionDeviceDisconnectedNotification:
@@ -2899,13 +2910,13 @@ initWithAllSupportedMessages
 setSupportedMessages:
 _onWorkerQueue_disconnectRemoteControlChannelsForDestination:error:
 setDestination:
-protobufData
 sendMessage:type:destination:session:options:priority:
 idsRemoteControlService:didAcceptConnection:
+groupLeader
+exportOutputDevice:endpoint:
 outputDeviceWithUID:
 _addAuthorizationCallbackForOutputDevice:destination:session:
 _removeAuthorizationCallbackForOutputDevice:
-replyWithData:priority:
 primaryID
 initWithRoute:inputType:
 protocolMessageWithProtobufData:error:
@@ -3506,7 +3517,6 @@ shouldLogPairingSetupCode
 _notifyAndDisconnectClient:withError:
 initWithGameControllerProperties:controllerID:
 _setGameControllerInputMode:
-exportOutputDevice:endpoint:
 _createLocalizedOutputDevice:forClient:endpoint:
 setIsVolumeControlAvailable:
 setHasIsVolumeControlAvailable:
@@ -3737,7 +3747,6 @@ purgeUndiscoverableDisconnectedDevices:
 endpointFeatures
 baseGroupID
 msv_compactMap:
-arrayByAddingObjectsFromArray:
 isMultiplayerAware
 baseParentGroupID
 setIsRemoteControllable:
@@ -4445,7 +4454,6 @@ initWithOutputContext:
 setDesignatedGroupLeader:
 registerForNotifications
 verifyGroupLeaderForReason:
-unregisterObserver:
 cleanUp
 prewarmApp:origin:deviceInfo:
 _createPlayerAndWaitForCanBeNowPlaying:deviceInfo:options:completion:
@@ -4496,14 +4504,16 @@ outputContextDataSourceDidRemoveOutputDeviceNotification:
 outputContextDataSourceVolumeControlCapabilitiesDidChangeNotification:
 outputContextDataSourceVolumeDidChangeNotification:
 anyOutputContextDidAddOutputDeviceNotification:
-outputContexWillAddLocalOutputDeviceNotification:
+outputContextRequestToAddLocalOutputDeviceNotification:
 outputContextDidAddLocalDeviceNotification:
 anyDeviceInfoDidChangeNotification:
+localClusterTypeDidChangeNotification:
 removeClient:
 localPlayerPath
 existingOriginClientRequestsForPlayerPath:
 nowPlayingClientRequests
 _notifyActiveSessionMaybeWillBeHijackedByNativePlaybackFromOutputContextModification:
+clusterType
 verifyGroupLeader:
 initialize
 setPairingCallback:withQueue:
@@ -4693,7 +4703,6 @@ inputType
 _handleErrorStatus:forRoute:
 useAPSyncAPI
 _createEndpointForOutputDeviceIDs:options:completion:
-clusterType
 performMigrationToOutputDevices:request:initiator:queue:completion:
 performMigrationToEndpoint:request:queue:completion:
 _createEndpointForOutputDeviceIDs:completion:
@@ -4735,7 +4744,6 @@ _storePassword:forRoute:
 MACAddress
 _preferredIdentifierForMACAddress:identifier:name:
 _createEndpointForOutputDeviceIDsLegacy:options:completion:
-groupLeader
 indexesOfObjectsPassingTest:
 objectsAtIndexes:
 outputDeviceAuthorizationSession:didProvideAuthorizationRequest:
@@ -5434,7 +5442,7 @@ Q24@0:8@"MRTransaction"16
 v32@0:8@"MRProtocolClientConnection"16@"MRProtocolMessage"24
 v32@0:8@"MRProtocolClientConnection"16@"NSError"24
 v32@0:8@"NSStream"16Q24
-v44@0:8@16@24I32@36
+v44@0:8@16@24I32@?36
 @"MRDIDSServerClientConnection"
 @"MSVTimer"
 @"MRAVRoutingDiscoverySessionConfiguration"
@@ -6207,17 +6215,21 @@ Could not take sleep assertion
 Taking sleep assertion %@ for a max of %lf seconds
 Releasing sleep assertion %@
 Could not release sleep assertion %@
-%{public}@ Topology change failed with error: %@
+%{public}@ Topology change failed with error: %{public}@
 %{public}@ Connect was called but group leader wasn't committed or output context wasn't prepared
-%@ disconencting with error %@
+%{public}@ disconnecting with error %{public}@
 %{public}@ Failed to register custom origin with ID: %u
-%{public}@ Added localDevice %{public}@ to outputContext %@
-%{public}@ Removed groupLeader %{public}@ from outputContext %@
+%{public}@ Added localDevice %{public}@ to outputContext %{public}@
+%{public}@ Removed groupLeader %{public}@ from outputContext %{public}@
 %{public}@ Removed localDevice %{public}@ from outputContext. Clearing all localOrigin nowPlayingData
-%{public}@ Removed localDevice %{public}@ from outputContext %@
+%{public}@ Removed localDevice %{public}@ from outputContext %{public}@
+%{public}@ Local device changed clusterType to: %u
+%{public}@ Found endpoint containing local in discovery that matches cluster type: %{public}@
+%{public}@ Timed out waiting for local device to appear with expected clusterType in discovery
 %{public}@ GroupLeader %{public}@ failed verification for reason: %{public}@ on context %{public}@
 %{public}@ Verification failed because groupLeader was found in another outputContext: %{public}@
 %{public}@ Calling %lu completions - Original reason: %{public}@
+%{public}@ Ignoring request to commit in an invalid state (no designatedGroupLeader) reason: %{public}@
 %{public}@ Already committing output device: %{public}@ to: %{public}@. New reason: %{public}@
 %{public}@ Committing output device: %{public}@ to: %{public}@ because %{public}@
 %{public}@ Failed to commit output device: %{public}@ to: %{public}@ because %{public}@ - %{public}@
@@ -6330,7 +6342,7 @@ Error blessing %@ for playback initialization. %@
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241128</string>
+<string>20A241133</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -6348,21 +6360,21 @@ Error blessing %@ for playback initialization. %@
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19E228</string>
+<string>19F65</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.4</string>
+<string>15.5</string>
 <key>DTSDKBuild</key>
-<string>19E228</string>
+<string>19F65</string>
 <key>DTSDKName</key>
-<string>iphonesimulator15.4.internal</string>
+<string>iphonesimulator15.5.internal</string>
 <key>DTXcode</key>
 <string>1330</string>
 <key>DTXcodeBuild</key>
 <string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>15.4</string>
+<string>15.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
@@ -6867,9 +6879,10 @@ v16@?0@"NSMutableDictionary"8
 @16@?0@"MRAVOutputDevice"8
 B16@?0@"NSString"8
 B16@?0@"MRAVOutputContext"8
-@"MRAVOutputContext"16@?0@"AVOutputContext"8
+@"MRAVConcreteOutputContext"16@?0@"AVOutputContext"8
 @16@?0@"MRAVOutputDeviceDescription"8
-AVAudioSessionMediaServicesWereResetNotification
+AVSystemController_ServerConnectionDiedNotification
+AVSystemController_SubscribeToNotificationsAttribute
 PBSMediaRemoteServiceDialogOptionTitleKey
 PineBoardServices
 PBSMediaRemoteServiceDialogOptionPINKey
@@ -6992,6 +7005,7 @@ defaultGroupUID
 LOCAL
 DeviceInfo.plist
 com.apple.mediaremote.MRDIDSRemoteControlServiceConnection.workerQueue
+v16@?0@"MRProtocolMessage"8
 v32@?0@"MRIDSMessage"8@"NSString"16@"NSString"24
 %@ %p
 IDSWatch: %@
@@ -7005,6 +7019,7 @@ MRDIDSRemoteControlService.setConnectionState
 IDSDiscoveryChannel
 New replacement connection %@-%@ established
 IDSRemoteControlChannel-<%@/%@>
+Tried to connect to endpoint but its groupLeader changed from %@ to %@
 v16@?0@"MRIDSMessage"8
 v24@?0q8@?<v@?@"NSString">16
 v32@?0@"NSString"8@"MRDIDSRemoteControlServiceConnection"16^B24
@@ -7074,11 +7089,9 @@ Default
 AirPlayPortExtendedInfo.deviceID
 AVAudioRoute_Speaker
 AVAudioRoute_Headphone
-AVSystemController_ServerConnectionDiedNotification
 AVSystemController_CurrentExternalScreenAttribute
 AVSystemController_RouteAwayFromAirPlayAttribute
 AVSystemController_CurrentRouteHasVolumeControlNotificationParameter
-AVSystemController_SubscribeToNotificationsAttribute
 AVSystemController_CurrentRouteHasVolumeControlDidChangeNotification
 AVSystemController_ExternalScreenDidChangeNotification
 AVSystemController_PortStatusDidChangeNotification
@@ -7164,7 +7177,6 @@ Connection %@ exited in the middle of a migration
 v24@?0@"MRPlaybackSessionRequest"8@"MRPlayerPath"16
 B16@?0@"MRDExternalDeviceServerClientConnection"8
 com.apple.MediaRemote.MRTelevisionRemoteServer.WorkerQueue
-v16@?0@"MRProtocolMessage"8
 SBSUndimScreen
 SpringBoardServices
 v24@?0@"CUPairedPeer"8Q16
@@ -7452,6 +7464,7 @@ B16@?0@"MRAVEndpoint"8
 PreventUserIdleSystemSleep
 com.apple.mediaremote.powerassertion
 TimeoutActionRelease
+MRDAVOutputContextExternalDeviceDiscoveryLocalClusterTypeDidChangeNotification
 MRDAVOutputContextExternalDevice.serialQueue
 MRDAVOutputContextExternalDevice.workerQueue
 MRDAVOutputContextExternalDevice.notificationQueue
@@ -7471,6 +7484,7 @@ v36@?0@"MRPlayerPath"8I16@"NSDictionary"20@?<v@?@"MRCommandResult">28
 v24@?0@"MRPlaybackSession"8@"NSError"16
 handleRemoteCommand
 @"MRCommandResult"16@?0@"NSError"8
+Failed to commit group leader to output context
 createPlayerAndWaitForConnection
 Could not find xpcClient for playerPath %@
 v24@?0@"MRPlayerPath"8@"NSError"16
@@ -7491,7 +7505,9 @@ Failed to find devices with UIDs: %@
 v32@?0@"NSString"8@"MRAVConcreteOutputDevice"16^B24
 MRDAVOutputContextExternalDevice
 %@ %@
+Local device changed clusterType in discovery
 Local device changed clusterType to %u
+External device is invalid (no designatedGroupLeader)
 OutputContextExternalDevice-%@-%@:%@<%@>
 com.apple.MediaRemote.connectionMonitor
 <%@ %p : %@>
@@ -7555,6 +7571,7 @@ _handleModifyOutputContextMessage
 MRXPC_MESSAGE_CUSTOM_ID_KEY
 MRXPC_CONTEXT_MODIFICATION_DATA_KEY
 ContextID=%@ %@
+B16@?0@"MRAVConcreteOutputContext"8
 Failed to create output context with UID=%@
 v16@?0@"MSVSystemDialogResponse"8
 AIRPLAY_PIN_ALERT_TITLE
@@ -7886,6 +7903,7 @@ objectForKey:
 intValue
 enumerateKeysAndObjectsUsingBlock:
 activeSystemEndpointStartupDelayToAllowAllPreviousClientsTimeToInitializeInterval
+isLocal
 isEqual:
 clusterID
 groupedDevices
@@ -7940,7 +7958,6 @@ initWithHandlerStatuses:sendError:
 _isCommandCacheable:
 numberWithUnsignedInt:
 broadcastRemoteControlCommand:completion:
-isLocal
 remoteControlClients
 sendRemoteControlCommand:toClients:completion:
 commandID
@@ -8321,6 +8338,7 @@ nowPlayingPlayerClient:playbackStateDidChange:
 nowPlayingPlayerClient:supportedCommandsDidChange:
 nowPlayingPlayerClient:playbackQueueDidChange:
 nowPlayingPlayerClient:playbackQueueCapabilitiesDidChange:
+initWithArray:copyItems:
 nowPlayingPlayerClient:playbackQueueContentItemsDidChange:
 nowPlayingPlayerClient:playbackQueueArtworkContentItemsDidChange:
 setPushStateIsPlaying:
@@ -8854,10 +8872,13 @@ mr_map:
 componentsJoinedByString:
 inactiveOutputContexts
 reservedOutputContexts
+arrayByAddingObjectsFromArray:
 registerCommunicationChannelForOutputContext:
 outputContextForOutputDeviceUID:
 outputContextForOutputDeviceUIDs:strict:
 setWithArray:
+sharedController
+clusterUID
 anyObject
 containsUID:
 mr_all:
@@ -8885,6 +8906,7 @@ allSharedAudioOutputContexts
 clusterComposition
 addObjectsFromArray:
 outputContexts
+populatedOutputContexts
 registerCommunicationsChannels
 outputContextForOutputDevice:
 outputContextForOutputDevices:strict:
@@ -8935,7 +8957,6 @@ T@"NSString",R,N,V_routeUID
 outputContextDidRemoveLocalDeviceNotification:
 outputContextModificationDidBeginNotification:
 outputContextModificationDidFinishNotification:
-sharedController
 registerObserver:
 onQueue_commitLocalDeviceIfNeededWithReason:completion:
 activeNowPlayingBundleIdentifiers
@@ -9480,7 +9501,9 @@ _writeDeviceInfo:toPath:
 currentDeviceInfo
 initWithEndpointFeatures:
 propertyListWithData:options:format:error:
-_onWorkerQueue_connectRemoteControlChannelForDestination:session:options:message:
+protobufData
+replyWithData:priority:
+_onWorkerQueue_connectRemoteControlChannelForDestination:session:options:completion:
 setMessageHandler:forType:
 _handleCompanionDeviceConnectedNotification:
 _handleCompanionDeviceDisconnectedNotification:
@@ -9509,13 +9532,13 @@ initWithAllSupportedMessages
 setSupportedMessages:
 _onWorkerQueue_disconnectRemoteControlChannelsForDestination:error:
 setDestination:
-protobufData
 sendMessage:type:destination:session:options:priority:
 idsRemoteControlService:didAcceptConnection:
+groupLeader
+exportOutputDevice:endpoint:
 outputDeviceWithUID:
 _addAuthorizationCallbackForOutputDevice:destination:session:
 _removeAuthorizationCallbackForOutputDevice:
-replyWithData:priority:
 primaryID
 initWithRoute:inputType:
 protocolMessageWithProtobufData:error:
@@ -10116,7 +10139,6 @@ shouldLogPairingSetupCode
 _notifyAndDisconnectClient:withError:
 initWithGameControllerProperties:controllerID:
 _setGameControllerInputMode:
-exportOutputDevice:endpoint:
 _createLocalizedOutputDevice:forClient:endpoint:
 setIsVolumeControlAvailable:
 setHasIsVolumeControlAvailable:
@@ -10347,7 +10369,6 @@ purgeUndiscoverableDisconnectedDevices:
 endpointFeatures
 baseGroupID
 msv_compactMap:
-arrayByAddingObjectsFromArray:
 isMultiplayerAware
 baseParentGroupID
 setIsRemoteControllable:
@@ -11055,7 +11076,6 @@ initWithOutputContext:
 setDesignatedGroupLeader:
 registerForNotifications
 verifyGroupLeaderForReason:
-unregisterObserver:
 cleanUp
 prewarmApp:origin:deviceInfo:
 _createPlayerAndWaitForCanBeNowPlaying:deviceInfo:options:completion:
@@ -11106,14 +11126,16 @@ outputContextDataSourceDidRemoveOutputDeviceNotification:
 outputContextDataSourceVolumeControlCapabilitiesDidChangeNotification:
 outputContextDataSourceVolumeDidChangeNotification:
 anyOutputContextDidAddOutputDeviceNotification:
-outputContexWillAddLocalOutputDeviceNotification:
+outputContextRequestToAddLocalOutputDeviceNotification:
 outputContextDidAddLocalDeviceNotification:
 anyDeviceInfoDidChangeNotification:
+localClusterTypeDidChangeNotification:
 removeClient:
 localPlayerPath
 existingOriginClientRequestsForPlayerPath:
 nowPlayingClientRequests
 _notifyActiveSessionMaybeWillBeHijackedByNativePlaybackFromOutputContextModification:
+clusterType
 verifyGroupLeader:
 initialize
 setPairingCallback:withQueue:
@@ -11303,7 +11325,6 @@ inputType
 _handleErrorStatus:forRoute:
 useAPSyncAPI
 _createEndpointForOutputDeviceIDs:options:completion:
-clusterType
 performMigrationToOutputDevices:request:initiator:queue:completion:
 performMigrationToEndpoint:request:queue:completion:
 _createEndpointForOutputDeviceIDs:completion:
@@ -11345,7 +11366,6 @@ _storePassword:forRoute:
 MACAddress
 _preferredIdentifierForMACAddress:identifier:name:
 _createEndpointForOutputDeviceIDsLegacy:options:completion:
-groupLeader
 indexesOfObjectsPassingTest:
 objectsAtIndexes:
 outputDeviceAuthorizationSession:didProvideAuthorizationRequest:
@@ -12044,7 +12064,7 @@ Q24@0:8@"MRTransaction"16
 v32@0:8@"MRProtocolClientConnection"16@"MRProtocolMessage"24
 v32@0:8@"MRProtocolClientConnection"16@"NSError"24
 v32@0:8@"NSStream"16Q24
-v44@0:8@16@24I32@36
+v44@0:8@16@24I32@?36
 @"MRDIDSServerClientConnection"
 @"MSVTimer"
 @"MRAVRoutingDiscoverySessionConfiguration"
@@ -12817,17 +12837,21 @@ Could not take sleep assertion
 Taking sleep assertion %@ for a max of %lf seconds
 Releasing sleep assertion %@
 Could not release sleep assertion %@
-%{public}@ Topology change failed with error: %@
+%{public}@ Topology change failed with error: %{public}@
 %{public}@ Connect was called but group leader wasn't committed or output context wasn't prepared
-%@ disconencting with error %@
+%{public}@ disconnecting with error %{public}@
 %{public}@ Failed to register custom origin with ID: %u
-%{public}@ Added localDevice %{public}@ to outputContext %@
-%{public}@ Removed groupLeader %{public}@ from outputContext %@
+%{public}@ Added localDevice %{public}@ to outputContext %{public}@
+%{public}@ Removed groupLeader %{public}@ from outputContext %{public}@
 %{public}@ Removed localDevice %{public}@ from outputContext. Clearing all localOrigin nowPlayingData
-%{public}@ Removed localDevice %{public}@ from outputContext %@
+%{public}@ Removed localDevice %{public}@ from outputContext %{public}@
+%{public}@ Local device changed clusterType to: %u
+%{public}@ Found endpoint containing local in discovery that matches cluster type: %{public}@
+%{public}@ Timed out waiting for local device to appear with expected clusterType in discovery
 %{public}@ GroupLeader %{public}@ failed verification for reason: %{public}@ on context %{public}@
 %{public}@ Verification failed because groupLeader was found in another outputContext: %{public}@
 %{public}@ Calling %lu completions - Original reason: %{public}@
+%{public}@ Ignoring request to commit in an invalid state (no designatedGroupLeader) reason: %{public}@
 %{public}@ Already committing output device: %{public}@ to: %{public}@. New reason: %{public}@
 %{public}@ Committing output device: %{public}@ to: %{public}@ because %{public}@
 %{public}@ Failed to commit output device: %{public}@ to: %{public}@ because %{public}@ - %{public}@
@@ -12940,7 +12964,7 @@ Error blessing %@ for playback initialization. %@
 <plist version="1.0">
 <dict>
 <key>BuildMachineOSBuild</key>
-<string>20A241128</string>
+<string>20A241133</string>
 <key>CFBundleAllowMixedLocalizations</key>
 <true/>
 <key>CFBundleDevelopmentRegion</key>
@@ -12958,21 +12982,21 @@ Error blessing %@ for playback initialization. %@
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>19E228</string>
+<string>19F65</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.4</string>
+<string>15.5</string>
 <key>DTSDKBuild</key>
-<string>19E228</string>
+<string>19F65</string>
 <key>DTSDKName</key>
-<string>iphonesimulator15.4.internal</string>
+<string>iphonesimulator15.5.internal</string>
 <key>DTXcode</key>
 <string>1330</string>
 <key>DTXcodeBuild</key>
 <string>13E6049a</string>
 <key>MinimumOSVersion</key>
-<string>15.4</string>
+<string>15.5</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>

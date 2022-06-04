@@ -1,8 +1,7 @@
 ~J4r
 N@333333
 MbP?
-A@(#)PROGRAM:securityd  PROJECT:Security-60158.100.133
-3333
+A@(#)PROGRAM:securityd  PROJECT:Security-60158.120.9
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -2366,6 +2365,7 @@ backupwrappedkey
 CloudKit account logged in.
 CKKSQueue.%@
 outgoing-queue-scheduler
+outgoing-queue-priority-scheduler
 <%@: %@ %@ %p>
 ckks-initialized-operation
 initial-setup
@@ -3043,11 +3043,14 @@ performRingUpdates
 sos-sm
 perform-backup-state
 perform-ring-update
+rings
 perform-backup-flag
 perform-ring-update-flag
 com.apple.lakitu
 EscrowServiceBypassToken
 EscrowService
+kSOSRecoveryKeyStatus
+kSOSBackupKeyStatus
 circleops
 Don't have circle when joining???
 v32@?0@"NSDictionary"8Q16^B24
@@ -3059,6 +3062,7 @@ Unavailable
 Deleting V0 Keybag failed - %d
 ^{__OpaqueSOSRing={__CFRuntimeBase=QAQ}^{__CFDictionary}^{__CFDictionary}^{__CFDictionary}^{__CFDictionary}}24@?0^{__CFString=}8^^{__CFError}16
 B24@?0^{__OpaqueSOSBackupSliceKeyBag=}8^^{__CFError}16
+NULL account/peerInfo or viewName parameter
 NULL account or viewName parameter
 Backup public key
 B24@?0^{__OpaqueSOSPeerInfo=}8^^{__CFError}16
@@ -6762,6 +6766,7 @@ updateDeviceState:waitForKeyHierarchyInitialization:ckoperationGroup:
 getGlobalRateLimiter
 lockStateChangeNotification:
 restartCKKSAccountSync:
+peekCallbackForUUID:
 cancelPendingOperations
 currentTLKsFilteredByPolicy:error:
 haltAll
@@ -7699,12 +7704,13 @@ _onqueueOtherDevicesReportHavingTLKs:trustStates:
 setDay:
 setItemModificationsBeforePolicyLoaded:
 initWithUUIDBytes:
-_onqueueProcessOutgoingQueue:
+_onqueueProcessOutgoingQueue:priorityRush:
 policyDependentViewStateForName:error:
 accountStateKnown
 findFirstPendingOperation:
 scheduleOperationWithoutDependencies:
 findFirstPendingOperation:ofClass:
+outgoingQueuePriorityOperationScheduler
 waitForPolicy:error:
 havoc
 setHavoc:
@@ -7761,6 +7767,7 @@ setHoldIncomingQueueOperation:
 setHoldLocalSynchronizeOperation:
 initiatedLocalScan
 setOutgoingQueueOperationScheduler:
+setOutgoingQueuePriorityOperationScheduler:
 setOutgoingQueueOperations:
 setDatabaseProvider:
 setCurrentTrustStates:
@@ -7787,6 +7794,7 @@ _holdIncomingQueueOperation
 _holdLocalSynchronizeOperation
 _priorityViewsProcessed
 _outgoingQueueOperationScheduler
+_outgoingQueuePriorityOperationScheduler
 _resultsOfNextIncomingQueueOperationOperation
 _outgoingQueueOperations
 _resyncRecordsSeen
@@ -7795,6 +7803,7 @@ _currentTrustStates
 T@"OctagonStateMultiStateArrivalWatcher",&,V_priorityViewsProcessed
 TB,V_itemModificationsBeforePolicyLoaded
 T@"CKKSNearFutureScheduler",&,V_outgoingQueueOperationScheduler
+T@"CKKSNearFutureScheduler",&,V_outgoingQueuePriorityOperationScheduler
 T@"CKKSResultOperation",&,V_resultsOfNextIncomingQueueOperationOperation
 T@"NSHashTable",&,V_outgoingQueueOperations
 T@"NSMutableSet",&,V_resyncRecordsSeen
@@ -8804,6 +8813,8 @@ setRetirees:
 postRetirement:peer:err:
 flushChanges:
 kvssendDebugInfo:debug:err:
+getPublicKeyStatusForKey:error:
+setPublicKeyStatus:forKey:
 modifyCircle:err:action:
 setDepartureCode:
 departureCode
@@ -8848,6 +8859,7 @@ ghostBustTriggerTimed:complete:
 ghostBustInfo:
 iCloudIdentityStatus:
 accountStatus:
+keyStatusFor:complete:
 myPeerInfo:
 circleHash:
 circleJoiningBlob:complete:
@@ -11833,6 +11845,7 @@ trigger backup for peers: %@ at %@
 trigger ring update at %@
 performing backup for %@
 Failed to delete v0 keybag: %@
+Flushing Rings to KVS
 flush circles/rings failed %@
 Entering state: %@ [flags: %@]
 EFP calling SOSCloudKeychainSynchronizeAndWait
@@ -11859,10 +11872,12 @@ sending %d tlks
 sending %d identities
 preparing TLK in order: %@: %@
 %@: Joining blob for account: %@ for piggyback (V%d) gencount: %@  pubkey: %@ signatureID: %@  starting circle hash: %@
+Updating Backup Rings
 Error during SOSAccountProcessBackupRings (%@)
 Setting peerInfo backupKey to %@
 Setting peerInfo backupKey to NULL
-circle_rings_retirements_need_attention set to true since we got a BackupKey
+Changed BackupKey for PeerInfo
+Processing backup rings since we got a BackupKey
 failed to set V0 keybag (%@)
 Not currently in circle
 account backup key isn't valid: %@
@@ -12000,6 +12015,7 @@ reset all rings error: %@
 Reset Rings to empty by client request
 error: %@
 Ring %@ not stable
+start:[%s] halt processing invalid ring
 start:[%s] modifier: %@
 Ceasing ring handling for an echo of our own posted ring
 ##### No trusted peer signature found, accepting hoping for concordance later
@@ -12063,6 +12079,7 @@ concordance trust (%s)
 knownkey: %@ userkey: %@ myPeerID: %@
 SetRecoveryPublic: %@ from %@
 SetRecoveryPublic Failed: %@
+Failed to find BKSB: %@, %@ (%@)
 Recovery Key changed: old %@ new %@
 SOSMessageSetManifests: setting base digest to %@ %zu
 SOSMessageSetManifests: setting proposed digest to %@ %zu
@@ -13083,9 +13100,11 @@ v40@0:8@"_SFCredential"16@"_SFCredential"24@?<v@?B@"NSError">32
 @"SecCDKeychain"
 @72@0:8@16@24q32@40@48@56@64
 v28@0:8I16@?20
+v28@0:8i16@?20
 v36@0:8@16i24@?28
 v24@0:8@?<v@?B@"NSData"@"NSError">16
 v28@0:8I16@?<v@?B@"NSError">20
+v28@0:8i16@?<v@?i@"NSError">20
 v32@0:8@"NSData"16@?<v@?@"NSData"@"NSError">24
 v36@0:8@"NSData"16i24@?<v@?B@"NSError">28
 v28@0:8I16@?<v@?@"NSArray"@"NSError">20
@@ -13100,6 +13119,8 @@ v24@0:8^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}16
 B24@0:8^^{__CFError}16
 i24@0:8^^{__CFError}16
 B24@0:8^{__CFString=}16
+v24@0:8i16i20
+i28@0:8i16^@20
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}16@0:8
 ^{SOSDataSourceFactory=^?^?^?}16@0:8
 v24@0:8^{SOSDataSourceFactory=^?^?^?}16
@@ -13223,8 +13244,7 @@ ix?L
 .5X{
  -1SX]
 :_kw
-@(#)PROGRAM:securityd  PROJECT:Security-60158.100.133
-3333
+@(#)PROGRAM:securityd  PROJECT:Security-60158.120.9
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -15588,6 +15608,7 @@ backupwrappedkey
 CloudKit account logged in.
 CKKSQueue.%@
 outgoing-queue-scheduler
+outgoing-queue-priority-scheduler
 <%@: %@ %@ %p>
 ckks-initialized-operation
 initial-setup
@@ -16265,11 +16286,14 @@ performRingUpdates
 sos-sm
 perform-backup-state
 perform-ring-update
+rings
 perform-backup-flag
 perform-ring-update-flag
 com.apple.lakitu
 EscrowServiceBypassToken
 EscrowService
+kSOSRecoveryKeyStatus
+kSOSBackupKeyStatus
 circleops
 Don't have circle when joining???
 v32@?0@"NSDictionary"8Q16^B24
@@ -16281,6 +16305,7 @@ Unavailable
 Deleting V0 Keybag failed - %d
 ^{__OpaqueSOSRing={__CFRuntimeBase=QAQ}^{__CFDictionary}^{__CFDictionary}^{__CFDictionary}^{__CFDictionary}}24@?0^{__CFString=}8^^{__CFError}16
 B24@?0^{__OpaqueSOSBackupSliceKeyBag=}8^^{__CFError}16
+NULL account/peerInfo or viewName parameter
 NULL account or viewName parameter
 Backup public key
 B24@?0^{__OpaqueSOSPeerInfo=}8^^{__CFError}16
@@ -19984,6 +20009,7 @@ updateDeviceState:waitForKeyHierarchyInitialization:ckoperationGroup:
 getGlobalRateLimiter
 lockStateChangeNotification:
 restartCKKSAccountSync:
+peekCallbackForUUID:
 cancelPendingOperations
 currentTLKsFilteredByPolicy:error:
 haltAll
@@ -20921,12 +20947,13 @@ _onqueueOtherDevicesReportHavingTLKs:trustStates:
 setDay:
 setItemModificationsBeforePolicyLoaded:
 initWithUUIDBytes:
-_onqueueProcessOutgoingQueue:
+_onqueueProcessOutgoingQueue:priorityRush:
 policyDependentViewStateForName:error:
 accountStateKnown
 findFirstPendingOperation:
 scheduleOperationWithoutDependencies:
 findFirstPendingOperation:ofClass:
+outgoingQueuePriorityOperationScheduler
 waitForPolicy:error:
 havoc
 setHavoc:
@@ -20983,6 +21010,7 @@ setHoldIncomingQueueOperation:
 setHoldLocalSynchronizeOperation:
 initiatedLocalScan
 setOutgoingQueueOperationScheduler:
+setOutgoingQueuePriorityOperationScheduler:
 setOutgoingQueueOperations:
 setDatabaseProvider:
 setCurrentTrustStates:
@@ -21009,6 +21037,7 @@ _holdIncomingQueueOperation
 _holdLocalSynchronizeOperation
 _priorityViewsProcessed
 _outgoingQueueOperationScheduler
+_outgoingQueuePriorityOperationScheduler
 _resultsOfNextIncomingQueueOperationOperation
 _outgoingQueueOperations
 _resyncRecordsSeen
@@ -21017,6 +21046,7 @@ _currentTrustStates
 T@"OctagonStateMultiStateArrivalWatcher",&,V_priorityViewsProcessed
 TB,V_itemModificationsBeforePolicyLoaded
 T@"CKKSNearFutureScheduler",&,V_outgoingQueueOperationScheduler
+T@"CKKSNearFutureScheduler",&,V_outgoingQueuePriorityOperationScheduler
 T@"CKKSResultOperation",&,V_resultsOfNextIncomingQueueOperationOperation
 T@"NSHashTable",&,V_outgoingQueueOperations
 T@"NSMutableSet",&,V_resyncRecordsSeen
@@ -22026,6 +22056,8 @@ setRetirees:
 postRetirement:peer:err:
 flushChanges:
 kvssendDebugInfo:debug:err:
+getPublicKeyStatusForKey:error:
+setPublicKeyStatus:forKey:
 modifyCircle:err:action:
 setDepartureCode:
 departureCode
@@ -22070,6 +22102,7 @@ ghostBustTriggerTimed:complete:
 ghostBustInfo:
 iCloudIdentityStatus:
 accountStatus:
+keyStatusFor:complete:
 myPeerInfo:
 circleHash:
 circleJoiningBlob:complete:
@@ -25055,6 +25088,7 @@ trigger backup for peers: %@ at %@
 trigger ring update at %@
 performing backup for %@
 Failed to delete v0 keybag: %@
+Flushing Rings to KVS
 flush circles/rings failed %@
 Entering state: %@ [flags: %@]
 EFP calling SOSCloudKeychainSynchronizeAndWait
@@ -25082,10 +25116,12 @@ sending %d tlks
 sending %d identities
 preparing TLK in order: %@: %@
 %@: Joining blob for account: %@ for piggyback (V%d) gencount: %@  pubkey: %@ signatureID: %@  starting circle hash: %@
+Updating Backup Rings
 Error during SOSAccountProcessBackupRings (%@)
 Setting peerInfo backupKey to %@
 Setting peerInfo backupKey to NULL
-circle_rings_retirements_need_attention set to true since we got a BackupKey
+Changed BackupKey for PeerInfo
+Processing backup rings since we got a BackupKey
 failed to set V0 keybag (%@)
 Not currently in circle
 account backup key isn't valid: %@
@@ -25223,6 +25259,7 @@ reset all rings error: %@
 Reset Rings to empty by client request
 error: %@
 Ring %@ not stable
+start:[%s] halt processing invalid ring
 start:[%s] modifier: %@
 Ceasing ring handling for an echo of our own posted ring
 ##### No trusted peer signature found, accepting hoping for concordance later
@@ -25286,6 +25323,7 @@ concordance trust (%s)
 knownkey: %@ userkey: %@ myPeerID: %@
 SetRecoveryPublic: %@ from %@
 SetRecoveryPublic Failed: %@
+Failed to find BKSB: %@, %@ (%@)
 Recovery Key changed: old %@ new %@
 SOSMessageSetManifests: setting base digest to %@ %zu
 SOSMessageSetManifests: setting proposed digest to %@ %zu
@@ -26305,9 +26343,11 @@ v40@0:8@"_SFCredential"16@"_SFCredential"24@?<v@?B@"NSError">32
 @"SecCDKeychain"
 @72@0:8@16@24q32@40@48@56@64
 v28@0:8I16@?20
+v28@0:8i16@?20
 v36@0:8@16i24@?28
 v24@0:8@?<v@?B@"NSData"@"NSError">16
 v28@0:8I16@?<v@?B@"NSError">20
+v28@0:8i16@?<v@?i@"NSError">20
 v32@0:8@"NSData"16@?<v@?@"NSData"@"NSError">24
 v36@0:8@"NSData"16i24@?<v@?B@"NSError">28
 v28@0:8I16@?<v@?@"NSArray"@"NSError">20
@@ -26322,6 +26362,8 @@ v24@0:8^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}16
 B24@0:8^^{__CFError}16
 i24@0:8^^{__CFError}16
 B24@0:8^{__CFString=}16
+v24@0:8i16i20
+i28@0:8i16^@20
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}16@0:8
 ^{SOSDataSourceFactory=^?^?^?}16@0:8
 v24@0:8^{SOSDataSourceFactory=^?^?^?}16
