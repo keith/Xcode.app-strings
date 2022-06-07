@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2236.120.5
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2458.0.0.112.1
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -454,36 +454,109 @@ Minute
 Weekday
 com.apple.launchd.calendarinterval
 calendarinterval
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2236.120.5
-distantFuture
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2458.0.0.112.1
+newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
+newBaseTime is greater than 2*interval from now, moving back for %{public}@
+Using temporary delay of %lld seconds to account for late fire of %{public}@
+Adding random initial delay %{public}d/%{public}d
+Control channel connection: %d
+evaluating activities
+activity timer fired
+%{public}@ state change %ld -> %ld
+Initiating XPC Activity: %{public}@
+Created temporary power assertion for %{public}@: %d
+Deferring XPC Activity: %{public}@
+Completed XPC Activity: %{public}@
+Rescheduling XPC Activity: %{public}@
+releasing power assertion: %d for %{public}@
+XPC Activity client connection closed: %{public}@
+Unregistered unmanaged XPC Activity: %{public}@
+Running XPC Activity (PID %d): %{public}@
+releasing temporary power assertion: %{public}@: %d
+Scheduling activity timer for [%{public}@] in %lld seconds
+activities are suspended
+Activity %{public}@ is eligible to run.
+Updating XPC Activity: %{public}@ (eligible=%s)
+Updating XPC Activity (deferred): %{public}@ (eligible=%s)
+Time Change: resubmitting actiivty %{public}@
+No name in unmanaged activity request. Rejecting request.
+Failed to register unmanaged XPC Activity: %{public}s
+Created unmanaged XPC Activity: %{public}@
+Registered unmanaged XPC Activity: %{public}@
+%{public}s: %{public}s
+%{public}@: permissible values for priority are %s or %s
+%{public}@: postinstall activites are not allowed to repeat; interval property ignored.
+%{public}@: postinstall activites are not allowed to repeat; repeating property ignored.
+BUG IN %{public}@? None of interval, delay, grace period set for repeating task
+Control Channel: %{public}s %{public}s
+Creating XPC Activity on XPC add event: %{public}s
+Failed to create XPC Activity: %{public}s
+Created XPC Activity: %{public}@
+Registered XPC Activity: %{public}@
+%{public}@: %{public}s
+Unregistered XPC Activity on XPC remove event: %{public}@
+The interval for key "%s" is not between %d and %d (inclusive).
+Registered StartCalendarInterval: %{public}@: %{public}@
+Unregistered StartCalendarInterval: %s
+Running StartCalendarInterval: %{public}@
+Rescheduling StartCalendarInterval: %{public}@: %{public}@
+CTSActivityTime
+CTSActivity
+CTSCalendarInterval
+weekday
 timeIntervalSinceReferenceDate
-interval
-setBaseTime:
-baseTime
-delay
-grace_period
-name
-startTime
-setTempDelay:
-setElapsedTime:
-setStartTime:
-tempDelay
-eligibleTime
-elapsedTime
+timeIntervalSinceNow
+stringWithUTF8String:
+stringWithFormat:
+stringForKey:
+setValue:forComponent:
+setSecond:
+setObject:forKey:
+setMonth:
+setDay:
+setCalendar:
+removeObjectForKey:
+removeObject:
+objectForKeyedSubscript:
+objectForKey:
+numberWithUnsignedLongLong:
+nextDateAfterDate:matchingComponents:options:
+mutableCopy
+month
+minute
+isValidDate
+isEqualToString:
+initWithSuiteName:
+initWithCapacity:
+hour
+earlierDate:
+distantFuture
+descriptionWithLocale:
+date
+currentLocale
+countByEnumeratingWithState:objects:count:
+copy
+containsObject:
+compare:
+calendarWithIdentifier:
+calendar
+arrayForKey:
+addObject:
+UTF8String
 loadBaseTime
 advanceBaseTime
 resetBaseTime
+eligibleTime
 deadlineTime
 markStarted:
 markStopped:
 totalElapsed
-random_initial_delay
-stringWithFormat:
 description
 token
 setToken:
 seqno
 setSeqno:
+name
 setName:
 connection
 setConnection:
@@ -491,12 +564,24 @@ peer
 setPeer:
 unmanaged
 setUnmanaged:
+interval
 setInterval:
+delay
 setDelay:
+grace_period
 setGrace_period:
 expected_duration
 setExpected_duration:
+random_initial_delay
 setRandom_initial_delay:
+tempDelay
+setTempDelay:
+baseTime
+setBaseTime:
+startTime
+setStartTime:
+elapsedTime
+setElapsedTime:
 state
 setState:
 eligible
@@ -703,35 +788,7 @@ TB,N,V_bgtask_debug
 TB,N,V_confirmed_run
 T@"NSString",&,N,V_group_name
 TQ,N,V_group_concurrency_limit
-UTF8String
-removeObject:
-initWithSuiteName:
-arrayForKey:
-mutableCopy
-initWithCapacity:
-addObject:
-setObject:forKey:
-copy
-countByEnumeratingWithState:objects:count:
-stringWithUTF8String:
-stringForKey:
-isEqualToString:
-removeObjectForKey:
-containsObject:
-setDay:
-setMonth:
-setValue:forComponent:
-isValidDate
-month
-minute
-hour
-weekday
-setSecond:
-calendar
-date
-nextDateAfterDate:matchingComponents:options:
 init
-setCalendar:
 parseComponent:inEvent:
 setEveryMinuteIfNothingElseSet
 resetFireDate
@@ -745,63 +802,6 @@ _fireDate
 T@"NSString",R,N,V_identifier
 T@"NSDateComponents",R,N,V_components
 T@"NSDate",R,N,V_fireDate
-calendarWithIdentifier:
-numberWithUnsignedLongLong:
-currentLocale
-descriptionWithLocale:
-objectForKey:
-objectForKeyedSubscript:
-compare:
-earlierDate:
-timeIntervalSinceNow
-newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
-newBaseTime is greater than 2*interval from now, moving back for %{public}@
-Using temporary delay of %lld seconds to account for late fire of %{public}@
-Adding random initial delay %{public}d/%{public}d
-Control channel connection: %d
-evaluating activities
-activity timer fired
-%{public}@ state change %ld -> %ld
-Initiating XPC Activity: %{public}@
-Created temporary power assertion for %{public}@: %d
-Deferring XPC Activity: %{public}@
-Completed XPC Activity: %{public}@
-Rescheduling XPC Activity: %{public}@
-releasing power assertion: %d for %{public}@
-XPC Activity client connection closed: %{public}@
-Unregistered unmanaged XPC Activity: %{public}@
-Running XPC Activity (PID %d): %{public}@
-releasing temporary power assertion: %{public}@: %d
-Scheduling activity timer for [%{public}@] in %lld seconds
-activities are suspended
-Activity %{public}@ is eligible to run.
-Updating XPC Activity: %{public}@ (eligible=%s)
-Updating XPC Activity (deferred): %{public}@ (eligible=%s)
-Time Change: resubmitting actiivty %{public}@
-No name in unmanaged activity request. Rejecting request.
-Failed to register unmanaged XPC Activity: %{public}s
-Created unmanaged XPC Activity: %{public}@
-Registered unmanaged XPC Activity: %{public}@
-%{public}s: %{public}s
-%{public}@: permissible values for priority are %s or %s
-%{public}@: postinstall activites are not allowed to repeat; interval property ignored.
-%{public}@: postinstall activites are not allowed to repeat; repeating property ignored.
-BUG IN %{public}@? None of interval, delay, grace period set for repeating task
-Control Channel: %{public}s %{public}s
-Creating XPC Activity on XPC add event: %{public}s
-Failed to create XPC Activity: %{public}s
-Created XPC Activity: %{public}@
-Registered XPC Activity: %{public}@
-%{public}@: %{public}s
-Unregistered XPC Activity on XPC remove event: %{public}@
-The interval for key "%s" is not between %d and %d (inclusive).
-Registered StartCalendarInterval: %{public}@: %{public}@
-Unregistered StartCalendarInterval: %s
-Running StartCalendarInterval: %{public}@
-Rescheduling StartCalendarInterval: %{public}@: %{public}@
-CTSActivityTime
-CTSActivity
-CTSCalendarInterval
 v16@0:8
 q16@0:8
 v24@0:8q16

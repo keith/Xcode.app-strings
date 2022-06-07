@@ -1,14 +1,17 @@
-@(#)PROGRAM:MechanismBase  PROJECT:CoreAuthentication-985.120.5
+@(#)PROGRAM:MechanismBase  PROJECT:CoreAuthentication-1131.0.14.112.1
 v8@?0
 -[_RemoteUIManager showUIWithParams:reply:]
 B8@?0
 -[_RemoteUIManager _activateUi]
 Failed to activate remote UI.
+Setting nil block to nil
+Setting block to nil
 UI interrupted by another authentication
-UI activation timed out.
+UI activation timed out after %d seconds
 success
 UI service connection invalidated.
 com.apple.LocalAuthentication.ui.dismissed
+LANotificationUIAppearance
 v16@?0@"NSString"8
 immediate reply, UI is already down
 reply from %@
@@ -49,6 +52,8 @@ ConstraintData
 cbio
 pbiou
 com.apple.CoreAuthUI
+LocalAuthentication
+useTransitionViewModel
 com.apple.LocalAuthentication.ui.presented
 Remote alert deactivated
 Remote alert invalidated
@@ -64,7 +69,6 @@ MechanismKofN
 %s %{public}@, %d, %d on %@
 Won't activate UI now because %{public}@ is being dismissed (counter:%d)
 %s  on %@
-Setting block to nil
 preparing %{public}@ for remote view controller scenario
 %{public}@ is waiting to connect with the remote UI
 showUI result: %{public}@
@@ -88,6 +92,7 @@ holding assertion: %@
 Unbound UUID offset out of bounds [0-%u]: %{public}@
 %{public}% is missing unbound identity in cbio: %{public}@
 %{public}@ has resolved the unbound UUID for operation '%{public}@' at index %{public}@ to %{public}@
+Specifying secondary view controller class name %{public}@
 Activating %{public}@ with %{public}@ for %{public}@
 %{public}@ didActivate
 Unexpected alert activated: %{public}@ Was expecting: %{public}@
@@ -107,6 +112,9 @@ RemoteUIManaging
 LARemoteUIHost
 _RemoteUIManager
 RemoteUIManagerConfig
+RemoteUIDeviceBuilder
+_RemoteUILocalDevice
+RemoteUIDevice
 RemoteUIParams
 MechanismBase
 LAUIDelegate
@@ -172,10 +180,12 @@ _replyOnceToShowUi:error:
 stringWithFormat:
 errorWithCode:message:
 failAuthenticationWithError:
-activateTimeout
+effectiveActivateTimeout
 silentInternalErrorWithMessage:
 error:hasCode:
 uiFailureWithError:
+daemon
+postNotificationOfClassNamed:newValue:oldValue:completionHandler:
 isRunning
 invalidated
 dismissRemoteUIWasInvalidated:completionHandler:
@@ -190,21 +200,29 @@ _pendingUiActivationBlock
 _pendingUiMechanism
 _dismissingUi
 _uiDismissedBeforeConnection
+_ignoreDeactivation
 _showUiCounter
 _dismissUiCounter
 _config
 serverQueue
+currentDevice
+readyForUIPresentation
+setDevice:
+activateTimeout
 setActivateTimeout:
 setDeactivateTimeout:
 setActivator:
 setQueue:
+_device
 _activateTimeout
 _deactivateTimeout
 _activator
 Td,N,V_activateTimeout
+Td,R,N
 Td,N,V_deactivateTimeout
 T@"<RemoteUIActivating>",&,N,V_activator
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+TB,R,N
 setUiMechanism:
 auditTokenData
 setAuditTokenData:
@@ -247,6 +265,7 @@ addEntriesFromDictionary:
 eventIdentifier
 numberWithInteger:
 setObject:forKey:
+isMirroringUI
 noResponseEventWithParams:
 finishRunWithResult:error:skipReply:
 cancelByParent:
@@ -265,7 +284,11 @@ enumerateKeysAndObjectsUsingBlock:
 numberWithInt:
 purpose
 isAvailableForPurpose:error:
+rootMechanism
 _isProcessedBy:
+_shouldMirrorToDefaultUiWithProcessing:
+isSpecialUiAvailable
+policyOptions
 numberWithBool:
 dictionaryWithDictionary:
 availabilityEventsForPurpose:
@@ -301,10 +324,11 @@ prepareForRestart
 setShowingCoachingHint:reply:
 holdAssertionUntilFinished:
 remoteAlertViewControllerName
+fenceReplyWithTouchIdAssertions:
+_touchIdAssertionsProxy
 remoteViewController
 internalOptions
 policy
-policyOptions
 activationParams
 setActivationParams:
 eventsDelegate
@@ -312,6 +336,7 @@ setEventsDelegate:
 isRestartable
 isLastRestartAttempt
 setParent:
+setRootMechanism:
 setPreCompanion:
 setPostCompanion:
 precedesUI
@@ -324,6 +349,7 @@ _mechanismContext
 _eventProcessing
 _hints
 _instanceId
+_touchIdAssertions
 _restartable
 _lastRestartAttempt
 _precedesUI
@@ -337,6 +363,7 @@ _policyOptions
 _activationParams
 _eventsDelegate
 _parent
+_rootMechanism
 _preCompanion
 _postCompanion
 _showUIBlock
@@ -361,6 +388,7 @@ TB,R,N,GisRestartable,V_restartable
 lastRestartAttempt
 TB,R,N,GisLastRestartAttempt,V_lastRestartAttempt
 T@"MechanismBase",W,N,V_parent
+T@"MechanismBase",W,N,V_rootMechanism
 T@"MechanismBase",&,N,V_preCompanion
 T@"MechanismBase",&,N,V_postCompanion
 TB,R,N,V_precedesUI
@@ -411,6 +439,8 @@ _serverQueue
 T@"<LABackoffCounter>",&,N,V_backoffCounter
 T@"NSObject<OS_dispatch_queue>",&,N,V_serverQueue
 initWithServiceName:viewControllerClassName:
+setSecondaryViewControllerClassName:
+secondaryViewControllerClassName
 setActivatingForSiri:
 tokenFromAuditToken:
 processHandleForAuditToken:
@@ -430,11 +460,13 @@ isEqualToString:
 code
 errorWithCode:message:suberror:
 remoteAlertWasInvalidated
+setDaemon:
 remoteAlertHandleDidActivate:
 remoteAlertHandleDidDeactivate:
 remoteAlertHandle:didInvalidateWithError:
 delegate
 T@"<RemoteUIActivatorDelegate>",W,N
+T@"<LADaemonXPC>",&,N
 _remoteAlertWasInvalidated
 _delegate
 _activatingHandle
@@ -519,6 +551,7 @@ v28@0:8B16@20
 @"RemoteUIManagerConfig"
 d16@0:8
 v24@0:8d16
+@"<RemoteUIDevice>"
 @"<RemoteUIActivating>"
 v20@0:8B16
 i16@0:8
@@ -546,11 +579,13 @@ v28@0:8q16B24
 v28@0:8@16B24
 v24@0:8q16
 v28@0:8B16@?20
+@?24@0:8@?16
 q16@0:8
 @?16@0:8
 @"MechanismContext"
 @"NSDictionary"
 @"NSMutableDictionary"
+@"LAAssertionsProxy"
 @"EvaluationRequest"
 @"<LAContextExternalizationProt>"
 @"<LAUIDelegate>"
@@ -577,17 +612,20 @@ v24@0:8@"<RemoteUIActivatorDelegate>"16
 @44@0:8Q16@24B32@36
 @48@0:8Q16@24B32@36B44
 v72@0:8q16@24@32q40q48@56@?64
-@(#)PROGRAM:MechanismBase  PROJECT:CoreAuthentication-985.120.5
+@(#)PROGRAM:MechanismBase  PROJECT:CoreAuthentication-1131.0.14.112.1
 v8@?0
 -[_RemoteUIManager showUIWithParams:reply:]
 B8@?0
 -[_RemoteUIManager _activateUi]
 Failed to activate remote UI.
+Setting nil block to nil
+Setting block to nil
 UI interrupted by another authentication
-UI activation timed out.
+UI activation timed out after %d seconds
 success
 UI service connection invalidated.
 com.apple.LocalAuthentication.ui.dismissed
+LANotificationUIAppearance
 v16@?0@"NSString"8
 immediate reply, UI is already down
 reply from %@
@@ -628,6 +666,8 @@ ConstraintData
 cbio
 pbiou
 com.apple.CoreAuthUI
+LocalAuthentication
+useTransitionViewModel
 com.apple.LocalAuthentication.ui.presented
 Remote alert deactivated
 Remote alert invalidated
@@ -643,7 +683,6 @@ MechanismKofN
 %s %{public}@, %d, %d on %@
 Won't activate UI now because %{public}@ is being dismissed (counter:%d)
 %s  on %@
-Setting block to nil
 preparing %{public}@ for remote view controller scenario
 %{public}@ is waiting to connect with the remote UI
 showUI result: %{public}@
@@ -667,6 +706,7 @@ holding assertion: %@
 Unbound UUID offset out of bounds [0-%u]: %{public}@
 %{public}% is missing unbound identity in cbio: %{public}@
 %{public}@ has resolved the unbound UUID for operation '%{public}@' at index %{public}@ to %{public}@
+Specifying secondary view controller class name %{public}@
 Activating %{public}@ with %{public}@ for %{public}@
 %{public}@ didActivate
 Unexpected alert activated: %{public}@ Was expecting: %{public}@
@@ -686,6 +726,9 @@ RemoteUIManaging
 LARemoteUIHost
 _RemoteUIManager
 RemoteUIManagerConfig
+RemoteUIDeviceBuilder
+_RemoteUILocalDevice
+RemoteUIDevice
 RemoteUIParams
 MechanismBase
 LAUIDelegate
@@ -697,21 +740,80 @@ SBSRemoteAlertHandleObserver
 RemoteUIActivating
 MechanismKofNReorganizer
 MechanismKofN
-initWithConfig:
+valueWithBytes:objCType:
+unsignedIntegerValue
+uiFailureWithError:
+tokenFromAuditToken:
+stringWithFormat:
+stringByAppendingFormat:
+silentInternalErrorWithMessage:
+setShouldDismissOnUILock:
+setSecondaryViewControllerClassName:
+setPresentationTarget:
+setObject:forKey:
+setActivatingForSiri:
+secondaryViewControllerClassName
+replaceBytesInRange:withBytes:
+removeObjectsInArray:
+removeObject:
+removeAllObjects
+registerObserver:
+purpose
+processHandleForAuditToken:
+postNotificationOfClassNamed:newValue:oldValue:completionHandler:
+objectForKeyedSubscript:
+objectForKey:
+objectAtIndexedSubscript:
+objectAtIndex:
+numberWithUnsignedInteger:
+numberWithInteger:
+numberWithInt:
+numberWithBool:
+newHandleWithDefinition:configurationContext:
+mutableCopy
+length
+isSpecialUiAvailable
+isEqualToString:
+isEqualToData:
+internalErrorWithMessage:
+interactive
+integerValue
+initWithTargetProcess:
+initWithServiceName:viewControllerClassName:
+initWithObjectsAndKeys:
+getValue:
+getUUIDBytes:
+externalizedContextWithReply:
+errorWithCode:subcode:message:
+errorWithCode:message:suberror:
+errorWithCode:message:
+error:hasCode:
+enumerateObjectsUsingBlock:
+enumerateKeysAndObjectsUsingBlock:
+domain
+dismissRemoteUIWasInvalidated:completionHandler:
+dictionaryWithObjects:forKeys:count:
+dictionaryWithObject:forKey:
+dictionaryWithDictionary:
+dictionaryByMergingWith:
+dataWithBytes:length:
+current
+countByEnumeratingWithState:objects:count:
+count
+copy
+componentsJoinedByString:
+code
+caller
+bytes
+boolValue
+arrayWithObjects:count:
+arrayWithArray:
+arrayByAddingObjectsFromArray:
+arrayByAddingObject:
+addObject:
+addEntriesFromDictionary:
+activateWithContext:
 init
-queue
-activator
-setDelegate:
-connectRemoteUI:reply:
-disconnectRemoteUI
-checkClearForIdleExitWithCompletion:
-connectionToViewServiceInvalidated:
-dismissRemoteUI:uiMechanism:uiDisappeared:reply:
-prepareForRemoteViewControllerWithMechanism:reply:
-showUIWithParams:reply:
-workQueue
-didReceiveExpectedError:
-didReceiveUnexpectedError:
 sharedInstance
 isEqual:
 class
@@ -736,58 +838,63 @@ debugDescription
 TQ,R
 T#,R
 T@"NSString",R,C
+workQueue
+didReceiveExpectedError:
+didReceiveUnexpectedError:
+connectRemoteUI:reply:
+disconnectRemoteUI
+checkClearForIdleExitWithCompletion:
+showUIWithParams:reply:
+prepareForRemoteViewControllerWithMechanism:reply:
+dismissRemoteUI:uiMechanism:uiDisappeared:reply:
+connectionToViewServiceInvalidated:
+initWithConfig:
 .cxx_destruct
 _responder
 _queue
-uiMechanism
-undimScreen
-forSiri
-_assignPendingMechanism:reply:
-activateUIWithParams:
-_setupUiActivationTimeout
 _activateUi
-internalErrorWithMessage:
+_assignPendingMechanism:reply:
+_setupUiActivationTimeout
 _replyOnceToShowUi:error:
-stringWithFormat:
-errorWithCode:message:
-failAuthenticationWithError:
-activateTimeout
-silentInternalErrorWithMessage:
-error:hasCode:
-uiFailureWithError:
-isRunning
-invalidated
-dismissRemoteUIWasInvalidated:completionHandler:
-deactivateTimeout
-current
-request
-interactive
-caller
 _uiMechanism
 _pendingShowUiReply
 _pendingUiActivationBlock
 _pendingUiMechanism
 _dismissingUi
 _uiDismissedBeforeConnection
+_ignoreDeactivation
 _showUiCounter
 _dismissUiCounter
 _config
-serverQueue
+setDevice:
+effectiveActivateTimeout
+activateTimeout
 setActivateTimeout:
+deactivateTimeout
 setDeactivateTimeout:
+activator
 setActivator:
+queue
 setQueue:
+_device
 _activateTimeout
 _deactivateTimeout
 _activator
 Td,N,V_activateTimeout
+Td,R,N
 Td,N,V_deactivateTimeout
 T@"<RemoteUIActivating>",&,N,V_activator
 T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+currentDevice
+readyForUIPresentation
+TB,R,N
+uiMechanism
 setUiMechanism:
 auditTokenData
 setAuditTokenData:
+undimScreen
 setUndimScreen:
+forSiri
 setForSiri:
 setPid:
 userId
@@ -804,83 +911,58 @@ TB,N,V_forSiri
 Ti,N,V_pid
 T@"NSNumber",&,N,V_userId
 newInstanceId
-descriptionFlags
-countByEnumeratingWithState:objects:count:
-stringByAppendingFormat:
-arrayByAddingObject:
-preCompanion
-postCompanion
-parent
-tccService
-bytes
-valueWithBytes:objCType:
-getValue:
-isEqualToData:
-dictionaryWithObjects:forKeys:count:
-tccError:
-objectForKeyedSubscript:
-integerValue
-objectForKey:
-initWithObjectsAndKeys:
-addEntriesFromDictionary:
-eventIdentifier
-numberWithInteger:
-setObject:forKey:
-noResponseEventWithParams:
-finishRunWithResult:error:skipReply:
-cancelByParent:
-partialResult
-dictionaryByMergingWith:
-willFinish
-dictionaryWithObject:forKey:
-assertions
-removeAllObjects
-errorWithCode:subcode:message:
-finishRunWithResult:error:
-succeedAuthenticationWithResult:
-setPartialResult:
-yieldPartialResult:value:
-enumerateKeysAndObjectsUsingBlock:
-numberWithInt:
-purpose
-isAvailableForPurpose:error:
-_isProcessedBy:
-numberWithBool:
-dictionaryWithDictionary:
-availabilityEventsForPurpose:
 event:params:reply:
-requiresRemoteViewControllerUiWithEventProcessing:
-boolValue
-cachedExternalizationDelegate
-externalizedContextWithReply:
-subMechanismCanRestart:
-fallbackToIdentifier:
-addObject:
 TI,R
 initWithParams:request:
 initWithEventIdentifier:remoteViewController:cachedExternalizationDelegate:request:
+descriptionFlags
+isAvailableForPurpose:error:
 isTCCAllowedWithAuditTokenData:optionAuditTokenData:forcePrompt:error:
+tccService
+tccError:
 runWithHints:eventsDelegate:reply:
+finishRunWithResult:error:
+finishRunWithResult:error:skipReply:
+cancelByParent:
+willFinish
+succeedAuthenticationWithResult:
 succeedAuthenticationWithDefaultResult
+failAuthenticationWithError:
 cancelAuthentication
+yieldPartialResult:value:
 yieldPartialResult:
 pause:forEvent:error:
 bestEffortAvailableMechanismForRequest:error:
 findMechanismWithEventIdentifier:
 findMechanismToRetryWithEventIdentifier:
+rootMechanism
 backgroundMechanismForEventProcessing:
 remoteViewControllerForEventProcessing:
+_shouldMirrorToDefaultUiWithProcessing:
+isMirroringUI
+isRunning
+availabilityEventsForPurpose:
+noResponseEventWithParams:
+_isProcessedBy:
 requiresUiWithEventProcessing:
+requiresRemoteViewControllerUiWithEventProcessing:
 setCredential:credentialType:reply:
 additionalControllerInternalInfoForPolicy:
 externalizedContext
 restartWithEventIdentifier:lastAttempt:
 companionStateChanged:newState:
 prepareForRestart
+subMechanismCanRestart:
+fallbackToIdentifier:
 setShowingCoachingHint:reply:
 holdAssertionUntilFinished:
 remoteAlertViewControllerName
+fenceReplyWithTouchIdAssertions:
+_touchIdAssertionsProxy
+eventIdentifier
 remoteViewController
+request
+cachedExternalizationDelegate
 internalOptions
 policy
 policyOptions
@@ -890,19 +972,27 @@ eventsDelegate
 setEventsDelegate:
 isRestartable
 isLastRestartAttempt
+parent
 setParent:
+setRootMechanism:
+preCompanion
 setPreCompanion:
+postCompanion
 setPostCompanion:
 precedesUI
 showUIBlock
 setShowUIBlock:
 silentFailure
 setSilentFailure:
+assertions
+partialResult
+setPartialResult:
 _replyToRun
 _mechanismContext
 _eventProcessing
 _hints
 _instanceId
+_touchIdAssertions
 _restartable
 _lastRestartAttempt
 _precedesUI
@@ -916,6 +1006,7 @@ _policyOptions
 _activationParams
 _eventsDelegate
 _parent
+_rootMechanism
 _preCompanion
 _postCompanion
 _showUIBlock
@@ -940,6 +1031,7 @@ TB,R,N,GisRestartable,V_restartable
 lastRestartAttempt
 TB,R,N,GisLastRestartAttempt,V_lastRestartAttempt
 T@"MechanismBase",W,N,V_parent
+T@"MechanismBase",W,N,V_rootMechanism
 T@"MechanismBase",&,N,V_preCompanion
 T@"MechanismBase",&,N,V_postCompanion
 TB,R,N,V_precedesUI
@@ -957,18 +1049,12 @@ _flags
 T^{__ACMHandle=},R,N,V_context
 TQ,N,V_flags
 TI,N,V_passphrasePurpose
-updateConstraintOffset
-mutableCopy
-unsignedIntegerValue
-length
-getUUIDBytes:
-replaceBytesInRange:withBytes:
-dataWithBytes:length:
 initWithEventIdentifier:remoteViewController:acmContextRecord:request:
 mergeResult:withUpdateOfIdentityUUID:
 acmContext
 acmFlags
 acmContextRecord
+updateConstraintOffset
 setUpdateConstraintOffset:
 identityUUIDs
 setIdentityUUIDs:
@@ -984,36 +1070,29 @@ T@"NSNumber",&,N,V_updateConstraintOffset
 T@"NSArray",&,N,V_identityUUIDs
 backoffCounter
 setBackoffCounter:
+serverQueue
 setServerQueue:
 _backoffCounter
 _serverQueue
 T@"<LABackoffCounter>",&,N,V_backoffCounter
 T@"NSObject<OS_dispatch_queue>",&,N,V_serverQueue
-initWithServiceName:viewControllerClassName:
-setActivatingForSiri:
-tokenFromAuditToken:
-processHandleForAuditToken:
-initWithTargetProcess:
-setShouldDismissOnUILock:
-setPresentationTarget:
-newHandleWithDefinition:configurationContext:
-registerObserver:
-setActivatingHandle:
-setRemoteAlertWasInvalidated:
-activateWithContext:
-activatingHandle
-setActiveHandle:
-activeHandle
-domain
-isEqualToString:
-code
-errorWithCode:message:suberror:
-remoteAlertWasInvalidated
+daemon
+setDaemon:
 remoteAlertHandleDidActivate:
 remoteAlertHandleDidDeactivate:
 remoteAlertHandle:didInvalidateWithError:
+invalidated
+activateUIWithParams:
 delegate
+setDelegate:
 T@"<RemoteUIActivatorDelegate>",W,N
+T@"<LADaemonXPC>",&,N
+activatingHandle
+setActivatingHandle:
+activeHandle
+setActiveHandle:
+remoteAlertWasInvalidated
+setRemoteAlertWasInvalidated:
 _remoteAlertWasInvalidated
 _delegate
 _activatingHandle
@@ -1022,8 +1101,6 @@ T@"SBSRemoteAlertHandle",W,N,V_activatingHandle
 T@"SBSRemoteAlertHandle",W,N,V_activeHandle
 TB,N,V_remoteAlertWasInvalidated
 T@"<RemoteUIActivatorDelegate>",W,N,V_delegate
-count
-numberWithUnsignedInteger:
 initWithMin:max:k:request:apply:
 reorganizeMechanisms:k:error:
 _apply
@@ -1032,21 +1109,11 @@ _max
 Tq,R,N,V_min
 Tq,R,N,V_max
 T@"NSNumber",R,N,V_k
-mechanismWithK:ofSubmechanisms:serial:request:preserveStandaloneReorganizers:
-enumerateObjectsUsingBlock:
-arrayWithArray:
-removeObjectsInArray:
-objectAtIndex:
-initWithK:ofSubmechanisms:serial:request:
-submechanisms
-componentsJoinedByString:
-arrayWithObjects:count:
-arrayByAddingObjectsFromArray:
-_runSubmechanismAtIndex:hints:eventsDelegate:succeeded:failed:results:reply:
-removeObject:
-copy
 mechanismWithK:ofSubmechanisms:serial:request:
-objectAtIndexedSubscript:
+mechanismWithK:ofSubmechanisms:serial:request:preserveStandaloneReorganizers:
+initWithK:ofSubmechanisms:serial:request:
+_runSubmechanismAtIndex:hints:eventsDelegate:succeeded:failed:results:reply:
+submechanisms
 isSerial
 isAND
 isOR
@@ -1098,6 +1165,7 @@ v28@0:8B16@20
 @"RemoteUIManagerConfig"
 d16@0:8
 v24@0:8d16
+@"<RemoteUIDevice>"
 @"<RemoteUIActivating>"
 v20@0:8B16
 i16@0:8
@@ -1125,11 +1193,13 @@ v28@0:8q16B24
 v28@0:8@16B24
 v24@0:8q16
 v28@0:8B16@?20
+@?24@0:8@?16
 q16@0:8
 @?16@0:8
 @"MechanismContext"
 @"NSDictionary"
 @"NSMutableDictionary"
+@"LAAssertionsProxy"
 @"EvaluationRequest"
 @"<LAContextExternalizationProt>"
 @"<LAUIDelegate>"

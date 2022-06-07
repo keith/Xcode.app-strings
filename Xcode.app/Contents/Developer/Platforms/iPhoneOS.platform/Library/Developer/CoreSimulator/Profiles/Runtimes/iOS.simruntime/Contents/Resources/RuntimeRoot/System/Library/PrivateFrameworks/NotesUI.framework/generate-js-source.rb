@@ -22,6 +22,7 @@ require 'optparse'
   //  Created by Jason Townsend on <%= Time.now.strftime(fmt="%m/%d/%Y") %>.
   //  Copyright <%= Time.now.strftime(fmt="%Y") %> Apple Inc. All rights reserved.
   //
+  #import <Foundation/Foundation.h>
   extern NSString *const <%= className %>String;
 }.gsub(/\A\n|^  /, '')
 # Define the ERB template used to generate the .m source file.

@@ -1,0 +1,73 @@
+// IMPORTANT:(mhroth) This file has been given the `kcl` extension in order to prevent it from automatically being compiled.
+// The generated code must be manually edited (see below).
+include("stdlib.kcl2");
+startPos = param("Start Position", 0, 2147483647, 0, double);
+rate = param("Rate", 0.25, 4, 1, double);
+gain = param("Gain", 0, 4, 1);
+referenceHF = param("ReferenceHF", 20, 20000, 5000);
+gainHF = param("GainHF", 0, 1, 1);
+referenceLF = param("ReferenceLF", 20, 20000, 500);
+gainLF = param("GainLF", 0, 1, 1);
+inBuf = buffer();
+out0 = output();
+pos = delayline(1, double);
+flag = delayline(1, int);                    // indicates if the readhead has already wrapped around the current buffer
+lastSampleValue = delayline(1, float);       // the value of the last sample in the buffer
+isAtLastSampleFirstTime = delayline(1, int); // if the value of the last sample in the buffer has already been cached
+indexToWrap = delayline(1, int);             // the size of the buffer in which the start index resides
+pos'1 = -1;
+This Sampler must handle three different logical cases, all in one pass. These cases are:
+1) rate >= 1
+2) rate < 1
+In both cases, as the readhead progresses through the buffer, it can land in one of three places:
+A) the start and end interpolation points are both in the current buffer,
+B) the start interpolation point is in the current buffer and the end is in the next buffer
+C) both points land in the next buffer
+Case A) is straightforward. Case B requires that the sample value at the start of the interpolation
+i.e. the last sample of the buffer, to be stored, then the next buffer must be retrieved, and the end interpolation value
+loaded. In case 1, this is can be straightforward as no other particlar state must be maintained. In case 2,
+the last sample value must be cached between invocations to Run() because the last sample value of the current buffer
+will be required again, even though the next buffer will already have been retrieved. In case 2, the interpolation point
+will necessarily straddle the two buffers several samples in a row. But it's important to only update our the cached value
+at the first time that the readhead arrives at the last value, because after that the next buffer will have been loaded.
+Another issue to solve is that successive buffers may have different lengths. This is important because the readhead
+at some point needs to loop around the buffer, and thus must know the buffer size. But if the start index is still in the
+current buffer, and the next buffer has been loaded in order to accomodate the end index, then the size of the current buffer
+is lost, preventing the start index to loop at the correct point. Thus the size of the current buffer must be cached, until the
+start index of the interpolation manages to wrap around the buffer, and _not_ taking the wrap point as being the length of the
+new buffer.
+Finally, there is a dependency issue in the KCL compiler itself. That is, in this case `crtlOutIf` is used to load a new buffer.
+But KCL is (and cannot be!) aware that there is a dependency between that function and any successive uses of
+information from the buffer. As such, the compiler will use the full strength of its Common Subexpression Elimination routines
+to reuse values of `bufin` and `bufsize` both before and after the call to `crtlOutIf`, unfortunately incorrectly.
+iSize = (indexToWrap'1 == 0) ? bufsize(inBuf) : indexToWrap'1; // size of buffer in which the start index resides
+p = (pos'1 == -1) ? startPos : pos'1;                          // account for start position offset
+isWrap = p >= iSize-1;                                         // if a new buffer is required
+curPos = p - ((p >= iSize) ? iSize : 0);                       // wrap the position around the size of the current buffer, if necessary
+[f, i] = modf(curPos);                                         // find the integer and fractional parts of the current sample position
+isAtLastSample = (i == iSize-1);                               // if the read head is at the last sample of the current buffer
+isAtLastSampleFirstTime = isAtLastSample;                      // if the read head has arrived at the last buffer sample for the first time
+lastSampleValue = isAtLastSample && !(isAtLastSampleFirstTime'1) ? bufin(inBuf, i) : lastSampleValue'1; // cache the last buffer sample value
+j = isAtLastSample ? 0 : i+1;                                  // the end read head is one more than the start read head
+                                                               // (unless it wraps around the buffer)
+crtlOutIf(isWrap && !(flag'1), "Loop End", inBuf);             // get the next buffer
+// NOTE:(mhroth) manually edit generated code to directly call all buffer operations after buffer swap. No CSE!
+// KCL does not recognise changes to buffer state after `crtlOutIf`
+start = isAtLastSample ? lastSampleValue : bufin(inBuf, i);
+end = bufin(inBuf, j);
+indexToWrap = (p >= iSize) ? bufsize(inBuf) : iSize;
+flag = isWrap ? 1 : 0; // isWrap is a boolean, and ideally the delayline should be a boolean, but KCL does not allow booleans to be used as datatypes
+bufVal = lerp(f, start, end);
+hsfOut = hsf2(bufVal, referenceHF, gainHF.max(0.00001).ampdb);
+lsfOut = lsf2(hsfOut, referenceLF, gainLF.max(0.00001).ampdb);
+busout(out0, gain * lsfOut);
+pos = curPos + rate;
+// NOTE:(mhroth) this reference to busin() must be manually added, instead of the KCL generated generated reference to a
+// value cached from before the call to crtlOutIf
+intN mDl_Sampler_indexToWrap_head = simd::select(Sampler_iSize, simd::load(mState_Sampler_inBuf.mSize), var2);
+intN mDl_Sampler_flag_head = (Sampler_isWrap & intN(1));
+// NOTE:(mhroth) this reference to BufIn() must be manually added, instead of the KCL generated generated reference to a
+// value cached from before the call to crtlOutIf
+floatN Sampler_start = simd::select(
+    pInEngine->BufIn(lanesInUse, mState_Sampler_inBuf.mRef, simd::min(Sampler_i, simd::load(mState_Sampler_inBuf.mSize) - 1)),
+    mDl_Sampler_lastSampleValue_head, Sampler_isAtLastSample);

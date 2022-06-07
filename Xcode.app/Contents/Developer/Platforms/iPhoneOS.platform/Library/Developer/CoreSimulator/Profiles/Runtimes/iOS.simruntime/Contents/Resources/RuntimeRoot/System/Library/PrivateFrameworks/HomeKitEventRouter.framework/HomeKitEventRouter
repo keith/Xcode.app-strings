@@ -13,10 +13,6 @@ settings
 updated
 :memory:
 HMELastEventStore
-code
-extendedCode
-text
-command
 CREATE TABLE IF NOT EXISTS eventstore (id integer primary key autoincrement, key string not null unique, value blob not null, m_source string not null, m_timestamp double not null, m_cachepolicy integer not null, m_combinetype not null, m_qos integer not null);
 CREATE INDEX IF NOT EXISTS eventstore_key_index on eventstore (key);
 replace into eventstore (key, value, m_source, m_timestamp, m_cachepolicy, m_combinetype, m_qos) values (?1, ?2, ?3, ?4, ?5, ?6, ?7);
@@ -25,6 +21,10 @@ delete from eventstore where key = ?1;
 delete from eventstore where m_timestamp < ?1;
 insert into eventstore (key, value, m_source, m_timestamp, m_cachepolicy, m_combinetype, m_qos) values (?1, ?2, ?3, ?4, ?5, ?6, ?7) on conflict(key) do update set value=excluded.value, m_source = excluded.m_source, m_timestamp = excluded.m_timestamp, m_cachepolicy = excluded.m_cachepolicy, m_combinetype = excluded.m_combinetype, m_qos = excluded.m_qos where (excluded.m_timestamp > eventstore.m_timestamp OR excluded.m_source != eventstore.m_source);
 DELETE FROM eventstore;
+code
+extendedCode
+text
+command
 %@ %@
 topic
 event
@@ -43,17 +43,16 @@ keep-alive
 connectionless
 Unknown mode
 MessageDatagramClient
-v8@?0
 v32@?0@"NSUUID"8@"NSDictionary"16@"NSError"24
+ with non-terminating error: 
 <HMEEventInfo topic = %@, event = %@>
 HMERouterServer
 [%@ topicRouter: %@]
 Subclass Must implement
+v8@?0
 HMEMessageDatagramServer
 v16@?0@"NSError"8
 v16@?0@?<v@?>8
-Home
-MessagedHomePodSettings
 PersistentConnectionClient
 v24@?0@"NSDictionary"8@"NSError"16
 MemoryEventBus
@@ -97,6 +96,8 @@ Removing connection %@ registrations on invalidation
 Processing request to change registrations for connection: %@  with addedTopics:%@ removedTopics: %@
 Did not expect events when not connected.
 Event's from server %@ not from expected server %@.
+Did not expect cached events when not connected.
+Cached event's from server %@ not from expected server %@.
 Server identifier changed to %@. Currently connected to %@
 Server identifier changed to %@. Currently disconnected.
 Updated connection mode to %@
@@ -110,12 +111,14 @@ Unable to process change registrations error %@
 Sending disconnect request
 Did not disconnect cleanly got error %@
 Sending keep-alive request
-Keep alive request response error: %@
+Keep alive request responded with terminating error: %@
+Keep alive request responded%@%@
 No delegate set
 Sending subscription fetch request
 got topics %@
 Starting keep alive timer.
-Starting connection retry timer.
+Connection retry timer fired: %f
+Starting connection retry timer with interval: %f
 Starting dormant fetch timer.
 Conditions to fetch not met will fetch later.
 Unexpected connection mode.
@@ -137,17 +140,26 @@ Removing connection on terminal error %@
 Connection expiry timer fired
 Debounce timer fired
 Starting request to send events to connection %@
-Sent events with response %@
-Sent events: %@ response: %@
+Sent events to connection: %@ with response %@
+Sent events: %@ to connection: %@, response: %@
+Removed connection item as connection was not found %@
+Removed connection item as connection has expired %@, connection: %@
 Added connection %@ with expiry %@
 Updated connection %@ expiry to %@
 Updated connection %@ expiry to %@ on keep-alive
 Did not find connection
 Removing connection %@
+Has cached events to send
 Creating debounce timer, have events to send.
-Received connect request for connection:%@ with additions: %@
+Add cached event for topic %@
+Adding cached event topic: %@ to connection: %@
+Received connect request for connection: %@ with additions: %@
 Connect not allowed in current state for connection: %@
+Registering connection: %@ to topics: %@
+Will not process events for connection %@
+Did not find item for connection: %@
 Change registrations not allowed in current state for connection: %@
+Processing request to change registrations for connection: %@  with addedTopics: %@ removedTopics: %@
 Did not find connection keep-alive was received for.
 Returning cached events for topics:%@
 Resetting all events
@@ -511,6 +523,7 @@ setHasPendingRequest:
 combineWithAdditions:removals:
 initWithQueue:timerProvider:keepAliveInterval:dormantFetchTimerInterval:retryIntervalProvider:
 didReceiveMessageWithEvents:serverIdentifier:completion:
+didReceiveMessageWithCachedEvents:serverIdentifier:completion:
 serverDidChangeWithServerIdentifier:
 connectionCapabilityDidChange
 updateConnectionMode:completion:
@@ -593,6 +606,7 @@ T@"NSMutableSet",&,V_removeTopicFilters
 T@"NSArray",R
 UUID
 pendingEventItems
+pendingCachedEventItems
 initWithConnection:expiry:
 identifier
 expiry
@@ -603,15 +617,17 @@ connection
 setConnection:
 _identifier
 _pendingEventItems
+_pendingCachedEventItems
 _expiry
 _debounceStartTime
 _connection
 T@"NSUUID",R,C,N,V_identifier
 T@"HMEPendingEventsCollection",R,N,V_pendingEventItems
+T@"HMEPendingEventsCollection",R,N,V_pendingCachedEventItems
 T@"NSDate",&,N,V_expiry
 T@"NSDate",&,N,V_debounceStartTime
 T@,W,N,V_connection
-server:shouldProcessEventsForConnection:
+server:shouldProcessEventsForConnection:shouldLogState:
 serverTimerProvider:
 currentDate
 server:isConnectionTerminatingError:
@@ -621,13 +637,15 @@ setConnectionDebounceTimer:
 connectionInfoItems
 dateByAddingTimeInterval:
 serverFragmentEventsDataSize:
-server:sendEvents:connection:completion:
+server:sendEvents:updateQueue:connection:completion:
 timeIntervalSinceDate:
 server:connectionDidExpire:
 timeIntervalSinceNow
+serverDebounceTimeInterval:
 server:timeoutIntervalForConnection:
 dateWithTimeIntervalSinceNow:
 connectionExpiryTimer
+serverSupportFragmentCachedEvents:
 removeAllObjects
 connectWithConnection:connectEvent:unregisterEvent:topicFilterAdditions:completion:
 keepAliveConnection:completion:
@@ -753,7 +771,7 @@ v40@0:8@"HMEEvent"16@"NSString"24@?<v@?@"NSError">32
 @48@0:8@16@24@32r*40
 @"<HMEMemoryEventBusDelegate>"
 @"HMEProtoEventMetadata"
-.Q@(#)PROGRAM:HomeKitEventRouter  PROJECT:HomeKit-1.2.3
+=\@(#)PROGRAM:HomeKitEventRouter  PROJECT:HomeKit-1.2.3
 333333
 TopicRouter
 Unimplemented method
@@ -768,10 +786,6 @@ settings
 updated
 :memory:
 HMELastEventStore
-code
-extendedCode
-text
-command
 CREATE TABLE IF NOT EXISTS eventstore (id integer primary key autoincrement, key string not null unique, value blob not null, m_source string not null, m_timestamp double not null, m_cachepolicy integer not null, m_combinetype not null, m_qos integer not null);
 CREATE INDEX IF NOT EXISTS eventstore_key_index on eventstore (key);
 replace into eventstore (key, value, m_source, m_timestamp, m_cachepolicy, m_combinetype, m_qos) values (?1, ?2, ?3, ?4, ?5, ?6, ?7);
@@ -780,6 +794,10 @@ delete from eventstore where key = ?1;
 delete from eventstore where m_timestamp < ?1;
 insert into eventstore (key, value, m_source, m_timestamp, m_cachepolicy, m_combinetype, m_qos) values (?1, ?2, ?3, ?4, ?5, ?6, ?7) on conflict(key) do update set value=excluded.value, m_source = excluded.m_source, m_timestamp = excluded.m_timestamp, m_cachepolicy = excluded.m_cachepolicy, m_combinetype = excluded.m_combinetype, m_qos = excluded.m_qos where (excluded.m_timestamp > eventstore.m_timestamp OR excluded.m_source != eventstore.m_source);
 DELETE FROM eventstore;
+code
+extendedCode
+text
+command
 %@ %@
 topic
 event
@@ -798,17 +816,16 @@ keep-alive
 connectionless
 Unknown mode
 MessageDatagramClient
-v8@?0
 v32@?0@"NSUUID"8@"NSDictionary"16@"NSError"24
+ with non-terminating error: 
 <HMEEventInfo topic = %@, event = %@>
 HMERouterServer
 [%@ topicRouter: %@]
 Subclass Must implement
+v8@?0
 HMEMessageDatagramServer
 v16@?0@"NSError"8
 v16@?0@?<v@?>8
-Home
-MessagedHomePodSettings
 PersistentConnectionClient
 v24@?0@"NSDictionary"8@"NSError"16
 MemoryEventBus
@@ -852,6 +869,8 @@ Removing connection %@ registrations on invalidation
 Processing request to change registrations for connection: %@  with addedTopics:%@ removedTopics: %@
 Did not expect events when not connected.
 Event's from server %@ not from expected server %@.
+Did not expect cached events when not connected.
+Cached event's from server %@ not from expected server %@.
 Server identifier changed to %@. Currently connected to %@
 Server identifier changed to %@. Currently disconnected.
 Updated connection mode to %@
@@ -865,12 +884,14 @@ Unable to process change registrations error %@
 Sending disconnect request
 Did not disconnect cleanly got error %@
 Sending keep-alive request
-Keep alive request response error: %@
+Keep alive request responded with terminating error: %@
+Keep alive request responded%@%@
 No delegate set
 Sending subscription fetch request
 got topics %@
 Starting keep alive timer.
-Starting connection retry timer.
+Connection retry timer fired: %f
+Starting connection retry timer with interval: %f
 Starting dormant fetch timer.
 Conditions to fetch not met will fetch later.
 Unexpected connection mode.
@@ -892,17 +913,26 @@ Removing connection on terminal error %@
 Connection expiry timer fired
 Debounce timer fired
 Starting request to send events to connection %@
-Sent events with response %@
-Sent events: %@ response: %@
+Sent events to connection: %@ with response %@
+Sent events: %@ to connection: %@, response: %@
+Removed connection item as connection was not found %@
+Removed connection item as connection has expired %@, connection: %@
 Added connection %@ with expiry %@
 Updated connection %@ expiry to %@
 Updated connection %@ expiry to %@ on keep-alive
 Did not find connection
 Removing connection %@
+Has cached events to send
 Creating debounce timer, have events to send.
-Received connect request for connection:%@ with additions: %@
+Add cached event for topic %@
+Adding cached event topic: %@ to connection: %@
+Received connect request for connection: %@ with additions: %@
 Connect not allowed in current state for connection: %@
+Registering connection: %@ to topics: %@
+Will not process events for connection %@
+Did not find item for connection: %@
 Change registrations not allowed in current state for connection: %@
+Processing request to change registrations for connection: %@  with addedTopics: %@ removedTopics: %@
 Did not find connection keep-alive was received for.
 Returning cached events for topics:%@
 Resetting all events
@@ -943,9 +973,95 @@ HMEPersistentConnectionClient
 HMEMemoryEventBus
 HMEEventForwarder
 HMEProtoEvent
-init
-strongToStrongObjectsMapTable
+UTF8String
+weakToStrongObjectsMapTable
 weakObjectsHashTable
+timerWithQueue:interval:timerFireHandler:
+timeIntervalSinceReferenceDate
+timeIntervalSinceNow
+timeIntervalSinceDate:
+suspend
+subarrayWithRange:
+strongToStrongObjectsMapTable
+stringWithUTF8String:
+stringWithString:
+stringWithFormat:
+stringWithCString:encoding:
+shouldAllowEvent:topic:connection:
+setWithArray:
+setObject:forKeyedSubscript:
+setObject:forKey:
+serverTimerProvider:
+serverSupportFragmentCachedEvents:
+serverFragmentEventsDataSize:
+serverDebounceTimeInterval:
+server:timeoutIntervalForConnection:
+server:shouldProcessEventsForConnection:shouldLogState:
+server:sendEvents:updateQueue:connection:completion:
+server:isConnectionTerminatingError:
+server:connectionDidExpire:
+sendUpdatedEvents:toConnection:
+sendUpdatedCachedEvents:toConnection:
+sendKeepAliveForClient:completion:
+sendDisconnectForClient:completion:
+sendChangeRegistrationsMessageWithAddedFilters:removedFilters:completion:
+resume
+removeObjectForKey:
+removeObjectAtIndex:
+removeObject:
+removeLastObject
+removeAllObjects
+objectForKeyedSubscript:
+objectForKey:
+objectAtIndexedSubscript:
+numberWithUnsignedInteger:
+numberWithUnsignedInt:
+numberWithInt:
+numberWithDouble:
+numberWithBool:
+nextInterval
+mutableCopy
+length
+lastObject
+isEqualToString:
+initWithUUIDString:
+initWithData:
+firstObject
+exceptionWithName:reason:userInfo:
+errorWithDomain:code:userInfo:
+enumerateKeysAndObjectsUsingBlock:
+dictionaryWithObjects:forKeys:count:
+dictionary
+delegatingRouter:filteredTopics:forRouter:
+dateWithTimeIntervalSinceNow:
+dateByAddingTimeInterval:
+dataWithBytes:length:
+data
+currentDate
+countByEnumeratingWithState:objects:count:
+count
+copy
+containsObject:
+componentsSeparatedByString:
+componentsJoinedByString:
+clientIsEnabled:
+clientDidDisconnect:
+clientDidConnect:serverIdentifier:
+client:sendConnectWithAddedFilters:completion:
+client:sendChangeRegistrationsWithAddedFilters:removedFilters:completion:
+client:isConnectionTerminatingError:
+client:fetchWithFilters:completion:
+bytes
+arrayWithObjects:count:
+arrayByAddingObjectsFromArray:
+array
+appendFormat:
+allocWithZone:
+addObject:
+allObjects
+UUID
+addObjectsFromArray:
+init
 children
 consumers
 .cxx_destruct
@@ -964,45 +1080,17 @@ T@"HMETrieNode",R,V_node
 initWithDelegate:
 initWithDelegate:logCategory:
 initWithDelegate:logger:
-weakToStrongObjectsMapTable
-changeRegistrationsForConsumer:topicFilterAdditions:topicFilterRemovals:
-countByEnumeratingWithState:objects:count:
-componentsSeparatedByString:
-rootNode
-objectForKey:
-setObject:forKey:
-addObject:
-registrations
-array
-removeLastObject
-removeObject:
-lastObject
-count
-removeObjectForKey:
-delegate
-allObjects
-didChangeRegistrationsWithTopicFilterAdditions:removals:
-unregisterConsumer:topicFilters:
-objectAtIndexedSubscript:
-addObjectsFromArray:
-arrayByAddingObjectsFromArray:
-copy
-exceptionWithName:reason:userInfo:
-firstObject
-removeObjectAtIndex:
-stringWithFormat:
-dictionary
-objectForKeyedSubscript:
-setObject:forKeyedSubscript:
-stringWithString:
-appendFormat:
-enumerateKeysAndObjectsUsingBlock:
 registerConsumer:topicFilters:
+unregisterConsumer:topicFilters:
+changeRegistrationsForConsumer:topicFilterAdditions:topicFilterRemovals:
 unregisterConsumer:
 consumersForTopic:
 minimalSpanningTopicFilters
 allRegisteredTopicFilters
 dumpStateDescription
+rootNode
+registrations
+delegate
 _logger
 _rootNode
 _registrations
@@ -1010,35 +1098,7 @@ _delegate
 T@"HMETrieNode",R,N,V_rootNode
 T@"NSMapTable",R,N,V_registrations
 T@"<HMETopicRouterDelegate>",R,W,V_delegate
-isEqualToString:
-initWithUUIDString:
-subarrayWithRange:
-componentsJoinedByString:
-initWithFileName:
 dealloc
-fileName
-UTF8String
-stringWithCString:encoding:
-numberWithInt:
-stringWithUTF8String:
-dictionaryWithObjects:forKeys:count:
-errorWithDomain:code:userInfo:
-bytes
-length
-_initWithSource:rawCachePolicy:rawCombineType:rawQos:timestamp:
-initWithEventData:metadata:
-eventsForTopicFilters:sinceReferenceTimestamp:
-encodedData
-eventMetadata
-source
-intervalSinceReferenceDate
-rawCachePolicy
-rawCombineType
-rawQOS
-cachePolicy
-numberWithUnsignedInteger:
-writer:saveEvent:topic:
-numberWithBool:
 isEqual:
 class
 self
@@ -1064,13 +1124,17 @@ T#,R
 T@"NSString",R,C
 lastEventForTopic:
 eventsForTopicFilters:
+writer:saveEvent:topic:
 writer:saveEventIfAllowed:topic:
 writer:saveEventIfDifferent:topic:
 resetTopic:
+eventsForTopicFilters:sinceReferenceTimestamp:
 resetBeforeReferenceTimestamp:
 initInMemoryStore
+initWithFileName:
 startup
 resetEventStore
+fileName
 insertEventPreparedStatement
 replaceEventIfMoreRecentOrDifferentSourcePreparedStatement
 selectEventByKeyPreparedStatement
@@ -1079,48 +1143,44 @@ deleteBeforeTimestampPreparedStatement
 _lock
 _fileName
 T@"NSString",R,V_fileName
-data
-dataWithBytes:length:
-dictionaryRepresentation
-setTopic:
-setEvent:
-allocWithZone:
 copyWithZone:
-mergeFrom:
 hasTopic
 hasEvent
+dictionaryRepresentation
 readFrom:
 writeTo:
 copyTo:
+mergeFrom:
 topic
+setTopic:
 event
+setEvent:
 _event
 _topic
 TB,R,N
 T@"NSString",&,N,V_topic
 T@"HMEProtoEvent",&,N,V_event
-initWithQueue:storeReadHandle:storeWriteHandle:logger:
-initWithQueue:storeReadHandle:logger:
-topicRouter
-queue
-eventStoreReadHandle
-eventStoreWriteHandle
-handleChangeRegistrationsWithTopicFilterAdditions:removals:
-privateDelegate
-processReceivedCachedEvents:
-sendChangeRegistrationsMessageWithAddedFilters:removedFilters:completion:
-changeRegistrationsSyncForConsumer:topicFilterAdditions:topicFilterRemovals:completion:
-unregisterConsumerSync:completion:
-didReceiveEvent:topic:
 didReceiveCachedEvent:topic:source:
 isCachedEventSourceCurrentProcess
+didChangeRegistrationsWithTopicFilterAdditions:removals:
+changeRegistrationsSyncForConsumer:topicFilterAdditions:topicFilterRemovals:completion:
+unregisterConsumerSync:completion:
 changeRegistrationsForConsumer:topicFilterAdditions:topicFilterRemovals:completion:
 registerConsumer:topicFilters:completion:
 unregisterConsumer:topicFilters:completion:
 unregisterConsumer:completion:
 synchronousSubscriptionProvider
+initWithQueue:storeReadHandle:storeWriteHandle:logger:
+initWithQueue:storeReadHandle:logger:
 initWithQueue:
 processReceivedEvents:
+processReceivedCachedEvents:
+handleChangeRegistrationsWithTopicFilterAdditions:removals:
+eventStoreReadHandle
+eventStoreWriteHandle
+queue
+topicRouter
+privateDelegate
 setPrivateDelegate:
 _eventStoreReadHandle
 _eventStoreWriteHandle
@@ -1132,25 +1192,17 @@ T@"<HMELastEventStoreWriteHandle>",R,V_eventStoreWriteHandle
 T@"NSObject<OS_dispatch_queue>",R,V_queue
 T@"HMETopicRouter",R,V_topicRouter
 T@"<HMERouterClientDelegate>",W,V_privateDelegate
-initWithQueue:dataSource:logger:
-delegatingRouter:filteredTopics:forRouter:
+didReceiveEvent:topic:
 initWithQueue:dataSource:
 initWithQueue:dataSource:logCategory:
+initWithQueue:dataSource:logger:
 registerSubRouter:
 unregisterSubRouter:
 _subRouters
 _dataSource
-initWithQueue:provider:registrationEventRouter:storeReadHandle:logCategory:
 initWithQueue:provider:registrationEventRouter:storeReadHandle:logger:
-initWithEvent:topic:
-shouldAllowEvent:topic:connection:
-arrayWithObjects:count:
-sendUpdatedEvents:toConnection:
-sendUpdatedCachedEvents:toConnection:
-didConnectConnection:connectEvent:unregisterEvent:
-didRemoveConnection:
-cachedEventsForTopics:
 initWithQueue:provider:registrationEventRouter:
+initWithQueue:provider:registrationEventRouter:storeReadHandle:logCategory:
 handleEvent:topic:
 handleCachedEvent:topic:
 connectWithConnection:connectEvent:unregisterEvent:completion:
@@ -1162,9 +1214,6 @@ dataSource
 setDataSource:
 T@"<HMEPersistentConnectionServerDelegate>",W,V_delegate
 T@"<HMEPersistentConnectionServerDataSource>",W,V_dataSource
-numberWithDouble:
-numberWithUnsignedInt:
-setSource:
 hasSource
 setTimestamp:
 setHasTimestamp:
@@ -1178,7 +1227,10 @@ hasCombinePolicy
 setQos:
 setHasQos:
 hasQos
+source
+setSource:
 timestamp
+cachePolicy
 combinePolicy
 _timestamp
 _cachePolicy
@@ -1192,10 +1244,14 @@ Td,N,V_timestamp
 TI,N,V_cachePolicy
 TI,N,V_combinePolicy
 TI,N,V_qos
-timeIntervalSinceReferenceDate
-initWithSource:cachePolicy:combineType:timestamp:
 initDefaultMetadata
+initWithSource:cachePolicy:combineType:timestamp:
+_initWithSource:rawCachePolicy:rawCombineType:rawQos:timestamp:
 combineType
+intervalSinceReferenceDate
+rawCombineType
+rawCachePolicy
+rawQOS
 _intervalSinceReferenceDate
 _rawCombineType
 _rawCachePolicy
@@ -1205,71 +1261,53 @@ TQ,R,V_rawCachePolicy
 TQ,R,V_rawQOS
 T@"NSString",R,C,V_source
 Td,R,V_intervalSinceReferenceDate
-_initWithEventData:metadata:
-eventData
-setEventData:
-setEventMetadata:
-hasEventData
-hasEventMetadata
 eventFromProtobuff:
 initWithSubclassedEventMetadata:
 initWithEventData:
+initWithEventData:metadata:
+_initWithEventData:metadata:
+encodedData
 pbEvent
+eventMetadata
+eventData
 _eventMetadata
 _eventData
 T@"NSData",R,C,N,V_eventData
 T@"NSData",R,C
 T@"HMEEventMetadata",R,V_eventMetadata
-initWithQueue:timerProvider:keepAliveInterval:dormantFetchTimerInterval:retryIntervalProvider:storeReadHandle:storeWriteHandle:logCategory:
-connectedServerIdentifier
-setHasPendingServerChangeRequest:
-hasPendingRequest
-hasPendingServerChangeRequest
-connectionMode
-setConnectionMode:
-dormantFetchConditionsMet
-setDormantFetchConditionsMet:
-pendingTopicsCombiner
-topicFiltersToAdd
-reset
-combineOntoPreviousAdditions:removals:
-client:sendConnectWithAddedFilters:completion:
-topicFiltersToRemove
-client:isConnectionTerminatingError:
-client:sendChangeRegistrationsWithAddedFilters:removedFilters:completion:
-sendDisconnectForClient:completion:
-sendKeepAliveForClient:completion:
-setIsWaitingForFetchConditionsWhenDormant:
-client:fetchWithFilters:completion:
-isConnected
-keepAliveTimer
-timerProvider
-keepAliveInterval
-timerWithQueue:interval:timerFireHandler:
-setKeepAliveTimer:
-resume
-suspend
-clientIsEnabled:
-connectionRetryTimer
-connectionRetryIntervalProvider
-nextInterval
-setConnectionRetryTimer:
-dormantFetchTimer
-isWaitingForFetchConditionsWhenDormant
-dormatFetchTimerInterval
-setDormantFetchTimer:
-setIsConnected:
-setConnectedServerIdentifier:
-clientDidConnect:serverIdentifier:
-clientDidDisconnect:
-setHasPendingRequest:
-combineWithAdditions:removals:
 initWithQueue:timerProvider:keepAliveInterval:dormantFetchTimerInterval:retryIntervalProvider:
+initWithQueue:timerProvider:keepAliveInterval:dormantFetchTimerInterval:retryIntervalProvider:storeReadHandle:storeWriteHandle:logCategory:
 didReceiveMessageWithEvents:serverIdentifier:completion:
+didReceiveMessageWithCachedEvents:serverIdentifier:completion:
 serverDidChangeWithServerIdentifier:
 connectionCapabilityDidChange
 updateConnectionMode:completion:
 updateDormantFetchCondition:completion:
+connectionRetryIntervalProvider
+timerProvider
+pendingTopicsCombiner
+isConnected
+setIsConnected:
+hasPendingRequest
+setHasPendingRequest:
+hasPendingServerChangeRequest
+setHasPendingServerChangeRequest:
+keepAliveInterval
+keepAliveTimer
+setKeepAliveTimer:
+connectionRetryTimer
+setConnectionRetryTimer:
+connectedServerIdentifier
+setConnectedServerIdentifier:
+connectionMode
+setConnectionMode:
+dormatFetchTimerInterval
+dormantFetchTimer
+setDormantFetchTimer:
+dormantFetchConditionsMet
+setDormantFetchConditionsMet:
+isWaitingForFetchConditionsWhenDormant
+setIsWaitingForFetchConditionsWhenDormant:
 _isConnected
 _hasPendingRequest
 _hasPendingServerChangeRequest
@@ -1302,54 +1340,58 @@ TB,N,V_dormantFetchConditionsMet
 TB,N,V_isWaitingForFetchConditionsWhenDormant
 T@"<HMEMessageDatagramClientDelegate>",W
 T@"<HMEMessageDatagramClientDataSource>",W,N,V_dataSource
-mutableCopy
 initWithEvents:
-mutableEventItems
-setMutableEventItems:
-addEventInfo:
-eventInfoMaxSizeInBytes:
-topicAndMetadataMaxSizeInBytes
 eventItems
+addEventInfo:
 combinePreviousEvents:
 resetItems
 hasEventItem
 popEventItemsUpWithFragments:toSizeInBytes:
+eventInfoMaxSizeInBytes:
+mutableEventItems
+setMutableEventItems:
 _mutableEventItems
 T@"NSMutableArray",&,N,V_mutableEventItems
 T@"NSArray",R,C,N
-initWithData:
 fromProtobuff:
-eventsMapFromEventInfos:
 eventInfoFromProtoData:
+eventsMapFromEventInfos:
 eventsMapFromProtoEvents:
+topicAndMetadataMaxSizeInBytes
+initWithEvent:topic:
 pbEventInfo
 T@"HMEEvent",R,N,V_event
 T@"NSString",R,C,N,V_topic
-localEventForwarder
-forwardEvent:topic:completion:
+didConnectConnection:connectEvent:unregisterEvent:
+didRemoveConnection:
+cachedEventsForTopics:
 unregisterEvents
 subscriptionProvider
+localEventForwarder
 _unregisterEvents
 _subscriptionProvider
 _localEventForwarder
 T@"NSMapTable",R,V_unregisterEvents
 T@"<HMESubscriptionProviding>",R,V_subscriptionProvider
 T@"<HMEEventForwarder>",R,V_localEventForwarder
+combineWithAdditions:removals:
+combineOntoPreviousAdditions:removals:
+topicFiltersToAdd
+topicFiltersToRemove
+reset
 addTopicFilters
-containsObject:
-removeTopicFilters
-setWithArray:
 setAddTopicFilters:
+removeTopicFilters
 setRemoveTopicFilters:
 _addTopicFilters
 _removeTopicFilters
 T@"NSMutableSet",&,V_addTopicFilters
 T@"NSMutableSet",&,V_removeTopicFilters
 T@"NSArray",R
-UUID
-pendingEventItems
 initWithConnection:expiry:
 identifier
+pendingEventItems
+pendingCachedEventItems
 expiry
 setExpiry:
 debounceStartTime
@@ -1358,36 +1400,25 @@ connection
 setConnection:
 _identifier
 _pendingEventItems
+_pendingCachedEventItems
 _expiry
 _debounceStartTime
 _connection
 T@"NSUUID",R,C,N,V_identifier
 T@"HMEPendingEventsCollection",R,N,V_pendingEventItems
+T@"HMEPendingEventsCollection",R,N,V_pendingCachedEventItems
 T@"NSDate",&,N,V_expiry
 T@"NSDate",&,N,V_debounceStartTime
 T@,W,N,V_connection
-server:shouldProcessEventsForConnection:
-serverTimerProvider:
-currentDate
-server:isConnectionTerminatingError:
-setConnectionExpiryTimer:
-connectionDebounceTimer
-setConnectionDebounceTimer:
-connectionInfoItems
-dateByAddingTimeInterval:
-serverFragmentEventsDataSize:
-server:sendEvents:connection:completion:
-timeIntervalSinceDate:
-server:connectionDidExpire:
-timeIntervalSinceNow
-server:timeoutIntervalForConnection:
-dateWithTimeIntervalSinceNow:
-connectionExpiryTimer
-removeAllObjects
 connectWithConnection:connectEvent:unregisterEvent:topicFilterAdditions:completion:
 keepAliveConnection:completion:
 fetchCachedEventsForTopics:completion:
 resetExistingEvents
+connectionInfoItems
+connectionExpiryTimer
+setConnectionExpiryTimer:
+connectionDebounceTimer
+setConnectionDebounceTimer:
 _connectionInfoItems
 _connectionExpiryTimer
 _connectionDebounceTimer
@@ -1402,8 +1433,13 @@ didReconnect
 processReceivedEventsFromMessage:
 processReceivedCachedEventsFromMessage:
 T@"<HMEPersistentConnectionClientDelegate>",W
+forwardEvent:topic:completion:
 initWithQueue:storeReadHandle:storeWriteHandle:logCategory:
 T@"<HMEMemoryEventBusDelegate>",W,V_delegate
+hasEventData
+hasEventMetadata
+setEventData:
+setEventMetadata:
 T@"NSData",&,N,V_eventData
 T@"HMEProtoEventMetadata",&,N,V_eventMetadata
 @16@0:8

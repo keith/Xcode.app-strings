@@ -1,4 +1,4 @@
-@(#)PROGRAM:biomesyncd  PROJECT:BiomeSync-63.5.12
+@(#)PROGRAM:biomesyncd  PROJECT:BiomeSync-89.2.2
 CREATE TABLE Metadata (
  key TEXT UNIQUE PRIMARY KEY ON CONFLICT REPLACE NOT NULL,
  value
@@ -19,6 +19,7 @@ CREATE TABLE CKAtom (
  ref_clock INTEGER,
  ref_location_id INTEGER,
  -- CKAtom value
+ value_version INTEGER,
  value_data BLOB,
  on_disk BOOLEAN,
  CONSTRAINT "ref_type <=> (ref_site AND ref_clock)"
@@ -44,7 +45,7 @@ CREATE TABLE CRDTLocation (
  stream STRING NOT NULL,
  site STRING NOT NULL,
  day INTEGER NOT NULL,
- state INTENGER NOT NULL
+ state INTEGER NOT NULL
 CREATE INDEX idx_crdt_location ON CRDTLocation(stream, site, day);
 CREATE INDEX idx_crdt_location_state ON CRDTLocation(stream, site, state, day DESC);
 CREATE TABLE TombstoneBookmark (
@@ -61,14 +62,14 @@ CREATE TABLE DevicePeer (
  platform INTEGER,
  last_sync_date INTEGER,
  protocol_version INTEGER NOT NULL
-CREATE TABLE IF NOT EXISTS SyncSessionLog (
+CREATE TABLE SyncSessionLog (
  session_id BLOB,
  start_timestamp INTEGER,
  end_timestamp INTEGER,
  transport INTEGER,
  reason INTEGER,
  is_reciprocal BOOL
-CREATE TABLE IF NOT EXISTS SyncMessageLog (
+CREATE TABLE SyncMessageLog (
  session_id BLOB,
  message_id INTEGER,
  timestamp INTEGER,
@@ -76,7 +77,8 @@ CREATE TABLE IF NOT EXISTS SyncMessageLog (
  reachable BOOL,
  is_reciprocal BOOL,
  atom_batch_bytes INTEGER
-CREATE TABLE IF NOT EXISTS AtomMergedLog (
+CREATE INDEX idx_syncmessagelog_session_id ON SyncMessageLog(session_id);
+CREATE TABLE AtomMergedLog (
  session_id BLOB,
  message_id INTEGER,
  stream STRING,
@@ -85,18 +87,94 @@ CREATE TABLE IF NOT EXISTS AtomMergedLog (
  relayed_by_site_identifier STRING,
  synced_at INTEGER,
  event_created_at INTEGER
-initWithLocation:state:primaryKey:
+CREATE INDEX idx_atommergedlog_session_id ON AtomMergedLog(session_id);
+CREATE INDEX idx_atommergedlog_owning_site_identifier ON AtomMergedLog(owning_site_identifier);
+CREATE TABLE CKRecord (
+ location_id INTEGER,
+ sync_to_cloud_kit BOOL,
+ record_metadata BLOB,
+ record_name STRING,
+ stream_identifier STRING,
+ local_mergeable_value BLOB,
+ deleting BOOL,
+ PRIMARY KEY (stream_identifier, record_name)
+ FOREIGN KEY (location_id) REFERENCES CRDTLocation(id)
+CREATE INDEX idx_ckrecord ON CKRecord(record_name);
+CREATE TABLE CKMergeableRecordValue (
+ stream_name STRING,
+ record_name STRING,
+ server_mergeable_value BLOB,
+ FOREIGN KEY (stream_name, record_name) REFERENCES CKRecord(stream_identifier, record_name)
+CREATE TABLE CKZone (
+ zone_name STRING NOT NULL,
+ zone_uuid STRING NOT NULL,
+ recovery_state INTEGER,
+ attempted_recovery_date INTEGER
 init
-initWithFormat:
+locationRow
+stateVectorForLocationRow:
+countByEnumeratingWithState:objects:count:
+initWithMergeableDelta:error:
+addObject:
+mergeableValueID
+identifier
+initWithData:encoding:
+setOriginatingSiteIdentifier:
 location
-isEqual:
-state
-hash
+mergeAtomBatches:sessionContext:forLocation:
+initWriterWithMergeableValueID:metadata:formatVersion:error:
+ckMergeableValueID
+contentsVector
+populateAtomBatch:withAtomsInClockVector:forLocation:ckFormatVersion:valueVersion:chunker:
+finishWritingWithError:
+splitWithMaximumSize:atomic:error:
+size:error:
 numberWithUnsignedInteger:
-initWithLocation:state:
+initWithAtomBatch:error:
+isEqual:
+class
+self
+performSelector:
+performSelector:withObject:
+performSelector:withObject:withObject:
+isProxy
+isKindOfClass:
+isMemberOfClass:
+conformsToProtocol:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+hash
+superclass
 description
-primaryKey
+debugDescription
+TQ,R
+T#,R
+T@"NSString",R,C
+mergeDeltas:error:
+mergeableDeltasForMetadata:error:
+mergeableDeltasForValueID:withMetadata:error:
+stateVector
+deltaDeliveryRequirements
+initWithStreamCRDT:locationRow:database:queue:
+streamCRDT
+queue
+setQueue:
 .cxx_destruct
+_streamCRDT
+_locationRow
+_queue
+T@"BMStreamCKCRDT",R,N,V_streamCRDT
+T@"BMSyncCRDTLocationRow",R,N,V_locationRow
+T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+initWithLocation:state:primaryKey:
+initWithFormat:
+state
+initWithLocation:state:
+primaryKey
 _location
 _state
 _primaryKey
@@ -124,20 +202,44 @@ INSERT_INTO:VALUES:
 lastInsertRowId
 DELETE_FROM:WHERE:
 SELECT_FROM:COLUMNS:WHERE:ORDER_BY:LIMIT:
-addObject:
+intForColumnIndex:
 updateLocationState:forLocation:
 updateAllLocationsAtOrBefore:state:
 insertLocationIfNotExists:withState:
 removeAllDeletedLocationsBeforeHighestDeletedLocation:
+previousLocationRowBeforeLocationRow:
 locationsWithState:
 highestDeletedLocationsForStream:
 highestDeletedLocationForSiteIdentifier:inStream:
+CRDTLocationCount
+indexSetWithIndexesInRange:
+timestamps
+siteIdentifierObject
+clockValue
+initWithIndex:
+addClockValuesInIndexSet:forSiteIdentifier:
+allSiteIdentifiers
+clockValuesForSiteIdentifier:
+count
+lastIndex
+initWithSiteIdentifierObject:clockValue:
+initWithTimestamps:
+allKeys
+timestampClockVectorForStreamIdentifier:
+timestampClockVectorToTimeStampVector:
+setVectorClockTo:forStreamIdentifier:
+vectorClockForStreamIdentifier:
+timestampVectorToTimeStampClockVector:
+firstIndex
+rangeTimestampClockVectorFromIndexClockVector:
+multiStreamTimestampClockVectorToVectorClock:
+multiStreamVectorClockToTimestampVectorClock:
+multiStreamRangeClockVectorFromIndexClockVectors:
 sessionID
 setSessionID:
 messageID
 setMessageID:
 originatingSiteIdentifier
-setOriginatingSiteIdentifier:
 _sessionID
 _messageID
 _originatingSiteIdentifier
@@ -156,7 +258,6 @@ recordMessageToDeviceIdentifier:reachable:bytes:isReciprocal:sessionContext:
 recordAtomMergeResult:inStream:ownerSite:originatingSite:eventCreatedAt:sessionContext:
 _database
 computeAggregatedSessionLogs
-countByEnumeratingWithState:objects:count:
 sendSyncSessionLog:
 compactAndDeleteSessionLogs
 initWithDatabase:activity:
@@ -244,8 +345,6 @@ inFlightToDevices
 setInFlightToDevices:
 errorFromDevice
 setErrorFromDevice:
-queue
-setQueue:
 requestTimeout
 setRequestTimeout:
 setRequestTimeoutHandler:
@@ -257,7 +356,6 @@ _errorFromDevice
 _uuid
 _requestBlock
 _completionHandler
-_queue
 _requestTimeout
 _requestTimeoutHandler
 _sessionContext
@@ -268,13 +366,12 @@ T@?,C,N,V_completionHandler
 T@"NSSet",&,N,V_deliveredToDevices
 T@"NSSet",&,N,V_inFlightToDevices
 T@"NSDictionary",&,N,V_errorFromDevice
-T@"NSObject<OS_dispatch_queue>",&,N,V_queue
 T@"NSObject<OS_dispatch_source>",&,N,V_requestTimeout
 T@?,C,N,V_requestTimeoutHandler
 T@"BMSyncSessionContext",&,N,V_sessionContext
 peerStatusTracker
 metricsCollector
-initWithQueue:
+initWithQueue:forSharedUse:
 setDelegate:
 localDeviceIdentifierCreatingIfNecessary
 registerRequests
@@ -291,7 +388,7 @@ allObjects
 allValues
 completeRequest:deliveredToDevices:withErrors:
 removeObjectForKey:
-buildAtomBatchRequestWithIsReciprocal:sequenceNumber:
+buildAtomBatchRequestWithIsReciprocal:sequenceNumber:transportType:
 objectForKey:
 sendFetchAtomBatchesRequest:toDevice:forRequest:
 errorWithDomain:code:userInfo:
@@ -300,7 +397,7 @@ runRequest:onDevice:
 isReciprocalRequest
 handleFetchAtomBatchesResponse:options:error:fromDevice:forRequest:isReciprocal:
 sendRequest:request:toDevice:responseHandler:
-vectorClockForStreamsSupportingTransportType:direction:
+clockVectorForStreamsSupportingTransportType:direction:
 localDeviceUpdatingIfNecessary
 setPeer:
 setWalltime:
@@ -316,7 +413,7 @@ removeAllObjects
 stop
 atomBatchVersion
 vectorClock
-atomBatchesAfterVectorClock:targetPlatform:transportType:direction:version:chunker:
+atomBatchesInClockVector:targetPlatform:transportType:direction:ckFormatVersion:chunker:
 setUnseenPeers:
 setAtomBatches:
 batchSequenceNumber
@@ -331,29 +428,10 @@ mergeAtomBatches:deletedLocations:sessionContext:
 completeRequestIfDeliveredToAllNearbyDevices:
 upsertSyncDevicePeer:
 localDeviceUpdatingIfNeccesaryWithProtocolVersion:
-class
-self
-performSelector:
-performSelector:withObject:
-performSelector:withObject:withObject:
-isProxy
-isKindOfClass:
-isMemberOfClass:
-conformsToProtocol:
-respondsToSelector:
-retain
-release
-autorelease
-retainCount
-zone
-superclass
-debugDescription
-TQ,R
-T#,R
-T@"NSString",R,C
 rapportManager:isDeviceSupported:
 rapportManager:didDiscoverBMRapportDevice:
 rapportManager:didLoseNearbyBMRapportDevice:
+rapportManager:localDeviceUpdated:
 rapportManagerDiscoveryTimedOut:
 initWithDistributedSyncMultiStreamManager:queue:
 initWithDistributedSyncMultiStreamManager:rapportManager:atomBatchChunkerPolicy:queue:
@@ -375,19 +453,7 @@ T@?,C,N,V_reciprocalCompletionBlock
 T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"BMSyncDevicePeerStatusTracker",R,N,V_peerStatusTracker
 T@"BMSyncSessionMetricsCollector",&,N,V_metricsCollector
-syncableStreamIDs
-path
-stringByAppendingPathComponent:
-defaultManager
-removeItemAtPath:error:
-userInfo
-code
-descriptor
-localizedFailureReason
-setCorruptionHandler:
-open
-distributedSyncMultiStreamManagerWithDatabase:
-initWithSyncEngine:peerStatusTracker:database:queue:
+initWithQueue:
 setState:
 database
 setDatabase:
@@ -395,24 +461,49 @@ distributedSyncMultiStreamManager
 setDistributedSyncMultiStreamManager:
 rapportSyncEngine
 setRapportSyncEngine:
+cloudKitSyncEngine
+setCloudKitSyncEngine:
 syncScheduler
 setSyncScheduler:
 _distributedSyncMultiStreamManager
 _rapportSyncEngine
+_cloudKitSyncEngine
 _syncScheduler
 TQ,N,V_state
 T@"BMSyncDatabase",&,N,V_database
 T@"BMDistributedSyncMultiStreamManager",&,N,V_distributedSyncMultiStreamManager
 T@"BMRapportSyncEngine",&,N,V_rapportSyncEngine
+T@"BMCloudKitSyncEngine",&,N,V_cloudKitSyncEngine
 T@"BMSyncScheduler",&,N,V_syncScheduler
 sendEvent:payload:
 initWithQueue:core:
-syncNowIfPolicyAllowsWithReason:activity:
+syncNowIfPolicyAllowsWithReason:transportType:activity:
+contextSyncManager
 currentHandler
+stringWithUTF8String:
+handleFailureInFunction:file:lineNumber:description:
+syncAllTransportsNowIfPolicyAllowsWithReason:activity:
+setValue:forKey:
+initWithArray:
+valueForKey:
+compareToVector:
+encodeObject:forKey:
+decodeObjectOfClasses:forKey:
+mutableCopy
+archivedDataWithRootObject:requiringSecureCoding:error:
+unarchivedObjectOfClass:fromData:error:
+supportsSecureCoding
+deserialize:error:
+encodeWithCoder:
+initWithCoder:
+TB,R
+serialize:
+_vectorClock
 handleFailureInMethod:object:file:lineNumber:description:
 initWithAssignerPolicy:
 newEnumeratorFromStartTime:options:
 newEnumeratorFromBookmark:options:
+descriptor
 config
 remoteStreamName
 newTombstoneEnumeratorFromStartTime:
@@ -420,13 +511,12 @@ segmentName
 offset
 newTombstoneEnumeratorFromBookmark:
 dataUsingEncoding:
+initWithIdentifier:
 latestDistributedTimestampForSiteIdentifier:inStream:
-initWithSiteIdentifier:clockValue:
-clockValue
 timestamp
 locationWithStreamName:siteIdentifier:timestamp:
-ckAtomLocation
-initWithLocation:timestamp:type:
+ckMergeableValueIDWithFormatVersion:
+initWithMergeableValueID:timestamp:type:
 initWithLocation:timestamp:referenceLocation:causalReference:type:bookmark:
 ckAtomRowForAtomWithBookmark:type:forSiteIdentifier:inStream:
 containsCKAtomRowWithSegment:inStream:
@@ -434,7 +524,7 @@ frame
 data
 dataVersion
 initWithEventData:dataVersion:dataTimestamp:
-initWithAtomType:value:
+initWithAtomType:value:version:
 causalReference
 ckAtomRowWithTimestamp:inStream:
 type
@@ -447,7 +537,7 @@ registeredEventClass
 writeEventBodyClass:
 dataTimestamp
 _writeEventData:dataVersion:timestamp:outBookmark:
-addAtomWithValueData:toAtomBatch:fromAtomTableRecord:
+addAtomWithValueData:toAtomBatch:fromAtomTableRecord:version:atomValueVersion:
 setSiteIdentifier:
 setClock:
 modifier
@@ -456,22 +546,21 @@ unordered
 setUnordered:
 references
 setType:
-identifier
 setIdentifier:
 appendWithProxyBlock:
 setAtomType:
 setAtomBehavior:
 setValue:
+setVersion:
 appendAtomWithBlock:
+distributedSiteIdentifier
 datastorePath
 segmentSize
 initWithStoreBasePath:segmentSize:
 setStoreLocationOption:
 setRemoteStreamName:
 initWithStream:permission:config:includeTombstones:
-timestamps
-initWithData:encoding:
-ingestNewChangesForSite:
+ingestNewChangesForSite:transportType:
 readerForSiteIdentifier:
 latestCKAtomRowOfType:forSiteIdentifier:inStream:
 newEnumeratorFromBookmark:reader:
@@ -479,6 +568,8 @@ nextEvent
 initWithDatabase:transcationBatchSize:
 ckAtomTableRecordForEvent:ofType:atBookmark:previousTableRecord:siteIdentifier:
 addCKAtomRow:inStream:
+supportsTransport:direction:
+upsertCKRecordWithLocation:inStream:
 executeOperationWithBlock:
 latestTombstoneBookmarkForSiteIdentifier:inStream:
 newTombstoneEnumeratorFromBookmark:reader:
@@ -492,54 +583,88 @@ deletedExpiredBufferedLocationsForSiteIdentifier:
 computeHighestLocationToDeleteUpToBookmark:forSiteIdentifier:inStream:
 deleteAtOrBeforeHighestDeletedLocation:
 highestLocationWithBufferedAtomsOlderThan:forSiteIdentifier:inStream:
+updateAllCKRecordsAtOrBeforeLocationToBeDeletedOnSync:
 deleteAllAtomsAtOrBeforeLocation:
-ingestNewChangesFromAllSitesInVectorClock:
-initWriterWithAtomLocation:
-finishWriting
-atomValueFromEvent:ofType:
+markCKRecordsAtOrBeforeLocationToBeDeletedOnSync:
+atomValueFromEvent:ofType:version:
 serialize
-addAtomToAtomBatch:ifChunkerAllows:fromAtomTableRecord:atomValueData:
-atomRowsAfterVectorClock:inStream:enumerateWithBlock:
-count
-handleDeletedLocation:
-mergeAtomBatches:sessionContext:
+addAtomToAtomBatch:ifChunkerAllows:fromAtomTableRecord:atomValueData:version:atomValueVersion:
+atomRowsInTimestampClockVector:forLocation:inStream:enumerateWithBlock:
+ingestNewChangesFromAllSitesInVectorClock:transportType:
+locationsInClockVector:inStream:enumerateWithBlock:
 initWithStream:config:
 atomsAtOrBeforeLocation:ofType:enumerateWithBlock:
-mergeAtoms:sessionContext:
-numberOfAtoms
-initWithCKAtomLocation:
+deleteCKRecordsAtOrBeforeLocation:
+initWithCKMergeableValueID:
 compare:
 beginTransaction
 containsCKAtomRowWithTimestamp:inStream:onDisk:
 bm_description
 proxyAtIndex:
 reference
+initWithCKMergeableValueID:streamName:
 atomType
-initWithLocation:timestamp:referenceLocation:causalReference:type:valueData:
+version
+initWithLocation:timestamp:referenceLocation:causalReference:type:valueVersion:valueData:
 enumerateAtomsWithOptions:usingBlock:
 commit
 rollback
 bytes
 valueData
-atomValueFromData:
+valueVersion
+atomValueFromData:version:
 referenceLocation
 updateCKAtomRow:inStream:
 atomRowsNotOnDiskReferencingSiteIdentifier:inStream:enumerateWithBlock:
 isEqualToReference:
 writeAtomValue:fromAtomRow:usingWriter:outBookmark:
 handleDeleteAtomRow:usingPruner:outBookmark:outTombstoneBookmark:
-timestampVectorForStreamName:
+timestampClockVectorForStreamName:
 initWithStreamID:config:policy:locationAssignerPolicy:localSiteIdentifier:database:
-atomsAfterDistributedTimestampVector:version:chunker:
+atomsInClockVector:ckFormatVersion:chunker:transportType:enumerateWithBlock:
+handleDeletedLocation:deleteCKRecord:
+mergeAtomBatch:sessionContext:
+clockVector
 streamID
-_streamName
 _localSiteIdentifier
 _config
 _policy
 _locationBuilder
 _locationRowCache
 _streamID
+_streamName
 T@"BMSyncStreamID",R,N,V_streamID
+T@"NSString",R,N,V_streamName
+stringWithFormat:
+dictionary
+allocWithZone:
+readFrom:
+writeTo:
+_type
+_value
+_has
+dateForColumn:
+zoneName
+zoneUUID
+recoveryState
+attemptedRecoveryDate
+_recoveryState
+_zoneName
+_zoneUUID
+_attemptedRecoveryDate
+T@"NSString",R,N,V_zoneName
+T@"NSString",R,N,V_zoneUUID
+Ti,R,N,V_recoveryState
+T@"NSDate",R,N,V_attemptedRecoveryDate
+ckZoneExists:
+numberWithInt:
+distantPast
+ckZoneForZoneName:
+ckZoneSetAttemptingRecoveryForZoneName:state:
+ckZoneSetZoneVersionUUID:forZoneName:
+ckZoneSetAttemptedRecoveryDate:state:forZoneName:
+enumerateZonesWithBlock:
+createDiscoveryClientWithControlFlags:
 setDispatchQueue:
 setControlFlags:
 setServiceType:
@@ -551,17 +676,22 @@ didLoseDevice:
 setDeviceLostHandler:
 device:didChange:
 setDeviceChangedHandler:
+localDeviceUpdated:
+setLocalDeviceUpdatedHandler:
+createSharedDiscoveryClientIfNotExists
+createDiscoveryClientIfNotExists
+activateDiscoveryClientWithCompletion:
 handleDiscoveryClientActivationOrError:
 activateWithCompletion:
 activeDevices
-createDiscoveryClientIfNotExists
 registerRequestID:options:handler:
-activateDiscoveryClient
-sendRequest:request:device:options:responseHandler:
+registerEventID:options:handler:
+initWithRPCompanionLinkDevice:
+rapportIdentifier
 deregisterRequestID:
 invalidate
+sendRequest:request:device:options:responseHandler:
 shortenedRapportIdentifier
-mutableCopy
 requestQueue
 client
 setClient:
@@ -572,23 +702,30 @@ setInterruptionHandler:
 invalidateClientWithError:
 handleActivationForDevice:error:
 sendNextRequestToDevice:
+linkState
+sendEvent:event:toDevice:completionHandler:
+activateDirectLinkToDevice:completionHandler:
+code
 domain
-rapportIdentifier
+sendEventID:event:options:completion:
+setLinkState:
 popFirstObject
 finishedSendingRequestsToDevice:
-numberWithInt:
 sendRequestID:request:options:responseHandler:
 bm_companionLinkDeviceIdentifier
 proximity
-initWithRPCompanionLinkDevice:
 serviceTypes
 delegate
+activateDiscoveryLinkWithCompletion:
+registerEventID:eventHandler:
+invalidateDirectLinkToDevice:
 registeredRequests
 setRegisteredRequests:
 _discoveryClient
 _discoveryClientState
 _devices
 _unsupportedDevices
+_sharedUse
 _delegate
 _registeredRequests
 T@"NSMutableDictionary",&,N,V_registeredRequests
@@ -597,19 +734,22 @@ array
 substringToIndex:
 dispatchQueue
 handleInvalidationWithError:
+decodeObjectOfClass:forKey:
 setDevice:
 setRequestQueue:
 _rapportIdentifier
 _bmDeviceIdentifier
 _device
 _client
-T@"RPCompanionLinkDevice",&,N,V_device
-T@"RPCompanionLinkClient",&,N,V_client
+_linkState
 T@"NSMutableArray",&,N,V_requestQueue
 T@"NSArray",R,N
+TQ,N,V_linkState
 T@"NSString",R,N,V_rapportIdentifier
 T@"NSString",R,N
 T@"NSString",&,N,V_bmDeviceIdentifier
+T@"RPCompanionLinkDevice",&,N,V_device
+T@"RPCompanionLinkClient",&,N,V_client
 Tq,R,N
 doubleValue
 walltime
@@ -618,12 +758,9 @@ _walltime
 T@"BMSyncDevicePeer",&,N,V_peer
 Td,N,V_walltime
 boolValue
-deserialize:error:
-serialize:
 addEntriesFromDictionary:
 batchSize
 _isReciprocalRequest
-_vectorClock
 _atomBatchVersion
 _batchSize
 _batchSequenceNumber
@@ -634,7 +771,6 @@ TQ,N,V_batchSize
 TQ,N,V_batchSequenceNumber
 setWithObjects:
 unarchivedObjectOfClasses:fromData:error:
-archivedDataWithRootObject:requiringSecureCoding:error:
 unseenPeers
 setAtomBatchBytes:
 _unseenPeers
@@ -647,29 +783,29 @@ TQ,N,V_atomBatchBytes
 T@"NSDictionary",&,N,V_deletedLocations
 standardUserDefaults
 identifierFromDescriptor:
+initWithDictionary:
+eventStringFromDescriptor:
 currentDevice
 syncableStreamIDsForPlatform:
 loadAdditionalSyncPolicyDictionaries
-allKeys
 addObjectsFromArray:
 policyForStreamID:forPlatform:
+bmUserDefaultsString:
 initWithStreamID:policyDictionary:
 directionsSupportedForTransport:
 _supportsTransport:direction:outSupportedDirections:
-supportsTransport:direction:
+syncableStreamIDs
 policyForStreamID:
 minimumTimeBetweenSyncsForTransport:
 minimumTimeBetweenSyncsAttemptsForTransport:
 _policyDictionary
-stringWithUTF8String:
-handleFailureInFunction:file:lineNumber:description:
 unsignedLongValue
 enumerateWithBlock:
 _timestamp
 _referenceLocation
 _causalReference
 _bookmark
-_type
+_valueVersion
 _valueData
 T@"BMSyncCRDTLocationRow",R,N,V_location
 T@"CKDistributedTimestamp",R,N,V_timestamp
@@ -677,6 +813,7 @@ T@"BMSyncCRDTLocationRow",R,N,V_referenceLocation
 T@"CKAtomReference",R,N,V_causalReference
 T@"BMStoreBookmark",R,N,V_bookmark
 TQ,R,N,V_type
+Tq,R,N,V_valueVersion
 T@"NSData",R,N,V_valueData
 longForColumn:
 dataForColumn:
@@ -687,43 +824,41 @@ SELECT_ATOMS_WHERE:ORDER_BY:LIMIT:
 SELECT_FROM:COLUMNS:WHERE:GROUP_BY:
 stringForColumnIndex:
 unsignedLongLongIntForColumnIndex:
-initWithTimestamps:
-intForColumnIndex:
+addClockValuesInIndexSet:withAtomState:forSiteIdentifier:
+timestampCount
+enumerateRangesUsingBlock:
+SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:HAVING:ORDER_BY:LIMIT:
 longLongValue
 numberWithLongLong:
-SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:HAVING:ORDER_BY:LIMIT:
 SELECT_FROM:COLUMNS:JOIN:WHERE:ORDER_BY:LIMIT:
 latestCKAtomRowForSiteIdentifier:inStream:
+ckAtomCount
 containsCKAtomRowWithTimestamp:inStream:
-valueForEntitlement:
-isEqualToNumber:
-bm_checkEntitlement:
+CKAtomRowSiteIdentifiers
 initWithMachServiceName:
 resume
-triggerSyncWithReply:
+processWithXPCConnection:
+boolForEntitlement:
+triggerRapportSyncWithReply:
+triggerCloudKitSyncWithReply:
+rapportSyncWithReply:
+cloudKitSyncWithReply:
 peerInformationWithReply:
 interfaceWithProtocol:
 setExportedInterface:
 setExportedObject:
 setRemoteObjectInterface:
+startWithCompletionBlock:
+_rapportSyncWithSyncTriggeredHandler:syncCompletedHandler:
+_cloudKitSyncWithSyncTriggeredHandler:syncCompletedHandler:
 listener:shouldAcceptNewConnection:
 _core
 _listener
 idsDeviceIdentifier
 T@"NSString",R
-setValue:forKey:
-encodeObject:forKey:
-decodeObjectOfClasses:forKey:
-unarchivedObjectOfClass:fromData:error:
-supportsSecureCoding
-encodeWithCoder:
-initWithCoder:
-TB,R
-setVectorClockTo:forStreamIdentifier:
-vectorClockForStreamIdentifier:
+compareToTimestampVector:
 _SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:ORDER_BY:LIMIT:
 componentsJoinedByString:
-stringWithFormat:
 appendString:
 arrayWithCapacity:
 objectAtIndexedSubscript:
@@ -736,12 +871,25 @@ executeUpdate:withArgumentsInArray:
 valueForMetadataKey:
 dateWithTimeIntervalSinceReferenceDate:
 setValue:forMetadataKey:
-lastSyncAttemptDate
-setLastSyncAttemptDate:
+lastRapportSyncAttemptDate
+setLastRapportSyncAttemptDate:
+lastCloudKitSyncAttemptDate
+setLastCloudKitSyncAttemptDate:
+ckSyncEngineMetaData
+saveCKSyncEngineMetaData:
 T@"NSDate",&,N
-decodeObjectOfClass:forKey:
-_value
+saveCKRecordServerMergeableValue:recordName:zoneName:
+clearCKRecordServerMergeableValuesForRecordName:zoneName:
+enumerateMergeableRecordValuesForRecordName:zoneName:withBlock:
+encodeAsProto
+proto
+initWithProto:
+initWithData:
+initWithProtoData:
+serializeProto
+_version
 T@"BMStoreEventAtomValue",R,N,V_value
+Tq,R,N,V_version
 numberWithUnsignedInt:
 unsignedIntValue
 _dataVersion
@@ -750,40 +898,202 @@ _dataTimestamp
 T@"NSData",R,N,V_eventData
 TI,R,N,V_dataVersion
 Td,R,N,V_dataTimestamp
-timestampCount
-timestampForSiteIdentifier:
-initWithSiteIdentifier:clockValue:modifier:unordered:
-addTimestamp:
+setUnderlyingQueue:
+setMaxConcurrentOperationCount:
+distributedSyncManagers
+policy
+streamNameToStreamDescriptorDict
+streamDescriptorSupportsCloudKitSync:
+initWithRecordName:zoneID:
+arrayWithObjects:
+uploadChangesWithError:
+fetchChangesWithError:
+initWithAsyncOperationBlock:
+addOperation:
+setNeedsToFetchChanges
+fetchChangesWithCompletionHandler:
+localSiteIdentifier
+ckRecordsToSyncToCloudKitForZone:
+initWithSet:
+gatherAllCKRecordsToBeDeleted
 minusSet:
+addRecordIDsToSave:recordIDsToDelete:
+modifyPendingChangesWithCompletionHandler:
+accountStatus
+deviceToDeviceEncryptionAvailability
+containerWithIdentifier:
+privateCloudDatabase
+initWithDatabase:dataSource:metadata:
+setAutomaticSyncingEnabled:
+initWithConfiguration:
+isManateeAvailable:
+accountInfoWithCompletionHandler:
+recordName
+zoneID
+initWithZoneName:recordName:
+deleteCKRecordAtLocation:
+recordID
+expirationTimeForStreamDesc:
+floatValue
+streamSupportsCloudKitSync:
+isRecordNewerThanMostRecentDeleteForSiteIdentifier:
+encryptedValues
+saveCKRecordServerMergeableValue:recordName:zoneName:locationRow:
+resetCKRecordsMetaDataAndSetToSyncForZone:
+recordType
+handleSyncRecordDidFetchRecord:
+handleZoneVersionDidFetchRecord:
+ckRecordForRecordName:zoneName:
+localMergeableValue
+mergeRecordValue:error:
+saveCKRecordLocalMergeableValue:recordName:zoneName:locationRow:
+saveSystemFieldsDataForRecord:syncToCloudKit:
+timeIntervalSinceDate:
+initWithZoneID:
+addRecordZonesToSave:recordZoneIDsToDelete:
+resetMetadataForRecord:zoneName:
+newZoneVersionRecordIDForZone:
+userInfo
+isManateeDecryptionError:
+handleZoneReset:
+initWithRecordType:recordID:
+createCKRecordFromRecordID:newRecord:
+numberWithLong:
+setExpirationAfterTimeInterval:
+setMergeable:
+handleZoneVersionRecordToSaveForRecordID:
+handleSyncRecordRecordToSaveForRecordID:
+initWithZoneName:
+deleteAllCKRecordsInZone:
+streamIdentifier
+mergeIntoMergeable:error:
+enumerateRecordsWithBlock:
+initWithZoneName:ownerName:
+syncEngine:recordToSaveForRecordID:
+syncEngine:didSaveRecord:
+syncEngine:failedToSaveRecord:error:
+syncEngine:didDeleteRecordWithID:
+syncEngine:failedToDeleteRecordWithID:error:
+syncEngine:didFetchRecord:
+syncEngine:recordWithIDWasDeleted:recordType:
+syncEngine:didUpdateMetadata:
+syncEngine:didSaveRecordZone:
+syncEngine:didDeleteRecordZoneWithID:
+syncEngine:failedToFetchChangesForRecordZoneID:error:
+syncEngine:failedToSaveRecordZone:error:
+syncEngine:failedToDeleteRecordZoneWithID:error:
+syncEngine:zoneWithIDChanged:
+syncEngine:zoneWithIDWasDeleted:
+syncEngine:zoneWithIDWasDeletedDueToUserEncryptedDataReset:
+syncEngine:zoneWithIDWasPurged:
+syncEngine:accountChangedFromUserRecordID:toUserRecordID:
+syncEngineDidBeginFetchingChanges:
+syncEngineWillBeginFetchingChanges:
+syncEngineDidEndFetchingChanges:
+syncEngineWillBeginModifyingPendingChanges:
+syncEngineDidEndModifyingPendingChanges:
+syncEngine:nextBatchOfRecordsToModifyForZoneIDs:
+syncEngine:didCompleteModifyRecordsBatch:error:
+recordZonesToSaveForSyncEngine:
+recordZoneIDsToDeleteForSyncEngine:
+syncEngine:shouldFetchChangesForZoneID:
+syncEngine:shouldFetchAssetContentsForZoneID:
+syncEngine:relatedApplicationBundleIdentifiersForZoneIDs:recordIDs:
+initWithDistributedSyncMultiStreamManager:database:queue:
+dataSource
+setDataSource:
+container
+setContainer:
+configuration
+setConfiguration:
+ckSyncEngine
+setCkSyncEngine:
+_dataReceivedFromSiteIdentifiers
+_operationQueue
+_dataSource
+_container
+_configuration
+_ckSyncEngine
+T@"<CKSyncEngineDataSource>",&,N,V_dataSource
+T@"CKContainer",&,N,V_container
+T@"CKSyncEngineConfiguration",&,N,V_configuration
+T@"CKSyncEngine",&,N,V_ckSyncEngine
+timestampCountForSiteIdentifier:
 initWithData:error:
-updateVectorClockByUnionWithUnseenSiteIdentifiers:
+updateClockVectorByUnionWithUnseenSiteIdentifiers:
+dataWithError:
 arrayWithArray:
 initWithStreamCRDT:database:localSiteIdentifier:policy:
 mergeAtomBatch:deletedLocations:sessionContext:
-atomBatchAfterVectorClock:version:chunker:
-policy
-_streamCRDT
+atomBatchesInClockVector:ckFormatVersion:chunker:transportType:
 T@"BMSyncPolicy",R,N,V_policy
+T@"BMSyncDatabase",R,N,V_db
+indexSetWithIndex:
 initWithDistributedSyncManagers:peerStatusTracker:
-distributedSyncManagers
 _distributedSyncManagers
+_streamNameToStreamDescriptorDict
 T@"NSDictionary",R,N,V_distributedSyncManagers
+T@"NSDictionary",R,N,V_streamNameToStreamDescriptorDict
 configForSyncStreamID:
+distributedSyncMultiStreamManagerWithDatabase:
+_recordName
+_streamIdentifier
+_localMergeableValue
+T@"NSString",R,N,V_recordName
+T@"NSString",R,N,V_streamIdentifier
+T@"NSData",R,N,V_localMergeableValue
+initForReadingFromData:error:
+getSystemFieldsDataForRecordName:zoneName:
+recordFromSystemFieldsData:
+recordChangeTag
+initRequiringSecureCoding:
+encodeSystemFieldsWithCoder:
+encodedData
+saveSystemFieldsData:syncToCloudKit:recordName:zoneName:
+dataForColumnIndex:
+ckRecordExists:zoneName:
+enumerateCKRecordsSetForDeletingUsingBlock:
+saveSystemFieldsData:recordName:streamName:
+deleteCKRecordsForStreamName:
+ckRecordCount
 streamForStreamIdentifier:
 hasPrefix:
 substringFromIndex:
 identifierForPublicStreamNamed:
 identifierForRestrictedStreamNamed:
-directoryForPublicStreams
-directoryForRestrictedStreams
+pathForStreamIdentifier:streamType:
 storeConfigurationForStream:
 newRestrictedStreamDefaultConfiguration
+path
 _path
 T@"NSString",R,N,V_name
-syncNowIfPolicyAllowsWithReason:activity:completionHandler:
-timeIntervalSinceDate:
-_syncEngine
+isCancelled
+willChangeValueForKey:
+didChangeValueForKey:
+block
+isFinished
+isExecuting
+isAsynchronous
+_executing
+_finished
+_block
+T@?,R,C,N,V_block
+syncRapportNowIfPolicyAllowsWithReason:activity:completionHandler:
+syncCloudKitNowIfPolicyAllowsWithReason:activity:completionHandler:
+open
+doRapportSyncNow
+doCloudKitSyncNow
+initWithRapportSyncEngine:cloudKitSyncEngine:peerStatusTracker:database:queue:
+initWithCustomFunctionName:
+initWithSQLStatements:
+sqlStatements
+_sqlStatements
+T@"NSArray",R,N,V_sqlStatements
+customFunctionName
+_customFunctionName
+T@"NSString",R,N,V_customFunctionName
 syncDirectory
+stringByAppendingPathComponent:
 initWithPath:queue:
 databaseWithPath:
 setShouldCacheStatements:
@@ -793,7 +1103,9 @@ internalState
 setState:errorFormat:
 databasePath
 stringByDeletingLastPathComponent
+defaultManager
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+localizedFailureReason
 openWithFlags:
 lastErrorCode
 stringByDeletingPathExtension
@@ -803,16 +1115,21 @@ executeStatements:
 tableExists:
 setUserVersion:
 userVersion
+methodForSelector:
+lastError
+removeItemAtPath:error:
 corruptionHandler
 _tryOpen:
 isOpen
-lastError
 beginDeferredTransaction
 objectForColumnIndex:
 executeUpdate:
+isEqualToSet:
 initWithPath:
-version
+migration_StarSkySchema11ToSydRoSchema12
+migration_Schema20ToSchema21
 error
+setCorruptionHandler:
 _fmdb
 _flags
 __error_ivar
@@ -829,15 +1146,22 @@ sharedInstance
 dateFormatter
 _dateFormatter
 isEqualToDate:
+stringFromDate:
+recordNameFromSite:day:
 substringWithRange:
 componentsSeparatedByString:
 dateFromString:
-initWithZoneName:ownerName:
-stringFromDate:
+initWithTriple:
+characterAtIndex:
 initWithName:zoneID:
+pruningPolicy
+maxAge
+timeIntervalSinceNow
+numberWithFloat:
+dayFromRecordName:
+triple
 _siteIdentifier
 _day
-T@"NSString",R,N,V_streamName
 T@"NSString",R,N,V_siteIdentifier
 T@"NSDate",R,N,V_day
 truncateDateToDay:
@@ -882,13 +1206,9 @@ shortValue
 unsignedShortValue
 longValue
 unsignedLongLongValue
-floatValue
-characterAtIndex:
 numberWithShort:
 numberWithUnsignedShort:
 numberWithUnsignedLongLong:
-numberWithFloat:
-numberWithLong:
 executeQuery:withArgumentsInArray:orDictionary:orVAList:shouldBind:
 databaseExists
 cachedStatementForQuery:
@@ -914,7 +1234,6 @@ rollbackToSavePointWithName:error:
 releaseSavePointWithName:error:
 checkpoint:name:logFrameCount:checkpointCount:error:
 crashOnErrors
-dictionary
 setCachedStatements:
 makeFunctionNamed:arguments:block:
 databaseWithURL:
@@ -1050,7 +1369,6 @@ longLongIntForColumnIndex:
 boolForColumnIndex:
 doubleForColumnIndex:
 dateWithTimeIntervalSince1970:
-dataForColumnIndex:
 dataNoCopyForColumnIndex:
 dataWithBytesNoCopy:length:freeWhenDone:
 columnIndexIsNull:
@@ -1066,7 +1384,6 @@ hasAnotherRow
 longLongIntForColumn:
 unsignedLongLongIntForColumn:
 boolForColumn:
-dateForColumn:
 dataNoCopyForColumn:
 columnIsNull:
 UTF8StringForColumnName:
@@ -1132,10 +1449,11 @@ databaseQueueWithPath:flags:
 databaseQueueWithURL:
 databaseQueueWithURL:flags:
 T@"NSString",&,V_path
+BiomeSync
+v8@?0
 <%@: location=%@, state=%lu>
 location_
 ref_location_
-BiomeSync
 %@%@
 stream
 site
@@ -1149,12 +1467,14 @@ id = ?
  AND state = ?
  AND day < ?
  AND NOT EXISTS (SELECT * FROM CKAtom WHERE location_id = id)
+day DESC
 state = ?
 day = (select max(day) from CRDTLocation i where i.stream = ? and i.site=CRDTLocation.site
  and state = ?)
  AND stream = ?
  AND state = ? 
-day DESC
+count(*)
+no session ID
 device_identifier
 name
 model
@@ -1169,7 +1489,6 @@ deviceIdentifier
 deviceMetadata
 protocolVersion
 BMRapportRequest
-v8@?0
 v16@?0@"BMRapportDevice"8
 com.apple.biomesyncd.fetchAtomBatches
 v32@?0@"NSDictionary"8@"NSDictionary"16@"NSError"24
@@ -1178,17 +1497,20 @@ Unable to determine sender model info
 Unknown platform
 v24@?0@"NSArray"8@"NSArray"16
 v32@?0@"NSDictionary"8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">24
-remote
 com.apple.biome.syncSessionLog
 com.apple.biomesyncd
 com.apple.biomesyncd.metrics-collection
-com.apple.biomesyncd.periodic-sync
 v16@?0@"NSObject<OS_xpc_object>"8
+com.apple.biomesyncd.periodic-sync
 com.apple.notifyd.matching
 Notification
 com.apple.rapport.CompanionLinkDeviceAdded
 com.apple.rapport.matching
 replyRequired
+context_sync
+void *BiomeLibraryLibrary(void)
+biomesyncd.m
+vectorClock
 BMStreamCKCRDT.m
 Invalid parameter not satisfying: %@
 streamID
@@ -1198,18 +1520,43 @@ v24@?0@"CKAtomReferenceMutableProxy"8Q16
 v24@?0@"CKAtomMutableProxy"8Q16
 v16@?0^B8
 v24@?0@"BMSyncCKAtomRow"8^B16
+v24@?0@"BMSyncCRDTLocationRow"8^B16
 v32@?0@"CKAtomProxy"8Q16^B24
+BMFrameStatePreWrite
+BMFrameStateWritten
+BMFrameStatePreDelete
+BMFrameStateDeleted
+BMFrameStateEOF
+BMFrameStateUnknown
+BMFrameStateUnknown(%lu)
+%@ %@
+type
+value
+Append
+TTLDelete
+RandomDelete
+Modify
+Unknown
+(unknown: %i)
+zone_name
+zone_uuid
+recovery_state
+attempted_recovery_date
+CKZone
+zone_name = ?
+UUID not set
 com.apple.biomesyncd.rapport
 v16@?0@"RPCompanionLinkDevice"8
 v20@?0@"RPCompanionLinkDevice"8I16
 v16@?0@"NSError"8
+v12@?0B8
 ~~REQUEST_ID~~
 ~~RESPONSE_HANDLER~~
 ~~OPTIONS~~
 failed with error, 
 completed
 BMRapportDevice[%@]: id=%@ bmID=%@ model=%@ name=%@
-Unknown
+device
 Immed
 Near
 peer
@@ -1218,28 +1565,31 @@ batchSize
 batchSequenceNumber
 isReciprocalRequest
 atomBatchVersion
-vectorClock
 unseenPeers
 atomBatches
 moreComing
 deletedLocations
+biomesyncdStrings
 AdditionalSyncPolicies
-public/DeviceMetadata
+eventClass
 restricted/feedbackSocialHighlights
+BMSocialHighlightFeedbackEvent
+public/DeviceMetadata
+BMDeviceMetadataEvent
 restricted/SiriMemoryReferenceResolutionStream
+BMSiriMemoryReferenceResolutionEvent
+public/AppLaunch
+BMAppLaunchEvent
+overrideInternalPolicy
 rapport
 direction
-eventClass
-BMDeviceMetadataEvent
 outbound
-BMSocialHighlightFeedbackEvent
-BMSiriMemoryReferenceResolutionEvent
+cloudkit
+none
 BMSyncPolicy.m
 Unexpected direction %lu
-cloudkit
 NSString *NSStringFromBMSyncTransportType(BMSyncTransportType)
 No mapping found for BMSyncTransportType(%lu)
-none
 inbound
 BMSyncDirection BMSyncDirectionFromNSString(NSString *__strong)
 No mapping found for %@
@@ -1248,12 +1598,12 @@ location
 timestamp
 <%@: type=%@, location=%@, atomID=%@, refID=%@ bookmarkOffset=%lu>
 clock
-type
 segment_name
 segment_offset
 ref_type
 ref_site
 ref_clock
+value_version
 value_data
 CKAtom
 location_id
@@ -1266,15 +1616,17 @@ CKAtom.site = ?
 clock DESC
 max(clock)
 v24@?0@"_bmFMResultSet"8^B16
+location_id = ?
+clock ASC
 type = ?
  AND CKAtom.site = ?
  AND segment_name IS NOT ?
-count(*)
 clock = ?
  AND type = ?
  AND segment_name = ?
  AND segment_offset = ?
 site = ?
+DISTINCT site
 (ref_site = ?
  OR (ref_site IS NULL AND CKAtom.site = ?))
 ref_clock ASC
@@ -1282,26 +1634,33 @@ type ASC
 location.stream = ?
  AND location.site = ?
  AND location.day <= ?
+ref_clock DESC
 location_id IN (SELECT id from CRDTLocation where stream = ?
  AND day <= ?)
- AND ref_clock != (SELECT MAX(ref_clock) FROM CKAtom WHERE stream = ?
- AND site = ?)
+ AND clock != ?
  AND clock != (SELECT MAX(clock) FROM CKAtom WHERE stream = ?
+ AND site = ?)
 CKAtom.stream = ? 
- OR (CKAtom.site = ?
- AND ((CKAtom.site = ?
- AND clock > ?)
-) AND on_disk IS ?
-location.stream
-location.site
-location.day ASC
+ AND ((CKAtom.site = ? 
+) OR (CKAtom.site = ? 
+AND clock = ? 
+OR clock = ? 
+AND clock BETWEEN ? 
+OR clock BETWEEN ? 
+ AND ?
+v32@?0{_NSRange=QQ}8^B24
+)) AND on_disk IS ?
 location.stream as location_stream
 location.site as location_site
 location.day as location_day
 location.state as location_state
  LEFT JOIN CRDTLocation location ON location_id=location.id
-CKAtom.stream = ?
 location_id, location.stream, location.site, location.day, location.state
+location.stream
+location.site
+location.day ASC
+ AND CKAtom.location_id = ? 
+CKAtom.stream = ?
 COUNT ((CAST(segment_name AS INT) > ?
  OR segment_name = ?
  AND segment_offset > ?) OR NULL) == 0
@@ -1316,7 +1675,12 @@ ref_location.state as ref_location_state
 com.apple.biomesyncd.sync
 com.apple.private.biome.sync
 com.apple.internal.biome.sync
--[BMSyncServiceServer triggerSyncWithReply:]
+errors
+v20@?0B8@"NSError"12
+-[BMSyncServiceServer triggerRapportSyncWithReply:]
+-[BMSyncServiceServer rapportSyncWithError:]
+-[BMSyncServiceServer triggerCloudKitSyncWithReply:]
+-[BMSyncServiceServer cloudKitSyncWithError:]
 isMe
 platformDescription
 BMRapportErrorDomain
@@ -1333,21 +1697,55 @@ INSERT INTO %@
 ) VALUES (
 DELETE FROM %@
 %@:%lu
+com.apple.biome.sync.ckMetaData
 LastSyncAttemptDate
+LastCloudKitAttemptDate
+CKMergeableRecordValue
+stream_name
+record_name
+server_mergeable_value
+stream_name = ?
+ AND record_name = ?
 TombstoneBookmark
 AND site = ?
-Append
-TTLDelete
-RandomDelete
-Modify
 BMSyncAtomType(%llu)
+BiomeStream
 atomType
 atomValue
 data
 dataVersion
 dataTimestamp
+syncRecord
+zoneVersion
+biomeCRDT
+zoneVersionUUID
+com.apple.biome.sync
+recordOrder
+v16@?0@?<v@?>8
+v24@?0@"CKAccountInfo"8@"NSError"16
+v24@?0@"NSData"8^B16
+v24@?0@"BMSyncCKRecord"8^B16
+v24@?0@"BMSyncCKZone"8^B16
+v16@?0@"CKAtomBatch"8
 BMDistributedSyncMultiStreamManager.m
 direction == BMSyncDirectionOutbound
+stream_identifier
+local_mergeable_value
+sync_to_cloud_kit = ?
+ AND deleting = ?
+ AND stream_identifier = ?
+CKRecord
+record_metadata
+record_name = ?
+sync_to_cloud_kit
+stream_identifier = ?
+deleting
+location_id IN (SELECT id FROM CRDTLocation WHERE site = ?
+ LEFT JOIN CRDTLocation location ON location_id=location.id 
+deleting = ?
+ AND EXISTS (SELECT record_name FROM CKMergeableRecordValue mergeable WHERE mergeable.stream_name=stream_identifier AND mergeable.record_name=record_name AND server_mergeable_value IS NOT NULL)
+v24@?0@"CKRecordID"8^B16
+location_id =?
 BMSyncStreamID.m
 streamName.length
 stream != BMPublicStreamUnknown
@@ -1356,8 +1754,24 @@ restricted/
 public/%@
 restricted/%@
 identifier
-com.apple.biome.syncNow
+isExecuting
+isFinished
 never
+com.apple.biome.syncNow
+[BMCloudKitSyncEngine start] failed: %@
+BMSyncScheduler
+eventData
+migration_StarSkySchema11ToSydRoSchema12
+ALTER TABLE CKRecord DROP COLUMN mergeable_value_delta
+ALTER TABLE CKRecord ADD COLUMN server_mergeable_value BLOB
+ALTER TABLE CKRecord ADD COLUMN local_mergeable_value BLOB
+ALTER TABLE CKAtom ADD COLUMN value_version INTEGER
+UPDATE CKAtom SET value_version = 0
+CREATE INDEX IF NOT EXISTS idx_syncmessagelog_session_id ON SyncMessageLog(session_id)
+CREATE INDEX IF NOT EXISTS idx_atommergedlog_owning_site_identifier ON AtomMergedLog(owning_site_identifier)
+CREATE INDEX IF NOT EXISTS idx_atommergedlog_session_id ON AtomMergedLog(session_id)
+CREATE TABLE CKZone(zone_name STRING NOT NULL, zone_uuid STRING NOT NULL, recovery_state INTEGER, attempted_recovery_date INTEGER)
+migration_Schema20ToSchema21
 sync.db
 BMSyncDatabase.m
 path
@@ -1367,10 +1781,35 @@ failed to create path: %@
 PRAGMA journal_mode = WAL;PRAGMA foreign_keys = ON;
 Metadata
 version too new
+com.apple.Biome
+internal build version < 17
+internal build version between 17 and 19
+custom migration to version %u failed with error %@
+migration to version %u failed with error %@
 failed to delete corrupt database file: %@
 unhandled state %llu
 SELECT value FROM Metadata WHERE key=?
 INSERT INTO Metadata VALUES (?, ?)
+PRAGMA foreign_keys=OFF
+idx_crdt_location
+idx_crdt_location_state
+SELECT type, name FROM sqlite_schema WHERE tbl_name = 'CRDTLocation'
+table
+CREATE TABLE new_CRDTLocation (id INTEGER primary key, stream STRING NOT NULL, site STRING NOT NULL, day INTEGER NOT NULL, state INTEGER NOT NULL)
+INSERT INTO new_CRDTLocation SELECT * FROM CRDTLocation
+DROP TABLE CRDTLocation
+ALTER TABLE new_CRDTLocation RENAME TO CRDTLocation
+CREATE INDEX IF NOT EXISTS idx_crdt_location ON CRDTLocation(stream, site, day)
+CREATE INDEX IF NOT EXISTS idx_crdt_location_state ON CRDTLocation(stream, site, state, day DESC)
+CREATE TABLE IF NOT EXISTS CKRecord (location_id INTEGER, sync_to_cloud_kit BOOL, record_metadata BLOB, record_name STRING, stream_identifier STRING, mergeable_value_delta BLOB, deleting BOOL, FOREIGN KEY (location_id) REFERENCES CRDTLocation(id));
+CREATE INDEX IF NOT EXISTS idx_ckrecord ON CKRecord(record_name)
+PRAGMA foreign_key_check
+PRAGMA foreign_keys=ON
+CREATE TABLE new_CKRecord (location_id INTEGER, sync_to_cloud_kit BOOL, record_metadata BLOB, record_name STRING, stream_identifier STRING, local_mergeable_value BLOB, deleting BOOL,  PRIMARY KEY (stream_identifier, record_name), FOREIGN KEY (location_id) REFERENCES CRDTLocation(id));
+INSERT INTO new_CKRecord SELECT location_id, sync_to_cloud_kit, record_metadata, record_name, stream_identifier, local_mergeable_value, deleting FROM CKRecord
+DROP TABLE CKRecord
+ALTER TABLE new_CKRecord RENAME TO CKRecord
+CREATE TABLE IF NOT EXISTS CKMergeableRecordValue (stream_name STRING, record_name STRING, server_mergeable_value BLOB, FOREIGN KEY (stream_name, record_name) REFERENCES CKRecord(stream_identifier, record_name))
 select session_duration.session_id, duration, reachable_peers_cnt, is_reciprocal, reason as sync_reason, cast((select count(*) from DevicePeer) as text) as known_peers_cnt_str, cast(reachable_peers_cnt as real) / (select count(*) from DevicePeer) as peer_availabilty_pct, avg_sync_latency, atoms_dropped_cnt, atoms_causality_violation_cnt, atoms_received_cnt, atoms_relayed_cnt, relay_earliness, relay_unseen_peer_atom_cnt, atom_batch_bytes from ( select session_id, is_reciprocal, reason, (end_timestamp - start_timestamp) as duration from SyncSessionLog group by session_id, is_reciprocal, reason ) as session_duration left join ( select session_id, count(distinct device_identifier) as reachable_peers_cnt from SyncMessageLog group by session_id ) as reachable_peers on session_duration.session_id=reachable_peers.session_id left join ( select session_id, avg(case when event_created_at <> 0 then synced_at - event_created_at else null end) as avg_sync_latency from AtomMergedLog group by session_id ) as sync_latency on session_duration.session_id=sync_latency.session_id left join ( select a.session_id, sum(case when a.merge_result=1 THEN 1 else 0 end) as atoms_dropped_cnt, sum(case when a.merge_result=2 THEN 1 else 0 end) as atoms_causality_violation_cnt, sum(case when a.merge_result=3 THEN 1 else 0 end) as atoms_received_cnt from AtomMergedLog as a join SyncMessageLog as m on a.message_id=m.message_id and a.relayed_by_site_identifier = m.device_identifier and a.session_id=m.session_id group by a.session_id ) as merge_results on session_duration.session_id=merge_results.session_id left join ( select session_id, count(*) as atoms_relayed_cnt from AtomMergedLog as a where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where a.session_id=m.session_id and device_identifier=owning_site_identifier and reachable=1 ) group by session_id ) as relay_count on session_duration.session_id=relay_count.session_id left join ( select relayed.session_id, avg(timestamp - synced_at) as relay_earliness from ( select atom.session_id, synced_at, timestamp from AtomMergedLog as atom, SyncMessageLog as message where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where atom.session_id=m.session_id and device_identifier=owning_site_identifier and reachable=1 ) and device_identifier=owning_site_identifier and reachable=1 and timestamp > synced_at order by timestamp asc limit 1 ) as relayed group by relayed.session_id ) as earliness on session_duration.session_id=earliness.session_id left join ( select session_id, count(*) as relay_unseen_peer_atom_cnt from AtomMergedLog as a where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where device_identifier=owning_site_identifier and reachable=1 ) group by session_id ) as atom_relay_unseen_device on session_duration.session_id=atom_relay_unseen_device.session_id left join ( select session_id, sum(atom_batch_bytes) as atom_batch_bytes from SyncMessageLog group by session_id ) as batch_bytes on session_duration.session_id=batch_bytes.session_id;
 SyncSessionLog
 session_id
@@ -1395,6 +1834,8 @@ DELETE FROM SyncSessionLog
 DELETE FROM AtomMergedLog
 (%@, %@, %@)
 (%@,%@,%@)
+%@,%@
+(%@,%@)
 -[_bmFMDatabase initWithPath:]
 FMDatabase.m
 sqlite3_threadsafe()
@@ -1469,8 +1910,300 @@ _bmFMDatabaseQueue could not reopen database for path %@
 FMDatabaseQueue.m
 currentSyncQueue != self && "inDatabase: was called reentrantly on the same queue, which would lead to a deadlock"
 Warning: there is at least one open result set around after performing [_bmFMDatabaseQueue inDatabase:]
+locationRow is nil, returning empty state vector
+mergeDeltas delta: %@
+BMStreamCKRecordCRDT: unable to init a CKAtomBatch with initWriterWithMergeableValueID:%@ error:%@
+BMStreamCKRecordCRDT: unable to complete a CKAtomBatch with finishWritingWithError:%@ error:%@
+BMStreamCKRecordCRDT: failed to split atom batch with error %@
+BMStreamCKRecordCRDT: failed to calculate batch size with error %@
+BMStreamCKRecordCRDT: split into batch of size %@
+BMStreamCKRecordCRDT: unable to init a CKMergeableDelta with initWithAtomBatch:%@ error:%@
+*** deltas: %@
+unexpected modifier %lu
+[BMSyncCRDTLocationRow initWithFMResultSet] streamName:%@ siteIdentifier:%@ dayTimestamp:%f nsDate:%@ prefix:%@
+updateLocationState: %lu forLocation:%@
+updateAllLocationsAtOrBefore:%@ to state %lu
+Expected only one value in indexSet of timestampClockVector, found %lu
+sessionContext is nil
+BMRapportSyncEngine%@: completing request, still inflight: %@
+BMRapportSyncEngine%@: completeRequest:deliveredToDevices %@ withErrors:%@
+BMRapportSyncEngine%@: sending request to device: %@
+BMRapportSyncEngine%@: request timed out because no devices are nearby
+BMRapportSyncEngine%@: received request %@ %@
+BMRapportSyncEngine%@: unable to determine sender model info: %@
+BMRapportSyncEngine%@: unable to determine platform for model %{public}@
+BMRapportSyncEngine%@: replying with CKXUncompressedFormatVersion atom batch
+BMRapportSyncEngine%@: mismatched protocol version %lu, expected %d
+BMRapportSyncEngine%@: should issue reciprocal request, %@
+BMRapportSyncEngine%@: fetch completion handler is reciprocal, YES, deviceIdentifiers, %@, errors, %@
+BMRapportSyncEngine%@: handleFetchAtomBatchesResponse %@ error %@ fromDevice: %@
+BMRapportSyncEngine%@: fetchAtomBatchesResponseHandler received response %@
+BMRapportSyncEngine%@: asked to defer activity, won't issue more requests to device %@ even though more data is available
+BMRapportSyncEngine%@: max request depth %lu hit, finishing request to device %@
+BMRapportSyncEngine%@: sending request to device %@ with sequence number %lu
+BMRapportSyncEngine%@: no more data coming from device %@ finishing request
+BiomeSync is disabled on simulators, -[BMSyncCore start] returning NO
+biomesyncd launched
+biomesyncd last exit status: %lld
+Tried to defer activity %s, but failed
+biome activity fired "com.apple.biomesyncd.metrics-collection"
+Database unavailable for activity "com.apple.biomesyncd.metrics-collection"
+biome running activity "com.apple.biomesyncd.metrics-collection"
+Received unexpected object on com.apple.notifyd.matching: %@
+Received com.apple.notifyd.matching: %s
+Handling com.apple.notifyd.matching: %s
+Database unavailable to handle "com.apple.rapport.CompanionLinkDeviceAdded"
+Received unexpected object on com.apple.rapport.matching: %@
+Received com.apple.rapport.matching: %s
+Handling com.apple.rapport.matching: %s
+Database unavailable to handle RapportWake
+Received SIGTERM
+failed to set user dir suffix: %{darwin.errno}d
+failed to initialize temporary directory: %{darwin.errno}d
+failed to resolve temporary directory: %{darwin.errno}d
+biome activity fired "%s"
+Database unavailable for activity "%s"
+biome running activity "%s"
+Starting tombstone enumerator from 0 for stream %@ site %@
+Starting tombstone enumerator from segment %@ offset %lu for stream %@ site %@
+delete must reference a corresponding append
+Expected no-data frame to be delete or pre-delete, but frame was %{public}@
+appendRecord %@ is of unexpected type %lu
+bookmark is nil, presumably because the referenced atom was a dummy append (dead on arrival) %@
+deleting event at bookmark %@
+dropping atom %@ as it is dead on arrival
+writeAtomValue: %@
+adding %@ to atomBatch
+ingestChangesForSite: %@
+observed new data from non-local site %@
+read new appended BMStoreEvent: %@ at offset %lu
+failed to insert record %@
+read new deleted BMStoreEvent: %@ at offset %lu
+failed to batch ingest changes
+read BMStoreEvent tombstone: %@ at tombstone bookmark %@
+tombstone with unexpected deletion reason %lu
+failed to batch ingest deletions
+deleteLocationsUpToTTLAtTombstone: %@, siteIdentifier: %@
+deletedExpiredBufferedLocationsForSiteIdentifier: %@
+failed to delete atoms with location: %@
+atomTableRecord %@
+%@ location is not active
+BMSyncCKAtomRow missing bookmark %@
+Next enumerator bookmark %@ doesn't match expected %@
+read table BMStoreEvent: %@ at offset %lu
+bookmark is DOA, not attempting to resolve event
+populateAndEnumerateAtomBatches could not finish writing atomBatch with err: %@
+atomsInClockVector: %@, stream: %@
+creating new batch with location %@
+could not create new batch with location %@
+handleDeletedLocation: %@
+failed to delete event at bookmark %@
+deleted location already handled
+location we haven't yet observed is now deleted %@
+location is unexpectedly nil, unable to parse from mergeableValueID %@
+location is unexpectedly nil
+received missing location %@
+location is not active %@ skipping merge to not resurrect a dead location
+highest deleted location %@ is past incoming location %@
+received data for new location %@
+mergeAtoms: %lu location %@
+dropping atom with timestamp %@ since already merged
+atom with timestamp %@ already in table but not on disk
+causalReference location is unexpectedly nil
+failed to insert referenceLocationRow for location %@
+addAtomRow: %@
+failed to commit, rolling back
+updating row for atom inferred to be applied to disk %@
+failed to update row: %@
+atom to apply to disk %@
+causal reference cache hit
+causal reference location %@ points to dead location, not a violation
+causal reference violation: missing causal reference %@ reference location %@
+unblocked: %@
+failed to apply atom to disk
+updating row for atom applied to disk %@
+BMRapportManager: shared-use only supported internally
+BMRapportManager: shared discovery client already exists
+BMRapportManager: already activated %@
+BMRapportManager: already activating %@
+BMRapportManager: activating %@
+BMRapportManager: failed to activate with error: %@
+BMRapportManager: activated successfully
+BMRapportManager: invalidated
+BMRapportManager: registerEventID %@
+BMRapportManager: stop
+sendRequest:request:device:options:responseHandler: passed nil device
+BMRapportDevice[%@]: enqueueing request
+device %@ requestQueue %@
+BMRapportDevice[%@]: activating client
+device: %@ linkState %lu
+handleActivationForDevice:error: passed nil device
+BMRapportDevice[%@]: activation %@%@
+BMRapportDevice[%@]: determined to not support service com.apple.biomesyncd.rapport
+handleInterruptionForDevice: passed nil device
+BMRapportDevice[%@]: interrupted
+sendNextRequestToDevice: passed nil device
+BMRapportDevice[%@]: expected request id and response handler in %@
+BMRapportDevice[%@]: being sent request %@ with options %@
+finishedSendingRequestsToDevice: passed nil device
+BMRapportDevice[%@]: request queue empty, invalidating client
+BMRapportDevice[%@]: advertisement data changed
+BMRapportDevice[%@]: pairing flags/attributes changed
+BMRapportDevice[%@]: distance changed: %s
+BMRapportDevice[%@]: distance wifi information element changed
+BMRapportDevice[%@]: name changed: %@
+BMRapportDevice[%@]: RSSI changed
+BMRapportDevice[%@]: SSID changed
+BMRapportDevice[%@]: proximity changed: %s
+BMRapportDevice[%@]: distance/angle/something changed
+BMRapportDevice[%@]: no transports available; expect a lost callback
+BMRapportDevice[%@]: got unexpected change flag: RPDeviceChangeFlags(%x)
+BMRapportManager: skipping RPCompanionLinkDevice missing identifier: %@
+BMRapportManager: skipping RPCompanionLinkDevice missing model: %@
+BMRapportManager: already discovered device, %@ as %@
+BMRapportDevice[%@]: ignoring device not listing service com.apple.biomesyncd.rapport
+BMRapportDevice[%@]: discovered
+BMRapportDevice[%@]: ignoring unsupported device
+BMRapportDevice[%@]: lost
+BMRapportDevice[%@]: invalidated
+failed to unarchive BMMultiStreamVectorClock with error %@
+failed to archive BMMultiStreamVectorClock with error %@
+failed to unarchive BMMultiStreamAtomBatches with error %@
+failed to archive BMMultiStreamAtomBatches with error %@
+Failed to insert: %@
+stateVector: %@
+Failed to update: %@
+clock vector is empty %@
+syncCloudKitNow completed.
+[cloudKitSyncEngine start] failed.
+syncRapportNow completed.
+triggerRapportSyncWithReply called
+rapportSyncWithError called
+triggerCloudKitSyncWithReply called
+cloudKitSyncWithError called
+%@: tried to initialize with a non-BMPBSyncAtomValue proto
+%@: tried to initialize a BMPBSyncAtomValue proto, missing type or value
+failed to deserialize BMSyncAtomValue with error %@
+cannot deserialize atom value of version %lu
+failed to serialize BMSyncAtomValue with error %@
+cannot serialize atom value with version %lu
+%@: tried to initialize with a non-BMPBStoreEventAtomValue proto
+%@: tried to initialize a BMPBStoreEventAtomValue proto: missing dataVersion or dataTimestamp
+syncNowWithReason
+ingest events from stream: %@
+syncNowWithReason found %lu records to sync and %lu records to delete
+syncNowWithReason after removing duplicates, sending CKSyncEngine %lu records to sync and %lu records to delete
+unable to obtain Manatee accountInfo
+CloudKit container is not accessible. Status: %ld
+This account is eligible to sync with manatee containers
+Manatee is available on the current device
+iCloud account doesn't support end-to-end encryption: %ld
+account status is CKAccountStatusTemporarilyUnavailable
+iCloud account status: %ld
+unable to initialize CloudKit container
+unable to initialize CloudKit configuration
+unable to initialize ckSyncEngine
+accountInfoWithCompletionHandler returned error: %@
+zoneWithIDChanged: %@
+failedToFetchChangesForRecordZoneID: %@
+didDeleteRecordWithID: %@ in zone: %@
+isRecordNewerThanMostRecentDeleteForSiteIdentifier: Could not create location from CKRecord: %@
+Error serverValue is nil for delta %@ %@, %@
+Error encoding mergeableRecordValueData for %@ %@, %@
+Error saving [saveCKRecordServerMergeableValue:serverValueData] for %@ %@, %@
+didFetchRecord: %@
+didFetchRecord: unknown record type: %@
+didSaveRecord: %@ recordType: %@ zone: %@
+serverValue nil for for %@ %@
+Unable to unarchive localRecordValue for %@ %@ %@
+Unable to unarchive [localRecordValue mergeRecordValue:serverRecordValue] for %@ %@ %@
+didSaveRecordZone: %@
+failedToDeleteRecordWithID: %@, zone:%@
+failedToSaveRecordZone:%@ error:%@
+failedToSaveRecordZone: %@ and recoveryState:%d
+failedToSaveRecord: %{public}@, %{public}@ %@
+Add zone and add record request made %{public}@ %{public}@.
+Error not handled: failedToSaveRecord, error: %@
+Error not handled: failedToSaveRecord, unknown record type: %@ error: %@
+Zone ID is nil; record dropped %{public}@
+Handling CKErrorServerRecordChanged: [serverCRDT mergeRecordValue:clientCRDT];error: %@
+Manatee identity loss reported: record:%@, zoneID:%@, error:%@
+streamCRDT is nil %@
+locationID can not be found for recordID %@
+expirationTimeInterval is almost expired: %@, not saving recordID: %@ because it will be TTL'd
+recordToSaveForRecordID: newRecord? %d
+set mergeable and saved to record's encryptedValues
+recordToSaveForRecordID %@
+failedToDeleteRecordZoneWithID: %@ error: %@
+didDeleteRecordZoneWithID: %@
+didDeleteRecordZoneWithID re-creating zone:%@
+didDeleteRecordZoneWithID syncing %lu records for zone:%@
+didDeleteRecordZoneWithID not re-creating zone:%@, removing all local records in zone
+zoneWithIDWasDeleted: %@
+recordWithIDWasDeleted: %@, type=%@
+recordWithIDWasDeleted received an unknown record type:%@ for record:%@
+syncEngineWillBeginFetchingChanges
+syncEngineDidEndFetchingChanges
+Unable to unarchive serverMergeableValue for %@ %@ %@
+Merging mergeableRecordValue %@
+Unable to [recordValue mergeRecordValue:serverValue for %@ %@ %@
+syncEngineDidEndFetchingChanges location: %@
+Can't build location from record stream:%@ recordName:%@
+syncEngineDidEndFetchingChanges locationRow: %@
+locatoinRow is unexpectly nil for location %@
+recordValue %@
+Unable to  [recordValue mergeIntoMergeable:recordCRDT] for %@ %@ %@
+syncEngineWillBeginModifyingPendingChanges
+syncEngineDidEndModifyingPendingChanges
+mergeAtomBatches: %lu deletedLocations: %@
+Merging atom batches into %@
+Failed to instantiate CKAtomBatch, %@, %@
+Generating atom batch after clock: %@, version: %lu
+Could not generate atom data from atomBatch: %@, error: %@
+atomBatchesAfterClock %@ %@ %@
+Unable to create unarchiver %@
+Unable to create a record from systemFieldsData for %@
+unable to create a record with initWithRecordType for %@
+Failed to clear metadata for record %@ in zone %@
+Problems updating CKRecords at or before location %@
+Problems deleting CKRecords at or before location %@
+Failed to delete CKRecords for streamName:%@
+Can not delete CKRecord at location %@
+Failed to delete all data associated with zone %@
+unrecognized transport type (%lu)
+syncNowIfPolicyAllowsWithReason: begin rapport sync
+syncNowIfPolicyAllowsWithReason: begin cloudkit sync
+syncNowIfPolicyAllowsWithReason: group_notify done
+last sync: %{public}@ (%f ago), last attempt: %{public}@ (%f ago)
+Unable to perform Rapport sync now, because database is not currently accessible
+Rapport syncNowWithCompletionHandler %@, errors: %@
+skipping rapport sync
+Unable to perform CloudKit sync now, because database is not currently accessible
+CloudKit syncNowWithCompletionHandler %@, errors: %@
+skipping cloudkit sync
+transitioned to state %llu
+unrecoverable error: %@
+database corrupt: %@
+database corrupt
+error: %@
+BMSyncDatabase state queried while opening
+failed to close db %@
+failed to commit transcation
+%@ received nil deviceIdentifier
+recordSessionStart: %@
+recordSessionEnd: %@
+recordMessageToDeviceIdentifier: %@, %@
+recordAtomMergeResult: %@, %@
+nil value encountered in [BMStreamCRDTLocation initWithStreamName:%@ siteIdentifier:%@ day:%@]
+can not determine streamName
+unknown mergeable value ID format version %lu
+BMStreamCKRecordCRDT
+CKVersionedMergeable
+CKMergeable
+NSObject
 BMSyncCRDTLocationRow
 _bmFMResultSet
+BMMultiStreamVectorClockConverter
 BMSyncSessionContext
 BMSyncSessionMetricsCollector
 BMSyncSessionMetricsAggregator
@@ -1486,10 +2219,14 @@ BMSyncDevicePeer
 BMRapportRequest
 BMRapportSyncEngine
 BMRapportManagerDelegate
-NSObject
 BMSyncCore
 BiomeSync
+BMMultiStreamTimestampClockVector
+NSSecureCoding
+NSCoding
 BMStreamCKCRDT
+BMPBSyncAtomValue
+BMSyncCKZone
 BMRapportManager
 BMRapportDevice
 BMPeerToPeerMessage
@@ -1505,19 +2242,26 @@ NSXPCListenerDelegate
 BMSyncDevice
 BMSync
 BMMultiStreamVectorClock
-NSSecureCoding
-NSCoding
 BMSyncDatabase
 BMSyncMetadata
+BMSyncCKMergeableRecordValue
 TombstoneBookmark
 BMSyncAtomValue
 BMStoreEventAtomValue
+BMCloudKitSyncEngine
+CKSyncEngineDataSourcePrivate
+CKSyncEngineDataSource
 BMDistributedSyncManager
 BMDistributedSyncMultiStreamManager
 BMDistributedSyncMultiStreamManagerFactory
 OPACKCodable
+BMSyncCKRecord
 BMSyncStreamID
+BMAsyncBlockOperation
 BMSyncScheduler
+BMPBStoreEventAtomValue
+BMSyncDatabaseSQLStatementMigration
+BMSyncDatabaseCustomFunctionMigration
 BMSyncDatabaseTransactionBatcher
 BMSyncDevicePeerStatusTracker
 BMSyncMetricsCollectorTable
@@ -1531,30 +2275,52 @@ _bmFMStatement
 _bmFMDatabaseAdditions
 _bmFMDatabasePool
 _bmFMDatabaseQueue
+B24@0:8@16
+#16@0:8
+@16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B16@0:8
+B24@0:8#16
+B24@0:8:16
+Vv16@0:8
+Q16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
+B32@0:8@16^@24
+@32@0:8@16^@24
+@40@0:8@16@24^@32
+B32@0:8@"NSArray"16^@24
+@"NSArray"32@0:8@"CKMergeableDeltaMetadata"16^@24
+@"NSArray"40@0:8@"CKMergeableValueID"16@"CKMergeableDeltaMetadata"24^@32
+@"CKDistributedTimestampStateVector"16@0:8
+@48@0:8@16@24@32@40
+v24@0:8@16
+v16@0:8
+@"BMSyncDatabase"
+@"BMStreamCKCRDT"
+@"BMSyncCRDTLocationRow"
+@"NSObject<OS_dispatch_queue>"
 @32@0:8@16Q24
 @40@0:8@16Q24Q32
-@16@0:8
-B24@0:8@16
-Q16@0:8
-v16@0:8
 @"BMStreamCRDTLocation"
 @24@0:8@16
 B32@0:8Q16@24
 B32@0:8@16Q24
 @24@0:8Q16
 @32@0:8@16@24
-v24@0:8@16
+i16@0:8
 v24@0:8Q16
 @"NSString"
 v44@0:8@16Q24Q32B40
 v48@0:8@16B24Q28B36@40
 v64@0:8Q16@24@32@40d48@56
-@"BMSyncDatabase"
 @"NSObject<OS_xpc_object>"
 @24@0:8^{_NSZone=}16
 B24@0:8@"NSData"16
 v24@0:8@"NSData"16
-B16@0:8
 v20@0:8B16
 @"<BMAtomBatchChunkerPolicy>"
 B28@0:8@16B24
@@ -1573,27 +2339,15 @@ v24@0:8@?16
 @"NSMutableSet"
 @"NSMutableDictionary"
 @"NSUUID"
-@"NSObject<OS_dispatch_queue>"
 @"NSObject<OS_dispatch_source>"
 @"BMSyncSessionContext"
-#16@0:8
-@24@0:8:16
-@32@0:8:16@24
-@40@0:8:16@24@32
-B24@0:8#16
-B24@0:8:16
-Vv16@0:8
-^{_NSZone=}16@0:8
-B24@0:8@"Protocol"16
-@"NSString"16@0:8
 B32@0:8@"BMRapportManager"16@"BMRapportDevice"24
 v32@0:8@"BMRapportManager"16@"BMRapportDevice"24
 v24@0:8@"BMRapportManager"16
-@48@0:8@16@24@32@40
 v40@0:8Q16@24@?32
 v40@0:8@16@24@32
 v44@0:8B16Q20@28@?36
-@28@0:8B16Q20
+@36@0:8B16Q20Q28
 v60@0:8@16@24@32@40@48B56
 v48@0:8@16@24@32@40
 I16@0:8
@@ -1603,18 +2357,33 @@ I16@0:8
 @"BMSyncDevicePeerStatusTracker"
 @"BMSyncSessionMetricsCollector"
 @"BMRapportSyncEngine"
+@"BMCloudKitSyncEngine"
 @"BMSyncScheduler"
+v24@0:8@"NSCoder"16
+@24@0:8@"NSCoder"16
+@24@0:8^@16
 @64@0:8@16@24@32@40@48@56
 @56@0:8@16Q24@32@40@48
+@40@0:8@16Q24q32
 B48@0:8@16@24^@32^@40
 B48@0:8@16@24@32^@40
-B48@0:8@16@24@32@40
-@36@0:8@16C24@28
+B60@0:8@16@24@32@40C48q52
+v52@0:8@16@24@32C40q44
+v32@0:8@16Q24
+v60@0:8@16@24@32C40q44@52
+v52@0:8@16C24@28Q36@?44
+v28@0:8@16B24
 @"BMStoreConfig"
 @"BMSyncPolicy"
 @"BMStreamCRDTLocationBuilder"
 @"NSCache"
 @"BMSyncStreamID"
+@"BMPBStoreEventAtomValue"
+{?="type"b1}
+@"NSDate"
+B28@0:8@16i24
+B36@0:8@16i24@28
+@28@0:8@16B24
 v32@0:8@16@?24
 v48@0:8@16@24@32@?40
 v56@0:8@16@24@32@40@?48
@@ -1637,7 +2406,7 @@ B40@0:8Q16Q24^Q32
 B32@0:8Q16Q24
 B40@0:8q16Q24Q32
 @64@0:8@16@24@32@40Q48@56
-@"BMSyncCRDTLocationRow"
+@72@0:8@16@24@32@40Q48q56@64
 @"CKDistributedTimestamp"
 @"CKAtomReference"
 @"BMStoreBookmark"
@@ -1650,25 +2419,52 @@ v40@0:8@16Q24@?32
 @40@0:8@16@24@32
 @40@0:8d16@24@32
 v24@0:8@?<v@?@"NSError">16
+v24@0:8@?<v@?@"NSArray"@"NSArray">16
 v24@0:8@?<v@?@"NSArray"@"NSError">16
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
+v32@0:8@?16@?24
 @"BMSyncCore"
 @"NSXPCListener"
-@32@0:8@16^@24
-v24@0:8@"NSCoder"16
-@24@0:8@"NSCoder"16
-@24@0:8^@16
 @56@0:8@16@24@32@40@48
 @72@0:8@16@24@32@40@48@56@64
 @80@0:8@16@24@32@40@48@56@64@72
 B40@0:8@16@24@32
-@32@0:8Q16@24
+@40@0:8Q16@24q32
 @"BMStoreEventAtomValue"
 @36@0:8@16I24d28
-@"BMStreamCKCRDT"
+@"CKRecord"32@0:8@"CKSyncEngine"16@"CKRecordID"24
+v32@0:8@"CKSyncEngine"16@"CKRecord"24
+v40@0:8@"CKSyncEngine"16@"CKRecord"24@"NSError"32
+v32@0:8@"CKSyncEngine"16@"CKRecordID"24
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"NSString"32
+v32@0:8@"CKSyncEngine"16@"NSData"24
+v32@0:8@"CKSyncEngine"16@"CKRecordZone"24
+v32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
+v40@0:8@"CKSyncEngine"16@"CKRecordZoneID"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordZone"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"CKRecordID"32
+v24@0:8@"CKSyncEngine"16
+@"CKSyncEngineBatch"32@0:8@"CKSyncEngine"16@"NSSet"24
+v40@0:8@"CKSyncEngine"16@"CKSyncEngineBatch"24@"NSError"32
+@"NSArray"24@0:8@"CKSyncEngine"16
+B32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
+@"NSArray"40@0:8@"CKSyncEngine"16@"NSArray"24@"NSArray"32
+@"NSOperationQueue"
+@"<CKSyncEngineDataSource>"
+@"CKContainer"
+@"CKSyncEngineConfiguration"
+@"CKSyncEngine"
+@44@0:8@16C24@28Q36
 @32@0:8Q16Q24
 @60@0:8@16q24Q32Q40C48@52
+@32@0:8@16^B24
+B44@0:8@16B24@28@36
+B48@0:8@16@24@32@40
+@24@0:8@?16
+v40@0:8Q16Q24@32
 v32@0:8Q16@24
+{?="dataTimestamp"b1"dataVersion"b1}
 B24@0:8Q16
 @"_bmFMDatabase"
 B24@0:8@?16
@@ -1676,12 +2472,10 @@ v56@0:8@16@24Q32B40Q44B52
 v72@0:8Q16@24@32Q40@48@56d64
 @"NSISO8601DateFormatter"
 @"NSDateFormatter"
-@"NSDate"
 @40@0:8@16@24d32
 @"<BMStreamCRDTLocationAssignerPolicy>"
 @"BMStreamCRDTLocation"40@0:8@"NSString"16@"NSString"24d32
 @24@0:8d16
-i16@0:8
 ^v16@0:8
 r*16@0:8
 i24@0:8i16i20
@@ -1692,14 +2486,11 @@ i36@0:8@16i24^{sqlite3_stmt=}28
 v48@0:8@16[1{__va_list_tag=II^v^v}]24@32@40
 @52@0:8@16@24@32[1{__va_list_tag=II^v^v}]40B48
 B48@0:8^{sqlite3_stmt=}16@24@32[1{__va_list_tag=II^v^v}]40
-@40@0:8@16@24^@32
 @32@0:8@16[1{__va_list_tag=II^v^v}]24
 B56@0:8@16^@24@32@40[1{__va_list_tag=II^v^v}]48
 B40@0:8@16@24^@32
 B32@0:8@16[1{__va_list_tag=II^v^v}]24
 B32@0:8@16@?24
-B32@0:8@16^@24
-@24@0:8@?16
 B28@0:8i16^@20
 B36@0:8i16@20^@28
 B52@0:8i16@20^i28^i36^@44
@@ -1734,179 +2525,7 @@ B40@0:8@16@24[1{__va_list_tag=II^v^v}]32
 @28@0:8@16i24
 @36@0:8@16i24@28
 v32@0:8q16@?24
-unexpected modifier %lu
-updateLocationState: %lu forLocation:%@
-updateAllLocationsAtOrBefore:%@ to state %lu
-sessionContext is nil
-BMRapportSyncEngine%@: completing request, still inflight: %@
-BMRapportSyncEngine%@: completeRequest:deliveredToDevices %@ withErrors:%@
-BMRapportSyncEngine%@: sending request to device: %@
-BMRapportSyncEngine%@: request timed out because no devices are nearby
-BMRapportSyncEngine%@: received request %@ %@
-BMRapportSyncEngine%@: unable to determine sender model info: %@
-BMRapportSyncEngine%@: unable to determine platform for model %{public}@
-BMRapportSyncEngine%@: replying with CKXUncompressedFormatVersion atom batch
-BMRapportSyncEngine%@: mismatched protocol version %lu, expected %d
-BMRapportSyncEngine%@: should issue reciprocal request, %@
-BMRapportSyncEngine%@: fetch completion handler is reciprocal, YES, deviceIdentifiers, %@, errors, %@
-BMRapportSyncEngine%@: handleFetchAtomBatchesResponse %@ error %@ fromDevice: %@
-BMRapportSyncEngine%@: fetchAtomBatchesResponseHandler received response %@
-BMRapportSyncEngine%@: asked to defer activity, won't issue more requests to device %@ even though more data is available
-BMRapportSyncEngine%@: max request depth %lu hit, finishing request to device %@
-BMRapportSyncEngine%@: sending request to device %@ with sequence number %lu
-BMRapportSyncEngine%@: no more data coming from device %@ finishing request
-failed to delete remotes for stream %@: %@
-biomesyncd launched
-biomesyncd last exit status: %lld
-Tried to defer activity %s, but failed
-biome activity fired "com.apple.biomesyncd.metrics-collection"
-Database unavailable for activity "com.apple.biomesyncd.metrics-collection"
-biome running activity "com.apple.biomesyncd.metrics-collection"
-biome activity fired "com.apple.biomesyncd.periodic-sync"
-Database unavailable for activity "com.apple.biomesyncd.periodic-sync"
-biome running activity "com.apple.biomesyncd.periodic-sync"
-Received unexpected object on com.apple.notifyd.matching: %@
-Received com.apple.notifyd.matching: %s
-Handling com.apple.notifyd.matching: %s
-Database unavailable to handle "com.apple.rapport.CompanionLinkDeviceAdded"
-Received unexpected object on com.apple.rapport.matching: %@
-Received com.apple.rapport.matching: %s
-Handling com.apple.rapport.matching: %s
-Database unavailable to handle RapportWake
-Received SIGTERM
-failed to set user dir suffix: %{darwin.errno}d
-failed to initialize temporary directory: %{darwin.errno}d
-failed to resolve temporary directory: %{darwin.errno}d
-Starting tombstone enumerator from 0 for stream %@ site %@
-Starting tombstone enumerator from segment %@ offset %lu for stream %@ site %@
-delete must reference a corresponding append
-Expected no-data frame to be delete or pre-delete, but frame was %llu
-appendRecord %@ is of unexpected type %lu
-bookmark is nil, presumably because the referenced atom was a dummy append (dead on arrival) %@
-deleting event at bookmark %@
-droppping atom %@ as it is dead on arrival
-writeEventWithBody: %@
-adding %@ to atomBatch
-ingestChangesForSite: %@
-observed new data from non-local site %@
-read new appended BMStoreEvent: %@ at offset %lu
-failed to insert record %@
-read new deleted BMStoreEvent: %@ at offset %lu
-failed to batch ingest changes
-read BMStoreEvent tombstone: %@ at tombstone bookmark %@
-tombstone with unexpected deletion reason %lu
-failed to batch ingest deletions
-deleteLocationsUpToTTLAtTombstone: %@, siteIdentifier: %@
-deletedExpiredBufferedLocationsForSiteIdentifier: %@
-failed to delete atoms with location: %@
-atomsAfterDistributedTimestampVector: %@, stream: %@
-atomTableRecord %@
-%@ location is not active
-creating new batch with location %@
-BMSyncCKAtomRow missing bookmark %@
-Next enumerator bookmark %@ doesn't match expected %@
-read table BMStoreEvent: %@ at offset %lu
-bookmark is DOA, not attempting to resolve event
-mergeAtomBatches: %lu deletedLocations: %@
-handleDeletedLocation: %@
-failed to delete event at bookmark %@
-deleted location already handled
-location we haven't yet observed is now deleted %@
-mergeAtoms: %lu
-received missing location %@
-location is not active %@ skipping merge to not resurrect a dead location
-highest deleted location %@ is past incoming location %@
-received data for new location %@
-dropping atom with timestamp %@ since already merged
-atom with timestamp %@ already in table but not on disk
-causalReference location is unexpectedly nil
-failed to create reference location from location %@
-failed to insert referenceLocationRow for location %@
-addAtomRow: %@
-failed to commit, rolling back
-updating row for atom inferred to be applied to disk %@
-failed to update row: %@
-atom to apply to disk %@
-causal reference cache hit
-causal reference location %@ points to dead location, not a violation
-causal reference violation: missing causal reference %@ reference location %@
-unblocked: %@
-failed to apply atom to disk
-updating row for atom applied to disk %@
-BMRapportManager: already activated %@
-BMRapportManager: already activating %@
-BMRapportManager: activating %@
-BMRapportManager: failed to activate with error: %@
-BMRapportManager: activated successfully
-BMRapportManager: invalidated
-BMRapportManager: stop
-sendRequest:request:device:options:responseHandler: passed nil device
-BMRapportDevice[%@]: enqueueing request
-BMRapportDevice[%@]: activating client
-BMRapportDevice[%@]: using existing client
-handleActivationForDevice:error: passed nil device
-BMRapportDevice[%@]: activation %@%@
-BMRapportDevice[%@]: determined to not support service com.apple.biomesyncd.rapport
-handleInterruptionForDevice: passed nil device
-BMRapportDevice[%@]: interrupted
-sendNextRequestToDevice: passed nil device
-BMRapportDevice[%@]: expected request id and response handler in %@
-BMRapportDevice[%@]: being sent request %@ with options %@
-finishedSendingRequestsToDevice: passed nil device
-BMRapportDevice[%@]: request queue empty, invalidating client
-BMRapportDevice[%@]: advertisement data changed
-BMRapportDevice[%@]: pairing flags/attributes changed
-BMRapportDevice[%@]: distance changed: %s
-BMRapportDevice[%@]: distance wifi information element changed
-BMRapportDevice[%@]: name changed: %@
-BMRapportDevice[%@]: RSSI changed
-BMRapportDevice[%@]: SSID changed
-BMRapportDevice[%@]: proximity changed: %s
-BMRapportDevice[%@]: distance/angle/something changed
-BMRapportDevice[%@]: no transports available; expect a lost callback
-BMRapportDevice[%@]: got unexpected change flag: RPDeviceChangeFlags(%x)
-BMRapportManager: skipping RPCompanionLinkDevice missing identifier: %@
-BMRapportManager: skipping RPCompanionLinkDevice missing model: %@
-BMRapportManager: already discovered device, %@ as %@
-BMRapportDevice[%@]: ignoring device not listing service com.apple.biomesyncd.rapport
-BMRapportDevice[%@]: discovered
-BMRapportDevice[%@]: ignoring unsupported device
-BMRapportDevice[%@]: lost
-BMRapportDevice[%@]: invalidated
-failed to unarchive BMMultiStreamVectorClock with error %@
-failed to archive BMMultiStreamVectorClock with error %@
-failed to unarchive BMMultiStreamAtomBatches with error %@
-failed to archive BMMultiStreamAtomBatches with error %@
-Failed to insert: %@
-Failed to update: %@
-vector clock is empty %@
-syncWithCompletionHandler called
-failed to deserialize BMSyncAtomValue with error %@
-failed to serialize BMSyncAtomValue with error %@
-failed to deserialize BMStoreEventAtomValue with error %@
-failed to serialize BMStoreEventAtomValue with error %@
-Merging atom batches into %@
-Failed to instantiate CKAtomBatch, %@, %@
-Generating atom batch after clock: %@, version: %lu
-atomBatchesAfterClock %@ %@ %@
-Unable to sync now, because database is not currently accessible
-last sync: %{public}@ (%f ago), last attempt: %{public}@ (%f ago)
-syncNowWithCompletionHandler %@, errors: %@
-skipping sync
-transitioned to state %llu
-unrecoverable error: %@
-database corrupt: %@
-database corrupt
-error: %@
-migration not implemented
-BMSyncDatabase state queried while opening
-failed to close db %@
-failed to commit transcation
-%@ received nil deviceIdentifier
-recordSessionStart: %@
-recordSessionEnd: %@
-recordMessageToDeviceIdentifier: %@, %@
-recordAtomMergeResult: %@, %@
+softlink:r:path:/System/Library/PrivateFrameworks/BiomeLibrary.framework/BiomeLibrary
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1922,21 +2541,21 @@ recordAtomMergeResult: %@, %@
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13E6049a</string>
+<string>20A5283j</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.5</string>
+<string>16.0</string>
 <key>DTSDKBuild</key>
-<string>19F63</string>
+<string>20A5283j</string>
 <key>DTSDKName</key>
-<string>iphonesimulator15.5.internal</string>
+<string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>
-<string>1330</string>
+<string>1400</string>
 <key>DTXcodeBuild</key>
-<string>13E6049a</string>
+<string>14A6200i</string>
 <key>MinimumOSVersion</key>
-<string>15.5</string>
+<string>16.0</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
@@ -1950,40 +2569,110 @@ recordAtomMergeResult: %@, %@
 <dict>
 <key>application-identifier</key>
 <string>com.apple.biomesyncd</string>
+<key>aps-connection-initiate</key>
+<true/>
+<key>aps-environment</key>
+<string>serverPreferred</string>
 <key>com.apple.CompanionLink</key>
 <true/>
+<key>com.apple.application-identifier</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.developer.aps-environment</key>
+<string>serverPreferred</string>
+<key>com.apple.developer.icloud-container-environment</key>
+<string>Production</string>
+<key>com.apple.developer.icloud-container-identifiers</key>
+<array>
+<string>com.apple.biome.sync</string>
+</array>
+<key>com.apple.developer.icloud-services</key>
+<array>
+<string>CloudKit</string>
+</array>
+<key>com.apple.private.appleaccount.app-hidden-from-icloud-settings</key>
+<true/>
+<key>com.apple.private.aps-connection-initiate</key>
+<true/>
+<key>com.apple.private.biome.client-identifier</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.private.biome.read-write</key>
+<array>
+<string>ContextSync.LOI</string>
+</array>
+<key>com.apple.private.biome.sensorActivation</key>
+<true/>
+<key>com.apple.private.cloudkit.serviceNameForContainerMap</key>
+<dict>
+<key>com.apple.biome.sync</key>
+<string>com.apple.biome.sync</string>
+</dict>
+<key>com.apple.private.cloudkit.spi</key>
+<true/>
+<key>com.apple.private.ids.messaging</key>
+<array>
+<string>com.apple.private.alloy.contextsync</string>
+</array>
+<key>com.apple.private.ids.messaging.urgent-priority</key>
+<array>
+<string>com.apple.private.alloy.contextsync</string>
+</array>
 <key>com.apple.private.sandbox.profile:embedded</key>
 <string>temporary-sandbox</string>
 <key>com.apple.private.security.storage.Biome</key>
 <true/>
-<key>com.apple.security.exception.files.absolute-path.read-write</key>
+<key>com.apple.private.tcc.allow</key>
 <array>
-<string>/private/var/tmp/com.apple.biomesyncd/</string>
+<string>kTCCServiceLiverpool</string>
 </array>
 <key>com.apple.security.exception.files.home-relative-path.read-write</key>
 <array>
 <string>/Library/Biome/sync/</string>
 <string>/Library/Biome/streams/public</string>
 <string>/Library/Biome/streams/public/DeviceMetadata/</string>
+<string>/Library/Biome/streams/public/AppIntent/</string>
+<string>/Library/Biome/streams/public/AppLaunch/</string>
+<string>/Library/Biome/streams/public/Workout/</string>
 <string>/Library/Biome/streams/restricted</string>
 <string>/Library/Biome/streams/restricted/feedbackSocialHighlights/</string>
 <string>/Library/Biome/streams/restricted/SiriMemoryReferenceResolutionStream/</string>
+<string>/Library/Biome/streams/restricted/Device.Power.PluggedIn/</string>
+<string>/Library/Biome/streams/restricted/Device.Wireless.WiFi/</string>
+<string>/Library/Biome/streams/restricted/Device.Power.BatteryLevel/</string>
 </array>
 <key>com.apple.security.exception.mach-lookup.global-name</key>
 <array>
 <string>com.apple.CompanionLink</string>
+<string>com.apple.biomed.sensorActivation</string>
+<string>com.apple.cloudd</string>
+<string>com.apple.apsd</string>
+<string>com.apple.identityservicesd.embedded.auth</string>
+</array>
+<key>com.apple.security.exception.shared-preference.read-only</key>
+<array>
+<string>com.apple.CloudKit</string>
+<string>com.apple.ids</string>
+<string>com.apple.facetime.bag</string>
 </array>
 <key>com.apple.security.exception.shared-preference.read-write</key>
 <array>
 <string>com.apple.biomesyncd</string>
+<string>com.apple.contextsync.subscriptions</string>
 </array>
+<key>com.apple.security.network.client</key>
+<true/>
+<key>com.apple.security.network.server</key>
+<true/>
 <key>com.apple.security.ts.mobile-keybag-access</key>
+<true/>
+<key>com.apple.security.ts.tmpdir</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.wifi.manager-access</key>
 <true/>
 <key>platform-application</key>
 <true/>
 </dict>
 </plist>
-@(#)PROGRAM:biomesyncd  PROJECT:BiomeSync-63.5.12
+@(#)PROGRAM:biomesyncd  PROJECT:BiomeSync-89.2.2
 CREATE TABLE Metadata (
  key TEXT UNIQUE PRIMARY KEY ON CONFLICT REPLACE NOT NULL,
  value
@@ -2004,6 +2693,7 @@ CREATE TABLE CKAtom (
  ref_clock INTEGER,
  ref_location_id INTEGER,
  -- CKAtom value
+ value_version INTEGER,
  value_data BLOB,
  on_disk BOOLEAN,
  CONSTRAINT "ref_type <=> (ref_site AND ref_clock)"
@@ -2029,7 +2719,7 @@ CREATE TABLE CRDTLocation (
  stream STRING NOT NULL,
  site STRING NOT NULL,
  day INTEGER NOT NULL,
- state INTENGER NOT NULL
+ state INTEGER NOT NULL
 CREATE INDEX idx_crdt_location ON CRDTLocation(stream, site, day);
 CREATE INDEX idx_crdt_location_state ON CRDTLocation(stream, site, state, day DESC);
 CREATE TABLE TombstoneBookmark (
@@ -2046,14 +2736,14 @@ CREATE TABLE DevicePeer (
  platform INTEGER,
  last_sync_date INTEGER,
  protocol_version INTEGER NOT NULL
-CREATE TABLE IF NOT EXISTS SyncSessionLog (
+CREATE TABLE SyncSessionLog (
  session_id BLOB,
  start_timestamp INTEGER,
  end_timestamp INTEGER,
  transport INTEGER,
  reason INTEGER,
  is_reciprocal BOOL
-CREATE TABLE IF NOT EXISTS SyncMessageLog (
+CREATE TABLE SyncMessageLog (
  session_id BLOB,
  message_id INTEGER,
  timestamp INTEGER,
@@ -2061,7 +2751,8 @@ CREATE TABLE IF NOT EXISTS SyncMessageLog (
  reachable BOOL,
  is_reciprocal BOOL,
  atom_batch_bytes INTEGER
-CREATE TABLE IF NOT EXISTS AtomMergedLog (
+CREATE INDEX idx_syncmessagelog_session_id ON SyncMessageLog(session_id);
+CREATE TABLE AtomMergedLog (
  session_id BLOB,
  message_id INTEGER,
  stream STRING,
@@ -2070,252 +2761,336 @@ CREATE TABLE IF NOT EXISTS AtomMergedLog (
  relayed_by_site_identifier STRING,
  synced_at INTEGER,
  event_created_at INTEGER
-initWithLocation:state:primaryKey:
-init
-initWithFormat:
-location
-isEqual:
-state
-hash
-numberWithUnsignedInteger:
-initWithLocation:state:
-description
-primaryKey
-.cxx_destruct
-_location
-_state
-_primaryKey
-T@"BMStreamCRDTLocation",R,N,V_location
-TQ,R,N,V_state
-TQ,R,N,V_primaryKey
-stringForColumn:
-doubleForColumn:
-initWithTimeIntervalSinceReferenceDate:
-initWithStreamName:siteIdentifier:day:
-intForColumn:
-initWithFMResultSet:modifier:
-streamName
-siteIdentifier
-timeIntervalSinceReferenceDate
-numberWithDouble:
-arrayWithObjects:count:
-SELECT_FROM:COLUMNS:WHERE:
-next
-upsertLocation:
-dictionaryWithObjects:forKeys:count:
-UPDATE:SET:WHERE:
-locationRowWithLocation:
-INSERT_INTO:VALUES:
-lastInsertRowId
-DELETE_FROM:WHERE:
-SELECT_FROM:COLUMNS:WHERE:ORDER_BY:LIMIT:
-addObject:
-updateLocationState:forLocation:
-updateAllLocationsAtOrBefore:state:
-insertLocationIfNotExists:withState:
-removeAllDeletedLocationsBeforeHighestDeletedLocation:
-locationsWithState:
-highestDeletedLocationsForStream:
-highestDeletedLocationForSiteIdentifier:inStream:
-sessionID
-setSessionID:
-messageID
-setMessageID:
-originatingSiteIdentifier
-setOriginatingSiteIdentifier:
-_sessionID
-_messageID
-_originatingSiteIdentifier
-T@"NSString",&,N,V_sessionID
-TQ,N,V_messageID
-T@"NSString",&,N,V_originatingSiteIdentifier
+CREATE INDEX idx_atommergedlog_session_id ON AtomMergedLog(session_id);
+CREATE INDEX idx_atommergedlog_owning_site_identifier ON AtomMergedLog(owning_site_identifier);
+CREATE TABLE CKRecord (
+ location_id INTEGER,
+ sync_to_cloud_kit BOOL,
+ record_metadata BLOB,
+ record_name STRING,
+ stream_identifier STRING,
+ local_mergeable_value BLOB,
+ deleting BOOL,
+ PRIMARY KEY (stream_identifier, record_name)
+ FOREIGN KEY (location_id) REFERENCES CRDTLocation(id)
+CREATE INDEX idx_ckrecord ON CKRecord(record_name);
+CREATE TABLE CKMergeableRecordValue (
+ stream_name STRING,
+ record_name STRING,
+ server_mergeable_value BLOB,
+ FOREIGN KEY (stream_name, record_name) REFERENCES CKRecord(stream_identifier, record_name)
+CREATE TABLE CKZone (
+ zone_name STRING NOT NULL,
+ zone_uuid STRING NOT NULL,
+ recovery_state INTEGER,
+ attempted_recovery_date INTEGER
+zoneID
 UUID
 UUIDString
-recordSessionStart:transport:reason:isReciprocal:
-recordSessionEnd:
-recordMessageToDeviceIdentifier:sessionID:messageID:reachable:bytes:isReciprocal:
-recordAtomMergeResult:inStream:sessionID:messageID:ownerSite:originatingSite:eventCreatedAt:
-initWithDatabase:
-sessionContext
-recordMessageToDeviceIdentifier:reachable:bytes:isReciprocal:sessionContext:
-recordAtomMergeResult:inStream:ownerSite:originatingSite:eventCreatedAt:sessionContext:
-_database
-computeAggregatedSessionLogs
-countByEnumeratingWithState:objects:count:
-sendSyncSessionLog:
-compactAndDeleteSessionLogs
-initWithDatabase:activity:
-computeAndSendAggregatedMetrics
-_activity
-length
-initWithMaxBytes:
-copyWithZone:
-canAddAtomWithData:
-didAddAtomWithData:
-_maxBytes
-_usedBytes
-initWithMaxCount:
-_maxCount
-_atomCount
-copy
-initWithChunkerPolicy:
-moreComing
-setMoreComing:
-_chunkerPolicy
-_moreComing
-TB,N,V_moreComing
-initWithName:model:platform:
-initWithDeviceIdentifier:metadata:protocolVersion:
-initWithFMResultSet:
-close
-deviceIdentifier
-deviceWithIdentifier:
-metadata
-name
-numberWithBool:
-model
-platform
-numberWithInteger:
-protocolVersion
-dateForColumnIndex:
-localDevice
-upsertSyncDevicePeer:isMe:
-lastSyncDateFromAnyDevice
-lastSyncDateOfDeviceWithIdentifier:
-setLastSyncDate:forDeviceWithIdentifier:
-allPeers
-osBuildVersion
-isEqualToString:
-objectForKeyedSubscript:
-null
-unsignedIntegerValue
-devicePeerMetadata
-initFromDictionary:
-dictionaryRepresentation
-_name
-_model
-_platform
-T@"NSString",R,C,N,V_name
-T@"NSString",R,C,N,V_model
-Tq,R,N,V_platform
-setProtocolVersion:
-_deviceIdentifier
-_metadata
-_protocolVersion
-T@"NSString",R,C,N,V_deviceIdentifier
-T@"BMSyncDevicePeerMetadata",R,N,V_metadata
-TQ,N,V_protocolVersion
-startRequestTimeout
-stopRequestTimeout
-requestBlock
-removeObject:
-setObject:forKeyedSubscript:
-requestTimeoutDidFire
-requestTimeoutHandler
-initWithUUID:activity:requestBlock:queue:completionHandler:
-runRequestOnDevice:
-markAsInFlightToDevice:
-markAsDeliveredToDevice:withError:
-uuid
-setUuid:
-activity
-setActivity:
-setRequestBlock:
-completionHandler
-setCompletionHandler:
-deliveredToDevices
-setDeliveredToDevices:
-inFlightToDevices
-setInFlightToDevices:
-errorFromDevice
-setErrorFromDevice:
-queue
-setQueue:
-requestTimeout
-setRequestTimeout:
-setRequestTimeoutHandler:
-setSessionContext:
-_transaction
-_deliveredToDevices
-_inFlightToDevices
-_errorFromDevice
-_uuid
-_requestBlock
-_completionHandler
-_queue
-_requestTimeout
-_requestTimeoutHandler
-_sessionContext
-T@"NSUUID",&,N,V_uuid
-T@"NSObject<OS_xpc_object>",&,N,V_activity
-T@?,C,N,V_requestBlock
-T@?,C,N,V_completionHandler
-T@"NSSet",&,N,V_deliveredToDevices
-T@"NSSet",&,N,V_inFlightToDevices
-T@"NSDictionary",&,N,V_errorFromDevice
-T@"NSObject<OS_dispatch_queue>",&,N,V_queue
-T@"NSObject<OS_dispatch_source>",&,N,V_requestTimeout
-T@?,C,N,V_requestTimeoutHandler
-T@"BMSyncSessionContext",&,N,V_sessionContext
-peerStatusTracker
-metricsCollector
-initWithQueue:
-setDelegate:
-localDeviceIdentifierCreatingIfNecessary
-registerRequests
-start
-fetchAtomBatchesIsReciprocal:reason:activity:completionHandler:
-discoveredDevices
-setWithArray:
-containsObject:
-isSubsetOfSet:
-unionSet:
-bmDeviceIdentifier
-siteSuffix
+_writeEventData:dataVersion:timestamp:outBookmark:
+accountInfoWithCompletionHandler:
+accountStatus
+activateWithCompletion:
+activeDevices
+addClockValuesInIndexSet:forSiteIdentifier:
+addClockValuesInIndexSet:withAtomState:forSiteIdentifier:
+addEntriesFromDictionary:
+addObject:
+addObjectsFromArray:
+addOperation:
+addRecordIDsToSave:recordIDsToDelete:
+addRecordZonesToSave:recordZoneIDsToDelete:
 allObjects
+allSiteIdentifiers
 allValues
-completeRequest:deliveredToDevices:withErrors:
-removeObjectForKey:
-buildAtomBatchRequestWithIsReciprocal:sequenceNumber:
-objectForKey:
-sendFetchAtomBatchesRequest:toDevice:forRequest:
+allocWithZone:
+anyObject
+appendAtomWithBlock:
+appendFormat:
+appendString:
+appendWithProxyBlock:
+archivedDataWithRootObject:requiringSecureCoding:error:
+array
+arrayWithArray:
+arrayWithCapacity:
+arrayWithObjects:
+arrayWithObjects:count:
+atomType
+boolForEntitlement:
+boolValue
+bytes
+charValue
+characterAtIndex:
+clockValue
+clockValuesForSiteIdentifier:
+code
+compare:
+compareToTimestampVector:
+compareToVector:
+componentsJoinedByString:
+componentsSeparatedByString:
+containerWithIdentifier:
+containsObject:
+containsString:
+contentsVector
+contextSyncManager
+copy
+count
+countByEnumeratingWithState:objects:count:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+currentHandler
+data
+dataUsingEncoding:
+dataWithBytes:length:
+dataWithBytesNoCopy:length:freeWhenDone:
+dataWithError:
+datastorePath
+dateWithTimeIntervalSince1970:
+dateWithTimeIntervalSinceReferenceDate:
+decodeObjectOfClass:forKey:
+decodeObjectOfClasses:forKey:
+defaultManager
+deleteEventAtBookmark:outTombstoneBookmark:
+deletionReason
+deregisterRequestID:
+deviceToDeviceEncryptionAvailability
+dictionary
+dictionaryWithCapacity:
+dictionaryWithObject:forKey:
+dictionaryWithObjects:forKeys:count:
+didChangeValueForKey:
+dispatchQueue
+distantPast
+distributedSiteIdentifier
+domain
+doubleValue
+encodeObject:forKey:
+encodeSystemFieldsWithCoder:
+encodedData
+encryptedValues
+enumerateAtomsWithOptions:usingBlock:
+enumerateRangesUsingBlock:
 errorWithDomain:code:userInfo:
-setObject:forKey:
-runRequest:onDevice:
-isReciprocalRequest
-handleFetchAtomBatchesResponse:options:error:fromDevice:forRequest:isReciprocal:
-sendRequest:request:toDevice:responseHandler:
-vectorClockForStreamsSupportingTransportType:direction:
-localDeviceUpdatingIfNecessary
-setPeer:
-setWalltime:
-setBatchSize:
-setBatchSequenceNumber:
-setVectorClock:
-setIsReciprocalRequest:
-setAtomBatchVersion:
-fetchAtomBatchesRequestHandler
-registerRequestID:requestHandler:
-supportsSyncingWithPlatform:overTransport:inDirection:
+eventBody
+eventBodyClass
+exceptionWithName:reason:userInfo:
+fetchChangesWithCompletionHandler:
+fileExistsAtPath:
+fileSystemRepresentation
+fileURLWithPath:
+finishWritingWithError:
+firstIndex
+floatValue
+frame
+handleFailureInFunction:file:lineNumber:description:
+handleFailureInMethod:object:file:lineNumber:description:
+hasPrefix:
+identifier
+idsDeviceIdentifier
+indexSetWithIndex:
+indexSetWithIndexesInRange:
+initForReadingFromData:error:
+initRequiringSecureCoding:
+initWithArray:
+initWithAtomBatch:error:
+initWithCapacity:
+initWithConfiguration:
+initWithData:
+initWithData:encoding:
+initWithData:error:
+initWithDatabase:dataSource:metadata:
+initWithDictionary:
+initWithFormat:
+initWithFormat:arguments:
+initWithIdentifier:
+initWithIndex:
+initWithLocaleIdentifier:
+initWithMachServiceName:
+initWithMergeableDelta:error:
+initWithMergeableValueID:timestamp:type:
+initWithName:zoneID:
+initWithRecordName:zoneID:
+initWithRecordType:recordID:
+initWithSet:
+initWithSiteIdentifierObject:clockValue:
+initWithStoreBasePath:segmentSize:
+initWithStream:config:
+initWithStream:permission:config:includeTombstones:
+initWithStream:segment:iterationStartTime:offset:
+initWithTimeIntervalSinceReferenceDate:
+initWithTimestamps:
+initWithZoneID:
+initWithZoneName:
+initWithZoneName:ownerName:
+initWriterWithMergeableValueID:metadata:formatVersion:error:
+intValue
+integerValue
+interfaceWithProtocol:
+invalidate
+isCancelled
+isEqualToDate:
+isEqualToReference:
+isEqualToSet:
+isEqualToString:
+isSubsetOfSet:
+keyEnumerator
+lastIndex
+lastObject
+length
+localizedFailureReason
+longLongValue
+longValue
+lowercaseString
+maxAge
+mergeIntoMergeable:error:
+mergeRecordValue:error:
+mergeableValueID
+methodForSelector:
+minusSet:
+modifier
+modifyPendingChangesWithCompletionHandler:
+mutableCopy
+newEnumeratorFromBookmark:options:
+newEnumeratorFromStartTime:options:
+newRestrictedStreamDefaultConfiguration
+newTombstoneEnumeratorFromBookmark:
+newTombstoneEnumeratorFromStartTime:
+nextEvent
+nextObject
+nextTombstoneEvent
+null
+numberWithBool:
+numberWithDouble:
+numberWithFloat:
+numberWithInt:
+numberWithInteger:
+numberWithLong:
+numberWithLongLong:
+numberWithShort:
+numberWithUnsignedChar:
+numberWithUnsignedInt:
+numberWithUnsignedInteger:
+numberWithUnsignedLong:
+numberWithUnsignedLongLong:
+numberWithUnsignedShort:
+objCType
+objectAtIndex:
+objectEnumerator
+objectForKey:
+objectsPassingTest:
+offset
+osBuildVersion
+pathForStreamIdentifier:streamType:
+pointerValue
+popFirstObject
+privateCloudDatabase
+processWithXPCConnection:
+proximity
+proxyAtIndex:
+pruningPolicy
+raise
+recordChangeTag
+recordID
+recordType
+reference
+references
+registerEventID:options:handler:
+registerRequestID:options:handler:
+remoteStreamName
 removeAllObjects
-stop
-atomBatchVersion
-vectorClock
-atomBatchesAfterVectorClock:targetPlatform:transportType:direction:version:chunker:
-setUnseenPeers:
-setAtomBatches:
-batchSequenceNumber
-deletedLocations
-setDeletedLocations:
-finishRequest:toDevice:withError:peerInfo:
-peer
-setBmDeviceIdentifier:
-atomBatchBytes
-atomBatches
-mergeAtomBatches:deletedLocations:sessionContext:
-completeRequestIfDeliveredToAllNearbyDevices:
-upsertSyncDevicePeer:
-localDeviceUpdatingIfNeccesaryWithProtocolVersion:
+removeItemAtPath:error:
+removeLastObject
+removeObject:
+removeObjectForKey:
+resume
+segmentName
+segmentSize
+sendEvent:payload:
+sendEventID:event:options:completion:
+sendRequestID:request:options:responseHandler:
+setAtomBehavior:
+setAtomType:
+setAutomaticSyncingEnabled:
+setClock:
+setControlFlags:
+setDestinationDevice:
+setDeviceChangedHandler:
+setDeviceFoundHandler:
+setDeviceLostHandler:
+setDispatchQueue:
+setExpirationAfterTimeInterval:
+setExportedInterface:
+setExportedObject:
+setIdentifier:
+setInterruptionHandler:
+setInvalidationHandler:
+setLocalDeviceUpdatedHandler:
+setLocale:
+setMaxConcurrentOperationCount:
+setMergeable:
+setModifier:
+setNeedsToFetchChanges
+setObject:forKey:
+setObject:forKeyedSubscript:
+setRemoteObjectInterface:
+setRemoteStreamName:
+setServiceType:
+setSiteIdentifier:
+setStoreLocationOption:
+setTimeZone:
+setType:
+setUnderlyingQueue:
+setUnordered:
+setValue:
+setValue:forKey:
+setVersion:
+setWithArray:
+setWithObjects:
+shortValue
+siteIdentifierObject
+size:error:
+splitWithMaximumSize:atomic:error:
+standardUserDefaults
+storeConfigurationForStream:
+streamForStreamIdentifier:
+stringByAppendingPathComponent:
+stringByAppendingString:
+stringByDeletingLastPathComponent
+stringByDeletingPathExtension
+stringByReplacingOccurrencesOfString:withString:
+stringWithCapacity:
+stringWithFormat:
+stringWithUTF8String:
+substringFromIndex:
+substringToIndex:
+substringWithRange:
+syncDirectory
+timeIntervalSince1970
+timeIntervalSinceDate:
+timeIntervalSinceNow
+timeIntervalSinceReferenceDate
+timeZoneForSecondsFromGMT:
+timestampCount
+timestampCountForSiteIdentifier:
+timestamps
+unarchivedObjectOfClass:fromData:error:
+unarchivedObjectOfClasses:fromData:error:
+unionSet:
+unordered
+unsignedCharValue
+unsignedIntValue
+unsignedIntegerValue
+unsignedLongLongValue
+unsignedLongValue
+unsignedShortValue
+userInfo
+valueForKey:
+valueWithNonretainedObject:
+willChangeValueForKey:
+writeEventBodyClass:
+UTF8String
+init
+isEqual:
 class
 self
 performSelector:
@@ -2331,20 +3106,200 @@ release
 autorelease
 retainCount
 zone
+hash
 superclass
+description
 debugDescription
 TQ,R
 T#,R
 T@"NSString",R,C
+mergeDeltas:error:
+mergeableDeltasForMetadata:error:
+mergeableDeltasForValueID:withMetadata:error:
+stateVector
+deltaDeliveryRequirements
+initWithStreamCRDT:locationRow:database:queue:
+streamCRDT
+locationRow
+queue
+setQueue:
+.cxx_destruct
+_streamCRDT
+_locationRow
+_queue
+T@"BMStreamCKCRDT",R,N,V_streamCRDT
+T@"BMSyncCRDTLocationRow",R,N,V_locationRow
+T@"NSObject<OS_dispatch_queue>",&,N,V_queue
+initWithLocation:state:
+initWithLocation:state:primaryKey:
+location
+state
+primaryKey
+_location
+_state
+_primaryKey
+T@"BMStreamCRDTLocation",R,N,V_location
+TQ,R,N,V_state
+TQ,R,N,V_primaryKey
+initWithFMResultSet:modifier:
+locationRowWithLocation:
+updateLocationState:forLocation:
+updateAllLocationsAtOrBefore:state:
+insertLocationIfNotExists:withState:
+upsertLocation:
+removeAllDeletedLocationsBeforeHighestDeletedLocation:
+previousLocationRowBeforeLocationRow:
+locationsWithState:
+highestDeletedLocationsForStream:
+highestDeletedLocationForSiteIdentifier:inStream:
+CRDTLocationCount
+timestampVectorToTimeStampClockVector:
+timestampClockVectorToTimeStampVector:
+multiStreamTimestampClockVectorToVectorClock:
+multiStreamVectorClockToTimestampVectorClock:
+rangeTimestampClockVectorFromIndexClockVector:
+multiStreamRangeClockVectorFromIndexClockVectors:
+sessionID
+setSessionID:
+messageID
+setMessageID:
+originatingSiteIdentifier
+setOriginatingSiteIdentifier:
+_sessionID
+_messageID
+_originatingSiteIdentifier
+T@"NSString",&,N,V_sessionID
+TQ,N,V_messageID
+T@"NSString",&,N,V_originatingSiteIdentifier
+initWithDatabase:
+sessionContext
+recordSessionStart:transport:reason:isReciprocal:
+recordSessionEnd:
+recordMessageToDeviceIdentifier:reachable:bytes:isReciprocal:sessionContext:
+recordAtomMergeResult:inStream:ownerSite:originatingSite:eventCreatedAt:sessionContext:
+_database
+initWithDatabase:activity:
+computeAndSendAggregatedMetrics
+computeAggregatedSessionLogs
+compactAndDeleteSessionLogs
+_activity
+copyWithZone:
+canAddAtomWithData:
+didAddAtomWithData:
+initWithMaxBytes:
+_maxBytes
+_usedBytes
+initWithMaxCount:
+_maxCount
+_atomCount
+initWithChunkerPolicy:
+moreComing
+setMoreComing:
+_chunkerPolicy
+_moreComing
+TB,N,V_moreComing
+initWithFMResultSet:
+localDevice
+upsertSyncDevicePeer:isMe:
+deviceWithIdentifier:
+lastSyncDateFromAnyDevice
+lastSyncDateOfDeviceWithIdentifier:
+setLastSyncDate:forDeviceWithIdentifier:
+allPeers
+devicePeerMetadata
+initFromDictionary:
+dictionaryRepresentation
+initWithName:model:platform:
+name
+model
+platform
+_name
+_model
+_platform
+T@"NSString",R,C,N,V_name
+T@"NSString",R,C,N,V_model
+Tq,R,N,V_platform
+initWithDeviceIdentifier:metadata:protocolVersion:
+deviceIdentifier
+metadata
+protocolVersion
+setProtocolVersion:
+_deviceIdentifier
+_metadata
+_protocolVersion
+T@"NSString",R,C,N,V_deviceIdentifier
+T@"BMSyncDevicePeerMetadata",R,N,V_metadata
+TQ,N,V_protocolVersion
+initWithUUID:activity:requestBlock:queue:completionHandler:
+runRequestOnDevice:
+markAsInFlightToDevice:
+markAsDeliveredToDevice:withError:
+startRequestTimeout
+stopRequestTimeout
+requestTimeoutDidFire
+uuid
+setUuid:
+activity
+setActivity:
+requestBlock
+setRequestBlock:
+completionHandler
+setCompletionHandler:
+deliveredToDevices
+setDeliveredToDevices:
+inFlightToDevices
+setInFlightToDevices:
+errorFromDevice
+setErrorFromDevice:
+requestTimeout
+setRequestTimeout:
+requestTimeoutHandler
+setRequestTimeoutHandler:
+setSessionContext:
+_transaction
+_deliveredToDevices
+_inFlightToDevices
+_errorFromDevice
+_uuid
+_requestBlock
+_completionHandler
+_requestTimeout
+_requestTimeoutHandler
+_sessionContext
+T@"NSUUID",&,N,V_uuid
+T@"NSObject<OS_xpc_object>",&,N,V_activity
+T@?,C,N,V_requestBlock
+T@?,C,N,V_completionHandler
+T@"NSSet",&,N,V_deliveredToDevices
+T@"NSSet",&,N,V_inFlightToDevices
+T@"NSDictionary",&,N,V_errorFromDevice
+T@"NSObject<OS_dispatch_source>",&,N,V_requestTimeout
+T@?,C,N,V_requestTimeoutHandler
+T@"BMSyncSessionContext",&,N,V_sessionContext
 rapportManager:isDeviceSupported:
 rapportManager:didDiscoverBMRapportDevice:
 rapportManager:didLoseNearbyBMRapportDevice:
+rapportManager:localDeviceUpdated:
 rapportManagerDiscoveryTimedOut:
 initWithDistributedSyncMultiStreamManager:queue:
 initWithDistributedSyncMultiStreamManager:rapportManager:atomBatchChunkerPolicy:queue:
 startClient
 startServer
 syncNowWithReason:activity:completionHandler:
+completeRequestIfDeliveredToAllNearbyDevices:
+completeRequest:deliveredToDevices:withErrors:
+runRequest:onDevice:
+fetchAtomBatchesIsReciprocal:reason:activity:completionHandler:
+sendFetchAtomBatchesRequest:toDevice:forRequest:
+buildAtomBatchRequestWithIsReciprocal:sequenceNumber:transportType:
+registerRequests
+fetchAtomBatchesRequestHandler
+handleFetchAtomBatchesResponse:options:error:fromDevice:forRequest:isReciprocal:
+finishRequest:toDevice:withError:peerInfo:
+localDeviceUpdatingIfNecessary
+siteSuffix
+peerStatusTracker
+metricsCollector
 setMetricsCollector:
 reciprocalCompletionBlock
 setReciprocalCompletionBlock:
@@ -2360,19 +3315,8 @@ T@?,C,N,V_reciprocalCompletionBlock
 T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"BMSyncDevicePeerStatusTracker",R,N,V_peerStatusTracker
 T@"BMSyncSessionMetricsCollector",&,N,V_metricsCollector
-syncableStreamIDs
-path
-stringByAppendingPathComponent:
-defaultManager
-removeItemAtPath:error:
-userInfo
-code
-descriptor
-localizedFailureReason
-setCorruptionHandler:
-open
-distributedSyncMultiStreamManagerWithDatabase:
-initWithSyncEngine:peerStatusTracker:database:queue:
+initWithQueue:
+start
 setState:
 database
 setDatabase:
@@ -2380,235 +3324,173 @@ distributedSyncMultiStreamManager
 setDistributedSyncMultiStreamManager:
 rapportSyncEngine
 setRapportSyncEngine:
+cloudKitSyncEngine
+setCloudKitSyncEngine:
 syncScheduler
 setSyncScheduler:
 _distributedSyncMultiStreamManager
 _rapportSyncEngine
+_cloudKitSyncEngine
 _syncScheduler
 TQ,N,V_state
 T@"BMSyncDatabase",&,N,V_database
 T@"BMDistributedSyncMultiStreamManager",&,N,V_distributedSyncMultiStreamManager
 T@"BMRapportSyncEngine",&,N,V_rapportSyncEngine
+T@"BMCloudKitSyncEngine",&,N,V_cloudKitSyncEngine
 T@"BMSyncScheduler",&,N,V_syncScheduler
-sendEvent:payload:
-initWithQueue:core:
-syncNowIfPolicyAllowsWithReason:activity:
-currentHandler
-handleFailureInMethod:object:file:lineNumber:description:
-initWithAssignerPolicy:
-newEnumeratorFromStartTime:options:
-newEnumeratorFromBookmark:options:
-config
-remoteStreamName
-newTombstoneEnumeratorFromStartTime:
-segmentName
-offset
-newTombstoneEnumeratorFromBookmark:
-dataUsingEncoding:
-latestDistributedTimestampForSiteIdentifier:inStream:
-initWithSiteIdentifier:clockValue:
-clockValue
-timestamp
-locationWithStreamName:siteIdentifier:timestamp:
-ckAtomLocation
-initWithLocation:timestamp:type:
-initWithLocation:timestamp:referenceLocation:causalReference:type:bookmark:
-ckAtomRowForAtomWithBookmark:type:forSiteIdentifier:inStream:
-containsCKAtomRowWithSegment:inStream:
-frame
-data
-dataVersion
-initWithEventData:dataVersion:dataTimestamp:
-initWithAtomType:value:
-causalReference
-ckAtomRowWithTimestamp:inStream:
-type
-bookmark
-deleteEventAtBookmark:outTombstoneBookmark:
-value
-eventData
-eventBodyClass
-registeredEventClass
-writeEventBodyClass:
-dataTimestamp
-_writeEventData:dataVersion:timestamp:outBookmark:
-addAtomWithValueData:toAtomBatch:fromAtomTableRecord:
-setSiteIdentifier:
-setClock:
-modifier
-setModifier:
-unordered
-setUnordered:
-references
-setType:
-identifier
-setIdentifier:
-appendWithProxyBlock:
-setAtomType:
-setAtomBehavior:
-setValue:
-appendAtomWithBlock:
-datastorePath
-segmentSize
-initWithStoreBasePath:segmentSize:
-setStoreLocationOption:
-setRemoteStreamName:
-initWithStream:permission:config:includeTombstones:
-timestamps
-initWithData:encoding:
-ingestNewChangesForSite:
-readerForSiteIdentifier:
-latestCKAtomRowOfType:forSiteIdentifier:inStream:
+sendSyncSessionLog:
+supportsSecureCoding
+deserialize:error:
+encodeWithCoder:
+initWithCoder:
+TB,R
+setVectorClockTo:forStreamIdentifier:
+timestampClockVectorForStreamIdentifier:
+allKeys
+serialize:
+_vectorClock
+initWithStreamID:config:policy:locationAssignerPolicy:localSiteIdentifier:database:
 newEnumeratorFromBookmark:reader:
-nextEvent
-initWithDatabase:transcationBatchSize:
-ckAtomTableRecordForEvent:ofType:atBookmark:previousTableRecord:siteIdentifier:
-addCKAtomRow:inStream:
-executeOperationWithBlock:
-latestTombstoneBookmarkForSiteIdentifier:inStream:
 newTombstoneEnumeratorFromBookmark:reader:
-nextTombstoneEvent
-eventBody
-initWithStream:segment:iterationStartTime:offset:
-deletionReason
-saveLatestTombstoneBookmark:forSiteIdentifier:inStream:
+ckAtomTableRecordForEvent:ofType:atBookmark:previousTableRecord:siteIdentifier:
+atomValueFromEvent:ofType:version:
+handleDeleteAtomRow:usingPruner:outBookmark:outTombstoneBookmark:
+writeAtomValue:fromAtomRow:usingWriter:outBookmark:
+addAtomToAtomBatch:ifChunkerAllows:fromAtomTableRecord:atomValueData:version:atomValueVersion:
+addAtomWithValueData:toAtomBatch:fromAtomTableRecord:version:atomValueVersion:
+readerForSiteIdentifier:
+ingestNewChangesFromAllSitesInVectorClock:transportType:
+ingestNewChangesForSite:transportType:
 deleteLocationsUpToTTLAtTombstone:siteIdentifier:
 deletedExpiredBufferedLocationsForSiteIdentifier:
-computeHighestLocationToDeleteUpToBookmark:forSiteIdentifier:inStream:
 deleteAtOrBeforeHighestDeletedLocation:
-highestLocationWithBufferedAtomsOlderThan:forSiteIdentifier:inStream:
-deleteAllAtomsAtOrBeforeLocation:
-ingestNewChangesFromAllSitesInVectorClock:
-initWriterWithAtomLocation:
-finishWriting
-atomValueFromEvent:ofType:
-serialize
-addAtomToAtomBatch:ifChunkerAllows:fromAtomTableRecord:atomValueData:
-atomRowsAfterVectorClock:inStream:enumerateWithBlock:
-count
-handleDeletedLocation:
-mergeAtomBatches:sessionContext:
-initWithStream:config:
-atomsAtOrBeforeLocation:ofType:enumerateWithBlock:
-mergeAtoms:sessionContext:
-numberOfAtoms
-initWithCKAtomLocation:
-compare:
-beginTransaction
-containsCKAtomRowWithTimestamp:inStream:onDisk:
-bm_description
-proxyAtIndex:
-reference
-atomType
-initWithLocation:timestamp:referenceLocation:causalReference:type:valueData:
-enumerateAtomsWithOptions:usingBlock:
-commit
-rollback
-bytes
-valueData
-atomValueFromData:
-referenceLocation
-updateCKAtomRow:inStream:
-atomRowsNotOnDiskReferencingSiteIdentifier:inStream:enumerateWithBlock:
-isEqualToReference:
-writeAtomValue:fromAtomRow:usingWriter:outBookmark:
-handleDeleteAtomRow:usingPruner:outBookmark:outTombstoneBookmark:
-timestampVectorForStreamName:
-initWithStreamID:config:policy:locationAssignerPolicy:localSiteIdentifier:database:
-atomsAfterDistributedTimestampVector:version:chunker:
+populateAtomBatch:withAtomsInClockVector:forLocation:ckFormatVersion:valueVersion:chunker:
+atomsInClockVector:ckFormatVersion:chunker:transportType:enumerateWithBlock:
+handleDeletedLocation:deleteCKRecord:
+mergeAtomBatch:sessionContext:
+mergeAtomBatches:sessionContext:forLocation:
+clockVector
 streamID
-_streamName
+streamName
 _localSiteIdentifier
 _config
 _policy
 _locationBuilder
 _locationRowCache
 _streamID
+_streamName
 T@"BMSyncStreamID",R,N,V_streamID
-setDispatchQueue:
-setControlFlags:
-setServiceType:
-handleDiscoveryClientInvalidation
-setInvalidationHandler:
-didDiscoverDevice:
-setDeviceFoundHandler:
-didLoseDevice:
-setDeviceLostHandler:
-device:didChange:
-setDeviceChangedHandler:
-handleDiscoveryClientActivationOrError:
-activateWithCompletion:
-activeDevices
+T@"NSString",R,N,V_streamName
+readFrom:
+writeTo:
+_type
+_value
+_has
+zoneName
+zoneUUID
+recoveryState
+attemptedRecoveryDate
+_recoveryState
+_zoneName
+_zoneUUID
+_attemptedRecoveryDate
+T@"NSString",R,N,V_zoneName
+T@"NSString",R,N,V_zoneUUID
+Ti,R,N,V_recoveryState
+T@"NSDate",R,N,V_attemptedRecoveryDate
+ckZoneExists:
+ckZoneForZoneName:
+ckZoneSetAttemptingRecoveryForZoneName:state:
+ckZoneSetZoneVersionUUID:forZoneName:
+ckZoneSetAttemptedRecoveryDate:state:forZoneName:
+enumerateZonesWithBlock:
+initWithQueue:forSharedUse:
 createDiscoveryClientIfNotExists
-registerRequestID:options:handler:
-activateDiscoveryClient
+createSharedDiscoveryClientIfNotExists
+createDiscoveryClientWithControlFlags:
+activateDiscoveryLinkWithCompletion:
+activateDiscoveryClientWithCompletion:
+handleDiscoveryClientActivationOrError:
+handleDiscoveryClientInvalidation
+registerRequestID:requestHandler:
+registerEventID:eventHandler:
+discoveredDevices
+stop
+sendRequest:request:toDevice:responseHandler:
 sendRequest:request:device:options:responseHandler:
-deregisterRequestID:
-invalidate
-shortenedRapportIdentifier
-mutableCopy
-requestQueue
-client
-setClient:
-device
-setDestinationDevice:
-handleInterruptionForDevice:
-setInterruptionHandler:
-invalidateClientWithError:
+sendEvent:event:toDevice:completionHandler:
+activateDirectLinkToDevice:completionHandler:
+invalidateDirectLinkToDevice:
 handleActivationForDevice:error:
+handleInterruptionForDevice:
 sendNextRequestToDevice:
-domain
-rapportIdentifier
-popFirstObject
 finishedSendingRequestsToDevice:
-numberWithInt:
-sendRequestID:request:options:responseHandler:
-bm_companionLinkDeviceIdentifier
-proximity
-initWithRPCompanionLinkDevice:
-serviceTypes
+device:didChange:
+didDiscoverDevice:
+didLoseDevice:
+localDeviceUpdated:
 delegate
+setDelegate:
 registeredRequests
 setRegisteredRequests:
 _discoveryClient
 _discoveryClientState
 _devices
 _unsupportedDevices
+_sharedUse
 _delegate
 _registeredRequests
 T@"NSMutableDictionary",&,N,V_registeredRequests
 T@"<BMRapportManagerDelegate>",W,N,V_delegate
-array
-substringToIndex:
-dispatchQueue
+initWithRPCompanionLinkDevice:
+shortenedRapportIdentifier
+serviceTypes
+invalidateClientWithError:
 handleInvalidationWithError:
+rapportIdentifier
+bmDeviceIdentifier
+setBmDeviceIdentifier:
+device
 setDevice:
+client
+setClient:
+requestQueue
 setRequestQueue:
+linkState
+setLinkState:
 _rapportIdentifier
 _bmDeviceIdentifier
 _device
 _client
-T@"RPCompanionLinkDevice",&,N,V_device
-T@"RPCompanionLinkClient",&,N,V_client
+_linkState
 T@"NSMutableArray",&,N,V_requestQueue
 T@"NSArray",R,N
+TQ,N,V_linkState
 T@"NSString",R,N,V_rapportIdentifier
 T@"NSString",R,N
 T@"NSString",&,N,V_bmDeviceIdentifier
+T@"RPCompanionLinkDevice",&,N,V_device
+T@"RPCompanionLinkClient",&,N,V_client
 Tq,R,N
-doubleValue
+peer
+setPeer:
 walltime
+setWalltime:
 _peer
 _walltime
 T@"BMSyncDevicePeer",&,N,V_peer
 Td,N,V_walltime
-boolValue
-deserialize:error:
-serialize:
-addEntriesFromDictionary:
+vectorClock
+setVectorClock:
+atomBatchVersion
+setAtomBatchVersion:
+isReciprocalRequest
+setIsReciprocalRequest:
 batchSize
+setBatchSize:
+batchSequenceNumber
+setBatchSequenceNumber:
 _isReciprocalRequest
-_vectorClock
 _atomBatchVersion
 _batchSize
 _batchSequenceNumber
@@ -2617,11 +3499,14 @@ TQ,N,V_atomBatchVersion
 TB,N,V_isReciprocalRequest
 TQ,N,V_batchSize
 TQ,N,V_batchSequenceNumber
-setWithObjects:
-unarchivedObjectOfClasses:fromData:error:
-archivedDataWithRootObject:requiringSecureCoding:error:
 unseenPeers
+setUnseenPeers:
+atomBatches
+setAtomBatches:
+atomBatchBytes
 setAtomBatchBytes:
+deletedLocations
+setDeletedLocations:
 _unseenPeers
 _atomBatches
 _atomBatchBytes
@@ -2630,31 +3515,37 @@ T@"NSArray",&,N,V_unseenPeers
 T@"NSDictionary",&,N,V_atomBatches
 TQ,N,V_atomBatchBytes
 T@"NSDictionary",&,N,V_deletedLocations
-standardUserDefaults
-identifierFromDescriptor:
-currentDevice
-syncableStreamIDsForPlatform:
+bmUserDefaultsString:
 loadAdditionalSyncPolicyDictionaries
-allKeys
-addObjectsFromArray:
+syncableStreamIDs
+eventStringFromDescriptor:
+syncableStreamIDsForPlatform:
+policyForStreamID:
 policyForStreamID:forPlatform:
+minimumTimeBetweenSyncsForTransport:
+minimumTimeBetweenSyncsAttemptsForTransport:
 initWithStreamID:policyDictionary:
 directionsSupportedForTransport:
 _supportsTransport:direction:outSupportedDirections:
 supportsTransport:direction:
-policyForStreamID:
-minimumTimeBetweenSyncsForTransport:
-minimumTimeBetweenSyncsAttemptsForTransport:
+supportsSyncingWithPlatform:overTransport:inDirection:
+registeredEventClass
 _policyDictionary
-stringWithUTF8String:
-handleFailureInFunction:file:lineNumber:description:
-unsignedLongValue
 enumerateWithBlock:
+initWithLocation:timestamp:referenceLocation:causalReference:type:bookmark:
+initWithLocation:timestamp:referenceLocation:causalReference:type:valueVersion:valueData:
+timestamp
+referenceLocation
+causalReference
+bookmark
+type
+valueVersion
+valueData
 _timestamp
 _referenceLocation
 _causalReference
 _bookmark
-_type
+_valueVersion
 _valueData
 T@"BMSyncCRDTLocationRow",R,N,V_location
 T@"CKDistributedTimestamp",R,N,V_timestamp
@@ -2662,142 +3553,256 @@ T@"BMSyncCRDTLocationRow",R,N,V_referenceLocation
 T@"CKAtomReference",R,N,V_causalReference
 T@"BMStoreBookmark",R,N,V_bookmark
 TQ,R,N,V_type
+Tq,R,N,V_valueVersion
 T@"NSData",R,N,V_valueData
-longForColumn:
-dataForColumn:
-numberWithUnsignedLong:
-numberWithUnsignedChar:
-lastErrorMessage
-SELECT_ATOMS_WHERE:ORDER_BY:LIMIT:
-SELECT_FROM:COLUMNS:WHERE:GROUP_BY:
-stringForColumnIndex:
-unsignedLongLongIntForColumnIndex:
-initWithTimestamps:
-intForColumnIndex:
-longLongValue
-numberWithLongLong:
-SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:HAVING:ORDER_BY:LIMIT:
-SELECT_FROM:COLUMNS:JOIN:WHERE:ORDER_BY:LIMIT:
+addCKAtomRow:inStream:
+ckAtomRowWithTimestamp:inStream:
 latestCKAtomRowForSiteIdentifier:inStream:
+timestampClockVectorForStreamName:
+stateVectorForLocationRow:
+latestCKAtomRowOfType:forSiteIdentifier:inStream:
+ckAtomCount
 containsCKAtomRowWithTimestamp:inStream:
-valueForEntitlement:
-isEqualToNumber:
-bm_checkEntitlement:
-initWithMachServiceName:
-resume
-triggerSyncWithReply:
+containsCKAtomRowWithTimestamp:inStream:onDisk:
+updateCKAtomRow:inStream:
+ckAtomRowForAtomWithBookmark:type:forSiteIdentifier:inStream:
+latestDistributedTimestampForSiteIdentifier:inStream:
+containsCKAtomRowWithSegment:inStream:
+CKAtomRowSiteIdentifiers
+atomRowsNotOnDiskReferencingSiteIdentifier:inStream:enumerateWithBlock:
+atomsAtOrBeforeLocation:ofType:enumerateWithBlock:
+deleteAllAtomsAtOrBeforeLocation:
+locationsInClockVector:inStream:enumerateWithBlock:
+atomRowsInTimestampClockVector:forLocation:inStream:enumerateWithBlock:
+computeHighestLocationToDeleteUpToBookmark:forSiteIdentifier:inStream:
+highestLocationWithBufferedAtomsOlderThan:forSiteIdentifier:inStream:
+SELECT_ATOMS_WHERE:ORDER_BY:LIMIT:
+triggerRapportSyncWithReply:
+triggerCloudKitSyncWithReply:
+rapportSyncWithReply:
+cloudKitSyncWithReply:
 peerInformationWithReply:
-interfaceWithProtocol:
-setExportedInterface:
-setExportedObject:
-setRemoteObjectInterface:
 listener:shouldAcceptNewConnection:
+initWithQueue:core:
+_cloudKitSyncWithSyncTriggeredHandler:syncCompletedHandler:
+_rapportSyncWithSyncTriggeredHandler:syncCompletedHandler:
 _core
 _listener
-idsDeviceIdentifier
+currentDevice
+bm_companionLinkDeviceIdentifier
 T@"NSString",R
-setValue:forKey:
-encodeObject:forKey:
-decodeObjectOfClasses:forKey:
-unarchivedObjectOfClass:fromData:error:
-supportsSecureCoding
-encodeWithCoder:
-initWithCoder:
-TB,R
-setVectorClockTo:forStreamIdentifier:
 vectorClockForStreamIdentifier:
+SELECT_FROM:COLUMNS:WHERE:
+SELECT_FROM:COLUMNS:WHERE:ORDER_BY:LIMIT:
+SELECT_FROM:COLUMNS:JOIN:WHERE:ORDER_BY:LIMIT:
+SELECT_FROM:COLUMNS:WHERE:GROUP_BY:
 _SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:ORDER_BY:LIMIT:
-componentsJoinedByString:
-stringWithFormat:
-appendString:
-arrayWithCapacity:
-objectAtIndexedSubscript:
-appendFormat:
-integerValue
-executeQuery:withArgumentsInArray:
-executeQuery:
-containsString:
-executeUpdate:withArgumentsInArray:
-valueForMetadataKey:
-dateWithTimeIntervalSinceReferenceDate:
-setValue:forMetadataKey:
-lastSyncAttemptDate
-setLastSyncAttemptDate:
+SELECT_FROM:COLUMNS:JOIN:WHERE:GROUP_BY:HAVING:ORDER_BY:LIMIT:
+UPDATE:SET:WHERE:
+INSERT_INTO:VALUES:
+DELETE_FROM:WHERE:
+bm_description
+lastRapportSyncAttemptDate
+setLastRapportSyncAttemptDate:
+lastCloudKitSyncAttemptDate
+setLastCloudKitSyncAttemptDate:
+ckSyncEngineMetaData
+saveCKSyncEngineMetaData:
 T@"NSDate",&,N
-decodeObjectOfClass:forKey:
-_value
+saveCKRecordServerMergeableValue:recordName:zoneName:
+clearCKRecordServerMergeableValuesForRecordName:zoneName:
+enumerateMergeableRecordValuesForRecordName:zoneName:withBlock:
+latestTombstoneBookmarkForSiteIdentifier:inStream:
+saveLatestTombstoneBookmark:forSiteIdentifier:inStream:
+atomValueFromData:version:
+initWithAtomType:value:version:
+serializeProto
+encodeAsProto
+initWithProto:
+initWithProtoData:
+proto
+serialize
+value
+version
+_version
 T@"BMStoreEventAtomValue",R,N,V_value
-numberWithUnsignedInt:
-unsignedIntValue
+Tq,R,N,V_version
+initWithEventData:dataVersion:dataTimestamp:
+eventData
+dataVersion
+dataTimestamp
 _dataVersion
 _eventData
 _dataTimestamp
 T@"NSData",R,N,V_eventData
 TI,R,N,V_dataVersion
 Td,R,N,V_dataTimestamp
-timestampCount
-timestampForSiteIdentifier:
-initWithSiteIdentifier:clockValue:modifier:unordered:
-addTimestamp:
-minusSet:
-initWithData:error:
-updateVectorClockByUnionWithUnseenSiteIdentifiers:
-arrayWithArray:
+syncEngine:recordToSaveForRecordID:
+syncEngine:didSaveRecord:
+syncEngine:failedToSaveRecord:error:
+syncEngine:didDeleteRecordWithID:
+syncEngine:failedToDeleteRecordWithID:error:
+syncEngine:didFetchRecord:
+syncEngine:recordWithIDWasDeleted:recordType:
+syncEngine:didUpdateMetadata:
+syncEngine:didSaveRecordZone:
+syncEngine:didDeleteRecordZoneWithID:
+syncEngine:failedToFetchChangesForRecordZoneID:error:
+syncEngine:failedToSaveRecordZone:error:
+syncEngine:failedToDeleteRecordZoneWithID:error:
+syncEngine:zoneWithIDChanged:
+syncEngine:zoneWithIDWasDeleted:
+syncEngine:zoneWithIDWasDeletedDueToUserEncryptedDataReset:
+syncEngine:zoneWithIDWasPurged:
+syncEngine:accountChangedFromUserRecordID:toUserRecordID:
+syncEngineDidBeginFetchingChanges:
+syncEngineWillBeginFetchingChanges:
+syncEngineDidEndFetchingChanges:
+syncEngineWillBeginModifyingPendingChanges:
+syncEngineDidEndModifyingPendingChanges:
+syncEngine:nextBatchOfRecordsToModifyForZoneIDs:
+syncEngine:didCompleteModifyRecordsBatch:error:
+recordZonesToSaveForSyncEngine:
+recordZoneIDsToDeleteForSyncEngine:
+syncEngine:shouldFetchChangesForZoneID:
+syncEngine:shouldFetchAssetContentsForZoneID:
+syncEngine:relatedApplicationBundleIdentifiersForZoneIDs:recordIDs:
+initWithDistributedSyncMultiStreamManager:database:queue:
+streamDescriptorSupportsCloudKitSync:
+streamSupportsCloudKitSync:
+newZoneVersionRecordIDForZone:
+fetchChangesWithError:
+uploadChangesWithError:
+isManateeAvailable:
+startWithCompletionBlock:
+isRecordNewerThanMostRecentDeleteForSiteIdentifier:
+handleSyncRecordDidFetchRecord:
+handleZoneVersionDidFetchRecord:
+isManateeDecryptionError:
+handleZoneReset:
+handleZoneVersionRecordToSaveForRecordID:
+handleSyncRecordRecordToSaveForRecordID:
+dataSource
+setDataSource:
+container
+setContainer:
+configuration
+setConfiguration:
+ckSyncEngine
+setCkSyncEngine:
+_dataReceivedFromSiteIdentifiers
+_operationQueue
+_dataSource
+_container
+_configuration
+_ckSyncEngine
+T@"<CKSyncEngineDataSource>",&,N,V_dataSource
+T@"CKContainer",&,N,V_container
+T@"CKSyncEngineConfiguration",&,N,V_configuration
+T@"CKSyncEngine",&,N,V_ckSyncEngine
 initWithStreamCRDT:database:localSiteIdentifier:policy:
+updateClockVectorByUnionWithUnseenSiteIdentifiers:
 mergeAtomBatch:deletedLocations:sessionContext:
-atomBatchAfterVectorClock:version:chunker:
+atomBatchesInClockVector:ckFormatVersion:chunker:transportType:
+localSiteIdentifier
 policy
-_streamCRDT
 T@"BMSyncPolicy",R,N,V_policy
+T@"BMSyncDatabase",R,N,V_db
 initWithDistributedSyncManagers:peerStatusTracker:
+clockVectorForStreamsSupportingTransportType:direction:
+atomBatchesInClockVector:targetPlatform:transportType:direction:ckFormatVersion:chunker:
+mergeAtomBatches:deletedLocations:sessionContext:
 distributedSyncManagers
+streamNameToStreamDescriptorDict
 _distributedSyncManagers
+_streamNameToStreamDescriptorDict
 T@"NSDictionary",R,N,V_distributedSyncManagers
-configForSyncStreamID:
-streamForStreamIdentifier:
-hasPrefix:
-substringFromIndex:
+T@"NSDictionary",R,N,V_streamNameToStreamDescriptorDict
+distributedSyncMultiStreamManagerWithDatabase:
+recordName
+streamIdentifier
+localMergeableValue
+_recordName
+_streamIdentifier
+_localMergeableValue
+T@"NSString",R,N,V_recordName
+T@"NSString",R,N,V_streamIdentifier
+T@"NSData",R,N,V_localMergeableValue
+ckRecordsToSyncToCloudKitForZone:
+recordFromSystemFieldsData:
+createCKRecordFromRecordID:newRecord:
+saveSystemFieldsDataForRecord:syncToCloudKit:
+saveSystemFieldsData:recordName:streamName:
+saveSystemFieldsData:syncToCloudKit:recordName:zoneName:
+getSystemFieldsDataForRecordName:zoneName:
+resetCKRecordsMetaDataAndSetToSyncForZone:
+resetMetadataForRecord:zoneName:
+saveCKRecordServerMergeableValue:recordName:zoneName:locationRow:
+saveCKRecordLocalMergeableValue:recordName:zoneName:locationRow:
+ckRecordForRecordName:zoneName:
+ckRecordExists:zoneName:
+updateAllCKRecordsAtOrBeforeLocationToBeDeletedOnSync:
+markCKRecordsAtOrBeforeLocationToBeDeletedOnSync:
+enumerateRecordsWithBlock:
+deleteCKRecordsAtOrBeforeLocation:
+deleteCKRecordsForStreamName:
+deleteCKRecordAtLocation:
+enumerateCKRecordsSetForDeletingUsingBlock:
+gatherAllCKRecordsToBeDeleted
+deleteAllCKRecordsInZone:
+ckRecordCount
+upsertCKRecordWithLocation:inStream:
 identifierForPublicStreamNamed:
 identifierForRestrictedStreamNamed:
-directoryForPublicStreams
-directoryForRestrictedStreams
-storeConfigurationForStream:
-newRestrictedStreamDefaultConfiguration
+identifierFromDescriptor:
+path
+config
+descriptor
 _path
 T@"NSString",R,N,V_name
-syncNowIfPolicyAllowsWithReason:activity:completionHandler:
-timeIntervalSinceDate:
-_syncEngine
-syncDirectory
-initWithPath:queue:
-databaseWithPath:
-setShouldCacheStatements:
-initWithFormat:arguments:
-setState:error:
-internalState
-setState:errorFormat:
-databasePath
-stringByDeletingLastPathComponent
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-openWithFlags:
-lastErrorCode
-stringByDeletingPathExtension
-fileExistsAtPath:
-sqliteHandle
-executeStatements:
-tableExists:
-setUserVersion:
-userVersion
-corruptionHandler
-_tryOpen:
-isOpen
-lastError
-beginDeferredTransaction
-objectForColumnIndex:
-executeUpdate:
+configForSyncStreamID:
+initWithAsyncOperationBlock:
+isFinished
+isExecuting
+isAsynchronous
+block
+_executing
+_finished
+_block
+T@?,R,C,N,V_block
+initWithRapportSyncEngine:cloudKitSyncEngine:peerStatusTracker:database:queue:
+syncNowIfPolicyAllowsWithReason:transportType:activity:
+syncAllTransportsNowIfPolicyAllowsWithReason:activity:
+doRapportSyncNow
+syncRapportNowIfPolicyAllowsWithReason:activity:completionHandler:
+doCloudKitSyncNow
+syncCloudKitNowIfPolicyAllowsWithReason:activity:completionHandler:
+initWithSQLStatements:
+sqlStatements
+_sqlStatements
+T@"NSArray",R,N,V_sqlStatements
+initWithCustomFunctionName:
+customFunctionName
+_customFunctionName
+T@"NSString",R,N,V_customFunctionName
 initWithPath:
-version
+initWithPath:queue:
+setState:error:
+setState:errorFormat:
+_tryOpen:
+open
+close
+beginTransaction
+commit
+rollback
+valueForMetadataKey:
+setValue:forMetadataKey:
+migration_StarSkySchema11ToSydRoSchema12
+migration_Schema20ToSchema21
 error
+internalState
+corruptionHandler
+setCorruptionHandler:
 _fmdb
 _flags
 __error_ivar
@@ -2808,138 +3813,118 @@ TQ,R,N,V__internal_state_ivar
 TI,R,N
 T@?,C,N,V_corruptionHandler
 TQ,R,N
+initWithDatabase:transcationBatchSize:
+executeOperationWithBlock:
+localDeviceIdentifierCreatingIfNecessary
+localDeviceUpdatingIfNeccesaryWithProtocolVersion:
+upsertSyncDevicePeer:
 setLocalDeviceIdentifier:
-resultDictionary
+recordMessageToDeviceIdentifier:sessionID:messageID:reachable:bytes:isReciprocal:
+recordAtomMergeResult:inStream:sessionID:messageID:ownerSite:originatingSite:eventCreatedAt:
 sharedInstance
 dateFormatter
 _dateFormatter
-isEqualToDate:
-substringWithRange:
-componentsSeparatedByString:
-dateFromString:
-initWithZoneName:ownerName:
-stringFromDate:
-initWithName:zoneID:
+recordNameFromSite:day:
+dayFromRecordName:
+initWithStreamName:siteIdentifier:day:
+triple
+initWithTriple:
+initWithZoneName:recordName:
+initWithCKMergeableValueID:
+initWithCKMergeableValueID:streamName:
+ckMergeableValueID
+ckMergeableValueIDWithFormatVersion:
+expirationTimeForStreamDesc:
+siteIdentifier
 _siteIdentifier
 _day
-T@"NSString",R,N,V_streamName
 T@"NSString",R,N,V_siteIdentifier
 T@"NSDate",R,N,V_day
+initWithAssignerPolicy:
+locationWithStreamName:siteIdentifier:timestamp:
 truncateDateToDay:
-initWithURL:
 dealloc
-fileURLWithPath:
-FMDBUserVersion
-stringByAppendingString:
-intValue
-fileSystemRepresentation
-sqlitePath
-setMaxBusyRetryTimeInterval:
-openWithFlags:vfs:
-UTF8String
-clearCachedStatements
-closeOpenResultSets
-pointerValue
-setParentDB:
-valueWithNonretainedObject:
-objectEnumerator
-inUse
-objectsPassingTest:
-anyObject
-setQuery:
-dataWithBytes:length:
-rekeyWithData:
-setKeyWithData:
-setDateFormat:
-timeZoneForSecondsFromGMT:
-setTimeZone:
-initWithLocaleIdentifier:
-setLocale:
-dictionaryWithObject:forKey:
-errorWithMessage:
-warnInUse
-hasDateFormatter
-timeIntervalSince1970
-objCType
-charValue
-unsignedCharValue
-shortValue
-unsignedShortValue
-longValue
-unsignedLongLongValue
-floatValue
-characterAtIndex:
-numberWithShort:
-numberWithUnsignedShort:
-numberWithUnsignedLongLong:
-numberWithFloat:
-numberWithLong:
-executeQuery:withArgumentsInArray:orDictionary:orVAList:shouldBind:
-databaseExists
-cachedStatementForQuery:
-statement
-reset
-bindStatement:WithArgumentsInArray:orDictionary:orVAList:
-setStatement:
-setCachedStatement:forQuery:
-resultSetWithStatement:usingParentDatabase:shouldAutoClose:
-useCount
-setUseCount:
-bindObject:toColumn:inStatement:
-objectAtIndex:
-stringWithCapacity:
-extractSQL:argumentsList:intoString:arguments:
-internalStepWithError:
-executeUpdate:error:withArgumentsInArray:orDictionary:orVAList:
-dictionaryWithCapacity:
-executeStatements:withResultBlock:
-logsErrors
-startSavePointWithName:error:
-rollbackToSavePointWithName:error:
-releaseSavePointWithName:error:
-checkpoint:name:logFrameCount:checkpointCount:error:
-crashOnErrors
-dictionary
-setCachedStatements:
-makeFunctionNamed:arguments:block:
+databaseWithPath:
 databaseWithURL:
+FMDBUserVersion
 FMDBVersion
 sqliteLibVersion
 isSQLiteThreadSafe
 storeableDateFormat:
+initWithURL:
 databaseURL
+sqliteHandle
+sqlitePath
 limitFor:value:
+openWithFlags:
+openWithFlags:vfs:
+setMaxBusyRetryTimeInterval:
 maxBusyRetryTimeInterval
 busyRetryTimeout
 setBusyRetryTimeout:
 hasOpenResultSets
+closeOpenResultSets
 resultSetDidClose:
+clearCachedStatements
+cachedStatementForQuery:
+setCachedStatement:forQuery:
 rekey:
+rekeyWithData:
 setKey:
+setKeyWithData:
+hasDateFormatter
+setDateFormat:
+dateFromString:
+stringFromDate:
 goodConnection
+warnInUse
+databaseExists
+lastErrorMessage
 hadError
+lastErrorCode
 lastExtendedErrorCode
+errorWithMessage:
+lastError
+lastInsertRowId
 changes
+bindObject:toColumn:inStatement:
+extractSQL:argumentsList:intoString:arguments:
 executeQuery:withParameterDictionary:
+executeQuery:withArgumentsInArray:orDictionary:orVAList:shouldBind:
+bindStatement:WithArgumentsInArray:orDictionary:orVAList:
+executeQuery:
 executeQueryWithFormat:
+executeQuery:withArgumentsInArray:
 executeQuery:values:error:
 executeQuery:withVAList:
+executeUpdate:error:withArgumentsInArray:orDictionary:orVAList:
+executeUpdate:
+executeUpdate:withArgumentsInArray:
 executeUpdate:values:error:
 executeUpdate:withParameterDictionary:
 executeUpdate:withVAList:
 executeUpdateWithFormat:
+executeStatements:
+executeStatements:withResultBlock:
 executeUpdate:withErrorAndBindings:
 update:withErrorAndBindings:
 prepare:
+beginDeferredTransaction
 beginImmediateTransaction
 beginExclusiveTransaction
 inTransaction
 interrupt
+startSavePointWithName:error:
+releaseSavePointWithName:error:
+rollbackToSavePointWithName:error:
 inSavePoint:
 checkpoint:error:
 checkpoint:name:error:
+checkpoint:name:logFrameCount:checkpointCount:error:
 shouldCacheStatements
+setShouldCacheStatements:
 makeFunctionNamed:maximumArguments:withBlock:
+makeFunctionNamed:arguments:block:
 valueType:
 valueInt:
 valueLong:
@@ -2960,11 +3945,16 @@ traceExecution
 setTraceExecution:
 checkedOut
 setCheckedOut:
+crashOnErrors
 setCrashOnErrors:
+logsErrors
 setLogsErrors:
 cachedStatements
+setCachedStatements:
+isOpen
 setIsOpen:
 isInTransaction
+databasePath
 _isExecutingStatement
 _startBusyRetryTime
 _openResultSets
@@ -2994,7 +3984,14 @@ T@"NSString",R,N,V_databasePath
 T@"NSURL",R,N
 T^v,R,N
 Td,N,V_maxBusyRetryTimeInterval
+reset
+useCount
+setUseCount:
 query
+setQuery:
+statement
+setStatement:
+inUse
 setInUse:
 _statement
 _query
@@ -3004,9 +4001,6 @@ Tq,V_useCount
 T@"NSString",&,V_query
 T^v,V_statement
 TB,V_inUse
-stringByReplacingOccurrencesOfString:withString:
-getTableSchema:
-columnExists:inTableWithName:
 stringForQuery:
 intForQuery:
 longForQuery:
@@ -3014,52 +4008,68 @@ boolForQuery:
 doubleForQuery:
 dataForQuery:
 dateForQuery:
+tableExists:
 getSchema
+getTableSchema:
+columnExists:inTableWithName:
 applicationID
 setApplicationID:
+userVersion
+setUserVersion:
 columnExists:columnName:
 validateSQL:error:
 TI,N
-setShouldAutoClose:
-initWithCapacity:
-lowercaseString
-columnNameToIndexMap
-keyEnumerator
-nextObject
-objectForColumnName:
-nextWithError:
-stepWithError:
-columnIndexForName:
-longForColumnIndex:
-longLongIntForColumnIndex:
-boolForColumnIndex:
-doubleForColumnIndex:
-dateWithTimeIntervalSince1970:
-dataForColumnIndex:
-dataNoCopyForColumnIndex:
-dataWithBytesNoCopy:length:freeWhenDone:
-columnIndexIsNull:
-UTF8StringForColumnIndex:
-UTF8StringForColumn:
-objectForColumn:
-bindWithArray:orDictionary:orVAList:
+resultSetWithStatement:usingParentDatabase:shouldAutoClose:
 columnCount
+columnNameToIndexMap
 kvcMagic:
 resultDict
+resultDictionary
+next
+nextWithError:
 step
+stepWithError:
+internalStepWithError:
 hasAnotherRow
+columnIndexForName:
+intForColumn:
+intForColumnIndex:
+longForColumn:
+longForColumnIndex:
 longLongIntForColumn:
+longLongIntForColumnIndex:
 unsignedLongLongIntForColumn:
+unsignedLongLongIntForColumnIndex:
 boolForColumn:
+boolForColumnIndex:
+doubleForColumn:
+doubleForColumnIndex:
+stringForColumnIndex:
+stringForColumn:
 dateForColumn:
+dateForColumnIndex:
+dataForColumn:
+dataForColumnIndex:
 dataNoCopyForColumn:
+dataNoCopyForColumnIndex:
+columnIndexIsNull:
 columnIsNull:
+UTF8StringForColumnIndex:
+UTF8StringForColumn:
 UTF8StringForColumnName:
+objectForColumnIndex:
+objectForColumnName:
+objectForColumn:
 columnNameForIndex:
+objectAtIndexedSubscript:
+objectForKeyedSubscript:
+bindWithArray:orDictionary:orVAList:
 bindWithArray:
 bindWithDictionary:
 parentDB
+setParentDB:
 shouldAutoClose
+setShouldAutoClose:
 _columnNameToIndexMap
 _shouldAutoClose
 _parentDB
@@ -3068,29 +4078,25 @@ T@"_bmFMDatabase",&,N,V_parentDB
 T@"NSMutableDictionary",R
 T@"_bmFMStatement",&,V_statement
 T@"NSDictionary",R,N
-initWithPath:flags:
-initWithPath:flags:vfs:
-exceptionWithName:reason:userInfo:
-raise
-executeLocked:
-lastObject
-removeLastObject
-databaseClass
 databasePool:shouldAddDatabaseToPool:
 databasePool:didAddDatabase:
-pushDatabaseBackInPool:
-beginTransaction:withBlock:
 databasePoolWithPath:
 databasePoolWithURL:
 databasePoolWithPath:flags:
 databasePoolWithURL:flags:
+databaseClass
 initWithURL:flags:vfs:
+initWithPath:flags:vfs:
+initWithPath:flags:
 initWithURL:flags:
+executeLocked:
+pushDatabaseBackInPool:
 countOfCheckedInDatabases
 countOfCheckedOutDatabases
 countOfOpenDatabases
 releaseAllDatabases
 inDatabase:
+beginTransaction:withBlock:
 inTransaction:
 inDeferredTransaction:
 inExclusiveTransaction:
@@ -3113,14 +4119,15 @@ TQ,V_maximumNumberOfDatabasesToCreate
 Ti,R,V_openFlags
 T@"NSString",C,V_vfsName
 databaseQueueWithPath:
-databaseQueueWithPath:flags:
 databaseQueueWithURL:
+databaseQueueWithPath:flags:
 databaseQueueWithURL:flags:
 T@"NSString",&,V_path
+BiomeSync
+v8@?0
 <%@: location=%@, state=%lu>
 location_
 ref_location_
-BiomeSync
 %@%@
 stream
 site
@@ -3134,12 +4141,14 @@ id = ?
  AND state = ?
  AND day < ?
  AND NOT EXISTS (SELECT * FROM CKAtom WHERE location_id = id)
+day DESC
 state = ?
 day = (select max(day) from CRDTLocation i where i.stream = ? and i.site=CRDTLocation.site
  and state = ?)
  AND stream = ?
  AND state = ? 
-day DESC
+count(*)
+no session ID
 device_identifier
 name
 model
@@ -3154,7 +4163,6 @@ deviceIdentifier
 deviceMetadata
 protocolVersion
 BMRapportRequest
-v8@?0
 v16@?0@"BMRapportDevice"8
 com.apple.biomesyncd.fetchAtomBatches
 v32@?0@"NSDictionary"8@"NSDictionary"16@"NSError"24
@@ -3163,17 +4171,20 @@ Unable to determine sender model info
 Unknown platform
 v24@?0@"NSArray"8@"NSArray"16
 v32@?0@"NSDictionary"8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSDictionary"@"NSError">24
-remote
 com.apple.biome.syncSessionLog
 com.apple.biomesyncd
 com.apple.biomesyncd.metrics-collection
-com.apple.biomesyncd.periodic-sync
 v16@?0@"NSObject<OS_xpc_object>"8
+com.apple.biomesyncd.periodic-sync
 com.apple.notifyd.matching
 Notification
 com.apple.rapport.CompanionLinkDeviceAdded
 com.apple.rapport.matching
 replyRequired
+context_sync
+void *BiomeLibraryLibrary(void)
+biomesyncd.m
+vectorClock
 BMStreamCKCRDT.m
 Invalid parameter not satisfying: %@
 streamID
@@ -3183,18 +4194,43 @@ v24@?0@"CKAtomReferenceMutableProxy"8Q16
 v24@?0@"CKAtomMutableProxy"8Q16
 v16@?0^B8
 v24@?0@"BMSyncCKAtomRow"8^B16
+v24@?0@"BMSyncCRDTLocationRow"8^B16
 v32@?0@"CKAtomProxy"8Q16^B24
+BMFrameStatePreWrite
+BMFrameStateWritten
+BMFrameStatePreDelete
+BMFrameStateDeleted
+BMFrameStateEOF
+BMFrameStateUnknown
+BMFrameStateUnknown(%lu)
+%@ %@
+type
+value
+Append
+TTLDelete
+RandomDelete
+Modify
+Unknown
+(unknown: %i)
+zone_name
+zone_uuid
+recovery_state
+attempted_recovery_date
+CKZone
+zone_name = ?
+UUID not set
 com.apple.biomesyncd.rapport
 v16@?0@"RPCompanionLinkDevice"8
 v20@?0@"RPCompanionLinkDevice"8I16
 v16@?0@"NSError"8
+v12@?0B8
 ~~REQUEST_ID~~
 ~~RESPONSE_HANDLER~~
 ~~OPTIONS~~
 failed with error, 
 completed
 BMRapportDevice[%@]: id=%@ bmID=%@ model=%@ name=%@
-Unknown
+device
 Immed
 Near
 peer
@@ -3203,28 +4239,31 @@ batchSize
 batchSequenceNumber
 isReciprocalRequest
 atomBatchVersion
-vectorClock
 unseenPeers
 atomBatches
 moreComing
 deletedLocations
+biomesyncdStrings
 AdditionalSyncPolicies
-public/DeviceMetadata
+eventClass
 restricted/feedbackSocialHighlights
+BMSocialHighlightFeedbackEvent
+public/DeviceMetadata
+BMDeviceMetadataEvent
 restricted/SiriMemoryReferenceResolutionStream
+BMSiriMemoryReferenceResolutionEvent
+public/AppLaunch
+BMAppLaunchEvent
+overrideInternalPolicy
 rapport
 direction
-eventClass
-BMDeviceMetadataEvent
 outbound
-BMSocialHighlightFeedbackEvent
-BMSiriMemoryReferenceResolutionEvent
+cloudkit
+none
 BMSyncPolicy.m
 Unexpected direction %lu
-cloudkit
 NSString *NSStringFromBMSyncTransportType(BMSyncTransportType)
 No mapping found for BMSyncTransportType(%lu)
-none
 inbound
 BMSyncDirection BMSyncDirectionFromNSString(NSString *__strong)
 No mapping found for %@
@@ -3233,12 +4272,12 @@ location
 timestamp
 <%@: type=%@, location=%@, atomID=%@, refID=%@ bookmarkOffset=%lu>
 clock
-type
 segment_name
 segment_offset
 ref_type
 ref_site
 ref_clock
+value_version
 value_data
 CKAtom
 location_id
@@ -3251,15 +4290,17 @@ CKAtom.site = ?
 clock DESC
 max(clock)
 v24@?0@"_bmFMResultSet"8^B16
+location_id = ?
+clock ASC
 type = ?
  AND CKAtom.site = ?
  AND segment_name IS NOT ?
-count(*)
 clock = ?
  AND type = ?
  AND segment_name = ?
  AND segment_offset = ?
 site = ?
+DISTINCT site
 (ref_site = ?
  OR (ref_site IS NULL AND CKAtom.site = ?))
 ref_clock ASC
@@ -3267,26 +4308,33 @@ type ASC
 location.stream = ?
  AND location.site = ?
  AND location.day <= ?
+ref_clock DESC
 location_id IN (SELECT id from CRDTLocation where stream = ?
  AND day <= ?)
- AND ref_clock != (SELECT MAX(ref_clock) FROM CKAtom WHERE stream = ?
- AND site = ?)
+ AND clock != ?
  AND clock != (SELECT MAX(clock) FROM CKAtom WHERE stream = ?
+ AND site = ?)
 CKAtom.stream = ? 
- OR (CKAtom.site = ?
- AND ((CKAtom.site = ?
- AND clock > ?)
-) AND on_disk IS ?
-location.stream
-location.site
-location.day ASC
+ AND ((CKAtom.site = ? 
+) OR (CKAtom.site = ? 
+AND clock = ? 
+OR clock = ? 
+AND clock BETWEEN ? 
+OR clock BETWEEN ? 
+ AND ?
+v32@?0{_NSRange=QQ}8^B24
+)) AND on_disk IS ?
 location.stream as location_stream
 location.site as location_site
 location.day as location_day
 location.state as location_state
  LEFT JOIN CRDTLocation location ON location_id=location.id
-CKAtom.stream = ?
 location_id, location.stream, location.site, location.day, location.state
+location.stream
+location.site
+location.day ASC
+ AND CKAtom.location_id = ? 
+CKAtom.stream = ?
 COUNT ((CAST(segment_name AS INT) > ?
  OR segment_name = ?
  AND segment_offset > ?) OR NULL) == 0
@@ -3301,7 +4349,12 @@ ref_location.state as ref_location_state
 com.apple.biomesyncd.sync
 com.apple.private.biome.sync
 com.apple.internal.biome.sync
--[BMSyncServiceServer triggerSyncWithReply:]
+errors
+v20@?0B8@"NSError"12
+-[BMSyncServiceServer triggerRapportSyncWithReply:]
+-[BMSyncServiceServer rapportSyncWithError:]
+-[BMSyncServiceServer triggerCloudKitSyncWithReply:]
+-[BMSyncServiceServer cloudKitSyncWithError:]
 isMe
 platformDescription
 BMRapportErrorDomain
@@ -3318,21 +4371,55 @@ INSERT INTO %@
 ) VALUES (
 DELETE FROM %@
 %@:%lu
+com.apple.biome.sync.ckMetaData
 LastSyncAttemptDate
+LastCloudKitAttemptDate
+CKMergeableRecordValue
+stream_name
+record_name
+server_mergeable_value
+stream_name = ?
+ AND record_name = ?
 TombstoneBookmark
 AND site = ?
-Append
-TTLDelete
-RandomDelete
-Modify
 BMSyncAtomType(%llu)
+BiomeStream
 atomType
 atomValue
 data
 dataVersion
 dataTimestamp
+syncRecord
+zoneVersion
+biomeCRDT
+zoneVersionUUID
+com.apple.biome.sync
+recordOrder
+v16@?0@?<v@?>8
+v24@?0@"CKAccountInfo"8@"NSError"16
+v24@?0@"NSData"8^B16
+v24@?0@"BMSyncCKRecord"8^B16
+v24@?0@"BMSyncCKZone"8^B16
+v16@?0@"CKAtomBatch"8
 BMDistributedSyncMultiStreamManager.m
 direction == BMSyncDirectionOutbound
+stream_identifier
+local_mergeable_value
+sync_to_cloud_kit = ?
+ AND deleting = ?
+ AND stream_identifier = ?
+CKRecord
+record_metadata
+record_name = ?
+sync_to_cloud_kit
+stream_identifier = ?
+deleting
+location_id IN (SELECT id FROM CRDTLocation WHERE site = ?
+ LEFT JOIN CRDTLocation location ON location_id=location.id 
+deleting = ?
+ AND EXISTS (SELECT record_name FROM CKMergeableRecordValue mergeable WHERE mergeable.stream_name=stream_identifier AND mergeable.record_name=record_name AND server_mergeable_value IS NOT NULL)
+v24@?0@"CKRecordID"8^B16
+location_id =?
 BMSyncStreamID.m
 streamName.length
 stream != BMPublicStreamUnknown
@@ -3341,8 +4428,24 @@ restricted/
 public/%@
 restricted/%@
 identifier
-com.apple.biome.syncNow
+isExecuting
+isFinished
 never
+com.apple.biome.syncNow
+[BMCloudKitSyncEngine start] failed: %@
+BMSyncScheduler
+eventData
+migration_StarSkySchema11ToSydRoSchema12
+ALTER TABLE CKRecord DROP COLUMN mergeable_value_delta
+ALTER TABLE CKRecord ADD COLUMN server_mergeable_value BLOB
+ALTER TABLE CKRecord ADD COLUMN local_mergeable_value BLOB
+ALTER TABLE CKAtom ADD COLUMN value_version INTEGER
+UPDATE CKAtom SET value_version = 0
+CREATE INDEX IF NOT EXISTS idx_syncmessagelog_session_id ON SyncMessageLog(session_id)
+CREATE INDEX IF NOT EXISTS idx_atommergedlog_owning_site_identifier ON AtomMergedLog(owning_site_identifier)
+CREATE INDEX IF NOT EXISTS idx_atommergedlog_session_id ON AtomMergedLog(session_id)
+CREATE TABLE CKZone(zone_name STRING NOT NULL, zone_uuid STRING NOT NULL, recovery_state INTEGER, attempted_recovery_date INTEGER)
+migration_Schema20ToSchema21
 sync.db
 BMSyncDatabase.m
 path
@@ -3352,10 +4455,35 @@ failed to create path: %@
 PRAGMA journal_mode = WAL;PRAGMA foreign_keys = ON;
 Metadata
 version too new
+com.apple.Biome
+internal build version < 17
+internal build version between 17 and 19
+custom migration to version %u failed with error %@
+migration to version %u failed with error %@
 failed to delete corrupt database file: %@
 unhandled state %llu
 SELECT value FROM Metadata WHERE key=?
 INSERT INTO Metadata VALUES (?, ?)
+PRAGMA foreign_keys=OFF
+idx_crdt_location
+idx_crdt_location_state
+SELECT type, name FROM sqlite_schema WHERE tbl_name = 'CRDTLocation'
+table
+CREATE TABLE new_CRDTLocation (id INTEGER primary key, stream STRING NOT NULL, site STRING NOT NULL, day INTEGER NOT NULL, state INTEGER NOT NULL)
+INSERT INTO new_CRDTLocation SELECT * FROM CRDTLocation
+DROP TABLE CRDTLocation
+ALTER TABLE new_CRDTLocation RENAME TO CRDTLocation
+CREATE INDEX IF NOT EXISTS idx_crdt_location ON CRDTLocation(stream, site, day)
+CREATE INDEX IF NOT EXISTS idx_crdt_location_state ON CRDTLocation(stream, site, state, day DESC)
+CREATE TABLE IF NOT EXISTS CKRecord (location_id INTEGER, sync_to_cloud_kit BOOL, record_metadata BLOB, record_name STRING, stream_identifier STRING, mergeable_value_delta BLOB, deleting BOOL, FOREIGN KEY (location_id) REFERENCES CRDTLocation(id));
+CREATE INDEX IF NOT EXISTS idx_ckrecord ON CKRecord(record_name)
+PRAGMA foreign_key_check
+PRAGMA foreign_keys=ON
+CREATE TABLE new_CKRecord (location_id INTEGER, sync_to_cloud_kit BOOL, record_metadata BLOB, record_name STRING, stream_identifier STRING, local_mergeable_value BLOB, deleting BOOL,  PRIMARY KEY (stream_identifier, record_name), FOREIGN KEY (location_id) REFERENCES CRDTLocation(id));
+INSERT INTO new_CKRecord SELECT location_id, sync_to_cloud_kit, record_metadata, record_name, stream_identifier, local_mergeable_value, deleting FROM CKRecord
+DROP TABLE CKRecord
+ALTER TABLE new_CKRecord RENAME TO CKRecord
+CREATE TABLE IF NOT EXISTS CKMergeableRecordValue (stream_name STRING, record_name STRING, server_mergeable_value BLOB, FOREIGN KEY (stream_name, record_name) REFERENCES CKRecord(stream_identifier, record_name))
 select session_duration.session_id, duration, reachable_peers_cnt, is_reciprocal, reason as sync_reason, cast((select count(*) from DevicePeer) as text) as known_peers_cnt_str, cast(reachable_peers_cnt as real) / (select count(*) from DevicePeer) as peer_availabilty_pct, avg_sync_latency, atoms_dropped_cnt, atoms_causality_violation_cnt, atoms_received_cnt, atoms_relayed_cnt, relay_earliness, relay_unseen_peer_atom_cnt, atom_batch_bytes from ( select session_id, is_reciprocal, reason, (end_timestamp - start_timestamp) as duration from SyncSessionLog group by session_id, is_reciprocal, reason ) as session_duration left join ( select session_id, count(distinct device_identifier) as reachable_peers_cnt from SyncMessageLog group by session_id ) as reachable_peers on session_duration.session_id=reachable_peers.session_id left join ( select session_id, avg(case when event_created_at <> 0 then synced_at - event_created_at else null end) as avg_sync_latency from AtomMergedLog group by session_id ) as sync_latency on session_duration.session_id=sync_latency.session_id left join ( select a.session_id, sum(case when a.merge_result=1 THEN 1 else 0 end) as atoms_dropped_cnt, sum(case when a.merge_result=2 THEN 1 else 0 end) as atoms_causality_violation_cnt, sum(case when a.merge_result=3 THEN 1 else 0 end) as atoms_received_cnt from AtomMergedLog as a join SyncMessageLog as m on a.message_id=m.message_id and a.relayed_by_site_identifier = m.device_identifier and a.session_id=m.session_id group by a.session_id ) as merge_results on session_duration.session_id=merge_results.session_id left join ( select session_id, count(*) as atoms_relayed_cnt from AtomMergedLog as a where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where a.session_id=m.session_id and device_identifier=owning_site_identifier and reachable=1 ) group by session_id ) as relay_count on session_duration.session_id=relay_count.session_id left join ( select relayed.session_id, avg(timestamp - synced_at) as relay_earliness from ( select atom.session_id, synced_at, timestamp from AtomMergedLog as atom, SyncMessageLog as message where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where atom.session_id=m.session_id and device_identifier=owning_site_identifier and reachable=1 ) and device_identifier=owning_site_identifier and reachable=1 and timestamp > synced_at order by timestamp asc limit 1 ) as relayed group by relayed.session_id ) as earliness on session_duration.session_id=earliness.session_id left join ( select session_id, count(*) as relay_unseen_peer_atom_cnt from AtomMergedLog as a where owning_site_identifier <> relayed_by_site_identifier and not exists ( select * from SyncMessageLog as m where device_identifier=owning_site_identifier and reachable=1 ) group by session_id ) as atom_relay_unseen_device on session_duration.session_id=atom_relay_unseen_device.session_id left join ( select session_id, sum(atom_batch_bytes) as atom_batch_bytes from SyncMessageLog group by session_id ) as batch_bytes on session_duration.session_id=batch_bytes.session_id;
 SyncSessionLog
 session_id
@@ -3380,6 +4508,8 @@ DELETE FROM SyncSessionLog
 DELETE FROM AtomMergedLog
 (%@, %@, %@)
 (%@,%@,%@)
+%@,%@
+(%@,%@)
 -[_bmFMDatabase initWithPath:]
 FMDatabase.m
 sqlite3_threadsafe()
@@ -3454,274 +4584,20 @@ _bmFMDatabaseQueue could not reopen database for path %@
 FMDatabaseQueue.m
 currentSyncQueue != self && "inDatabase: was called reentrantly on the same queue, which would lead to a deadlock"
 Warning: there is at least one open result set around after performing [_bmFMDatabaseQueue inDatabase:]
-BMSyncCRDTLocationRow
-_bmFMResultSet
-BMSyncSessionContext
-BMSyncSessionMetricsCollector
-BMSyncSessionMetricsAggregator
-BMAtomBatchMaxBytes
-BMAtomBatchChunkerPolicy
-NSCopying
-BMAtomBatchMaxCount
-BMAtomBatchChunker
-BMSyncDevicePeerTable
-BMSyncDevicePeerMetadata
-BMPeerToPeerMessageOPACKCodable
-BMSyncDevicePeer
-BMRapportRequest
-BMRapportSyncEngine
-BMRapportManagerDelegate
-NSObject
-BMSyncCore
-BiomeSync
-BMStreamCKCRDT
-BMRapportManager
-BMRapportDevice
-BMPeerToPeerMessage
-BMFetchAtomBatchesRequest
-BMFetchAtomBatchesResponse
-BMSyncPolicy
-BatchEnumerate
-BMSyncCKAtomRow
-BMSyncServiceServerProtocol
-BMSyncServiceClientProtocol
-BMSyncServiceServer
-NSXPCListenerDelegate
-BMSyncDevice
-BMSync
-BMMultiStreamVectorClock
-NSSecureCoding
-NSCoding
-BMSyncDatabase
-BMSyncMetadata
-TombstoneBookmark
-BMSyncAtomValue
-BMStoreEventAtomValue
-BMDistributedSyncManager
-BMDistributedSyncMultiStreamManager
-BMDistributedSyncMultiStreamManagerFactory
-OPACKCodable
-BMSyncStreamID
-BMSyncScheduler
-BMSyncDatabaseTransactionBatcher
-BMSyncDevicePeerStatusTracker
-BMSyncMetricsCollectorTable
-BMDateFormatterVendor
-BMStreamCRDTLocation
-BMStreamCRDTLocationBuilder
-BMStreamCRDTLocationDayAssigner
-BMStreamCRDTLocationAssignerPolicy
-_bmFMDatabase
-_bmFMStatement
-_bmFMDatabaseAdditions
-_bmFMDatabasePool
-_bmFMDatabaseQueue
-@32@0:8@16Q24
-@40@0:8@16Q24Q32
-@16@0:8
-B24@0:8@16
-Q16@0:8
-v16@0:8
-@"BMStreamCRDTLocation"
-@24@0:8@16
-B32@0:8Q16@24
-B32@0:8@16Q24
-@24@0:8Q16
-@32@0:8@16@24
-v24@0:8@16
-v24@0:8Q16
-@"NSString"
-v44@0:8@16Q24Q32B40
-v48@0:8@16B24Q28B36@40
-v64@0:8Q16@24@32@40d48@56
-@"BMSyncDatabase"
-@"NSObject<OS_xpc_object>"
-@24@0:8^{_NSZone=}16
-B24@0:8@"NSData"16
-v24@0:8@"NSData"16
-B16@0:8
-v20@0:8B16
-@"<BMAtomBatchChunkerPolicy>"
-B28@0:8@16B24
-B32@0:8@16@24
-@24@0:8@"NSDictionary"16
-@"NSDictionary"16@0:8
-@40@0:8@16@24q32
-q16@0:8
-@40@0:8@16@24Q32
-@"BMSyncDevicePeerMetadata"
-@56@0:8@16@24@?32@40@?48
-v32@0:8@16@24
-@?16@0:8
-v24@0:8@?16
-@"NSObject<OS_os_transaction>"
-@"NSMutableSet"
-@"NSMutableDictionary"
-@"NSUUID"
-@"NSObject<OS_dispatch_queue>"
-@"NSObject<OS_dispatch_source>"
-@"BMSyncSessionContext"
-#16@0:8
-@24@0:8:16
-@32@0:8:16@24
-@40@0:8:16@24@32
-B24@0:8#16
-B24@0:8:16
-Vv16@0:8
-^{_NSZone=}16@0:8
-B24@0:8@"Protocol"16
-@"NSString"16@0:8
-B32@0:8@"BMRapportManager"16@"BMRapportDevice"24
-v32@0:8@"BMRapportManager"16@"BMRapportDevice"24
-v24@0:8@"BMRapportManager"16
-@48@0:8@16@24@32@40
-v40@0:8Q16@24@?32
-v40@0:8@16@24@32
-v44@0:8B16Q20@28@?36
-@28@0:8B16Q20
-v60@0:8@16@24@32@40@48B56
-v48@0:8@16@24@32@40
-I16@0:8
-@"BMDistributedSyncMultiStreamManager"
-@"BMRapportManager"
-@"NSObject<BMAtomBatchChunkerPolicy>"
-@"BMSyncDevicePeerStatusTracker"
-@"BMSyncSessionMetricsCollector"
-@"BMRapportSyncEngine"
-@"BMSyncScheduler"
-@64@0:8@16@24@32@40@48@56
-@56@0:8@16Q24@32@40@48
-B48@0:8@16@24^@32^@40
-B48@0:8@16@24@32^@40
-B48@0:8@16@24@32@40
-@36@0:8@16C24@28
-@"BMStoreConfig"
-@"BMSyncPolicy"
-@"BMStreamCRDTLocationBuilder"
-@"NSCache"
-@"BMSyncStreamID"
-v32@0:8@16@?24
-v48@0:8@16@24@32@?40
-v56@0:8@16@24@32@40@?48
-v28@0:8@16I24
-@"RPCompanionLinkClient"
-@"<BMRapportManagerDelegate>"
-@"RPCompanionLinkDevice"
-@"NSMutableArray"
-d16@0:8
-v24@0:8d16
-@"BMSyncDevicePeer"
-@"BMMultiStreamVectorClock"
-@"NSArray"
-@"NSDictionary"
-@24@0:8q16
-@32@0:8@16q24
-d24@0:8Q16
-Q24@0:8Q16
-B40@0:8Q16Q24^Q32
-B32@0:8Q16Q24
-B40@0:8q16Q24Q32
-@64@0:8@16@24@32@40Q48@56
-@"BMSyncCRDTLocationRow"
-@"CKDistributedTimestamp"
-@"CKAtomReference"
-@"BMStoreBookmark"
-@"NSData"
-@40@0:8Q16@24@32
-B36@0:8@16@24B32
-@48@0:8@16Q24@32@40
-v40@0:8@16@24@?32
-v40@0:8@16Q24@?32
-@40@0:8@16@24@32
-@40@0:8d16@24@32
-v24@0:8@?<v@?@"NSError">16
-v24@0:8@?<v@?@"NSArray"@"NSError">16
-B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
-@"BMSyncCore"
-@"NSXPCListener"
-@32@0:8@16^@24
-v24@0:8@"NSCoder"16
-@24@0:8@"NSCoder"16
-@24@0:8^@16
-@56@0:8@16@24@32@40@48
-@72@0:8@16@24@32@40@48@56@64
-@80@0:8@16@24@32@40@48@56@64@72
-B40@0:8@16@24@32
-@32@0:8Q16@24
-@"BMStoreEventAtomValue"
-@36@0:8@16I24d28
-@"BMStreamCKCRDT"
-@32@0:8Q16Q24
-@60@0:8@16q24Q32Q40C48@52
-v32@0:8Q16@24
-B24@0:8Q16
-@"_bmFMDatabase"
-B24@0:8@?16
-v56@0:8@16@24Q32B40Q44B52
-v72@0:8Q16@24@32Q40@48@56d64
-@"NSISO8601DateFormatter"
-@"NSDateFormatter"
-@"NSDate"
-@40@0:8@16@24d32
-@"<BMStreamCRDTLocationAssignerPolicy>"
-@"BMStreamCRDTLocation"40@0:8@"NSString"16@"NSString"24d32
-@24@0:8d16
-i16@0:8
-^v16@0:8
-r*16@0:8
-i24@0:8i16i20
-B20@0:8i16
-B28@0:8i16@20
-v20@0:8i16
-i36@0:8@16i24^{sqlite3_stmt=}28
-v48@0:8@16*24@32@40
-@52@0:8@16@24@32*40B48
-B48@0:8^{sqlite3_stmt=}16@24@32*40
-@40@0:8@16@24^@32
-@32@0:8@16*24
-B56@0:8@16^@24@32@40*48
-B40@0:8@16@24^@32
-B32@0:8@16*24
-B32@0:8@16@?24
-B32@0:8@16^@24
-@24@0:8@?16
-B28@0:8i16^@20
-B36@0:8i16@20^@28
-B52@0:8i16@20^i28^i36^@44
-v36@0:8@16i24@?28
-i24@0:8^v16
-q24@0:8^v16
-d24@0:8^v16
-@24@0:8^v16
-v24@0:8^v16
-v28@0:8i16^v20
-v32@0:8q16^v24
-v32@0:8d16^v24
-v32@0:8@16^v24
-v24@0:8q16
-v20@0:8I16
-@36@0:8@16@24B32
-B24@0:8^@16
-i24@0:8^@16
-i24@0:8@16
-i20@0:8i16
-q24@0:8@16
-q20@0:8i16
-Q24@0:8@16
-Q20@0:8i16
-d24@0:8@16
-d20@0:8i16
-@20@0:8i16
-r*20@0:8i16
-r*24@0:8@16
-B40@0:8@16@24*32
-@"_bmFMStatement"
-@28@0:8@16i24
-@36@0:8@16i24@28
-v32@0:8q16@?24
+locationRow is nil, returning empty state vector
+mergeDeltas delta: %@
+BMStreamCKRecordCRDT: unable to init a CKAtomBatch with initWriterWithMergeableValueID:%@ error:%@
+BMStreamCKRecordCRDT: unable to complete a CKAtomBatch with finishWritingWithError:%@ error:%@
+BMStreamCKRecordCRDT: failed to split atom batch with error %@
+BMStreamCKRecordCRDT: failed to calculate batch size with error %@
+BMStreamCKRecordCRDT: split into batch of size %@
+BMStreamCKRecordCRDT: unable to init a CKMergeableDelta with initWithAtomBatch:%@ error:%@
+*** deltas: %@
 unexpected modifier %lu
+[BMSyncCRDTLocationRow initWithFMResultSet] streamName:%@ siteIdentifier:%@ dayTimestamp:%f nsDate:%@ prefix:%@
 updateLocationState: %lu forLocation:%@
 updateAllLocationsAtOrBefore:%@ to state %lu
+Expected only one value in indexSet of timestampClockVector, found %lu
 sessionContext is nil
 BMRapportSyncEngine%@: completing request, still inflight: %@
 BMRapportSyncEngine%@: completeRequest:deliveredToDevices %@ withErrors:%@
@@ -3740,16 +4616,13 @@ BMRapportSyncEngine%@: asked to defer activity, won't issue more requests to dev
 BMRapportSyncEngine%@: max request depth %lu hit, finishing request to device %@
 BMRapportSyncEngine%@: sending request to device %@ with sequence number %lu
 BMRapportSyncEngine%@: no more data coming from device %@ finishing request
-failed to delete remotes for stream %@: %@
+BiomeSync is disabled on simulators, -[BMSyncCore start] returning NO
 biomesyncd launched
 biomesyncd last exit status: %lld
 Tried to defer activity %s, but failed
 biome activity fired "com.apple.biomesyncd.metrics-collection"
 Database unavailable for activity "com.apple.biomesyncd.metrics-collection"
 biome running activity "com.apple.biomesyncd.metrics-collection"
-biome activity fired "com.apple.biomesyncd.periodic-sync"
-Database unavailable for activity "com.apple.biomesyncd.periodic-sync"
-biome running activity "com.apple.biomesyncd.periodic-sync"
 Received unexpected object on com.apple.notifyd.matching: %@
 Received com.apple.notifyd.matching: %s
 Handling com.apple.notifyd.matching: %s
@@ -3762,15 +4635,18 @@ Received SIGTERM
 failed to set user dir suffix: %{darwin.errno}d
 failed to initialize temporary directory: %{darwin.errno}d
 failed to resolve temporary directory: %{darwin.errno}d
+biome activity fired "%s"
+Database unavailable for activity "%s"
+biome running activity "%s"
 Starting tombstone enumerator from 0 for stream %@ site %@
 Starting tombstone enumerator from segment %@ offset %lu for stream %@ site %@
 delete must reference a corresponding append
-Expected no-data frame to be delete or pre-delete, but frame was %llu
+Expected no-data frame to be delete or pre-delete, but frame was %{public}@
 appendRecord %@ is of unexpected type %lu
 bookmark is nil, presumably because the referenced atom was a dummy append (dead on arrival) %@
 deleting event at bookmark %@
-droppping atom %@ as it is dead on arrival
-writeEventWithBody: %@
+dropping atom %@ as it is dead on arrival
+writeAtomValue: %@
 adding %@ to atomBatch
 ingestChangesForSite: %@
 observed new data from non-local site %@
@@ -3784,28 +4660,30 @@ failed to batch ingest deletions
 deleteLocationsUpToTTLAtTombstone: %@, siteIdentifier: %@
 deletedExpiredBufferedLocationsForSiteIdentifier: %@
 failed to delete atoms with location: %@
-atomsAfterDistributedTimestampVector: %@, stream: %@
 atomTableRecord %@
 %@ location is not active
-creating new batch with location %@
 BMSyncCKAtomRow missing bookmark %@
 Next enumerator bookmark %@ doesn't match expected %@
 read table BMStoreEvent: %@ at offset %lu
 bookmark is DOA, not attempting to resolve event
-mergeAtomBatches: %lu deletedLocations: %@
+populateAndEnumerateAtomBatches could not finish writing atomBatch with err: %@
+atomsInClockVector: %@, stream: %@
+creating new batch with location %@
+could not create new batch with location %@
 handleDeletedLocation: %@
 failed to delete event at bookmark %@
 deleted location already handled
 location we haven't yet observed is now deleted %@
-mergeAtoms: %lu
+location is unexpectedly nil, unable to parse from mergeableValueID %@
+location is unexpectedly nil
 received missing location %@
 location is not active %@ skipping merge to not resurrect a dead location
 highest deleted location %@ is past incoming location %@
 received data for new location %@
+mergeAtoms: %lu location %@
 dropping atom with timestamp %@ since already merged
 atom with timestamp %@ already in table but not on disk
 causalReference location is unexpectedly nil
-failed to create reference location from location %@
 failed to insert referenceLocationRow for location %@
 addAtomRow: %@
 failed to commit, rolling back
@@ -3818,17 +4696,21 @@ causal reference violation: missing causal reference %@ reference location %@
 unblocked: %@
 failed to apply atom to disk
 updating row for atom applied to disk %@
+BMRapportManager: shared-use only supported internally
+BMRapportManager: shared discovery client already exists
 BMRapportManager: already activated %@
 BMRapportManager: already activating %@
 BMRapportManager: activating %@
 BMRapportManager: failed to activate with error: %@
 BMRapportManager: activated successfully
 BMRapportManager: invalidated
+BMRapportManager: registerEventID %@
 BMRapportManager: stop
 sendRequest:request:device:options:responseHandler: passed nil device
 BMRapportDevice[%@]: enqueueing request
+device %@ requestQueue %@
 BMRapportDevice[%@]: activating client
-BMRapportDevice[%@]: using existing client
+device: %@ linkState %lu
 handleActivationForDevice:error: passed nil device
 BMRapportDevice[%@]: activation %@%@
 BMRapportDevice[%@]: determined to not support service com.apple.biomesyncd.rapport
@@ -3863,27 +4745,121 @@ failed to archive BMMultiStreamVectorClock with error %@
 failed to unarchive BMMultiStreamAtomBatches with error %@
 failed to archive BMMultiStreamAtomBatches with error %@
 Failed to insert: %@
+stateVector: %@
 Failed to update: %@
-vector clock is empty %@
-syncWithCompletionHandler called
+clock vector is empty %@
+syncCloudKitNow completed.
+[cloudKitSyncEngine start] failed.
+syncRapportNow completed.
+triggerRapportSyncWithReply called
+rapportSyncWithError called
+triggerCloudKitSyncWithReply called
+cloudKitSyncWithError called
+%@: tried to initialize with a non-BMPBSyncAtomValue proto
+%@: tried to initialize a BMPBSyncAtomValue proto, missing type or value
 failed to deserialize BMSyncAtomValue with error %@
+cannot deserialize atom value of version %lu
 failed to serialize BMSyncAtomValue with error %@
-failed to deserialize BMStoreEventAtomValue with error %@
-failed to serialize BMStoreEventAtomValue with error %@
+cannot serialize atom value with version %lu
+%@: tried to initialize with a non-BMPBStoreEventAtomValue proto
+%@: tried to initialize a BMPBStoreEventAtomValue proto: missing dataVersion or dataTimestamp
+syncNowWithReason
+ingest events from stream: %@
+syncNowWithReason found %lu records to sync and %lu records to delete
+syncNowWithReason after removing duplicates, sending CKSyncEngine %lu records to sync and %lu records to delete
+unable to obtain Manatee accountInfo
+CloudKit container is not accessible. Status: %ld
+This account is eligible to sync with manatee containers
+Manatee is available on the current device
+iCloud account doesn't support end-to-end encryption: %ld
+account status is CKAccountStatusTemporarilyUnavailable
+iCloud account status: %ld
+unable to initialize CloudKit container
+unable to initialize CloudKit configuration
+unable to initialize ckSyncEngine
+accountInfoWithCompletionHandler returned error: %@
+zoneWithIDChanged: %@
+failedToFetchChangesForRecordZoneID: %@
+didDeleteRecordWithID: %@ in zone: %@
+isRecordNewerThanMostRecentDeleteForSiteIdentifier: Could not create location from CKRecord: %@
+Error serverValue is nil for delta %@ %@, %@
+Error encoding mergeableRecordValueData for %@ %@, %@
+Error saving [saveCKRecordServerMergeableValue:serverValueData] for %@ %@, %@
+didFetchRecord: %@
+didFetchRecord: unknown record type: %@
+didSaveRecord: %@ recordType: %@ zone: %@
+serverValue nil for for %@ %@
+Unable to unarchive localRecordValue for %@ %@ %@
+Unable to unarchive [localRecordValue mergeRecordValue:serverRecordValue] for %@ %@ %@
+didSaveRecordZone: %@
+failedToDeleteRecordWithID: %@, zone:%@
+failedToSaveRecordZone:%@ error:%@
+failedToSaveRecordZone: %@ and recoveryState:%d
+failedToSaveRecord: %{public}@, %{public}@ %@
+Add zone and add record request made %{public}@ %{public}@.
+Error not handled: failedToSaveRecord, error: %@
+Error not handled: failedToSaveRecord, unknown record type: %@ error: %@
+Zone ID is nil; record dropped %{public}@
+Handling CKErrorServerRecordChanged: [serverCRDT mergeRecordValue:clientCRDT];error: %@
+Manatee identity loss reported: record:%@, zoneID:%@, error:%@
+streamCRDT is nil %@
+locationID can not be found for recordID %@
+expirationTimeInterval is almost expired: %@, not saving recordID: %@ because it will be TTL'd
+recordToSaveForRecordID: newRecord? %d
+set mergeable and saved to record's encryptedValues
+recordToSaveForRecordID %@
+failedToDeleteRecordZoneWithID: %@ error: %@
+didDeleteRecordZoneWithID: %@
+didDeleteRecordZoneWithID re-creating zone:%@
+didDeleteRecordZoneWithID syncing %lu records for zone:%@
+didDeleteRecordZoneWithID not re-creating zone:%@, removing all local records in zone
+zoneWithIDWasDeleted: %@
+recordWithIDWasDeleted: %@, type=%@
+recordWithIDWasDeleted received an unknown record type:%@ for record:%@
+syncEngineWillBeginFetchingChanges
+syncEngineDidEndFetchingChanges
+Unable to unarchive serverMergeableValue for %@ %@ %@
+Merging mergeableRecordValue %@
+Unable to [recordValue mergeRecordValue:serverValue for %@ %@ %@
+syncEngineDidEndFetchingChanges location: %@
+Can't build location from record stream:%@ recordName:%@
+syncEngineDidEndFetchingChanges locationRow: %@
+locatoinRow is unexpectly nil for location %@
+recordValue %@
+Unable to  [recordValue mergeIntoMergeable:recordCRDT] for %@ %@ %@
+syncEngineWillBeginModifyingPendingChanges
+syncEngineDidEndModifyingPendingChanges
+mergeAtomBatches: %lu deletedLocations: %@
 Merging atom batches into %@
 Failed to instantiate CKAtomBatch, %@, %@
 Generating atom batch after clock: %@, version: %lu
+Could not generate atom data from atomBatch: %@, error: %@
 atomBatchesAfterClock %@ %@ %@
-Unable to sync now, because database is not currently accessible
+Unable to create unarchiver %@
+Unable to create a record from systemFieldsData for %@
+unable to create a record with initWithRecordType for %@
+Failed to clear metadata for record %@ in zone %@
+Problems updating CKRecords at or before location %@
+Problems deleting CKRecords at or before location %@
+Failed to delete CKRecords for streamName:%@
+Can not delete CKRecord at location %@
+Failed to delete all data associated with zone %@
+unrecognized transport type (%lu)
+syncNowIfPolicyAllowsWithReason: begin rapport sync
+syncNowIfPolicyAllowsWithReason: begin cloudkit sync
+syncNowIfPolicyAllowsWithReason: group_notify done
 last sync: %{public}@ (%f ago), last attempt: %{public}@ (%f ago)
-syncNowWithCompletionHandler %@, errors: %@
-skipping sync
+Unable to perform Rapport sync now, because database is not currently accessible
+Rapport syncNowWithCompletionHandler %@, errors: %@
+skipping rapport sync
+Unable to perform CloudKit sync now, because database is not currently accessible
+CloudKit syncNowWithCompletionHandler %@, errors: %@
+skipping cloudkit sync
 transitioned to state %llu
 unrecoverable error: %@
 database corrupt: %@
 database corrupt
 error: %@
-migration not implemented
 BMSyncDatabase state queried while opening
 failed to close db %@
 failed to commit transcation
@@ -3892,6 +4868,338 @@ recordSessionStart: %@
 recordSessionEnd: %@
 recordMessageToDeviceIdentifier: %@, %@
 recordAtomMergeResult: %@, %@
+nil value encountered in [BMStreamCRDTLocation initWithStreamName:%@ siteIdentifier:%@ day:%@]
+can not determine streamName
+unknown mergeable value ID format version %lu
+BMStreamCKRecordCRDT
+CKVersionedMergeable
+CKMergeable
+NSObject
+BMSyncCRDTLocationRow
+_bmFMResultSet
+BMMultiStreamVectorClockConverter
+BMSyncSessionContext
+BMSyncSessionMetricsCollector
+BMSyncSessionMetricsAggregator
+BMAtomBatchMaxBytes
+BMAtomBatchChunkerPolicy
+NSCopying
+BMAtomBatchMaxCount
+BMAtomBatchChunker
+BMSyncDevicePeerTable
+BMSyncDevicePeerMetadata
+BMPeerToPeerMessageOPACKCodable
+BMSyncDevicePeer
+BMRapportRequest
+BMRapportSyncEngine
+BMRapportManagerDelegate
+BMSyncCore
+BiomeSync
+BMMultiStreamTimestampClockVector
+NSSecureCoding
+NSCoding
+BMStreamCKCRDT
+BMPBSyncAtomValue
+BMSyncCKZone
+BMRapportManager
+BMRapportDevice
+BMPeerToPeerMessage
+BMFetchAtomBatchesRequest
+BMFetchAtomBatchesResponse
+BMSyncPolicy
+BatchEnumerate
+BMSyncCKAtomRow
+BMSyncServiceServerProtocol
+BMSyncServiceClientProtocol
+BMSyncServiceServer
+NSXPCListenerDelegate
+BMSyncDevice
+BMSync
+BMMultiStreamVectorClock
+BMSyncDatabase
+BMSyncMetadata
+BMSyncCKMergeableRecordValue
+TombstoneBookmark
+BMSyncAtomValue
+BMStoreEventAtomValue
+BMCloudKitSyncEngine
+CKSyncEngineDataSourcePrivate
+CKSyncEngineDataSource
+BMDistributedSyncManager
+BMDistributedSyncMultiStreamManager
+BMDistributedSyncMultiStreamManagerFactory
+OPACKCodable
+BMSyncCKRecord
+BMSyncStreamID
+BMAsyncBlockOperation
+BMSyncScheduler
+BMPBStoreEventAtomValue
+BMSyncDatabaseSQLStatementMigration
+BMSyncDatabaseCustomFunctionMigration
+BMSyncDatabaseTransactionBatcher
+BMSyncDevicePeerStatusTracker
+BMSyncMetricsCollectorTable
+BMDateFormatterVendor
+BMStreamCRDTLocation
+BMStreamCRDTLocationBuilder
+BMStreamCRDTLocationDayAssigner
+BMStreamCRDTLocationAssignerPolicy
+_bmFMDatabase
+_bmFMStatement
+_bmFMDatabaseAdditions
+_bmFMDatabasePool
+_bmFMDatabaseQueue
+B24@0:8@16
+#16@0:8
+@16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B16@0:8
+B24@0:8#16
+B24@0:8:16
+Vv16@0:8
+Q16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
+B32@0:8@16^@24
+@32@0:8@16^@24
+@40@0:8@16@24^@32
+B32@0:8@"NSArray"16^@24
+@"NSArray"32@0:8@"CKMergeableDeltaMetadata"16^@24
+@"NSArray"40@0:8@"CKMergeableValueID"16@"CKMergeableDeltaMetadata"24^@32
+@"CKDistributedTimestampStateVector"16@0:8
+@48@0:8@16@24@32@40
+v24@0:8@16
+v16@0:8
+@"BMSyncDatabase"
+@"BMStreamCKCRDT"
+@"BMSyncCRDTLocationRow"
+@"NSObject<OS_dispatch_queue>"
+@32@0:8@16Q24
+@40@0:8@16Q24Q32
+@"BMStreamCRDTLocation"
+@24@0:8@16
+B32@0:8Q16@24
+B32@0:8@16Q24
+@24@0:8Q16
+@32@0:8@16@24
+i16@0:8
+v24@0:8Q16
+@"NSString"
+v44@0:8@16Q24Q32B40
+v48@0:8@16B24Q28B36@40
+v64@0:8Q16@24@32@40d48@56
+@"NSObject<OS_xpc_object>"
+@24@0:8^{_NSZone=}16
+B24@0:8@"NSData"16
+v24@0:8@"NSData"16
+v20@0:8B16
+@"<BMAtomBatchChunkerPolicy>"
+B28@0:8@16B24
+B32@0:8@16@24
+@24@0:8@"NSDictionary"16
+@"NSDictionary"16@0:8
+@40@0:8@16@24q32
+q16@0:8
+@40@0:8@16@24Q32
+@"BMSyncDevicePeerMetadata"
+@56@0:8@16@24@?32@40@?48
+v32@0:8@16@24
+@?16@0:8
+v24@0:8@?16
+@"NSObject<OS_os_transaction>"
+@"NSMutableSet"
+@"NSMutableDictionary"
+@"NSUUID"
+@"NSObject<OS_dispatch_source>"
+@"BMSyncSessionContext"
+B32@0:8@"BMRapportManager"16@"BMRapportDevice"24
+v32@0:8@"BMRapportManager"16@"BMRapportDevice"24
+v24@0:8@"BMRapportManager"16
+v40@0:8Q16@24@?32
+v40@0:8@16@24@32
+v44@0:8B16Q20@28@?36
+@36@0:8B16Q20Q28
+v60@0:8@16@24@32@40@48B56
+v48@0:8@16@24@32@40
+I16@0:8
+@"BMDistributedSyncMultiStreamManager"
+@"BMRapportManager"
+@"NSObject<BMAtomBatchChunkerPolicy>"
+@"BMSyncDevicePeerStatusTracker"
+@"BMSyncSessionMetricsCollector"
+@"BMRapportSyncEngine"
+@"BMCloudKitSyncEngine"
+@"BMSyncScheduler"
+v24@0:8@"NSCoder"16
+@24@0:8@"NSCoder"16
+@24@0:8^@16
+@64@0:8@16@24@32@40@48@56
+@56@0:8@16Q24@32@40@48
+@40@0:8@16Q24q32
+B48@0:8@16@24^@32^@40
+B48@0:8@16@24@32^@40
+B60@0:8@16@24@32@40C48q52
+v52@0:8@16@24@32C40q44
+v32@0:8@16Q24
+v60@0:8@16@24@32C40q44@52
+v52@0:8@16C24@28Q36@?44
+v28@0:8@16B24
+@"BMStoreConfig"
+@"BMSyncPolicy"
+@"BMStreamCRDTLocationBuilder"
+@"NSCache"
+@"BMSyncStreamID"
+@"BMPBStoreEventAtomValue"
+{?="type"b1}
+@"NSDate"
+B28@0:8@16i24
+B36@0:8@16i24@28
+@28@0:8@16B24
+v32@0:8@16@?24
+v48@0:8@16@24@32@?40
+v56@0:8@16@24@32@40@?48
+v28@0:8@16I24
+@"RPCompanionLinkClient"
+@"<BMRapportManagerDelegate>"
+@"RPCompanionLinkDevice"
+@"NSMutableArray"
+d16@0:8
+v24@0:8d16
+@"BMSyncDevicePeer"
+@"BMMultiStreamVectorClock"
+@"NSArray"
+@"NSDictionary"
+@24@0:8q16
+@32@0:8@16q24
+d24@0:8Q16
+Q24@0:8Q16
+B40@0:8Q16Q24^Q32
+B32@0:8Q16Q24
+B40@0:8q16Q24Q32
+@64@0:8@16@24@32@40Q48@56
+@72@0:8@16@24@32@40Q48q56@64
+@"CKDistributedTimestamp"
+@"CKAtomReference"
+@"BMStoreBookmark"
+@"NSData"
+@40@0:8Q16@24@32
+B36@0:8@16@24B32
+@48@0:8@16Q24@32@40
+v40@0:8@16@24@?32
+v40@0:8@16Q24@?32
+@40@0:8@16@24@32
+@40@0:8d16@24@32
+v24@0:8@?<v@?@"NSError">16
+v24@0:8@?<v@?@"NSArray"@"NSArray">16
+v24@0:8@?<v@?@"NSArray"@"NSError">16
+B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
+v32@0:8@?16@?24
+@"BMSyncCore"
+@"NSXPCListener"
+@56@0:8@16@24@32@40@48
+@72@0:8@16@24@32@40@48@56@64
+@80@0:8@16@24@32@40@48@56@64@72
+B40@0:8@16@24@32
+@40@0:8Q16@24q32
+@"BMStoreEventAtomValue"
+@36@0:8@16I24d28
+@"CKRecord"32@0:8@"CKSyncEngine"16@"CKRecordID"24
+v32@0:8@"CKSyncEngine"16@"CKRecord"24
+v40@0:8@"CKSyncEngine"16@"CKRecord"24@"NSError"32
+v32@0:8@"CKSyncEngine"16@"CKRecordID"24
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"NSString"32
+v32@0:8@"CKSyncEngine"16@"NSData"24
+v32@0:8@"CKSyncEngine"16@"CKRecordZone"24
+v32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
+v40@0:8@"CKSyncEngine"16@"CKRecordZoneID"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordZone"24@"NSError"32
+v40@0:8@"CKSyncEngine"16@"CKRecordID"24@"CKRecordID"32
+v24@0:8@"CKSyncEngine"16
+@"CKSyncEngineBatch"32@0:8@"CKSyncEngine"16@"NSSet"24
+v40@0:8@"CKSyncEngine"16@"CKSyncEngineBatch"24@"NSError"32
+@"NSArray"24@0:8@"CKSyncEngine"16
+B32@0:8@"CKSyncEngine"16@"CKRecordZoneID"24
+@"NSArray"40@0:8@"CKSyncEngine"16@"NSArray"24@"NSArray"32
+@"NSOperationQueue"
+@"<CKSyncEngineDataSource>"
+@"CKContainer"
+@"CKSyncEngineConfiguration"
+@"CKSyncEngine"
+@44@0:8@16C24@28Q36
+@32@0:8Q16Q24
+@60@0:8@16q24Q32Q40C48@52
+@32@0:8@16^B24
+B44@0:8@16B24@28@36
+B48@0:8@16@24@32@40
+@24@0:8@?16
+v40@0:8Q16Q24@32
+v32@0:8Q16@24
+{?="dataTimestamp"b1"dataVersion"b1}
+B24@0:8Q16
+@"_bmFMDatabase"
+B24@0:8@?16
+v56@0:8@16@24Q32B40Q44B52
+v72@0:8Q16@24@32Q40@48@56d64
+@"NSISO8601DateFormatter"
+@"NSDateFormatter"
+@40@0:8@16@24d32
+@"<BMStreamCRDTLocationAssignerPolicy>"
+@"BMStreamCRDTLocation"40@0:8@"NSString"16@"NSString"24d32
+@24@0:8d16
+^v16@0:8
+r*16@0:8
+i24@0:8i16i20
+B20@0:8i16
+B28@0:8i16@20
+v20@0:8i16
+i36@0:8@16i24^{sqlite3_stmt=}28
+v48@0:8@16*24@32@40
+@52@0:8@16@24@32*40B48
+B48@0:8^{sqlite3_stmt=}16@24@32*40
+@32@0:8@16*24
+B56@0:8@16^@24@32@40*48
+B40@0:8@16@24^@32
+B32@0:8@16*24
+B32@0:8@16@?24
+B28@0:8i16^@20
+B36@0:8i16@20^@28
+B52@0:8i16@20^i28^i36^@44
+v36@0:8@16i24@?28
+i24@0:8^v16
+q24@0:8^v16
+d24@0:8^v16
+@24@0:8^v16
+v24@0:8^v16
+v28@0:8i16^v20
+v32@0:8q16^v24
+v32@0:8d16^v24
+v32@0:8@16^v24
+v24@0:8q16
+v20@0:8I16
+@36@0:8@16@24B32
+B24@0:8^@16
+i24@0:8^@16
+i24@0:8@16
+i20@0:8i16
+q24@0:8@16
+q20@0:8i16
+Q24@0:8@16
+Q20@0:8i16
+d24@0:8@16
+d20@0:8i16
+@20@0:8i16
+r*20@0:8i16
+r*24@0:8@16
+B40@0:8@16@24*32
+@"_bmFMStatement"
+@28@0:8@16i24
+@36@0:8@16i24@28
+v32@0:8q16@?24
+softlink:r:path:/System/Library/PrivateFrameworks/BiomeLibrary.framework/BiomeLibrary
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -3907,21 +5215,21 @@ recordAtomMergeResult: %@, %@
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>13E6049a</string>
+<string>20A5283j</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>15.5</string>
+<string>16.0</string>
 <key>DTSDKBuild</key>
-<string>19F63</string>
+<string>20A5283j</string>
 <key>DTSDKName</key>
-<string>iphonesimulator15.5.internal</string>
+<string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>
-<string>1330</string>
+<string>1400</string>
 <key>DTXcodeBuild</key>
-<string>13E6049a</string>
+<string>14A6200i</string>
 <key>MinimumOSVersion</key>
-<string>15.5</string>
+<string>16.0</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
@@ -3935,34 +5243,104 @@ recordAtomMergeResult: %@, %@
 <dict>
 <key>application-identifier</key>
 <string>com.apple.biomesyncd</string>
+<key>aps-connection-initiate</key>
+<true/>
+<key>aps-environment</key>
+<string>serverPreferred</string>
 <key>com.apple.CompanionLink</key>
 <true/>
+<key>com.apple.application-identifier</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.developer.aps-environment</key>
+<string>serverPreferred</string>
+<key>com.apple.developer.icloud-container-environment</key>
+<string>Production</string>
+<key>com.apple.developer.icloud-container-identifiers</key>
+<array>
+<string>com.apple.biome.sync</string>
+</array>
+<key>com.apple.developer.icloud-services</key>
+<array>
+<string>CloudKit</string>
+</array>
+<key>com.apple.private.appleaccount.app-hidden-from-icloud-settings</key>
+<true/>
+<key>com.apple.private.aps-connection-initiate</key>
+<true/>
+<key>com.apple.private.biome.client-identifier</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.private.biome.read-write</key>
+<array>
+<string>ContextSync.LOI</string>
+</array>
+<key>com.apple.private.biome.sensorActivation</key>
+<true/>
+<key>com.apple.private.cloudkit.serviceNameForContainerMap</key>
+<dict>
+<key>com.apple.biome.sync</key>
+<string>com.apple.biome.sync</string>
+</dict>
+<key>com.apple.private.cloudkit.spi</key>
+<true/>
+<key>com.apple.private.ids.messaging</key>
+<array>
+<string>com.apple.private.alloy.contextsync</string>
+</array>
+<key>com.apple.private.ids.messaging.urgent-priority</key>
+<array>
+<string>com.apple.private.alloy.contextsync</string>
+</array>
 <key>com.apple.private.sandbox.profile:embedded</key>
 <string>temporary-sandbox</string>
 <key>com.apple.private.security.storage.Biome</key>
 <true/>
-<key>com.apple.security.exception.files.absolute-path.read-write</key>
+<key>com.apple.private.tcc.allow</key>
 <array>
-<string>/private/var/tmp/com.apple.biomesyncd/</string>
+<string>kTCCServiceLiverpool</string>
 </array>
 <key>com.apple.security.exception.files.home-relative-path.read-write</key>
 <array>
 <string>/Library/Biome/sync/</string>
 <string>/Library/Biome/streams/public</string>
 <string>/Library/Biome/streams/public/DeviceMetadata/</string>
+<string>/Library/Biome/streams/public/AppIntent/</string>
+<string>/Library/Biome/streams/public/AppLaunch/</string>
+<string>/Library/Biome/streams/public/Workout/</string>
 <string>/Library/Biome/streams/restricted</string>
 <string>/Library/Biome/streams/restricted/feedbackSocialHighlights/</string>
 <string>/Library/Biome/streams/restricted/SiriMemoryReferenceResolutionStream/</string>
+<string>/Library/Biome/streams/restricted/Device.Power.PluggedIn/</string>
+<string>/Library/Biome/streams/restricted/Device.Wireless.WiFi/</string>
+<string>/Library/Biome/streams/restricted/Device.Power.BatteryLevel/</string>
 </array>
 <key>com.apple.security.exception.mach-lookup.global-name</key>
 <array>
 <string>com.apple.CompanionLink</string>
+<string>com.apple.biomed.sensorActivation</string>
+<string>com.apple.cloudd</string>
+<string>com.apple.apsd</string>
+<string>com.apple.identityservicesd.embedded.auth</string>
+</array>
+<key>com.apple.security.exception.shared-preference.read-only</key>
+<array>
+<string>com.apple.CloudKit</string>
+<string>com.apple.ids</string>
+<string>com.apple.facetime.bag</string>
 </array>
 <key>com.apple.security.exception.shared-preference.read-write</key>
 <array>
 <string>com.apple.biomesyncd</string>
+<string>com.apple.contextsync.subscriptions</string>
 </array>
+<key>com.apple.security.network.client</key>
+<true/>
+<key>com.apple.security.network.server</key>
+<true/>
 <key>com.apple.security.ts.mobile-keybag-access</key>
+<true/>
+<key>com.apple.security.ts.tmpdir</key>
+<string>com.apple.biomesyncd</string>
+<key>com.apple.wifi.manager-access</key>
 <true/>
 <key>platform-application</key>
 <true/>

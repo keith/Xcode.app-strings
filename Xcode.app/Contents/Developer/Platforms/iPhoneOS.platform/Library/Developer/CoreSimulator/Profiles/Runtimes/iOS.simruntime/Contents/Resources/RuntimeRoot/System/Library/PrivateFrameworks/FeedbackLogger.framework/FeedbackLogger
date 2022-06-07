@@ -57,6 +57,7 @@ UPDATE batchStatus SET status=1 WHERE status=0 AND batchId=?;
 UPDATE batchStatus SET status=1 WHERE status=2;
 UPDATE batchStatus SET status=6 WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))) AND status NOT IN (3, 4, 5);
 DELETE FROM records WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))); DELETE FROM batchStatus WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6)));
+VACUUM;
 DELETE FROM records WHERE batchId=?;
 DELETE FROM batchStatus WHERE batchId=?;
 DELETE FROM records;
@@ -174,6 +175,9 @@ migrating schema with: %s
 Received unexpected schema version, failing migration
 Could not infer schema_version, assuming 0
 Couldn't infer page_size, failing request to set database size limit
+SQLite open failed: %d
+Opened SQLite store %@
+Re-using already opened SQLite store %@
 Initialized SQLite persistent store manager for %@
 Database is not yet initialized by client
 Can't persist blob sizes(%lu) greater than maximum allowed(%llu)
@@ -184,9 +188,7 @@ database quota exceeded
 persist request failed
 SQLite insertion failed: %d
 Failure detail: %s
-SQLite open failed: %d
-Opened SQLite store %@
-Re-using already opened SQLite store %@
+Batch is already larger than preferred size, rolling over Id(%s)
 Batch exceeded maximum size, rolling over Id(%s)
 Batch exceeded maximum allowed life time (%f), rolling over Id(%s).
 Rolled over to new batch with Id(%s)
@@ -211,6 +213,7 @@ FLLogger
 UploadManager
 BatchManager
 SchemaManager
+FLSQLiteDatabaseConnection
 FLSQLitePersistence
 FLLoggingContext
 NSObject
@@ -270,13 +273,15 @@ _cancelStoreCacheTimer
 context
 dealloc
 initWithContext:
+dbConnections
+objectForKeyedSubscript:
+path
+setObject:forKeyedSubscript:
 stringWithFormat:
 persistentStores
-objectForKeyedSubscript:
 _resetStoreCacheTimer
-setObject:forKeyedSubscript:
+__dispatched_databaseConnectionWithId:
 URLByStandardizingPath
-path
 allKeys
 countByEnumeratingWithState:objects:count:
 hasPrefix:
@@ -289,6 +294,7 @@ nextObject
 dateByAddingTimeInterval:
 timeIntervalSinceNow
 addObject:
+removeAllObjects
 distantFuture
 date
 earlierDate:
@@ -299,7 +305,6 @@ _cleanPersistantStores
 setPersistentStoreCacheTTLTimer:
 persistentStoreCacheTTLTimer
 allValues
-removeAllObjects
 mutableCopy
 dictionary
 setObject:forKey:
@@ -331,6 +336,7 @@ removeSiriInstrumentationObserver:
 dataUploadStoreIdForApplicationIdentifier:
 reportDataUploadEvent:application:completion:
 report:application:
+setDbConnections:
 setPersistentStores:
 setContext:
 setLog:
@@ -338,12 +344,14 @@ persistentStoreCacheTTL
 setPersistentStoreCacheTTL:
 notificationCenter
 setNotificationCenter:
+_dbConnections
 _persistentStores
 _context
 _log
 _persistentStoreCacheTTL
 _persistentStoreCacheTTLTimer
 _notificationCenter
+T@"NSMutableDictionary",&,N,V_dbConnections
 T@"NSMutableDictionary",&,N,V_persistentStores
 T@"NSObject<FLLoggingContext>",&,N,V_context
 T@"NSObject<OS_os_log>",&,N,V_log
@@ -395,6 +403,7 @@ forceCloseOpenBatches
 recoverOrphanedProcessingBatches
 markBatchesforPurge
 doBatchesHousekeeping
+vacuum
 purgeBatch:
 purgeAllBatches
 batchStatusDescription:
@@ -404,22 +413,29 @@ getSchemaVersion
 prepareSchema
 getCurrentDatabaseSize
 setDatabaseSizeLimit
+setStorePath:
+close
+storePath
+initWithStorePath:
+open
+_storePath
+T@"NSString",C,N,V_storePath
+T^{sqlite3=},R,N,V_db
 copy
+initWithStoreId:dbConnection:loggingContext:
 createDatabase
 tryPrepare:preparedStatement:
 initializeConnectionForUseBy:
 tryRolloverBatchIfNecessary:
-databasePath
 currentBatchIdentifier
 currentBatchPayloadSize
 maxBatchPayloadInBytes
 currentBatchCreationDate
 batchMaximumDuration
-open
 executeSQLStatement:usingTransaction:
 enumerateObjectsUsingBlock:
 dataWithBytes:length:
-setDb:
+databasePath
 removeItemAtPath:error:
 domain
 code
@@ -445,6 +461,9 @@ setCurrentBatchIdentifier:
 setCurrentBatchCreationDate:
 setCurrentBatchPayloadSize:
 setBatchMaximumDuration:
+setDb:
+dbConnection
+setDbConnection:
 _configured
 _databasePath
 _insertRecordsStatement
@@ -456,8 +475,8 @@ _currentBatchIdentifier
 _currentBatchCreationDate
 _currentBatchPayloadSize
 _batchMaximumDuration
+_dbConnection
 T@"NSString",R,C,N,V_databasePath
-T^{sqlite3=},N,V_db
 T@"FLLoggingContext",&,N,V_context
 T^{sqlite3_stmt=},N,V_insertRecordsStatement
 T^{sqlite3_stmt=},N,V_iteratePayloadStatement
@@ -469,6 +488,8 @@ T@"NSString",C,N,V_currentBatchIdentifier
 T@"NSDate",C,N,V_currentBatchCreationDate
 TQ,N,V_currentBatchPayloadSize
 Td,N,V_batchMaximumDuration
+T^{sqlite3=},N,V_db
+T@"FLSQLiteDatabaseConnection",&,N,V_dbConnection
 init
 defaultManager
 initWithSuiteName:
@@ -600,6 +621,9 @@ B24@0:8@?16
 B24@0:8@16
 B32@0:8r*16@24
 B32@0:8@16N^@24
+^{sqlite3=}16@0:8
+^{sqlite3=}
+@40@0:8@16@24@32
 B20@0:8i16
 B24@0:8Q16
 B32@0:8r*16N^^{sqlite3_stmt}24
@@ -607,16 +631,15 @@ B28@0:8r*16B24
 B24@0:8r*16
 B32@0:8@16@?24
 B32@0:8@16N^i24
-^{sqlite3=}16@0:8
-v24@0:8^{sqlite3=}16
 ^{sqlite3_stmt=}16@0:8
 v24@0:8^{sqlite3_stmt=}16
 v20@0:8B16
 d16@0:8
 v24@0:8d16
-^{sqlite3=}
+v24@0:8^{sqlite3=}16
 @"FLLoggingContext"
 ^{sqlite3_stmt=}
+@"FLSQLiteDatabaseConnection"
 #16@0:8
 @24@0:8:16
 @32@0:8:16@24
@@ -699,6 +722,7 @@ UPDATE batchStatus SET status=1 WHERE status=0 AND batchId=?;
 UPDATE batchStatus SET status=1 WHERE status=2;
 UPDATE batchStatus SET status=6 WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))) AND status NOT IN (3, 4, 5);
 DELETE FROM records WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6))); DELETE FROM batchStatus WHERE batchId IN (SELECT batchId FROM batchStatus WHERE (dateUploaded IS NOT NULL OR dateCreated < strftime('%s',datetime('now', '-7 day')) OR status IN (4, 5, 6)));
+VACUUM;
 DELETE FROM records WHERE batchId=?;
 DELETE FROM batchStatus WHERE batchId=?;
 DELETE FROM records;
@@ -816,6 +840,9 @@ migrating schema with: %s
 Received unexpected schema version, failing migration
 Could not infer schema_version, assuming 0
 Couldn't infer page_size, failing request to set database size limit
+SQLite open failed: %d
+Opened SQLite store %@
+Re-using already opened SQLite store %@
 Initialized SQLite persistent store manager for %@
 Database is not yet initialized by client
 Can't persist blob sizes(%lu) greater than maximum allowed(%llu)
@@ -826,9 +853,7 @@ database quota exceeded
 persist request failed
 SQLite insertion failed: %d
 Failure detail: %s
-SQLite open failed: %d
-Opened SQLite store %@
-Re-using already opened SQLite store %@
+Batch is already larger than preferred size, rolling over Id(%s)
 Batch exceeded maximum size, rolling over Id(%s)
 Batch exceeded maximum allowed life time (%f), rolling over Id(%s).
 Rolled over to new batch with Id(%s)
@@ -853,6 +878,7 @@ FLLogger
 UploadManager
 BatchManager
 SchemaManager
+FLSQLiteDatabaseConnection
 FLSQLitePersistence
 FLLoggingContext
 NSObject
@@ -861,6 +887,74 @@ FeedbackLogger
 Observer
 FeedbackLoggerDaemonXPC
 FeedbackLoggerFBFClient
+userInfo
+timeIntervalSinceNow
+timeIntervalSinceDate:
+timeIntervalSince1970
+synchronousRemoteObjectProxyWithErrorHandler:
+stringWithFormat:
+stringByAppendingString:
+setRemoteObjectInterface:
+setObject:forKeyedSubscript:
+setObject:forKey:
+setInvalidationHandler:
+setExportedObject:
+resume
+removeObserver:
+removeObjectForKey:
+removeItemAtPath:error:
+removeAllObjects
+postNotificationName:object:
+path
+objectForKeyedSubscript:
+objectForKey:
+numberWithUnsignedInteger:
+numberWithInteger:
+numberWithInt:
+nextObject
+mutableCopy
+localizedDescription
+length
+keyEnumerator
+isEqualToDate:
+interfaceWithProtocol:
+initWithUTF8String:
+initWithSuiteName:
+initWithMachServiceName:options:
+initWithData:
+hasPrefix:
+errorWithDomain:code:userInfo:
+enumerateObjectsUsingBlock:
+earlierDate:
+domain
+distantPast
+distantFuture
+dictionaryWithObjects:forKeys:count:
+dictionary
+defaultManager
+defaultCenter
+dateWithTimeIntervalSince1970:
+dateByAddingTimeInterval:
+date
+dataWithBytes:length:
+data
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+countByEnumeratingWithState:objects:count:
+count
+copy
+code
+bytes
+boolForKey:
+allValues
+allKeys
+addObserver:selector:name:object:
+addObject:
+URLForDirectory:inDomain:appropriateForURL:create:error:
+URLByStandardizingPath
+UTF8String
+UUID
+UUIDString
+URLByAppendingPathComponent:isDirectory:
 batchIdentifier
 setBatchIdentifier:
 timestampReferenceIdentifier
@@ -902,177 +996,137 @@ T@"NSDate",C,N,V_dateLastProcessed
 T@"NSDate",C,N,V_dateUploaded
 TQ,N,V_eventCount
 T@"NSNumber",&,N,V_category
-defaultCenter
 closeAllStores
-addObserver:selector:name:object:
 closeStoreForApplicationFromNotification:
-_closeAllStores
-removeObserver:
-_cancelStoreCacheTimer
-context
 dealloc
-initWithContext:
-stringWithFormat:
-persistentStores
-objectForKeyedSubscript:
-_resetStoreCacheTimer
-setObject:forKeyedSubscript:
-URLByStandardizingPath
-path
-allKeys
-countByEnumeratingWithState:objects:count:
-hasPrefix:
-removeObjectForKey:
-userInfo
-objectForKey:
-closeStoreForBundleID:
-keyEnumerator
-nextObject
-dateByAddingTimeInterval:
-timeIntervalSinceNow
-addObject:
-distantFuture
-date
-earlierDate:
-distantPast
-_nextTimerFireDate
-isEqualToDate:
-_cleanPersistantStores
-setPersistentStoreCacheTTLTimer:
-persistentStoreCacheTTLTimer
-allValues
-removeAllObjects
-mutableCopy
-dictionary
-setObject:forKey:
-UTF8String
-length
-__dispatched_persistentStoreWithId:category:
-parsecStoreId
-data
-parsecCategoryForPayload:
-write:category:toStoreWithID:completion:
-numberWithInt:
-initWithData:
-readSiriCategoryFrom:recursive:
-siriStoreIdForBundleId:
-categoryForSiriPayload:
-siriReadingStoreForBundleID:
-report:application:onComplete:
 sharedLogger
+readSiriCategoryFrom:recursive:
+categoryForSiriPayload:
+initWithContext:
+__dispatched_databaseConnectionWithId:
+__dispatched_persistentStoreWithId:category:
 pathForStore:
+closeStoreForBundleID:
+_cleanPersistantStores
+_nextTimerFireDate
+_resetStoreCacheTimer
+_cancelStoreCacheTimer
+_closeAllStores
 setValue:forUploadHeaderNamed:
 uploadHeaders
 scheduleImmediateUpload
+write:category:toStoreWithID:completion:
+parsecStoreId
+parsecCategoryForPayload:
 parsecPersistentStoreForBundleID:
 reportParsecFeedback:completion:
+siriStoreIdForBundleId:
 siriWritingStoreForBundleID:category:
+siriReadingStoreForBundleID:
 reportSiriInstrumentationEvent:forBundleID:completion:
 registerSiriInstrumentationObserver:observer:
 removeSiriInstrumentationObserver:
 dataUploadStoreIdForApplicationIdentifier:
 reportDataUploadEvent:application:completion:
 report:application:
+report:application:onComplete:
+dbConnections
+setDbConnections:
+persistentStores
 setPersistentStores:
+context
 setContext:
 setLog:
 persistentStoreCacheTTL
 setPersistentStoreCacheTTL:
+persistentStoreCacheTTLTimer
+setPersistentStoreCacheTTLTimer:
 notificationCenter
 setNotificationCenter:
+_dbConnections
 _persistentStores
 _context
 _log
 _persistentStoreCacheTTL
 _persistentStoreCacheTTLTimer
 _notificationCenter
+T@"NSMutableDictionary",&,N,V_dbConnections
 T@"NSMutableDictionary",&,N,V_persistentStores
 T@"NSObject<FLLoggingContext>",&,N,V_context
 T@"NSObject<OS_os_log>",&,N,V_log
 TQ,N,V_persistentStoreCacheTTL
 T@"NSObject<OS_dispatch_source>",&,N,V_persistentStoreCacheTTLTimer
 T@"NSDistributedNotificationCenter",&,N,V_notificationCenter
-_getUploadIdsHelper:
-_updateMetadataHelperForUpload:query:
-_updateStatusHelperForUpload:toStatus:
-boolForKey:
-getPurgableUploadIds
-count
-markUploadsForPurge
-getUploadRecordWithId:
-cleanupPurgableUploads
-errorWithDomain:code:userInfo:
-UUIDString
-bytes
-timeIntervalSince1970
-__deleteStatementHelper:forUploadId:
 getUploadIdsWithStatus:
 getUploadIdsWithAllStatuses
+getPurgableUploadIds
+_getUploadIdsHelper:
 getUploadsRangeStart:end:
+_updateStatusHelperForUpload:toStatus:
+_updateMetadataHelperForUpload:query:
 updateStatusForUpload:toStatus:
 recoverOrphanedProcessingUploads
 doUploadHousekeeping
+markUploadsForPurge
+cleanupPurgableUploads
 persistUploadPayload:
+getUploadRecordWithId:
 iterateUploadsWithCodeblock:
 deleteUploadWithIdentifier:
+__deleteStatementHelper:forUploadId:
 deleteAllUploads
 uploadStatusDescription:
-_getBatchIdsHelper:
-_updateMetadataHelperForBatch:query:
-_updateStatusHelperForBatch:toStatus:
-closeOpenBatch
-UUID
-closeOrphanedBatches
-__purgeStatementHelper:forBatchId:
 getBatchIdsWithStatus:
 getBatchIdsWithAllStatuses
 getPurgableBatchIds
+_getBatchIdsHelper:
 getRecordsRangeStart:end:
 getBatchMetadata:batchMetadata:
+_updateStatusHelperForBatch:toStatus:
+_updateMetadataHelperForBatch:query:
 updateStatusForBatch:toStatus:
 getDataVersion
 initializeNewBatch
+closeOrphanedBatches
 closeAllBatches
 forceCloseOpenBatches
+closeOpenBatch
 recoverOrphanedProcessingBatches
 markBatchesforPurge
 doBatchesHousekeeping
+vacuum
 purgeBatch:
+__purgeStatementHelper:forBatchId:
 purgeAllBatches
 batchStatusDescription:
+prepareSchema
 isSchemaReady
 updateSchema
 getSchemaVersion
-prepareSchema
 getCurrentDatabaseSize
 setDatabaseSizeLimit
-copy
-createDatabase
-tryPrepare:preparedStatement:
-initializeConnectionForUseBy:
-tryRolloverBatchIfNecessary:
-databasePath
-currentBatchIdentifier
-currentBatchPayloadSize
-maxBatchPayloadInBytes
-currentBatchCreationDate
-batchMaximumDuration
+initWithStorePath:
 open
-executeSQLStatement:usingTransaction:
-enumerateObjectsUsingBlock:
-dataWithBytes:length:
-setDb:
-removeItemAtPath:error:
-domain
-code
-stringByAppendingString:
+close
+storePath
+setStorePath:
+_storePath
+T@"NSString",C,N,V_storePath
+T^{sqlite3=},R,N,V_db
+initWithStoreId:dbConnection:loggingContext:
 initWithStoreId:loggingContext:
+initializeConnectionForUseBy:
 persist:
+tryRolloverBatchIfNecessary:
+tryPrepare:preparedStatement:
+executeSQLStatement:usingTransaction:
 executeSQLStatement:
 executeInTransactionMultipleSQLStatements:
 iteratePayloadForBatch:codeblock:
 getIntValueForPragma:into:
+createDatabase
 deleteDatabase
+databasePath
 insertRecordsStatement
 setInsertRecordsStatement:
 iteratePayloadStatement
@@ -1080,13 +1134,21 @@ setIteratePayloadStatement:
 storeIdentifier
 configured
 setConfigured:
+maxBatchPayloadInBytes
 setMaxBatchPayloadInBytes:
 maxAllowedDatabaseSizeInBytes
 setMaxAllowedDatabaseSizeInBytes:
+currentBatchIdentifier
 setCurrentBatchIdentifier:
+currentBatchCreationDate
 setCurrentBatchCreationDate:
+currentBatchPayloadSize
 setCurrentBatchPayloadSize:
+batchMaximumDuration
 setBatchMaximumDuration:
+setDb:
+dbConnection
+setDbConnection:
 _configured
 _databasePath
 _insertRecordsStatement
@@ -1098,8 +1160,8 @@ _currentBatchIdentifier
 _currentBatchCreationDate
 _currentBatchPayloadSize
 _batchMaximumDuration
+_dbConnection
 T@"NSString",R,C,N,V_databasePath
-T^{sqlite3=},N,V_db
 T@"FLLoggingContext",&,N,V_context
 T^{sqlite3_stmt=},N,V_insertRecordsStatement
 T^{sqlite3_stmt=},N,V_iteratePayloadStatement
@@ -1111,9 +1173,9 @@ T@"NSString",C,N,V_currentBatchIdentifier
 T@"NSDate",C,N,V_currentBatchCreationDate
 TQ,N,V_currentBatchPayloadSize
 Td,N,V_batchMaximumDuration
+T^{sqlite3=},N,V_db
+T@"FLSQLiteDatabaseConnection",&,N,V_dbConnection
 init
-defaultManager
-initWithSuiteName:
 isEqual:
 class
 self
@@ -1154,20 +1216,16 @@ _fileManager
 T@"NSFileManager",&,N,V_fileManager
 T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"NSUserDefaults",R,N,V_userDefaults
-timeIntervalSinceDate:
-size
-numberWithInteger:
-applicationIdentifier
-uploadStatus
-numberWithUnsignedInteger:
-dictionaryWithObjects:forKeys:count:
 outcomeTelemetryDictionary
 uploadIdentifier
 setUploadIdentifier:
 payload
 setPayload:
+uploadStatus
 setUploadStatus:
+size
 setSize:
+applicationIdentifier
 setApplicationIdentifier:
 _uploadStatus
 _uploadIdentifier
@@ -1179,27 +1237,13 @@ T@"NSData",C,N,V_payload
 Ti,N,V_uploadStatus
 TQ,N,V_size
 T@"NSString",C,N,V_applicationIdentifier
-initWithUTF8String:
-dateWithTimeIntervalSince1970:
-URLForDirectory:inDomain:appropriateForURL:create:error:
-URLByAppendingPathComponent:isDirectory:
 feedbackLoggerDirectoryURL
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 urlForStoreWithId:
 T@"NSURL",R,N
 maxRowId
-observeInsertionAtRow:observer:
 registerInsertionObserver:
-initWithMachServiceName:options:
+observeInsertionAtRow:observer:
 scheduleImmediateUploadWithHeaders:completion:
-interfaceWithProtocol:
-setRemoteObjectInterface:
-setInvalidationHandler:
-setExportedObject:
-resume
-localizedDescription
-synchronousRemoteObjectProxyWithErrorHandler:
-postNotificationName:object:
 daemonConnection
 setDaemonConnection:
 setFbf:
@@ -1242,6 +1286,9 @@ B24@0:8@?16
 B24@0:8@16
 B32@0:8r*16@24
 B32@0:8@16N^@24
+^{sqlite3=}16@0:8
+^{sqlite3=}
+@40@0:8@16@24@32
 B20@0:8i16
 B24@0:8Q16
 B32@0:8r*16N^^{sqlite3_stmt}24
@@ -1249,16 +1296,15 @@ B28@0:8r*16B24
 B24@0:8r*16
 B32@0:8@16@?24
 B32@0:8@16N^i24
-^{sqlite3=}16@0:8
-v24@0:8^{sqlite3=}16
 ^{sqlite3_stmt=}16@0:8
 v24@0:8^{sqlite3_stmt=}16
 v20@0:8B16
 d16@0:8
 v24@0:8d16
-^{sqlite3=}
+v24@0:8^{sqlite3=}16
 @"FLLoggingContext"
 ^{sqlite3_stmt=}
+@"FLSQLiteDatabaseConnection"
 #16@0:8
 @24@0:8:16
 @32@0:8:16@24
