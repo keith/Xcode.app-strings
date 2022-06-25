@@ -59,6 +59,7 @@ SafariSyncController save extension device transaction
 SafariSyncController get extension states transaction
 v32@?0@"NSDictionary"8@"NSArray"16@"NSError"24
 SafariSyncController delete extension devices transaction
+SafariSyncController delete extension states database transaction
 @"NSDictionary"16@?0@"WBTabGroup"8
 0.0.0
 Sync Delay Timer After Push Notification Transaction
@@ -82,6 +83,13 @@ v24@?0Q8@"NSError"16
 B32@?0Q8@"CKSubscription"16@"NSError"24
 v12@?0B8
 SafariSyncController perform tab groups sync transaction
+User Did Update Database
+Received Push Notification
+Account Added
+Zone Creation
+Account Modified
+Local Client Finished Syncing
+PCS Identities Changed
 The attempted operation requires an entitlement
 com.apple.SafariBookmarksSyncAgent.XPC.BookmarkSyncNetworkConnectivity
 com.apple.SafariBookmarksSyncAgent.XPC.InitialManateeCloudTabFetchRetry
@@ -356,14 +364,13 @@ TabGroupsPrivateDatabaseSubscription
 TabGroupsSharedDatabaseSubscription
 TabGroupsZoneSubscription
 v32@?0@"CKRecordID"8@"CKShare"16@"NSError"24
-Cloud Tab Groups Fetching
-Cloud Tab Groups Saving
 com.apple.SafariBookmarksSyncAgent.%@.%p._tabCollectionQueue
+Cloud Tab Groups Sync (%@)
 Cloud Tab Groups Migration
-Cloud Tab Groups Accepting Share
+Cloud Tab Groups Accept Shared Tab Group
 v32@?0q8@"CKShare"16@"NSError"24
-Cloud Tab Groups Begin Share
-Cloud Tab Groups Set Presence
+Cloud Tab Groups Setup Shared Tab Group
+Cloud Tab Groups Update Tab Group Presence
 Cloud Tab Groups Accept Share
 com.apple.Safari.CloudBookmarks.CloudExtensionSQLiteStore
 DELETE FROM cloud_extension_devices WHERE device_uuid = ?
@@ -400,6 +407,9 @@ UUID
 server_change_token
 Library/Safari/
 PRAGMA foreign_keys = ON
+db-lock
+db-shm
+db-wal
 PRAGMA user_version = %d
 SELECT value FROM metadata WHERE key = ?
 UPDATE metadata SET value = ? WHERE key = ?
@@ -787,6 +797,7 @@ saveExtensionStatesWithDictionaryRepresentation:forDevice:completionHandler:
 saveExtensionDeviceWithDictionaryRepresentation:completionHandler:
 getCloudExtensionStatesWithCompletionHandler:
 deleteCloudExtensionDevicesWithUUIDStrings:completionHandler:
+deleteDatabaseWithCompletionHandler:
 tabGroups
 uuid
 title
@@ -833,6 +844,7 @@ syncUpSafariSettingsSyncWithCompletion:
 syncDownSafariPerSiteSettingsSyncWithCompletion:
 syncUpSafariPerSiteSettingsSyncWithCompletion:
 deletePerSiteSettingsSyncData
+deleteCloudExtensionStatesDatabaseWithCompletionHandler:
 fetchTabGroupEntitiesWithCompletion:
 scheduleSyncIfNeeded
 addSyncObserver:
@@ -907,7 +919,6 @@ _performSettingsSyncForTrigger:inOperationGroup:completionHandler:
 isCustomizationSyncEnabled
 beginSyncingWithCompletionHandler:
 postNotificationName:object:userInfo:deliverImmediately:
-deleteDatabaseWithCompletionHandler:
 didReceiveRemoteCloudSettingsUpdateWithRecord:
 didDeleteRemoteRecordWithID:
 recordType
@@ -947,6 +958,7 @@ fileExistsAtPath:isDirectory:
 configuration
 storeOwner
 startMigrationIfNeeded
+beginSyncingForTrigger:completionHandler:
 initWithBookmarkStore:databaseAccessor:migrationCoordinator:
 localizedStandardCompare:
 sortedArrayUsingSelector:
@@ -1362,6 +1374,7 @@ T@"ACAccount",R,N
 T@"<CloudBookmarkDatabaseCoordinating>",R,N,V_databaseCoordinator
 dataclassEnabled
 TB,R,N,GisDataclassEnabled
+safari_logDescription
 _clearRetryHandlerIsCancelling:
 _acquireLockToSetPresenceInTabWithRecordID:inOperationGroup:isRetry:completionHandler:
 _cacheUserRecordIDIfNeededInOperationGroup:withCompletionHandler:
@@ -2148,12 +2161,13 @@ T@"<CloudBookmarkSyncMigrationSaveHandlerDelegate>",W,N,V_delegate
 initWithConfiguration:container:accountStore:maintenanceActivity:
 strongToStrongObjectsMapTable
 _scheduleSyncIfNeeded
-setSystemUIDidStopSharingBlock:
-setSystemUIDidSaveShareBlock:
+setSystemSharingUIDidStopSharingBlock:
+setSystemSharingUIDidSaveShareBlock:
 _shouldSync
 initWithBookmarkStore:collectionConfiguration:accountStore:
 initWithSubscriptionID:
 sendSyncDidFinishNotificationWithResult:
+beginSyncingWithOperationGroup:completionHandler:
 remoteObjectProxyWithErrorHandler:
 share
 ckShortDescription
@@ -2204,8 +2218,6 @@ _tabGroupPresenceUpdater
 _syncObservers
 _syncObserversToProxyObservers
 _sharedTabGroupsObserver
-_fetchTabGroupsOperationGroup
-_saveTabGroupsOperationGroup
 _needsSync
 _syncing
 T@"<CloudTabGroupSyncManagerDelegate>",W,N,V_delegate
@@ -2355,6 +2367,8 @@ enableWAL:
 _migrateToCurrentSchemaVersionIfNeeded
 close
 safari_removeFileAtURL:error:
+URLByDeletingPathExtension
+URLByAppendingPathExtension:
 int64AtIndex:
 intAtIndex:
 _metadataInt64ValueForKey:
@@ -2451,7 +2465,6 @@ _convertItem:
 setSyncKey:item:
 _cloudKitRecordNameForBookmarkDAVServerSyncId:
 scheme
-URLByDeletingPathExtension
 lastPathComponent
 _errorWithCode:
 clearlAllLocalBookmarksForAutomatedTestingWithDatabase:
@@ -2477,13 +2490,13 @@ _deletedRecordIDsInPrivateDatabase
 _deletedRecordZoneIDsInSharedDatabase
 _updatedRecordsInSharedDatabase
 _deletedRecordIDsInSharedDatabase
-_beginSyncingWithOperationGroupForFetching:operationGroupForSaving:completionHandler:
+_beginSyncingWithOperationGroup:completionHandler:
 databaseSyncData
 auxiliaryRecordIDsToDelete
 setAuxiliaryRecordIDsToDelete:
 updateDatabaseSyncDataUsingBlock:
 removeUnusedPresenceRecords
-_fetchDatabaseChangesAndUnknownEncryptionInfosForCollection:completionHandler:
+_fetchDatabaseChangesAndUnknownEncryptionInfosForCollection:operationGroup:completionHandler:
 _prepareForSyncingWithOperationGroup:completionHandler:
 _createCollectionWithConfiguration:
 _didFinishSyncingWithResult:error:completionHandler:
@@ -2495,22 +2508,22 @@ bookmarkWithUUID:
 _configurationForBookmark:
 privacyPreservingDescription
 serverID
-_setUpTabGroupZoneForTabGroup:inCollection:completionHandler:
+_setUpTabGroupZoneForTabGroup:inCollection:operationGroup:completionHandler:
 _serverIDForBookmarkCreateIfNeeded:inCollection:
 setHashGenerator:forRecordZoneID:
 recordZoneIDsToHashGenerators
 _didRetrieveHashGenerators:
 identifier
-_beginSavingMigrationTombstonesForRootBookmarkID:destinationRecordZoneID:inCollection:completionHandler:
+_beginSavingMigrationTombstonesForRootBookmarkID:destinationRecordZoneID:inCollection:operationGroup:completionHandler:
 _migrationTombstoneRecordForBookmarkID:inCollection:destinationRecordZoneID:
-_beginSavingMigratedRecordsForRootBookmarkID:destinationRecordZoneID:inCollection:completionHandler:
-_saveNextMigrationRecordBatchInCollection:usingRecordBuilderBlock:completionHandler:
+_beginSavingMigratedRecordsForRootBookmarkID:destinationRecordZoneID:inCollection:operationGroup:completionHandler:
+_saveNextMigrationRecordBatchInCollection:operationGroup:usingRecordBuilderBlock:completionHandler:
 _migratedRecordForBookmarkID:inCollection:destinationRecordZoneID:
-_setUpSharingInRecordZoneWithID:collection:completionHandler:
-_performPostZoneMigrationSyncDownForRecordZoneID:shareRecord:inCollection:completionHandler:
+_setUpSharingInRecordZoneWithID:collection:operationGroup:completionHandler:
+_performPostZoneMigrationSyncDownForRecordZoneID:shareRecord:inCollection:operationGroup:completionHandler:
 _performSyncDownForRecordZoneIDs:perRecordZoneConfigurations:inDatabase:collection:operationGroup:completionHandler:
 _nextMigrationRecordBatchInCollection:recordBuilderBlock:
-_saveUpdatedRecords:deletedRecordIDs:inDatabase:collection:completionHandler:
+_saveUpdatedRecords:deletedRecordIDs:inDatabase:collection:operationGroup:completionHandler:
 intValue
 syncableBookmarksIDsInFolderWithBookmarkID:
 bookmarkWithID:
@@ -2525,15 +2538,15 @@ _acceptShareForShareMetadata:inOperationGroup:completionHandler:
 lastPrivateDatabaseServerChangeToken
 lastSharedDatabaseServerChangeToken
 _notifyDelegateAboutIgnoredRecordZoneIDsIfNeeded:
-_saveNextBatchInCollection:completionHandler:
-_fetchChangedRecordZonesAndEncryptionInfosSinceServerChangeToken:inDatabase:forCollection:completionHandler:
+_saveNextBatchInCollection:operationGroup:completionHandler:
+_fetchChangedRecordZonesAndEncryptionInfosSinceServerChangeToken:inDatabase:forCollection:operationGroup:completionHandler:
 hashGeneratorForRecordZoneID:
-_updateHashGeneratorsForRecordZoneWithIDs:deletedRecordZoneIDs:inDatabase:collection:completionHandler:
+_updateHashGeneratorsForRecordZoneWithIDs:deletedRecordZoneIDs:inDatabase:collection:operationGroup:completionHandler:
 lastSyncedRecordGeneration
 _nextBatchItemAfterChangeToken:inCollection:
 localRecordGeneration
-_performSyncDownAfterProcessingChangesInCollection:completionHandler:
-_deletePrivateRecordZoneIDs:collection:completionHandler:
+_performSyncDownAfterProcessingChangesInCollection:operationGroup:completionHandler:
+_deletePrivateRecordZoneIDs:collection:operationGroup:completionHandler:
 bookmark
 _processSavedRecord:bookmark:collection:
 setAuxiliaryRecord:forKey:
@@ -2542,7 +2555,7 @@ updateSyncDataForBookmark:usingBlock:
 clearChangesForChangeRecords:lastSyncedRecordGeneration:
 setLastSyncedRecordGeneration:
 _mergedRecordWithLocalRecord:remoteRecord:saveError:collection:
-_deleteNextBatchOfAuxiliaryRecordsInCollection:completionHandler:
+_deleteNextBatchOfAuxiliaryRecordsInCollection:operationGroup:completionHandler:
 _handleUpdatedShareRecord:inCollection:
 _handleUpdatedTabPresenceRecord:inCollection:
 _handleUpdatedTabParticipantStatusRecord:inCollection:
@@ -2593,10 +2606,10 @@ setPresenceInTabWithServerID:tabGroupWithServerID:forParticipant:
 safari_substringFromPrefix:
 lastReadGeneration
 setLastReadGeneration:
-_performSyncDownInCollection:completionHandler:
+_performSyncDownInCollection:operationGroup:completionHandler:
 setLastPrivateDatabaseServerChangeToken:
 setLastSharedDatabaseServerChangeToken:
-_fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:completionHandler:
+_fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:operationGroup:completionHandler:
 _handleDeletedRecordZoneIDs:inCollection:
 safari_dictionaryByMappingObjectsAsKeysToObjectsUsingBlock:
 enumerateDescendantsOfBookmark:usingBlock:
@@ -2605,7 +2618,8 @@ _handleDeletedTabPresenceRecord:inCollection:
 _handleDeletedShareRecordWithID:inCollection:
 _handleDeletedTabParticipantStatusRecord:inCollection:
 _removeBookmarkWithServerID:inCollection:
-_handleExpiredChangeTokenError:collection:completionHandler:
+markChildrenInFolderAsRead:
+_handleExpiredChangeTokenError:collection:operationGroup:completionHandler:
 safari_startPageBackgroundImageFileURLForIdentifier:
 _saveAssetAtURL:toURL:completionHandler:
 collectionType
@@ -2627,6 +2641,13 @@ modifiedAttributes
 setServerID:
 setPinned:title:address:
 setTitle:
+_updateTabGroup:inCollection:withRecord:configuration:
+_updateBookmarkFolder:inCollection:withRecord:configuration:
+_updateBookmarkItem:inCollection:withRecord:configuration:
+clearModifiedAttributes
+fields
+generationKeyForField:
+subtype
 isSelectedFavoritesFolder
 setSelectedFavoritesFolder:
 updateSelectedFavoritesFolderWithBookmarkID:wasFavoritesFolder:isFavoritesFolder:
@@ -2636,9 +2657,6 @@ setDateAdded:
 setDateLastViewed:
 setPreviewText:
 setReadingListIconURL:
-clearModifiedAttributes
-fields
-generationKeyForField:
 clearReadingListArchiveWithUUID:
 isReadingListFolder
 clearAllReadingListArchives
@@ -2653,8 +2671,9 @@ clearAllSyncData
 deviceIdentifierForCloudKitWithCollectionType:generateIfNeeded:
 attributesMarkedAsModified:
 _postCollaborationRenameEventWithBookmark:collection:
-_postCollaborationDeleteEventWithBookmark:collection:
 _postCollaborationChangeEventWithBookmark:collection:
+_postCollaborationDeleteEventWithBookmark:collection:
+parentRecordID
 _highlightWithBookmark:collection:
 initWithHighlight:type:
 _postNoticeForHighlightEvent:
@@ -2756,10 +2775,10 @@ Failed to determine encryption state of cloud settings container because contain
 Failed to determine encryption state of cloud settings container: %{public}@
 Cloud settings container %{public}@ support encryption
 Not triggering sync since migration is in progress
-*** Starting CloudKit bookmark sync for trigger: %lu
+*** Starting CloudKit bookmark sync for trigger: %{public}@
 Transmitted Internet Records
-*** CloudKit bookmark sync failed with result <%ld>: %{public}@
-*** CloudKit bookmark sync finished with result: %ld
+*** CloudKit bookmark sync failed with result <%{public}@>: %{public}@
+*** CloudKit bookmark sync finished with result: %{public}@
 Attempting migration from DAV to CloudKit since we got back an explicit 'zone deleted' error
 Sending notification of Bookmarks sync result: %ld
 Fetching remote migration state
@@ -2813,7 +2832,7 @@ Saving CloudTabs zone subscription failed with error: <%{public}@>.
 Saving CloudTabs zone subscription succeeded
 Ignoring request to sync/migrate because migration is in progress
 Ignoring request to sync/migrate because sync is in progress
-Will attempt sync/migration in response to trigger: %lu
+Will attempt sync/migration in response to trigger: %{public}@
 Fetching remote migration state since we tried syncing while not locally migrated
 Notifying Safari of iCloud Tabs changes in response to a push notification
 Retrying initial CloudTab fetch
@@ -2826,7 +2845,7 @@ Saving CloudSettings zone subscription failed with error: <%{public}@>.
 Saving CloudSettings zone subscription succeeded
 Ignoring request to sync because sync is in progress
 Safari Settings syncing is disabled. Cloud settings sync aborted
-*** Starting Cloud settings sync for trigger: %lu
+*** Starting Cloud settings sync for trigger: %{public}@
 *** Cloud settings sync failed with result <%ld>: %{public}@
 *** Cloud settings sync finished with result: %ld
 Notifying Safari of extension state changes in response to a push notification
@@ -2872,11 +2891,8 @@ Saving TabGroups shared database subscription failed with error: <%{public}@>.
 Saving TabGroups shared database subscription succeeded
 Ignoring request to sync TabGroups because sync is in progress
 Retry tab groups sync because running outside of XPC activity failed.
-Will attempt tab group sync in response to trigger: %lu
-Ignoring request to sync TabGroups for manager %lu with trigger %lu because the database does not exist yet
- Starting TabGroups sync for manager %lu with trigger: %lu
- TabGroups sync failed for manager %lu with result <%ld>: %{public}@
- TabGroups sync finished for manager %lu with result: %ld
+Will attempt tab group sync in response to trigger: %{public}@
+Ignoring request to sync TabGroups for manager %{public}@ with trigger %{public}@ because the database does not exist yet
 Attempting to sync CloudKit Tabs in response to CloudTabGroupSyncManager detecting changes in CloudTabs record zone
 Did detect an issue while syncing related to <rdar://%{public}@>
 Did detect an issue while syncing with no corresponding bug IDs
@@ -3088,9 +3104,9 @@ Storing account hash
 Account hash matches
 Needs dataclass enabled check
 Needs account hash check
- Successfully updated presence to tabRecordID: %{public}@
- Failed to update presence to tabRecordID: %{public}@
- Starting updating presence to tabRecordID: %{public}@
+ Successfully updated presence to tabRecordID: %{public}@, %{public}@
+ Failed to update presence to tabRecordID: %{public}@, %{public}@
+ Starting updating presence to tabRecordID: %{public}@, %{public}@
 UserRecordID is already cached
 Successfully cached UserRecordID
 Could not cached UserRecordID, the user has probably not interacted with the server or it is not possible to communicate with the serve, giving up, error: %{public}@
@@ -3303,8 +3319,8 @@ Clearing cached record zone
 Saving record batch with %zu records and %zu deletes
 Bailing out from saving record batch due to deallocation
 Failed to save record batch due to missing zone: %{public}@
-Failed to save an indivual record because the batch was too large and this one exceeded the limit.
-Failed to delete an indivual record ID because the batch was too large and this one exceeded the limit.
+Failed to save an individual record because the batch was too large and this one exceeded the limit.
+Failed to delete an individual record ID because the batch was too large and this one exceeded the limit.
 Failed to delete record ID due to CloudKit error which could not be handled: %{public}@
 Batch record save operation completed but now retrying updated batch
 Failed to save %zu out of %zu records due to batch size limit, try the remaining records again.
@@ -3508,15 +3524,22 @@ Batch of size %lu with %lu records is full for %@
 No more records to save.
 Merging record %{public}@ with result %{public}@ indicates that the local record needs to be undeleted during migration. Migration never attempts to delete remote records before the last de-duplication phase.
 Failed to delete legacy Tab Groups subscription with error: %@
+ Starting TabGroups sync for manager %{public}@ with trigger: %{public}@
+ TabGroups sync failed for manager %{public}@ with result <Aborted>
+ Starting TabGroups sync for manager %{public}@ with %{public}@
 Received unsynced Keychain error. Observing notification to start syncing Tab Groups when PCS identities change.
+ TabGroups sync failed for manager %{public}@ with result <%{public}@>: %{public}@, %{public}@
+ TabGroups sync finished for manager %{public}@ with result: %{public}@, %{public}@
 Ignoring PCS identity change notification because Safari Tab Groups Sync is not waiting for an identity update
 Received expected PCS identity change notification. Syncing Tab Groups.
 Sending notification of tab group sync result: %{public}zu
 Ignoring CKShareMetadata because it is not part of the Tab Groups container: %{public}@
-* Will accept share with zone %{public}@, metadata %@
-* Failed to accept share with zone %{public}@, metadata %@, error: %{public}@
-* Did accept share with zone %{public}@, metadata %@
-Will begin sharing tab group
+* Will accept share with zone %{public}@, metadata %@, %{public}@
+* Failed to accept share with zone %{public}@, metadata %@, error: %{public}@, %{public}@
+* Did accept share with zone %{public}@, metadata %@, %{public}@
+* Will begin sharing tab group with UUID: %{public}@, with %{public}@
+* Did successfully begin sharing tab group with UUID: %{public}@, in shared zone: %{public}@, %{public}@
+* Failed to begin sharing tab group with UUID: %{public}@, result: %{public}@, error: %{public}@, %{public}@
 Will update user's presence to tab
 Could not find tab for UUID: %{public}@
 Tab with UUID %{public}@ and recordID %{public}@ is not in a shared tab group, ignoring
@@ -3704,6 +3727,7 @@ Overriding previous referenced record : %{public}@ generation: %{public}@ with r
 Cannot apply reference: %{public}@ with generation: %{public}@ to attribute %{public}@ of record name: %{public}@ because the item is missing locally.
 No references to apply
 Sync coordinator begins setting up local store
+Could not allocate collection.
 Sync coordinator did finish setting up local store
 Discontinuing sync because device identifier is empty
 No associated records for UUID %{public}@
@@ -4207,8 +4231,7 @@ i32@0:8@16@24
 @"CloudTabDevice"
 @"CloudTabCloseRequest"
 v24@0:8^v16
-v44@0:8i16@20@28@?36
-v40@0:8@16@?24@?32
+v52@0:8i16@20@28@36@?44
 @36@0:8i16@20@28
 @36@0:8@16@24B32
 B40@0:8@16@24@32
@@ -4336,6 +4359,7 @@ SafariSyncController save extension device transaction
 SafariSyncController get extension states transaction
 v32@?0@"NSDictionary"8@"NSArray"16@"NSError"24
 SafariSyncController delete extension devices transaction
+SafariSyncController delete extension states database transaction
 @"NSDictionary"16@?0@"WBTabGroup"8
 0.0.0
 Sync Delay Timer After Push Notification Transaction
@@ -4359,6 +4383,13 @@ v24@?0Q8@"NSError"16
 B32@?0Q8@"CKSubscription"16@"NSError"24
 v12@?0B8
 SafariSyncController perform tab groups sync transaction
+User Did Update Database
+Received Push Notification
+Account Added
+Zone Creation
+Account Modified
+Local Client Finished Syncing
+PCS Identities Changed
 The attempted operation requires an entitlement
 com.apple.SafariBookmarksSyncAgent.XPC.BookmarkSyncNetworkConnectivity
 com.apple.SafariBookmarksSyncAgent.XPC.InitialManateeCloudTabFetchRetry
@@ -4633,14 +4664,13 @@ TabGroupsPrivateDatabaseSubscription
 TabGroupsSharedDatabaseSubscription
 TabGroupsZoneSubscription
 v32@?0@"CKRecordID"8@"CKShare"16@"NSError"24
-Cloud Tab Groups Fetching
-Cloud Tab Groups Saving
 com.apple.SafariBookmarksSyncAgent.%@.%p._tabCollectionQueue
+Cloud Tab Groups Sync (%@)
 Cloud Tab Groups Migration
-Cloud Tab Groups Accepting Share
+Cloud Tab Groups Accept Shared Tab Group
 v32@?0q8@"CKShare"16@"NSError"24
-Cloud Tab Groups Begin Share
-Cloud Tab Groups Set Presence
+Cloud Tab Groups Setup Shared Tab Group
+Cloud Tab Groups Update Tab Group Presence
 Cloud Tab Groups Accept Share
 com.apple.Safari.CloudBookmarks.CloudExtensionSQLiteStore
 DELETE FROM cloud_extension_devices WHERE device_uuid = ?
@@ -4677,6 +4707,9 @@ UUID
 server_change_token
 Library/Safari/
 PRAGMA foreign_keys = ON
+db-lock
+db-shm
+db-wal
 PRAGMA user_version = %d
 SELECT value FROM metadata WHERE key = ?
 UPDATE metadata SET value = ? WHERE key = ?
@@ -4773,7 +4806,8 @@ CloudBookmarks
 DiagnosticExtension
 KeyedArchiver
 SiriLink
-copyLastServerIdInFolderWithServerId:database:
+copyModifiedAttributesWithChange:
+zoneName
 zoneID
 writeToDatabase:databaseAccessor:
 wb_lockError
@@ -4809,6 +4843,7 @@ syncSettingsUpDictionary
 syncDataWithContentsOfData:
 syncDataForBookmark:
 supportsDeviceToDeviceEncryption
+subtype
 subscriptionID
 subarrayWithRange:
 strongToStrongObjectsMapTable
@@ -4841,8 +4876,8 @@ setTitle:
 setTimeoutIntervalForRequest:
 setTimeout:
 setTabCollection:
-setSystemUIDidStopSharingBlock:
-setSystemUIDidSaveShareBlock:
+setSystemSharingUIDidStopSharingBlock:
+setSystemSharingUIDidSaveShareBlock:
 setSyncState:
 setSyncKey:item:
 setSyncData:item:
@@ -4988,6 +5023,7 @@ safari_mapObjectsUsingBlock:
 safari_mapAndFilterObjectsUsingBlock:
 safari_mapAndFilterKeysUsingBlock:
 safari_mapAndFilterKeysAndObjectsUsingBlock:
+safari_logDescription
 safari_isUnrecoverableCloudKitError
 safari_isTabGroupSecondaryRecordZoneID
 safari_isInCloudKitErrorDomain
@@ -5071,6 +5107,7 @@ participantsDidUpdateInTabGroupWithUUID:
 participants:didLeaveSharedTabGroupWithUUID:
 participants:didJoinSharedTabGroupWithUUID:
 participants
+parentRecordID
 parentID
 ownerName
 orderedSetWithObject:
@@ -5108,6 +5145,7 @@ minimumSyncAPIVersion
 minimumAPIVersion
 migratorDeviceIdentifier
 markSpecial:
+markChildrenInFolderAsRead:
 mainBundle
 lookupInfosWithEmails:
 lookupInfo
@@ -5316,10 +5354,10 @@ copyServerIdInFolderBeforeServerId:database:
 copyServerIdInFolderAfterServerId:database:
 copySaveURLForAssetWithKey:item:
 copyParentServerIdWithItem:
-copyModifiedAttributesWithChange:
+JSONObjectWithData:options:error:
 copyLocalIDsInFolderWithLocalID:database:
+copyLastServerIdInFolderWithServerId:database:
 copyItemWithServerId:database:
-zoneName
 copyItemWithLocalID:database:
 copyItemAtURL:toURL:error:
 copyFirstServerIdInFolderWithServerId:database:
@@ -5420,9 +5458,9 @@ UUIDString
 UUID
 UTF8String
 URLWithString:
-URLByDeletingLastPathComponent
 URLByDeletingPathExtension
-JSONObjectWithData:options:error:
+URLByDeletingLastPathComponent
+URLByAppendingPathExtension:
 init
 isEqual:
 class
@@ -5535,6 +5573,7 @@ saveExtensionStatesWithDictionaryRepresentation:forDevice:completionHandler:
 saveExtensionDeviceWithDictionaryRepresentation:completionHandler:
 getCloudExtensionStatesWithCompletionHandler:
 deleteCloudExtensionDevicesWithUUIDStrings:completionHandler:
+deleteCloudExtensionStatesDatabaseWithCompletionHandler:
 fetchTabGroupEntitiesWithCompletion:
 scheduleSyncIfNeeded
 addSyncObserver:
@@ -6590,6 +6629,7 @@ fetchPrivateDatabaseSubscriptionStatusInOperationGroup:withCompletionHandler:
 savePrivateDatabaseSubscriptionInOperationGroup:withCompletionHandler:
 fetchSharedDatabaseSubscriptionStatusInOperationGroup:withCompletionHandler:
 saveSharedDatabaseSubscriptionInOperationGroup:withCompletionHandler:
+beginSyncingForTrigger:completionHandler:
 startMigrationIfNeeded
 sendSyncDidFinishNotificationWithResult:
 _processLocalTabOperation:completionHandler:
@@ -6607,8 +6647,6 @@ _tabGroupPresenceUpdater
 _syncObservers
 _syncObserversToProxyObservers
 _sharedTabGroupsObserver
-_fetchTabGroupsOperationGroup
-_saveTabGroupsOperationGroup
 _needsSync
 _syncing
 T@"<CloudTabGroupSyncManagerDelegate>",W,N,V_delegate
@@ -6864,16 +6902,17 @@ _deletedRecordZoneIDsInSharedDatabase
 _updatedRecordsInSharedDatabase
 _deletedRecordIDsInSharedDatabase
 initWithBookmarkStore:collectionConfiguration:accountStore:
-_beginSyncingWithOperationGroupForFetching:operationGroupForSaving:completionHandler:
+beginSyncingWithOperationGroup:completionHandler:
+_beginSyncingWithOperationGroup:completionHandler:
 _prepareForSyncingWithOperationGroup:completionHandler:
 beginSharingTabGroupWithUUID:inOperationGroup:completionHandler:
 _beginSharingTabGroupWithUUID:inOperationGroup:completionHandler:
-_setUpTabGroupZoneForTabGroup:inCollection:completionHandler:
-_beginSavingMigrationTombstonesForRootBookmarkID:destinationRecordZoneID:inCollection:completionHandler:
-_beginSavingMigratedRecordsForRootBookmarkID:destinationRecordZoneID:inCollection:completionHandler:
-_setUpSharingInRecordZoneWithID:collection:completionHandler:
-_performPostZoneMigrationSyncDownForRecordZoneID:shareRecord:inCollection:completionHandler:
-_saveNextMigrationRecordBatchInCollection:usingRecordBuilderBlock:completionHandler:
+_setUpTabGroupZoneForTabGroup:inCollection:operationGroup:completionHandler:
+_beginSavingMigrationTombstonesForRootBookmarkID:destinationRecordZoneID:inCollection:operationGroup:completionHandler:
+_beginSavingMigratedRecordsForRootBookmarkID:destinationRecordZoneID:inCollection:operationGroup:completionHandler:
+_setUpSharingInRecordZoneWithID:collection:operationGroup:completionHandler:
+_performPostZoneMigrationSyncDownForRecordZoneID:shareRecord:inCollection:operationGroup:completionHandler:
+_saveNextMigrationRecordBatchInCollection:operationGroup:usingRecordBuilderBlock:completionHandler:
 _nextMigrationRecordBatchInCollection:recordBuilderBlock:
 _migrationTombstoneRecordForBookmarkID:inCollection:destinationRecordZoneID:
 _migratedRecordForBookmarkID:inCollection:destinationRecordZoneID:
@@ -6881,14 +6920,14 @@ acceptShareForURL:invitationTokenData:inOperationGroup:completionHandler:
 _acceptShareForURL:invitationTokenData:inOperationGroup:completionHandler:
 acceptShareForShareMetadata:inOperationGroup:completionHandler:
 _acceptShareForShareMetadata:inOperationGroup:completionHandler:
-_fetchDatabaseChangesAndUnknownEncryptionInfosForCollection:completionHandler:
-_fetchChangedRecordZonesAndEncryptionInfosSinceServerChangeToken:inDatabase:forCollection:completionHandler:
-_updateHashGeneratorsForRecordZoneWithIDs:deletedRecordZoneIDs:inDatabase:collection:completionHandler:
+_fetchDatabaseChangesAndUnknownEncryptionInfosForCollection:operationGroup:completionHandler:
+_fetchChangedRecordZonesAndEncryptionInfosSinceServerChangeToken:inDatabase:forCollection:operationGroup:completionHandler:
+_updateHashGeneratorsForRecordZoneWithIDs:deletedRecordZoneIDs:inDatabase:collection:operationGroup:completionHandler:
 _didRetrieveHashGenerators:
-_saveNextBatchInCollection:completionHandler:
-_deletePrivateRecordZoneIDs:collection:completionHandler:
-_saveUpdatedRecords:deletedRecordIDs:inDatabase:collection:completionHandler:
-_deleteNextBatchOfAuxiliaryRecordsInCollection:completionHandler:
+_saveNextBatchInCollection:operationGroup:completionHandler:
+_deletePrivateRecordZoneIDs:collection:operationGroup:completionHandler:
+_saveUpdatedRecords:deletedRecordIDs:inDatabase:collection:operationGroup:completionHandler:
+_deleteNextBatchOfAuxiliaryRecordsInCollection:operationGroup:completionHandler:
 _didFetchRecord:collection:shouldGenerateUpdatedRecord:
 _didFetchBookmarkRecord:collection:
 _handleUpdatedShareRecord:inCollection:
@@ -6900,12 +6939,12 @@ _dispatchPresenceUpdatesIfNeededForTabGroupsWithRecordNames:inCollection:
 _dispatchPresenceUpdatesIfNeededForTabsWithRecordNames:inCollection:
 _handleUpdatedTabParticipantStatusRecord:inCollection:
 _handleDeletedTabParticipantStatusRecord:inCollection:
-_performSyncDownAfterProcessingChangesInCollection:completionHandler:
-_performSyncDownInCollection:completionHandler:
-_fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:completionHandler:
+_performSyncDownAfterProcessingChangesInCollection:operationGroup:completionHandler:
+_performSyncDownInCollection:operationGroup:completionHandler:
+_fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:operationGroup:completionHandler:
 _handleDeletedRecordZoneIDs:inCollection:
 _performSyncDownForRecordZoneIDs:perRecordZoneConfigurations:inDatabase:collection:operationGroup:completionHandler:
-_handleExpiredChangeTokenError:collection:completionHandler:
+_handleExpiredChangeTokenError:collection:operationGroup:completionHandler:
 _didCompleteSyncDownAfterExpiredChangeTokenErrorWithCollection:
 _saveAssetsForBookmarkIfPresent:onRecord:withConfiguration:inCollection:
 _saveAssetAtURL:toURL:completionHandler:
@@ -6927,6 +6966,9 @@ _nextBatchItemAfterChangeToken:inCollection:
 _recordForBookmark:syncData:configuration:changeType:inCollection:
 _readStatusRecordForBookmark:syncData:configuration:changeType:inCollection:
 _updateBookmark:inCollection:withRecord:configuration:
+_updateTabGroup:inCollection:withRecord:configuration:
+_updateBookmarkFolder:inCollection:withRecord:configuration:
+_updateBookmarkItem:inCollection:withRecord:configuration:
 _mergedRecordWithLocalRecord:remoteRecord:saveError:collection:
 _removeBookmarkWithServerID:inCollection:
 _createBookmarkWithConfiguration:
@@ -7033,10 +7075,10 @@ Failed to determine encryption state of cloud settings container because contain
 Failed to determine encryption state of cloud settings container: %{public}@
 Cloud settings container %{public}@ support encryption
 Not triggering sync since migration is in progress
-*** Starting CloudKit bookmark sync for trigger: %lu
+*** Starting CloudKit bookmark sync for trigger: %{public}@
 Transmitted Internet Records
-*** CloudKit bookmark sync failed with result <%ld>: %{public}@
-*** CloudKit bookmark sync finished with result: %ld
+*** CloudKit bookmark sync failed with result <%{public}@>: %{public}@
+*** CloudKit bookmark sync finished with result: %{public}@
 Attempting migration from DAV to CloudKit since we got back an explicit 'zone deleted' error
 Sending notification of Bookmarks sync result: %ld
 Fetching remote migration state
@@ -7090,7 +7132,7 @@ Saving CloudTabs zone subscription failed with error: <%{public}@>.
 Saving CloudTabs zone subscription succeeded
 Ignoring request to sync/migrate because migration is in progress
 Ignoring request to sync/migrate because sync is in progress
-Will attempt sync/migration in response to trigger: %lu
+Will attempt sync/migration in response to trigger: %{public}@
 Fetching remote migration state since we tried syncing while not locally migrated
 Notifying Safari of iCloud Tabs changes in response to a push notification
 Retrying initial CloudTab fetch
@@ -7103,7 +7145,7 @@ Saving CloudSettings zone subscription failed with error: <%{public}@>.
 Saving CloudSettings zone subscription succeeded
 Ignoring request to sync because sync is in progress
 Safari Settings syncing is disabled. Cloud settings sync aborted
-*** Starting Cloud settings sync for trigger: %lu
+*** Starting Cloud settings sync for trigger: %{public}@
 *** Cloud settings sync failed with result <%ld>: %{public}@
 *** Cloud settings sync finished with result: %ld
 Notifying Safari of extension state changes in response to a push notification
@@ -7149,11 +7191,8 @@ Saving TabGroups shared database subscription failed with error: <%{public}@>.
 Saving TabGroups shared database subscription succeeded
 Ignoring request to sync TabGroups because sync is in progress
 Retry tab groups sync because running outside of XPC activity failed.
-Will attempt tab group sync in response to trigger: %lu
-Ignoring request to sync TabGroups for manager %lu with trigger %lu because the database does not exist yet
- Starting TabGroups sync for manager %lu with trigger: %lu
- TabGroups sync failed for manager %lu with result <%ld>: %{public}@
- TabGroups sync finished for manager %lu with result: %ld
+Will attempt tab group sync in response to trigger: %{public}@
+Ignoring request to sync TabGroups for manager %{public}@ with trigger %{public}@ because the database does not exist yet
 Attempting to sync CloudKit Tabs in response to CloudTabGroupSyncManager detecting changes in CloudTabs record zone
 Did detect an issue while syncing related to <rdar://%{public}@>
 Did detect an issue while syncing with no corresponding bug IDs
@@ -7365,9 +7404,9 @@ Storing account hash
 Account hash matches
 Needs dataclass enabled check
 Needs account hash check
- Successfully updated presence to tabRecordID: %{public}@
- Failed to update presence to tabRecordID: %{public}@
- Starting updating presence to tabRecordID: %{public}@
+ Successfully updated presence to tabRecordID: %{public}@, %{public}@
+ Failed to update presence to tabRecordID: %{public}@, %{public}@
+ Starting updating presence to tabRecordID: %{public}@, %{public}@
 UserRecordID is already cached
 Successfully cached UserRecordID
 Could not cached UserRecordID, the user has probably not interacted with the server or it is not possible to communicate with the serve, giving up, error: %{public}@
@@ -7580,8 +7619,8 @@ Clearing cached record zone
 Saving record batch with %zu records and %zu deletes
 Bailing out from saving record batch due to deallocation
 Failed to save record batch due to missing zone: %{public}@
-Failed to save an indivual record because the batch was too large and this one exceeded the limit.
-Failed to delete an indivual record ID because the batch was too large and this one exceeded the limit.
+Failed to save an individual record because the batch was too large and this one exceeded the limit.
+Failed to delete an individual record ID because the batch was too large and this one exceeded the limit.
 Failed to delete record ID due to CloudKit error which could not be handled: %{public}@
 Batch record save operation completed but now retrying updated batch
 Failed to save %zu out of %zu records due to batch size limit, try the remaining records again.
@@ -7785,15 +7824,22 @@ Batch of size %lu with %lu records is full for %@
 No more records to save.
 Merging record %{public}@ with result %{public}@ indicates that the local record needs to be undeleted during migration. Migration never attempts to delete remote records before the last de-duplication phase.
 Failed to delete legacy Tab Groups subscription with error: %@
+ Starting TabGroups sync for manager %{public}@ with trigger: %{public}@
+ TabGroups sync failed for manager %{public}@ with result <Aborted>
+ Starting TabGroups sync for manager %{public}@ with %{public}@
 Received unsynced Keychain error. Observing notification to start syncing Tab Groups when PCS identities change.
+ TabGroups sync failed for manager %{public}@ with result <%{public}@>: %{public}@, %{public}@
+ TabGroups sync finished for manager %{public}@ with result: %{public}@, %{public}@
 Ignoring PCS identity change notification because Safari Tab Groups Sync is not waiting for an identity update
 Received expected PCS identity change notification. Syncing Tab Groups.
 Sending notification of tab group sync result: %{public}zu
 Ignoring CKShareMetadata because it is not part of the Tab Groups container: %{public}@
-* Will accept share with zone %{public}@, metadata %@
-* Failed to accept share with zone %{public}@, metadata %@, error: %{public}@
-* Did accept share with zone %{public}@, metadata %@
-Will begin sharing tab group
+* Will accept share with zone %{public}@, metadata %@, %{public}@
+* Failed to accept share with zone %{public}@, metadata %@, error: %{public}@, %{public}@
+* Did accept share with zone %{public}@, metadata %@, %{public}@
+* Will begin sharing tab group with UUID: %{public}@, with %{public}@
+* Did successfully begin sharing tab group with UUID: %{public}@, in shared zone: %{public}@, %{public}@
+* Failed to begin sharing tab group with UUID: %{public}@, result: %{public}@, error: %{public}@, %{public}@
 Will update user's presence to tab
 Could not find tab for UUID: %{public}@
 Tab with UUID %{public}@ and recordID %{public}@ is not in a shared tab group, ignoring
@@ -7981,6 +8027,7 @@ Overriding previous referenced record : %{public}@ generation: %{public}@ with r
 Cannot apply reference: %{public}@ with generation: %{public}@ to attribute %{public}@ of record name: %{public}@ because the item is missing locally.
 No references to apply
 Sync coordinator begins setting up local store
+Could not allocate collection.
 Sync coordinator did finish setting up local store
 Discontinuing sync because device identifier is empty
 No associated records for UUID %{public}@
@@ -8484,8 +8531,7 @@ i32@0:8@16@24
 @"CloudTabDevice"
 @"CloudTabCloseRequest"
 v24@0:8^v16
-v44@0:8i16@20@28@?36
-v40@0:8@16@?24@?32
+v52@0:8i16@20@28@36@?44
 @36@0:8i16@20@28
 @36@0:8@16@24B32
 B40@0:8@16@24@32

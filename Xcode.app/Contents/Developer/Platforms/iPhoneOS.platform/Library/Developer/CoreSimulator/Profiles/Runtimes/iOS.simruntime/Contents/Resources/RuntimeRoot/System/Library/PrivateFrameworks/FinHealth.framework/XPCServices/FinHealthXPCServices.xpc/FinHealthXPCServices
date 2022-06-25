@@ -28,14 +28,12 @@ mlmodel
 /Library/FinHealth/mlmodels/
 com.apple.finhealth.geoservices
 SELF.%K == %@ AND SELF.%K IN %@
+v16@?0@"NSDictionary"8
 v24@?0@"GEOSpatialPlaceLookupResult"8@"NSError"16
-FHSmartFeatureAggregateTypeTopMerchant
-FHSmartFeatureAggregateTypeFavoriteRestaurant
-FHSmartFeatureAggregateTypeAmountAboveAverage
-FHSmartFeatureAggregateTypeAmountBelowAverage
-FHSmartFeatureAggregateTypePeakSpend
-FHSmartFeatureAggregateTypeFrequentShop
-FHSmartFeatureAggregateTypeAmountVeryExpensive
+[%.03f,%.03f]
+%.03f
+Succeeded
+Failed
 FHSmartFeatureAggregateTypeRecurring
 FHSmartFeatureAggregateTypeRegular
 FHSmartFeatureAggregateTypeIrregular
@@ -48,7 +46,7 @@ FHSmartFeatureCompoundTypeRecurringChange
 FHSmartFeatureCompoundTypeLostSavings
 Source
 TagType
-PassID
+PassType
 featureLabel
 featureRank
 eventIdentifiers
@@ -107,16 +105,13 @@ v24@?0Q8@"NSDecimalNumber"16
 FinHealth
 FinHealthRecurringMultiSignalSupport
 B32@?0@"NSDictionary"8Q16^B24
-@"NSDictionary"8@?0
-v32@?0@"FHAggregateFeature"8Q16^B24
-v32@?0@"FHSmartCompoundFeatureRankedValue"8Q16^B24
-v32@?0@"FHSmartCompoundFeature"8Q16^B24
 %@ %@
 -[FinHealthDatabaseManager _getTransactionsMarkedForRecurrChange]_block_invoke
+FinHealthPublishEventsToBiome
+f%lu
 %@ :%lu
 -[FinHealthStateController insertOrUpdateTransaction:]
 -[FinHealthStateController _processAggregateFeaturesWithHardReset:]_block_invoke
-v16@?0@"NSDictionary"8
 v32@?0@"NSNumber"8Q16^B24
 @distinctUnionOfObjects.%@
 self isKindOfClass: %@
@@ -130,6 +125,8 @@ transaction_features for id %@
 transactions for id %@
 transactionSourceIdentifier
 SELF.%K == %@
+@sum.self
+@max.self
 timeOfDay: '%lu'; 
 transactionDateAtZerothHour: '%lu'; 
 isInternationalSpend: '%d'; 
@@ -138,12 +135,14 @@ merchantCategory: '%lu';
 country: '%@'; 
 merchantDisplayName: '%@'; 
 smartCompoundFeatures: '%@'; 
+merchantList
 [-/.+%&@#_:\\\*'",()]+
 (\s+)
 (?=[A-Z][a-z])
 (?<=[a-z])(?=[A-Z])
 (?<=[0-9])(?=[a-zA-Z])
 (?<=[a-zA-Z])(?=[0-9])
+!@#$%^&*()_+|
 hotelstravel.transport.airlines
 SGEventMetadataKey
 SGEventMetadataSchemaOrgKey
@@ -161,6 +160,7 @@ features_amount
 features_heuristics
 features_events
 features_instrumentation
+fh_processing_history
 t_date_index
 t_date
 t_identifier_index
@@ -177,22 +177,25 @@ t_identifier
 (amount_aggregate_id integer primary key autoincrement, amount_aggregate_type text, amount_aggregate_value integer, comparison_operator text, start_date integer, end_date integer, UNIQUE(amount_aggregate_type, start_date, end_date))
 (t_identifier text primary key, t_features text, t_compound_features text, locale text, t_mark_for_delete integer)
 (t_identifier text primary key, t_heuristics_identifier text, t_heuristics_value integer, t_heuristics_score real)
-(inst_id integer primary key autoincrement, tag_source integer, tag_type integer, tag_click_date integer, source_identifier text)
+(inst_id integer primary key autoincrement, tag_source integer, tag_type integer, tag_click_date integer, pass_type integer)
 insert into fh_schema (sch_version_id, sch_upgrade_status, sch_date, sch_getall_status) values (%d, %d, %d, %d)
+(fh_processing_history_id integer primary key autoincrement, feature_name text, feature_processing_date integer, UNIQUE(feature_name))
 insert or replace into features_deterministic_realtime (t_identifier, a, b, c, f, g) values (%@, %d, %d, %d, %d, %d)
 insert or replace into features_predicted_realtime (t_identifier, t_feature_name, t_feature_predicted_value) values (%@, %@, %d)
 insert or replace into features_compound_realtime (t_identifier, t_compound_feature_value) values (%@, %@)
 insert or replace into features_heuristics (t_identifier, t_heuristics_identifier, t_heuristics_value, t_heuristics_score) values (%@, %@, %d, %f)
 insert or replace into features_events (e_identifier, start_date, end_date) values (%@, %d, %d)
-insert into features_instrumentation (tag_source, tag_type, tag_click_date, source_identifier) values (%d, %d, %d, %@)
+insert into features_instrumentation (tag_source, tag_type, tag_click_date, pass_type) values (%d, %d, %d, %d)
 insert or replace into transaction_features (t_identifier, t_features, t_compound_features, locale, t_mark_for_delete) values (%@, %@, %@, %@, %d)
 insert or replace into features_prediction_labels (t_feature_name, t_feature_predicted_value, t_smart_feature_name) values (%@, %d, %@)
+insert or replace into fh_processing_history (feature_name, feature_processing_date) values (%@, %lu)
 update transaction_features set t_mark_for_delete = %d where t_identifier == %@
 delete from transaction_features where t_mark_for_delete == %d
 delete from transaction_features where t_identifier in (select t_identifier from transactions t where t.t_source_identifier == %@)
 select t_features, t_compound_features, locale from transaction_features where t_identifier == %@
 select t_identifier, t_features, t_compound_features, locale from transaction_features where t_mark_for_delete = %d limit %d offset %d
 select t_identifier, t_features, t_compound_features, locale from transaction_features limit %d offset %d
+select feature_processing_date from fh_processing_history where feature_name == '%@'
 select * from features_events where end_date < %d limit %d
 select t_identifier from features_predicted_realtime where t_feature_name='FHSmartFeatureAggregateTypeRecurring' and t_feature_predicted_value=%d limit %d
 select * from features_deterministic_realtime where t_identifier == %@
@@ -202,6 +205,7 @@ create index %@ on %@(%@);
 drop table %@;
 delete from %@;
 alter table %@ add column %@ %@;
+PRAGMA table_info('%@');
 select * from transactions limit %d, %d
 select * from transactions t where t.t_identifier == %@ order by t_date desc limit %d
 select * from transactions t where t_fh_internal_state == %d order by t_date desc limit %d offset %d
@@ -234,6 +238,7 @@ delete from transactions where t_source_identifier == %@
 delete from features_heuristics where t_identifier in (select t_identifier from transactions t where t.t_source_identifier == %@)
 delete from features_events where e_identifier == %@
 delete from features_events where start_date %@ %d and end_date %@ %d
+select * from features_instrumentation where tag_click_date >= %d and tag_click_date <= %d
 finhealth.db
 /Library/FinHealth/
 com.apple.FinHealth.Framework
@@ -254,15 +259,14 @@ match
 t_features
 t_compound_features
 source_identifier
-text
+pass_type
+integer
 amount_input
 expensive_prediction
 FinHealthBaseExpensiveClassifier
-com.apple.FinHealth.stats
-type
-run_time
-select f.t_identifier, ifnull(t_features, ''), ifnull(t_compound_features, ''), locale, t_mark_for_delete, ifnull(t.m_detailed_category, 'undefined') as m_detailed_category, t_date from transaction_features f inner join transactions t on t.t_identifier = f.t_identifier and t_mark_for_delete = 0 limit %d
 Price Increase for
+FinHealthPrivateStream
+/Library/FinHealth/PrivateStream/
 FHMerchantSmartFeatures
 FHAmountSmartFeatures
 FHDateTimeSmartFeatures
@@ -363,9 +367,7 @@ Dinner
 0.55
 v24@?0@"NSString"8d16
 q24@?0@"FHSmartCompoundFeatureRankedValue"8@"FHSmartCompoundFeatureRankedValue"16
-!@#$%^&*()_+|
 FHLostSaving%@
-@sum.self
 com.apple.finhealth.all-access
 application-identifier
 NOT (SELF.%K < %@)
@@ -379,6 +381,8 @@ v32@?0@"MKMapItem"8Q16^B24
 %f, %f
 -[FinHealthRealtimeFeaturesRequest _getPointsOfInterestFromMapKit:longitude:horizontalAccuracy:verticalAccuracy:]
 v24@?0@"PPScoredEvent"8^B16
+v16@?0@"BPSCompletion"8
+v16@?0@"BMStoreEvent"8
 SELF.%K == %lu
 SELF.%K != nil
 SELF.%K == %lu AND SELF.%K == %lu
@@ -522,6 +526,7 @@ sharedService
 initWithCategoriesToInclude:categoriesToExclude:
 numberWithBool:
 predicateWithFormat:
+_evaluatePointsOfInterestWithCache:bypassMapService:completion:
 countByEnumeratingWithState:objects:count:
 identifier
 compoundFeatures
@@ -554,29 +559,44 @@ featureRank
 compare:
 submitWithHandler:queue:
 allValues
+indexSet
+doubleValue
+displayName
+addIndex:
+copy
+_didProcessSpatialParametersWithTimeout:
+removeAllObjects
 filteredArrayUsingPredicate:
 evaluatePointsOfInterest:bypassMapService:completion:
+_evaluatePointsOfInterestClassic:bypassMapService:completion:
+resetTotalRecordsProcessed
 geoMapService
 geoServicesQueue
 poiCategoryFilter
+geoPOICache
 geoPredicate
+geoSpatialParameterLock
+setGeoSpatialParameterLock:
 totalRecordsProcessed
 setTotalRecordsProcessed:
+_geoSpatialParameterLock
 _geoMapService
 _geoServicesQueue
 _poiCategoryFilter
+_geoPOICache
 _geoPredicate
 _totalRecordsProcessed
 T@"GEOMapService",R,N,V_geoMapService
 T@"NSObject<OS_dispatch_queue>",R,N,V_geoServicesQueue
 T@"GEOPOICategoryFilter",R,N,V_poiCategoryFilter
+T@"NSCache",R,N,V_geoPOICache
 T@"NSPredicate",R,N,V_geoPredicate
+T{os_unfair_lock_s=I},N,V_geoSpatialParameterLock
 TQ,N,V_totalRecordsProcessed
 featureLabel
 eventIdentifiers
 eventStartDate
 eventEndDate
-doubleValue
 setEventIdentifiers:
 setEventStartDate:
 setEventEndDate:
@@ -668,7 +688,6 @@ accountType
 merchantUniqueIdentifier
 industryCode
 category
-displayName
 country
 mapsMerchantResultProviderID
 mapsMerchantBrandResultProviderID
@@ -708,7 +727,6 @@ initWithTimeIntervalSinceReferenceDate:
 dictionaryWithObjectsAndKeys:
 getFeaturePredicate:FHSmartFeatureAggregateType:
 firstObject
-removeAllObjects
 _computeSingleMerchantAggregateFeature:
 enumerateObjectsUsingBlock:
 numberAtIndex:
@@ -825,21 +843,16 @@ execute:args:
 executeRaw:
 fetch:args:
 _isEligibleForSchemaMigration
+_instrumentationTableMigration
 columns
 columnNameAtIndex:
 rowNumber
-integerValue
-aggregateFeaturesWithProcessingWindow
-sendToAnalytics:builder:
-compoundFeatureKey
-rankedValues
-mockAnalyticsStore
-safelySetObject:forKey:
 lastObject
 rootMeanSquareError:startIndex:arrayLength:
 decimalNumberBySubtracting:
 isPositive
-copy
+initWithAnalyticsEvent:
+publishEvents:
 getDateFormatter
 _updateAggregateTablesSchema
 init:
@@ -876,9 +889,10 @@ deleteTaggedEventsInTimeRange:startDate:comparatorOfEndDate:endDate:
 computeRecurringClassesForTransactions
 retrieveAll
 deleteDatabase:
-computeAnalyticsForSearchTags
+processingTimeForFeature:
+updateProcessingTimeForFeature:
+publishEventsToBiome
 setDelegate:
-setMockAnalyticsStore:
 _dateFormatter
 _multiplier
 _secondsInDay
@@ -897,11 +911,9 @@ _enableRecurChange
 _transactionFeaturesOffset
 _transactionFeaturesCache
 _delegate
-_mockAnalyticsStore
 T@"<FinHealthFetchAllTransactionsDelegate>",W,N,V_delegate
 Tq,R,N
-T@"NSMutableDictionary",N,V_mockAnalyticsStore
-_init:bypassMapService:enableAnalyticsReporting:
+_init:bypassMapService:
 _createDBManagerAndAssociatedProperties:
 insertOrUpdateTransaction:
 _insertOrUpdateTransactionPostDirtyState:
@@ -933,10 +945,16 @@ zero
 getCompundFeaturesOverTimRangeFrom:to:
 getMerchantForTransactionId:
 getLostSavingsValueFromCompoundFeatures:
+_getRecurringChangeOverTimePeriod:
+initWithInt:
+setDay:
+currentCalendar
+dateByAddingComponents:toDate:options:
 transactionIdentifier
 timeIntervalSinceDate:
 aggregateFeatures
 decimalNumberByAdding:
+compoundFeatureKey
 initForTest:bypassMapService:
 insertOrUpdateTransactions:
 processAggregateFeatures
@@ -959,18 +977,22 @@ invalidateTransactionByIdentifier:
 invalidateTransactionByTransaction:
 getTransactionsSmartFeatures
 getLostSavingsOverTime:from:to:
+getRecurringChangeForMessagingOverTimePeriod:
 featuresWithAmountSums:startDate:endDate:
 connection
 setConnection:
 lockConnection
 setLockConnection:
+lockAggregationComputation
+setLockAggregationComputation:
 _dbMgr
 _bypassMapService
-_enableAnalyticsReporting
 _lockConnection
+_lockAggregationComputation
 _connection
 T@"NSXPCConnection",&,N,V_connection
 T{os_unfair_lock_s=I},N,V_lockConnection
+T{os_unfair_lock_s=I},N,V_lockAggregationComputation
 setTimeOfDay:
 setTransactionDateAtZerothHour:
 setIsInternationalSpend:
@@ -1010,6 +1032,8 @@ bundleWithPath:
 pathForResource:ofType:inDirectory:
 dataWithContentsOfFile:
 substringToIndex:
+componentsSeparatedByCharactersInSet:
+stringByReplacingOccurrencesOfString:withString:
 isValid
 notANumber
 isNegative
@@ -1024,6 +1048,7 @@ null
 numberWithInt:
 numberWithLongLong:
 numberWithUnsignedLongLong:
+safelySetObject:forKey:
 setObjectOrNull:forKey:
 setInt32:forKey:
 setInteger:forKey:
@@ -1046,6 +1071,7 @@ decodeInt32ForKey:
 decodeBoolForKey:
 setHasLocation:
 dateFromString:
+integerValue
 unsignedLongLongValue
 initWithDictionary:dateFormatter:
 toDictionary
@@ -1123,6 +1149,7 @@ mapsMerchant
 mapsBrand
 resultProviderIdentifier
 decodeObjectOfClasses:forKey:
+rankedValues
 locale
 featureKey
 _featureKey
@@ -1133,6 +1160,7 @@ T@"NSString",R,C,N,V_featureKey
 T@"NSString",R,C,N,V_compoundFeatureKey
 T@"NSArray",R,C,N,V_rankedValues
 T@"NSString",R,C,N,V_locale
+aggregateFeaturesWithProcessingWindow
 smartFeatures
 _smartFeatures
 _aggregateFeatures
@@ -1188,13 +1216,8 @@ T@"NSRegularExpression",R,N,V_boundaryRegex
 T@"NSDictionary",R,N,V_categoriesExpansionDict
 T@"NSDictionary",R,N,V_categoriesLocalizationDict
 T@"NSSet",R,N,V_stopWords
-componentsSeparatedByCharactersInSet:
-stringByReplacingOccurrencesOfString:withString:
 decimalNumberHandlerWithRoundingMode:scale:raiseOnExactness:raiseOnOverflow:raiseOnUnderflow:raiseOnDivideByZero:
 decimalNumberByRoundingAccordingToBehavior:
-setDay:
-currentCalendar
-dateByAddingComponents:toDate:options:
 cashbackPercentForMerchant:
 lostSavingsTagComputationForTransaction:transactionSource:cashbackPercent:merchantName:completion:
 lostSavingsOverTimeForMerchant:timePeriod:currentDate:
@@ -1245,6 +1268,30 @@ _getPointsOfInterestFromMapKit:longitude:horizontalAccuracy:verticalAccuracy:
 pastTimeRangesToRetagEvents
 _pastTimeRangesToRetagEvents
 T@"NSArray",C,N,V_pastTimeRangesToRetagEvents
+analyticsEvent
+eventWithData:dataVersion:
+serialize
+dataVersion
+json
+jsonDict
+TI,R,N
+_dataVersion
+_analyticsEvent
+T@"NSDictionary",R,C,N,V_analyticsEvent
+TI,R,N,V_dataVersion
+UUID
+UUIDString
+newPrivateStreamDefaultConfigurationWithStoreBasePath:
+datastorePath
+initWithPrivateStreamIdentifier:storeConfig:
+source
+sendEvent:
+publisherFromStartTime:
+state
+eventBody
+sinkWithCompletion:receiveInput:
+removeItemAtPath:error:
+_privateStreamDirectory
 databaseManager
 mostRecentTransactionFromDatabase
 internalStates
@@ -1297,6 +1344,9 @@ FinHealthTextSimilarityFeatures
 FinHealthLostSavingsTag
 FinHealthEntitlementsChecker
 FinHealthRealtimeFeaturesRequest
+FinHealthAnalyticsEvent
+BMStoreData
+FinHealthAnalyticsPrivateStream
 FinHealthBatchProcessorBuilder
 FinHealthBatchProcessor
 B16@0:8
@@ -1322,9 +1372,13 @@ Q32@0:8d16@24
 @"MLModelConfiguration"
 @"MLModel"
 v36@0:8@16B24@?28
+{os_unfair_lock_s=I}16@0:8
+v20@0:8{os_unfair_lock_s=I}16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"GEOMapService"
 @"NSObject<OS_dispatch_queue>"
 @"GEOPOICategoryFilter"
+@"NSCache"
 @"NSPredicate"
 @"NSDecimalNumber"
 @"NSArray"
@@ -1363,22 +1417,19 @@ B48@0:8@16@24@32@40
 B24@0:8^@16
 v20@0:8B16
 Q40@0:8@?16@24@32
-v32@0:8@16@?24
 @"PQLConnection"
 @"NSDateFormatter"
 @"NSMutableDictionary"
 @"FinHealthBatchProcessor"
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"NSMutableArray"
 @"<FinHealthFetchAllTransactionsDelegate>"
-@28@0:8B16B20B24
 @24@0:8Q16
 @40@0:8@16@24@32
-{os_unfair_lock_s=I}16@0:8
-v20@0:8{os_unfair_lock_s=I}16
+@24@0:8q16
 @"FinHealthDatabaseManager"
 @"NSXPCConnection"
 @"NSDictionary"
+v32@0:8@16@?24
 v28@0:8B16@?20
 v36@0:8@"FHTransaction"16B24@?<v@?@"FHFeaturesResponse"@"NSError">28
 v24@0:8@?<v@?@"NSDictionary"@"NSError">16
@@ -1417,6 +1468,11 @@ v56@0:8@16Q24q32@40@?48
 @"FinHealthStateController"
 ^v24@0:8@16
 @48@0:8d16d24d32d40
+@28@0:8@16I24
+I16@0:8
+@"NSData"16@0:8
+@28@0:8@"NSData"16I24
+@"NSDictionary"16@0:8
 @"NSMutableSet"
 @24@0:8@?16
 Failed to load model
@@ -1435,11 +1491,20 @@ Training initiated....
 [%s]: error: %@
 [%s]: replaceItemAtURL: %@ replaceStatus: %@
 [%s]: NOOP
+Under FHGeoMaxAllowedRecords [%lu] threshold, _totalRecordsProcessed: %lu
+Crossed FHGeoMaxAllowedRecords [%lu] threshold, _totalRecordsProcessed: %lu
 [transaction location]: %@
 transactionId: %@ already processed
 [filteredFHTransactions count]: %lu, _totalRecordsProcessed: %lu
 FinHealth GEOSpatialPlaceLookup error: %@
 FinHealth GEO ticket timeout (waited for 200 milli-seconds)
+cachedValue: %@, transactionId: %@
+[filteredFHTransactions count]: %lu, maxParametersForLookup: %lu
+[fhTransaction displayName]: %@ - using approximate latitude: %f, longitude :%f
+didProcessSpatialParameters %@, [spatialPlaceLookupParameters count]: %lu
+didProcessSpatialParameters %@, iterationId: %lu
+spatialPlaceLookupParameters count: %lu
+FinHealth GEO ticket timeout (waited for %lu milli-seconds)
 %s: Trial client initializations returned nil.
 %s: Trial client is disabled on this OS - no factors to log
 %s: Serializing experiment id dict unexpectedly returned nil: %@
@@ -1471,18 +1536,18 @@ FHInsertOrUpdateIntoFeaturesHeuristics failed for %@
 FHInsertIntoFeaturesPredictedRealTime failed for %@
 insertSuccess: %d smartFeatureValues: %@
 isEligibleForSchemaMigration: %@
-Skipping CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu
-Performing CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu
-aggregateFeature eventPayload: %@
-compoundTypeSoldProducts eventPayload: %@
-compoundTypeOther eventPayload: %@
+Drop table %@
 previousPreComputedRmseValue: %f
 currentTransactionId: %@, changeInAmount: %@
+formattedQuery: %@
+FH_PUBLISH_EVENTS_TO_BIOME disabled
 [%s]. Received transaction.identifier: %@ accountType: %@
+lastProcessingDateForPOI: %lu, poiStalenessCheck: %@
 Batch offSet: %lu
 instance deallocated
 can not insert batch of event identifiers error: %@
 %s: pointsOfInterestCompoundFeaturesForTransactionBatch :%@
+Resetting fhGeoFeatures records processed counter
 taggedPastEvents %@, dateRanges :%@, transactionIdsWithValidPastEvents %@
 predicateKey: %@ invalid
 rankedValues: %@
@@ -1500,12 +1565,24 @@ Loaded Proactive events: %@
 Past time ranges to query:%@ Total events count: %lu Total fetched events %@
 Trip event error:%@
 Suggested event error:%@
+analyticsEventFromData: %@
+Failed to deserialize data->analyticsEventFromData, [error localizedDescription]: %@
+Failed to serialize analyticsEvent->data, [error localizedDescription]: %@
+[config datastorePath]: %@
+Complete
+Error: %@
+event eventBody: %@
+Failed to delete temporaryPath: %@
 mostRecentDate %@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<key>application-identifier</key>
+<string>com.apple.FinHealth.Biome</string>
 <key>com.apple.payment.all-access</key>
+<true/>
+<key>com.apple.private.security.storage.Biome</key>
 <true/>
 <key>com.apple.private.tcc.allow</key>
 <array>
@@ -1576,14 +1653,12 @@ mlmodel
 /Library/FinHealth/mlmodels/
 com.apple.finhealth.geoservices
 SELF.%K == %@ AND SELF.%K IN %@
+v16@?0@"NSDictionary"8
 v24@?0@"GEOSpatialPlaceLookupResult"8@"NSError"16
-FHSmartFeatureAggregateTypeTopMerchant
-FHSmartFeatureAggregateTypeFavoriteRestaurant
-FHSmartFeatureAggregateTypeAmountAboveAverage
-FHSmartFeatureAggregateTypeAmountBelowAverage
-FHSmartFeatureAggregateTypePeakSpend
-FHSmartFeatureAggregateTypeFrequentShop
-FHSmartFeatureAggregateTypeAmountVeryExpensive
+[%.03f,%.03f]
+%.03f
+Succeeded
+Failed
 FHSmartFeatureAggregateTypeRecurring
 FHSmartFeatureAggregateTypeRegular
 FHSmartFeatureAggregateTypeIrregular
@@ -1596,7 +1671,7 @@ FHSmartFeatureCompoundTypeRecurringChange
 FHSmartFeatureCompoundTypeLostSavings
 Source
 TagType
-PassID
+PassType
 featureLabel
 featureRank
 eventIdentifiers
@@ -1656,16 +1731,13 @@ v24@?0Q8@"NSDecimalNumber"16
 FinHealth
 FinHealthRecurringMultiSignalSupport
 B32@?0@"NSDictionary"8Q16^B24
-@"NSDictionary"8@?0
-v32@?0@"FHAggregateFeature"8Q16^B24
-v32@?0@"FHSmartCompoundFeatureRankedValue"8Q16^B24
-v32@?0@"FHSmartCompoundFeature"8Q16^B24
 %@ %@
 -[FinHealthDatabaseManager _getTransactionsMarkedForRecurrChange]_block_invoke
+FinHealthPublishEventsToBiome
+f%lu
 %@ :%lu
 -[FinHealthStateController insertOrUpdateTransaction:]
 -[FinHealthStateController _processAggregateFeaturesWithHardReset:]_block_invoke
-v16@?0@"NSDictionary"8
 v32@?0@"NSNumber"8Q16^B24
 @distinctUnionOfObjects.%@
 self isKindOfClass: %@
@@ -1679,6 +1751,8 @@ transaction_features for id %@
 transactions for id %@
 transactionSourceIdentifier
 SELF.%K == %@
+@sum.self
+@max.self
 timeOfDay: '%lu'; 
 transactionDateAtZerothHour: '%lu'; 
 isInternationalSpend: '%d'; 
@@ -1687,12 +1761,14 @@ merchantCategory: '%lu';
 country: '%@'; 
 merchantDisplayName: '%@'; 
 smartCompoundFeatures: '%@'; 
+merchantList
 [-/.+%&@#_:\\\*'",()]+
 (\s+)
 (?=[A-Z][a-z])
 (?<=[a-z])(?=[A-Z])
 (?<=[0-9])(?=[a-zA-Z])
 (?<=[a-zA-Z])(?=[0-9])
+!@#$%^&*()_+|
 hotelstravel.transport.airlines
 SGEventMetadataKey
 SGEventMetadataSchemaOrgKey
@@ -1710,6 +1786,7 @@ features_amount
 features_heuristics
 features_events
 features_instrumentation
+fh_processing_history
 t_date_index
 t_date
 t_identifier_index
@@ -1726,22 +1803,25 @@ t_identifier
 (amount_aggregate_id integer primary key autoincrement, amount_aggregate_type text, amount_aggregate_value integer, comparison_operator text, start_date integer, end_date integer, UNIQUE(amount_aggregate_type, start_date, end_date))
 (t_identifier text primary key, t_features text, t_compound_features text, locale text, t_mark_for_delete integer)
 (t_identifier text primary key, t_heuristics_identifier text, t_heuristics_value integer, t_heuristics_score real)
-(inst_id integer primary key autoincrement, tag_source integer, tag_type integer, tag_click_date integer, source_identifier text)
+(inst_id integer primary key autoincrement, tag_source integer, tag_type integer, tag_click_date integer, pass_type integer)
 insert into fh_schema (sch_version_id, sch_upgrade_status, sch_date, sch_getall_status) values (%d, %d, %d, %d)
+(fh_processing_history_id integer primary key autoincrement, feature_name text, feature_processing_date integer, UNIQUE(feature_name))
 insert or replace into features_deterministic_realtime (t_identifier, a, b, c, f, g) values (%@, %d, %d, %d, %d, %d)
 insert or replace into features_predicted_realtime (t_identifier, t_feature_name, t_feature_predicted_value) values (%@, %@, %d)
 insert or replace into features_compound_realtime (t_identifier, t_compound_feature_value) values (%@, %@)
 insert or replace into features_heuristics (t_identifier, t_heuristics_identifier, t_heuristics_value, t_heuristics_score) values (%@, %@, %d, %f)
 insert or replace into features_events (e_identifier, start_date, end_date) values (%@, %d, %d)
-insert into features_instrumentation (tag_source, tag_type, tag_click_date, source_identifier) values (%d, %d, %d, %@)
+insert into features_instrumentation (tag_source, tag_type, tag_click_date, pass_type) values (%d, %d, %d, %d)
 insert or replace into transaction_features (t_identifier, t_features, t_compound_features, locale, t_mark_for_delete) values (%@, %@, %@, %@, %d)
 insert or replace into features_prediction_labels (t_feature_name, t_feature_predicted_value, t_smart_feature_name) values (%@, %d, %@)
+insert or replace into fh_processing_history (feature_name, feature_processing_date) values (%@, %lu)
 update transaction_features set t_mark_for_delete = %d where t_identifier == %@
 delete from transaction_features where t_mark_for_delete == %d
 delete from transaction_features where t_identifier in (select t_identifier from transactions t where t.t_source_identifier == %@)
 select t_features, t_compound_features, locale from transaction_features where t_identifier == %@
 select t_identifier, t_features, t_compound_features, locale from transaction_features where t_mark_for_delete = %d limit %d offset %d
 select t_identifier, t_features, t_compound_features, locale from transaction_features limit %d offset %d
+select feature_processing_date from fh_processing_history where feature_name == '%@'
 select * from features_events where end_date < %d limit %d
 select t_identifier from features_predicted_realtime where t_feature_name='FHSmartFeatureAggregateTypeRecurring' and t_feature_predicted_value=%d limit %d
 select * from features_deterministic_realtime where t_identifier == %@
@@ -1751,6 +1831,7 @@ create index %@ on %@(%@);
 drop table %@;
 delete from %@;
 alter table %@ add column %@ %@;
+PRAGMA table_info('%@');
 select * from transactions limit %d, %d
 select * from transactions t where t.t_identifier == %@ order by t_date desc limit %d
 select * from transactions t where t_fh_internal_state == %d order by t_date desc limit %d offset %d
@@ -1783,6 +1864,7 @@ delete from transactions where t_source_identifier == %@
 delete from features_heuristics where t_identifier in (select t_identifier from transactions t where t.t_source_identifier == %@)
 delete from features_events where e_identifier == %@
 delete from features_events where start_date %@ %d and end_date %@ %d
+select * from features_instrumentation where tag_click_date >= %d and tag_click_date <= %d
 finhealth.db
 /Library/FinHealth/
 com.apple.FinHealth.Framework
@@ -1803,15 +1885,14 @@ match
 t_features
 t_compound_features
 source_identifier
-text
+pass_type
+integer
 amount_input
 expensive_prediction
 FinHealthBaseExpensiveClassifier
-com.apple.FinHealth.stats
-type
-run_time
-select f.t_identifier, ifnull(t_features, ''), ifnull(t_compound_features, ''), locale, t_mark_for_delete, ifnull(t.m_detailed_category, 'undefined') as m_detailed_category, t_date from transaction_features f inner join transactions t on t.t_identifier = f.t_identifier and t_mark_for_delete = 0 limit %d
 Price Increase for
+FinHealthPrivateStream
+/Library/FinHealth/PrivateStream/
 FHMerchantSmartFeatures
 FHAmountSmartFeatures
 FHDateTimeSmartFeatures
@@ -1912,9 +1993,7 @@ Dinner
 0.55
 v24@?0@"NSString"8d16
 q24@?0@"FHSmartCompoundFeatureRankedValue"8@"FHSmartCompoundFeatureRankedValue"16
-!@#$%^&*()_+|
 FHLostSaving%@
-@sum.self
 com.apple.finhealth.all-access
 application-identifier
 NOT (SELF.%K < %@)
@@ -1928,6 +2007,8 @@ v32@?0@"MKMapItem"8Q16^B24
 %f, %f
 -[FinHealthRealtimeFeaturesRequest _getPointsOfInterestFromMapKit:longitude:horizontalAccuracy:verticalAccuracy:]
 v24@?0@"PPScoredEvent"8^B16
+v16@?0@"BPSCompletion"8
+v16@?0@"BMStoreEvent"8
 SELF.%K == %lu
 SELF.%K != nil
 SELF.%K == %lu AND SELF.%K == %lu
@@ -1970,9 +2051,12 @@ stringByReplacingMatchesInString:options:range:withTemplate:
 stringByAppendingString:
 stringByAppendingPathComponent:
 stringAtIndex:
+state
 startWithCompletionHandler:
+source
 sortedArrayUsingDescriptors:
 sortUsingComparator:
+sinkWithCompletion:receiveInput:
 sharedService
 setWithSet:
 setWithObjects:
@@ -1997,15 +2081,18 @@ setDateFormat:
 setComputeUnits:
 setBusyHandler:
 setBoundaryStyle:
+sendEvent:
 secondsFromGMT
 rowNumber
 resume
 replaceItemAtURL:withItemAtURL:backupItemName:options:resultingItemURL:error:
 removeObjectForKey:
 removeObject:
+removeItemAtPath:error:
 removeAllObjects
 regularExpressionWithPattern:options:error:
 rangeAtIndex:
+publisherFromStartTime:
 predictionFromFeatures:error:
 predicateWithFormat:
 predicateWithBlock:
@@ -2035,6 +2122,7 @@ numClasses
 null
 notANumber
 next
+newPrivateStreamDefaultConfigurationWithStoreBasePath:
 modelWithContentsOfURL:configuration:error:
 model
 minusSet:
@@ -2072,11 +2160,13 @@ initWithTagSchemes:
 initWithString:
 initWithShape:dataType:error:
 initWithRequest:
+initWithPrivateStreamIdentifier:storeConfig:
 initWithPointsOfInterestRequest:
 initWithObjectsAndKeys:
 initWithLatitude:longitude:
 initWithKey:ascending:
 initWithInteger:
+initWithInt:
 initWithFeatureProviderArray:
 initWithEKOptions:
 initWithDouble:
@@ -2089,6 +2179,7 @@ initWithCategoriesToInclude:categoriesToExclude:
 initWithArray:
 initForEvents:progressHandler:completionHandler:
 indexesOfObjectsPassingTest:
+indexSet
 indexOfObject:
 hour
 horizontalAccuracy
@@ -2114,6 +2205,7 @@ executeRaw:
 execute:args:
 eventWithIdentifier:
 eventIdentifier
+eventBody
 event
 errorWithDomain:code:userInfo:
 error
@@ -2125,7 +2217,6 @@ encodeInteger:forKey:
 encodeInt64:forKey:
 encodeInt32:forKey:
 encodeBool:forKey:
-doubleValue
 doubleAtIndex:
 distanceFromLocation:
 dictionaryWithObjectsAndKeys:
@@ -2157,6 +2248,7 @@ dateFromString:
 dateFromComponents:
 dateByAddingTimeInterval:
 dateByAddingComponents:toDate:options:
+datastorePath
 dataWithJSONObject:options:error:
 dataWithContentsOfFile:
 dataUsingEncoding:
@@ -2203,7 +2295,10 @@ allObjects
 allKeys
 addObjectsFromArray:
 addObject:
+addIndex:
 addEntriesFromDictionary:
+UUIDString
+UUID
 UTF8String
 URLWithString:
 URLByAppendingPathComponent:
@@ -2289,22 +2384,33 @@ T@"MLModelConfiguration",R,C,N,V_modelConfiguration
 T@"MLModel",R,C,N,V_updatedModel
 TB,R,N,V_isModelValid
 evaluatePointsOfInterest:bypassMapService:completion:
+_evaluatePointsOfInterestClassic:bypassMapService:completion:
+_evaluatePointsOfInterestWithCache:bypassMapService:completion:
+_didProcessSpatialParametersWithTimeout:
 filterTransactions:
+resetTotalRecordsProcessed
 geoMapService
 geoServicesQueue
 poiCategoryFilter
+geoPOICache
 geoPredicate
+geoSpatialParameterLock
+setGeoSpatialParameterLock:
 totalRecordsProcessed
 setTotalRecordsProcessed:
+_geoSpatialParameterLock
 _geoMapService
 _geoServicesQueue
 _poiCategoryFilter
+_geoPOICache
 _geoPredicate
 _totalRecordsProcessed
 T@"GEOMapService",R,N,V_geoMapService
 T@"NSObject<OS_dispatch_queue>",R,N,V_geoServicesQueue
 T@"GEOPOICategoryFilter",R,N,V_poiCategoryFilter
+T@"NSCache",R,N,V_geoPOICache
 T@"NSPredicate",R,N,V_geoPredicate
+T{os_unfair_lock_s=I},N,V_geoSpatialParameterLock
 TQ,N,V_totalRecordsProcessed
 initWithLabelAndRank:featureRank:
 featureLabel
@@ -2354,6 +2460,7 @@ TQ,R
 T#,R
 T@"NSString",R,C
 processBatch:
+doubleValue
 _createDataDirectory
 _getDataDirectory
 getDateFormatter
@@ -2432,14 +2539,14 @@ _executeRaw:
 _fetch:
 closeAndUnlock:
 _rebuildTablesAndIndexes:
+_instrumentationTableMigration
 streamGenericSQLFetch:predicate:sqlFetchQuery:
-computeAnalyticsForSearchTags
-sendToAnalytics:builder:
+processingTimeForFeature:
+updateProcessingTimeForFeature:
 _getTransactionsMarkedForRecurrChange
+publishEventsToBiome
 delegate
 setDelegate:
-mockAnalyticsStore
-setMockAnalyticsStore:
 _dateFormatter
 _multiplier
 _secondsInDay
@@ -2458,12 +2565,10 @@ _enableRecurChange
 _transactionFeaturesOffset
 _transactionFeaturesCache
 _delegate
-_mockAnalyticsStore
 T@"<FinHealthFetchAllTransactionsDelegate>",W,N,V_delegate
 Tq,R,N
-T@"NSMutableDictionary",N,V_mockAnalyticsStore
 initForTest:bypassMapService:
-_init:bypassMapService:enableAnalyticsReporting:
+_init:bypassMapService:
 _createDBManagerAndAssociatedProperties:
 insertOrUpdateTransactions:
 insertOrUpdateTransaction:
@@ -2499,18 +2604,23 @@ getMerchantForTransactionId:
 getCompundFeaturesOverTimRangeFrom:to:
 getLostSavingsValueFromCompoundFeatures:
 getLostSavingsOverTime:from:to:
+getRecurringChangeForMessagingOverTimePeriod:
+_getRecurringChangeOverTimePeriod:
 featuresWithAmountSums:startDate:endDate:
 connection
 setConnection:
 lockConnection
 setLockConnection:
+lockAggregationComputation
+setLockAggregationComputation:
 _dbMgr
 _bypassMapService
-_enableAnalyticsReporting
 _lockConnection
+_lockAggregationComputation
 _connection
 T@"NSXPCConnection",&,N,V_connection
 T{os_unfair_lock_s=I},N,V_lockConnection
+T{os_unfair_lock_s=I},N,V_lockAggregationComputation
 smartCompoundFeaturesDictionaryForJson
 timeOfDay
 setTimeOfDay:
@@ -2781,6 +2891,20 @@ pastTimeRangesToRetagEvents
 setPastTimeRangesToRetagEvents:
 _pastTimeRangesToRetagEvents
 T@"NSArray",C,N,V_pastTimeRangesToRetagEvents
+eventWithData:dataVersion:
+serialize
+dataVersion
+json
+jsonDict
+TI,R,N
+initWithAnalyticsEvent:
+analyticsEvent
+_dataVersion
+_analyticsEvent
+T@"NSDictionary",R,C,N,V_analyticsEvent
+TI,R,N,V_dataVersion
+publishEvents:
+_privateStreamDirectory
 addInternalState:
 enableMerchantCounts
 databaseManager
@@ -2839,6 +2963,9 @@ FinHealthTextSimilarityFeatures
 FinHealthLostSavingsTag
 FinHealthEntitlementsChecker
 FinHealthRealtimeFeaturesRequest
+FinHealthAnalyticsEvent
+BMStoreData
+FinHealthAnalyticsPrivateStream
 FinHealthBatchProcessorBuilder
 FinHealthBatchProcessor
 B16@0:8
@@ -2864,9 +2991,13 @@ Q32@0:8d16@24
 @"MLModelConfiguration"
 @"MLModel"
 v36@0:8@16B24@?28
+{os_unfair_lock_s=I}16@0:8
+v20@0:8{os_unfair_lock_s=I}16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"GEOMapService"
 @"NSObject<OS_dispatch_queue>"
 @"GEOPOICategoryFilter"
+@"NSCache"
 @"NSPredicate"
 @"NSDecimalNumber"
 @"NSArray"
@@ -2905,22 +3036,19 @@ B48@0:8@16@24@32@40
 B24@0:8^@16
 v20@0:8B16
 Q40@0:8@?16@24@32
-v32@0:8@16@?24
 @"PQLConnection"
 @"NSDateFormatter"
 @"NSMutableDictionary"
 @"FinHealthBatchProcessor"
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"NSMutableArray"
 @"<FinHealthFetchAllTransactionsDelegate>"
-@28@0:8B16B20B24
 @24@0:8Q16
 @40@0:8@16@24@32
-{os_unfair_lock_s=I}16@0:8
-v20@0:8{os_unfair_lock_s=I}16
+@24@0:8q16
 @"FinHealthDatabaseManager"
 @"NSXPCConnection"
 @"NSDictionary"
+v32@0:8@16@?24
 v28@0:8B16@?20
 v36@0:8@"FHTransaction"16B24@?<v@?@"FHFeaturesResponse"@"NSError">28
 v24@0:8@?<v@?@"NSDictionary"@"NSError">16
@@ -2959,6 +3087,11 @@ v56@0:8@16Q24q32@40@?48
 @"FinHealthStateController"
 ^v24@0:8@16
 @48@0:8d16d24d32d40
+@28@0:8@16I24
+I16@0:8
+@"NSData"16@0:8
+@28@0:8@"NSData"16I24
+@"NSDictionary"16@0:8
 @"NSMutableSet"
 @24@0:8@?16
 Failed to load model
@@ -2977,11 +3110,21 @@ Training initiated....
 [%s]: error: %@
 [%s]: replaceItemAtURL: %@ replaceStatus: %@
 [%s]: NOOP
+Under FHGeoMaxAllowedRecords [%lu] threshold, _totalRecordsProcessed: %lu
+Crossed FHGeoMaxAllowedRecords [%lu] threshold, _totalRecordsProcessed: %lu
 [transaction location]: %@
 transactionId: %@ already processed
 [filteredFHTransactions count]: %lu, _totalRecordsProcessed: %lu
 FinHealth GEOSpatialPlaceLookup error: %@
 FinHealth GEO ticket timeout (waited for 200 milli-seconds)
+cachedValue: %@, transactionId: %@
+[filteredFHTransactions count]: %lu, maxParametersForLookup: %lu
+[fhTransaction displayName]: %@ - using approximate latitude: %f, longitude :%f
+didProcessSpatialParameters %@, [spatialPlaceLookupParameters count]: %lu
+didProcessSpatialParameters %@, iterationId: %lu
+spatialPlaceLookupParameters count: %lu
+error: %@
+FinHealth GEO ticket timeout (waited for %lu milli-seconds)
 %s: Trial client initializations returned nil.
 %s: Trial client is disabled on this OS - no factors to log
 %s: Serializing experiment id dict unexpectedly returned nil: %@
@@ -3013,19 +3156,18 @@ FHInsertOrUpdateIntoFeaturesHeuristics failed for %@
 FHInsertIntoFeaturesPredictedRealTime failed for %@
 insertSuccess: %d smartFeatureValues: %@
 isEligibleForSchemaMigration: %@
-Skipping CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu
-Performing CA: lastProcessingDateForCoreAnalytics :%lu, processRunTime: %lu
-aggregateFeature eventPayload: %@
-compoundTypeSoldProducts eventPayload: %@
-compoundTypeOther eventPayload: %@
+Drop table %@
 previousPreComputedRmseValue: %f
 currentTransactionId: %@, changeInAmount: %@
+formattedQuery: %@
+FH_PUBLISH_EVENTS_TO_BIOME disabled
 [%s]. Received transaction.identifier: %@ accountType: %@
+lastProcessingDateForPOI: %lu, poiStalenessCheck: %@
 Batch offSet: %lu
 instance deallocated
 can not insert batch of event identifiers error: %@
 %s: pointsOfInterestCompoundFeaturesForTransactionBatch :%@
-error: %@
+Resetting fhGeoFeatures records processed counter
 taggedPastEvents %@, dateRanges :%@, transactionIdsWithValidPastEvents %@
 predicateKey: %@ invalid
 rankedValues: %@
@@ -3042,12 +3184,24 @@ Loaded Proactive events: %@
 Past time ranges to query:%@ Total events count: %lu Total fetched events %@
 Trip event error:%@
 Suggested event error:%@
+analyticsEventFromData: %@
+Failed to deserialize data->analyticsEventFromData, [error localizedDescription]: %@
+Failed to serialize analyticsEvent->data, [error localizedDescription]: %@
+[config datastorePath]: %@
+Complete
+Error: %@
+event eventBody: %@
+Failed to delete temporaryPath: %@
 mostRecentDate %@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<key>application-identifier</key>
+<string>com.apple.FinHealth.Biome</string>
 <key>com.apple.payment.all-access</key>
+<true/>
+<key>com.apple.private.security.storage.Biome</key>
 <true/>
 <key>com.apple.private.tcc.allow</key>
 <array>

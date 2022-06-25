@@ -30,6 +30,8 @@ PODeviceConfiguration
 -[POExtensionAgentProcess keyProxyEndpointForKeyType:]
 -[POExtensionAgentProcess identityForKeyType:]
 -[POExtensionAgentProcess invalidateAllKeyProxies]
+-[POExtensionAgentProcess isCallerCurrentSSOExtension]
+com.apple.private.platformsso.loginmanager
 -[POExtensionAgentProcess isDeviceRegisteredWithCompletion:]
 -[POExtensionAgentProcess isUserRegisteredWithCompletion:]
 -[POExtensionAgentProcess registrationTokenWithCompletion:]
@@ -54,6 +56,7 @@ v16@?0@"NSNotification"8
 -[POExtensionAgentProcess presentRegistrationViewControllerWithCompletion:]
 POExtensionAgentProcess
 ASAuthorizationErrorDomain
+com.apple.PlatformSSO.auth
 P-256
 POSecKeyHelper
 PODirectoryServices
@@ -85,11 +88,14 @@ account_name
 extension_identifier
 com.apple.PlatformSSO.authenticationCompleted
 authenticationResult
+com.apple.ScreensaverRuleCheck
 -[POAgentAuthenticationProcess initWithDelegate:]
 com.apple.PlatformSSO.notifications
 -[POAgentAuthenticationProcess handleScreenUnlock]
 -[POAgentAuthenticationProcess handleAgentStartup]
 -[POAgentAuthenticationProcess handleNetworkChange]
+-[POAgentAuthenticationProcess handleScreenSaverRule]
+v20@?0B8@"NSError"12
 -[POAgentAuthenticationProcess performLoginForCurrentUser]
 v24@?0Q8@"NSData"16
 -[POAgentAuthenticationProcess requestUserAuthenticationWithUserInfo:]
@@ -205,7 +211,6 @@ first load
 -[POConfigurationManager setJwksCache:forExtensionIdentifier:]
 -[POConfigurationManager deviceConfigurationForExtension:]
 -[POConfigurationManager saveDeviceConfiguration:forExtension:]
-v20@?0B8@"NSError"12
 -[POConfigurationManager removeDeviceConfigurationForExtension:]
 -[POConfigurationManager loginConfigurationForExtension:]
 -[POConfigurationManager saveLoginConfiguration:forExtension:]
@@ -330,6 +335,9 @@ failed to check the state of datavault: %s
 failed to convert to datavault: %s
 IPHONE_SIMULATOR_ROOT
 PODaemonProcess
+osgn
+oece
+oecd
 %s service %{public}@ on %@
 Could not add tokens to keychain %{public}@
 Error archiving meta data: %{public}@
@@ -396,6 +404,8 @@ bundleIdentifier: CPCopyBundleIdentifierAndTeamFromAuditToken() failed, trying S
 bundleIdentifier: SecTaskCopySigningIdentifier() failed %{public}@
 bundleIdentifier: %{public}@
 bundleIdentifier: SecTaskCreateWithAuditToken() failed, %{public}@
+No device configuration for extension: %{public}@, %{public}@
+Caller is not current extension: %{public}@, %{public}@
 No stored SSO Tokens.
 missing device encryption key for extension identifier: %{public}@, %{public}@
 missing device encryption public key:%{public}@
@@ -411,6 +421,8 @@ failed to receive endpoint: %{public}@
 failed to retrieve user configuration for extension identifier: %{public}@, %{public}@
 failed to save user configuration: %{public}@
 failed to retrieve user configuration for extension identifier: %{public}@
+Error SecAccessControlCreateWithFlags: %{public}@
+Error setting protection: %{public}@
 Error SecKeyCreateRandomKey: %{public}@
 Error SecKeyCreateWithData: %{public}@
 Current altDSID: %{private}@
@@ -431,7 +443,10 @@ beginUserRegistrationUsingLoginManager completed, result = %{public}@
 not a local account
 Screen unlocked
 First Unlock
-Netowrk Changed
+Network Changed
+Not configured for Platform SSO
+Rule already checked
+Rule successfully checked
 Checking Login for user
 %s user state = %{public}@ on %@
 User state is needs authentication.
@@ -550,7 +565,7 @@ failed to find key: %{public}@, %{public}@
 failed to create key: %{public}@, %{public}@
 failed to load key: %{public}@, %{public}@
 Verifying id_token
-validating id_token: %{public}@
+validating id_token: %{private}@
 unsupported id_token algorithm: %{public}@, %{public}@
 failed to match nonce: %{public}@
 failed to match issuer: %{public}@
@@ -570,9 +585,11 @@ missing apv: %{public}@
 error decoding apv: %{public}@
 error with nonce data: %{public}@
 falied to validate apv: %{public}@
+Evaluating server trust
 trustEvaluation failed: %{public}@
 No root certificate: %{public}@
 Root certificate is not in the system trust: %{public}@
+HTTP Redirect received to %{public}@, canceling
 Creating sample messages
 credential failure: %{public}@
 Error with JWT header data: %{public}@
@@ -687,6 +704,7 @@ UNUserNotificationCenterDelegate
 POExtensionDelegate
 POAuthenticationProcess
 NSURLSessionDelegate
+NSURLSessionTaskDelegate
 POAlgorithm
 POConstantUtil
 POAuthenticationContext
@@ -1066,6 +1084,8 @@ initWithIdentity:
 copy
 removeObject:
 auditToken
+valueForEntitlement:
+isEqualToString:
 loginConfigurationForExtension:
 agentProcess
 registrationTokenForExtensionIdentifier:
@@ -1087,6 +1107,7 @@ predicateWithFormat:
 evaluateWithObject:
 saveDeviceConfiguration:forExtension:
 keyProxyEndpointForKeyType:
+isCallerCurrentSSOExtension
 authenticationCompletion
 errorWithDomain:code:userInfo:
 setAuthenticationCompletion:
@@ -1098,7 +1119,7 @@ handleDeviceAndUserRegistrationForRepair:
 userConfigurationForUserName:
 handleUserRegistrationForUser:repair:
 handleRegistrationViewControllerForExtensionIdentifier:completion:
-createSEPKey
+createSEPKeyForKeyType:
 saveUserConfiguration:forUserName:
 isDeviceRegisteredWithCompletion:
 isUserRegisteredWithCompletion:
@@ -1202,11 +1223,19 @@ keyBag
 handlePendingSSOTokens
 performLoginForCurrentUser
 handleUnfinishedTGTExchanges
+handleScreenSaverRule
 configurationChanged:
 notificationCenter
 addObserver:selector:name:object:
 setupTimerForAuthentication
 handleScreenUnlock
+currentDeviceConfiguration
+processInfo
+operatingSystemVersionString
+standardUserDefaults
+stringForKey:
+setValue:forKey:
+enableScreensaverRuleIfNeeded:
 userName
 timeIntervalSinceNow
 kerberosHelper
@@ -1224,7 +1253,6 @@ performPasswordLoginUsingLoginConfiguration:deviceConfiguration:userConfiguratio
 performSEPKeyLoginUsingLoginConfiguration:deviceConfiguration:userConfiguration:jwksStorageProvider:userName:signingKey:certificate:completion:
 postNotificationName:object:userInfo:
 extensionBundleIdentifier
-isEqualToString:
 pssoRegistrationToken
 registrationContext
 accountDisplayName
@@ -1238,7 +1266,6 @@ triggerWithTimeInterval:repeats:
 requestWithIdentifier:content:trigger:destinations:
 addNotificationRequest:withCompletionHandler:
 handleUserCredentialNeededAtLogin:returningContext:
-enableScreensaverRuleIfNeeded
 setJwksCache:
 isRepair
 userNotified
@@ -1275,10 +1302,10 @@ handleUserRegistrationForUser:repair:notified:
 createRegistrationNotificationWithAccountName:
 isRetry
 handleConfigurationChanged:
-currentDeviceConfiguration
 hasAnyMDMProfileForExtension:
 handleRemovingRegistrationForExtension:
 restoreScreensaverRuleIfNeeded
+removeObjectForKey:
 authenticationMethods
 pssoAuthenticationMethod
 containsObject:
@@ -1466,6 +1493,15 @@ stringByAppendingFormat:
 URLSession:didBecomeInvalidWithError:
 URLSession:didReceiveChallenge:completionHandler:
 URLSessionDidFinishEventsForBackgroundURLSession:
+URLSession:didCreateTask:
+URLSession:task:willBeginDelayedRequest:completionHandler:
+URLSession:taskIsWaitingForConnectivity:
+URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:
+URLSession:task:didReceiveChallenge:completionHandler:
+URLSession:task:needNewBodyStream:
+URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:
+URLSession:task:didFinishCollectingMetrics:
+URLSession:task:didCompleteWithError:
 performTokenRefreshUsingLoginConfiguration:deviceConfiguration:userConfiguration:refreshToken:signingKey:completion:
 createTestMessagesForLoginConfiguration:certificate:
 setRequestIdentifier:
@@ -1672,7 +1708,6 @@ setForLogin:
 _forLogin
 TI,V_uid
 TB,V_forLogin
-removeObjectForKey:
 setPasswordData:
 dateWithTimeIntervalSince1970:
 assertion
@@ -1773,7 +1808,6 @@ setPlatformSSOUnavailable
 _token
 Tq,R,N
 initWithDomain:code:userInfo:
-valueForEntitlement:
 _initDataVaultIfNeededWithError:
 _defaultConfigurationPath
 dataWithContentsOfURL:
@@ -1872,6 +1906,7 @@ B32@0:8@16@24
 @"NSMutableArray"
 @"NSObject"
 @"SOConfigurationHost"
+^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8q16
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8@16
 @24@0:8^{__SecCertificate=}16
 ^{__SecCertificate=}24@0:8@16
@@ -1915,16 +1950,25 @@ v40@0:8@16@24@32
 v32@0:8@"NSURLSession"16@"NSError"24
 v40@0:8@"NSURLSession"16@"NSURLAuthenticationChallenge"24@?<v@?q@"NSURLCredential">32
 v24@0:8@"NSURLSession"16
+v48@0:8@16@24@32@?40
+v56@0:8@16@24@32@40@?48
+v56@0:8@16@24q32q40q48
+v32@0:8@"NSURLSession"16@"NSURLSessionTask"24
+v48@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLRequest"32@?<v@?q@"NSURLRequest">40
+v56@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSHTTPURLResponse"32@"NSURLRequest"40@?<v@?@"NSURLRequest">48
+v48@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLAuthenticationChallenge"32@?<v@?q@"NSURLCredential">40
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@?<v@?@"NSInputStream">32
+v56@0:8@"NSURLSession"16@"NSURLSessionTask"24q32q40q48
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLSessionTaskMetrics"32
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSError"32
 v72@0:8@16@24@32@40@48@56@?64
 v80@0:8@16@24@32@40@48^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}56^{__SecCertificate=}64@?72
 v64@0:8@16@24@32@40^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}48@?56
 v64@0:8@16@24@32@40@48@?56
 @32@0:8@16^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24
-v48@0:8@16@24@32@?40
 @48@0:8@16@24@32^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}40
 @64@0:8@16@24@32@40@48@56
 @40@0:8@16@24@32
-v56@0:8@16@24@32@40@?48
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}32@0:8@16@24
 B48@0:8@16@24@32^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}40
 B40@0:8@16@24^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}32
@@ -1966,7 +2010,6 @@ v20@0:8I16
 @"POKeyWrap"
 ^{gss_cred_id_t_desc_struct=}24@0:8@16
 v32@0:8^{__SecCertificate=}16q24
-^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8q16
 ^{__SecIdentity=}24@0:8q16
 @"POServiceLoginManagerConnection"
 @32@0:8q16@24
@@ -2004,6 +2047,8 @@ PODeviceConfiguration
 -[POExtensionAgentProcess keyProxyEndpointForKeyType:]
 -[POExtensionAgentProcess identityForKeyType:]
 -[POExtensionAgentProcess invalidateAllKeyProxies]
+-[POExtensionAgentProcess isCallerCurrentSSOExtension]
+com.apple.private.platformsso.loginmanager
 -[POExtensionAgentProcess isDeviceRegisteredWithCompletion:]
 -[POExtensionAgentProcess isUserRegisteredWithCompletion:]
 -[POExtensionAgentProcess registrationTokenWithCompletion:]
@@ -2028,6 +2073,7 @@ v16@?0@"NSNotification"8
 -[POExtensionAgentProcess presentRegistrationViewControllerWithCompletion:]
 POExtensionAgentProcess
 ASAuthorizationErrorDomain
+com.apple.PlatformSSO.auth
 P-256
 POSecKeyHelper
 PODirectoryServices
@@ -2059,11 +2105,14 @@ account_name
 extension_identifier
 com.apple.PlatformSSO.authenticationCompleted
 authenticationResult
+com.apple.ScreensaverRuleCheck
 -[POAgentAuthenticationProcess initWithDelegate:]
 com.apple.PlatformSSO.notifications
 -[POAgentAuthenticationProcess handleScreenUnlock]
 -[POAgentAuthenticationProcess handleAgentStartup]
 -[POAgentAuthenticationProcess handleNetworkChange]
+-[POAgentAuthenticationProcess handleScreenSaverRule]
+v20@?0B8@"NSError"12
 -[POAgentAuthenticationProcess performLoginForCurrentUser]
 v24@?0Q8@"NSData"16
 -[POAgentAuthenticationProcess requestUserAuthenticationWithUserInfo:]
@@ -2179,7 +2228,6 @@ first load
 -[POConfigurationManager setJwksCache:forExtensionIdentifier:]
 -[POConfigurationManager deviceConfigurationForExtension:]
 -[POConfigurationManager saveDeviceConfiguration:forExtension:]
-v20@?0B8@"NSError"12
 -[POConfigurationManager removeDeviceConfigurationForExtension:]
 -[POConfigurationManager loginConfigurationForExtension:]
 -[POConfigurationManager saveLoginConfiguration:forExtension:]
@@ -2304,6 +2352,9 @@ failed to check the state of datavault: %s
 failed to convert to datavault: %s
 IPHONE_SIMULATOR_ROOT
 PODaemonProcess
+osgn
+oece
+oecd
 %s service %{public}@ on %@
 Could not add tokens to keychain %{public}@
 Error archiving meta data: %{public}@
@@ -2370,6 +2421,8 @@ bundleIdentifier: CPCopyBundleIdentifierAndTeamFromAuditToken() failed, trying S
 bundleIdentifier: SecTaskCopySigningIdentifier() failed %{public}@
 bundleIdentifier: %{public}@
 bundleIdentifier: SecTaskCreateWithAuditToken() failed, %{public}@
+No device configuration for extension: %{public}@, %{public}@
+Caller is not current extension: %{public}@, %{public}@
 No stored SSO Tokens.
 missing device encryption key for extension identifier: %{public}@, %{public}@
 missing device encryption public key:%{public}@
@@ -2385,6 +2438,8 @@ failed to receive endpoint: %{public}@
 failed to retrieve user configuration for extension identifier: %{public}@, %{public}@
 failed to save user configuration: %{public}@
 failed to retrieve user configuration for extension identifier: %{public}@
+Error SecAccessControlCreateWithFlags: %{public}@
+Error setting protection: %{public}@
 Error SecKeyCreateRandomKey: %{public}@
 Error SecKeyCreateWithData: %{public}@
 Current altDSID: %{private}@
@@ -2405,7 +2460,10 @@ beginUserRegistrationUsingLoginManager completed, result = %{public}@
 not a local account
 Screen unlocked
 First Unlock
-Netowrk Changed
+Network Changed
+Not configured for Platform SSO
+Rule already checked
+Rule successfully checked
 Checking Login for user
 %s user state = %{public}@ on %@
 User state is needs authentication.
@@ -2524,7 +2582,7 @@ failed to find key: %{public}@, %{public}@
 failed to create key: %{public}@, %{public}@
 failed to load key: %{public}@, %{public}@
 Verifying id_token
-validating id_token: %{public}@
+validating id_token: %{private}@
 unsupported id_token algorithm: %{public}@, %{public}@
 failed to match nonce: %{public}@
 failed to match issuer: %{public}@
@@ -2544,9 +2602,11 @@ missing apv: %{public}@
 error decoding apv: %{public}@
 error with nonce data: %{public}@
 falied to validate apv: %{public}@
+Evaluating server trust
 trustEvaluation failed: %{public}@
 No root certificate: %{public}@
 Root certificate is not in the system trust: %{public}@
+HTTP Redirect received to %{public}@, canceling
 Creating sample messages
 credential failure: %{public}@
 Error with JWT header data: %{public}@
@@ -2661,6 +2721,7 @@ UNUserNotificationCenterDelegate
 POExtensionDelegate
 POAuthenticationProcess
 NSURLSessionDelegate
+NSURLSessionTaskDelegate
 POAlgorithm
 POConstantUtil
 POAuthenticationContext
@@ -2689,9 +2750,21 @@ POConfigurationVersion
 POError
 PODaemonProcess
 Base64URL
+writeToURL:options:error:
 HTTPMethod
-_setTargetUserIdentifier:
+JSONObjectWithData:options:error:
+TGTReceivedForRealm:upn:cache:
+TGTRequestDidBegin
+TGTRequestDidComplete
+URLByAppendingPathComponent:
+URLPrefix
+URLWithString:
+UTF8String
+UUID
+UUIDString
 _setQueue:
+_setTargetUserIdentifier:
+absoluteString
 actionIdentifier
 actionWithIdentifier:title:options:
 addEntriesFromDictionary:
@@ -2808,10 +2881,12 @@ numberWithUnsignedInteger:
 objectAtIndexedSubscript:
 objectForKey:
 objectForKeyedSubscript:
+operatingSystemVersionString
 path
 percentEncodedQuery
 postNotificationName:object:userInfo:
 predicateWithFormat:
+processInfo
 protectionSpace
 pssoAuthenticationMethod
 pssoRegistrationToken
@@ -2854,15 +2929,18 @@ setShouldPreventNotificationDismissalAfterDefaultAction:
 setTitle:
 setTolerance:
 setUserInfo:
+setValue:forKey:
 setWantsNotificationResponsesDelivered
 setWithArray:
 set_preventsAppSSO:
 sharedManager
+standardUserDefaults
 statusCode
 stringByAppendingFormat:
 stringByAppendingString:
 stringByReplacingOccurrencesOfString:withString:
 stringByTrimmingCharactersInSet:
+stringForKey:
 stringFromDate:
 stringValue
 stringWithCString:encoding:
@@ -2881,19 +2959,7 @@ value
 valueForEntitlement:
 valueForKeyPath:
 whitespaceAndNewlineCharacterSet
-writeToURL:options:error:
-JSONObjectWithData:options:error:
-UUID
-UUIDString
-URLByAppendingPathComponent:
-URLPrefix
-UTF8String
-TGTRequestDidBegin
-TGTRequestDidComplete
 HTTPBody
-TGTReceivedForRealm:upn:cache:
-URLWithString:
-absoluteString
 addTokens:metaData:toKeychainForService:username:
 retrieveTokensFromKeychainForService:username:returningTokens:metaData:
 removeTokensFromKeychainWithService:username:
@@ -3175,6 +3241,7 @@ keyProxyEndpointForKeyType:
 identityForKeyType:
 invalidateAllKeyProxies
 bundleIdentiferForXPCConnection:
+isCallerCurrentSSOExtension
 isURL:validForProfile:
 invalidationHandler
 setInvalidationHandler:
@@ -3204,7 +3271,7 @@ T@"NSObject",&,V_authenticationObserver
 T@?,C,V_authenticationCompletion
 T@"SOConfigurationHost",&,V_configurationHost
 T@?,C,V_invalidationHandler
-createSEPKey
+createSEPKeyForKeyType:
 dataForKey:
 keyForData:
 dataForCertificate:
@@ -3266,6 +3333,7 @@ initWithDelegate:
 handleScreenUnlock
 handleAgentStartup
 handleNetworkChange
+handleScreenSaverRule
 requestUserAuthenticationWithUserInfo:
 postAuthenticationNotification:
 registrationTokenForExtensionIdentifier:
@@ -3352,6 +3420,15 @@ T@"<POAgentAuthenticationProcessKerberosDelegate>",W,V_kerberosDelegate
 URLSession:didBecomeInvalidWithError:
 URLSession:didReceiveChallenge:completionHandler:
 URLSessionDidFinishEventsForBackgroundURLSession:
+URLSession:didCreateTask:
+URLSession:task:willBeginDelayedRequest:completionHandler:
+URLSession:taskIsWaitingForConnectivity:
+URLSession:task:willPerformHTTPRedirection:newRequest:completionHandler:
+URLSession:task:didReceiveChallenge:completionHandler:
+URLSession:task:needNewBodyStream:
+URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:
+URLSession:task:didFinishCollectingMetrics:
+URLSession:task:didCompleteWithError:
 performPasswordLoginUsingLoginConfiguration:deviceConfiguration:userConfiguration:jwksStorageProvider:userName:password:completion:
 performSEPKeyLoginUsingLoginConfiguration:deviceConfiguration:userConfiguration:jwksStorageProvider:userName:signingKey:certificate:completion:
 performTokenRefreshUsingLoginConfiguration:deviceConfiguration:userConfiguration:refreshToken:signingKey:completion:
@@ -3451,7 +3528,7 @@ userConfigurationForUserName:passwordContext:
 saveUserConfiguration:forUserName:
 removeUserConfigurationForUserName:
 resetStoredConfiguration
-enableScreensaverRuleIfNeeded
+enableScreensaverRuleIfNeeded:
 restoreScreensaverRuleIfNeeded
 userIdentifier
 version
@@ -3846,6 +3923,7 @@ B32@0:8@16@24
 @"NSMutableArray"
 @"NSObject"
 @"SOConfigurationHost"
+^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8q16
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8@16
 @24@0:8^{__SecCertificate=}16
 ^{__SecCertificate=}24@0:8@16
@@ -3889,16 +3967,25 @@ v40@0:8@16@24@32
 v32@0:8@"NSURLSession"16@"NSError"24
 v40@0:8@"NSURLSession"16@"NSURLAuthenticationChallenge"24@?<v@?q@"NSURLCredential">32
 v24@0:8@"NSURLSession"16
+v48@0:8@16@24@32@?40
+v56@0:8@16@24@32@40@?48
+v56@0:8@16@24q32q40q48
+v32@0:8@"NSURLSession"16@"NSURLSessionTask"24
+v48@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLRequest"32@?<v@?q@"NSURLRequest">40
+v56@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSHTTPURLResponse"32@"NSURLRequest"40@?<v@?@"NSURLRequest">48
+v48@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLAuthenticationChallenge"32@?<v@?q@"NSURLCredential">40
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@?<v@?@"NSInputStream">32
+v56@0:8@"NSURLSession"16@"NSURLSessionTask"24q32q40q48
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSURLSessionTaskMetrics"32
+v40@0:8@"NSURLSession"16@"NSURLSessionTask"24@"NSError"32
 v72@0:8@16@24@32@40@48@56@?64
 v80@0:8@16@24@32@40@48^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}56^{__SecCertificate=}64@?72
 v64@0:8@16@24@32@40^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}48@?56
 v64@0:8@16@24@32@40@48@?56
 @32@0:8@16^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24
-v48@0:8@16@24@32@?40
 @48@0:8@16@24@32^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}40
 @64@0:8@16@24@32@40@48@56
 @40@0:8@16@24@32
-v56@0:8@16@24@32@40@?48
 ^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}32@0:8@16@24
 B48@0:8@16@24@32^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}40
 B40@0:8@16@24^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}32
@@ -3940,7 +4027,6 @@ v20@0:8I16
 @"POKeyWrap"
 ^{gss_cred_id_t_desc_struct=}24@0:8@16
 v32@0:8^{__SecCertificate=}16q24
-^{__SecKey={__CFRuntimeBase=QAQ}^{__SecKeyDescriptor}^v}24@0:8q16
 ^{__SecIdentity=}24@0:8q16
 @"POServiceLoginManagerConnection"
 @32@0:8q16@24

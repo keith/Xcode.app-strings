@@ -1,4 +1,5 @@
-@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-89.2.2
+@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-93.1.1
+fffffFW@
 SEGB
 %@ %@
 segmentName
@@ -46,6 +47,12 @@ BMFrameWriteStatusFileFull
 BMFrameWriteStatusDataTooLarge
 BMFrameWriteStatusUnknown(%lu)
 Potentially overwriting whatever data is currently there
+com.apple.Biome.BMFramestore
+isValidFrame: Frame is not 8-byte aligned:%d
+isValidFrame: Frame size:%d runs past the remaining free space in the segment:%td, frame intended to start at offset:%td
+isValidFrame: Unexpected frame state. Expected: %@, found: %@
+%@ - exception during %@: %@. Data length: %i
+Checksums don't match. Header: %u, Generated checksum: %u. Skipping frame.
 BMFrameStore.m
 Not Checked
 Valid
@@ -70,7 +77,6 @@ v24@?0@"BMStoreEvent"8@"BMFrameStore"16
 BMStreamDatastoreBase.m
 start <= end
 callback
-lock
 /local
 /remote
 /lock
@@ -92,6 +98,8 @@ streamId != nil
 [streamId length] != 0
 segmentName != nil
 [segmentName length] != 0
+Start of segment
+End of frames
 streamId
 iterationStartTime
 %@ - %@
@@ -120,6 +128,7 @@ BiomeAccessService
 '%@' is not entitled for '%@' access to '%@'
 '%@' is not entitled to access compute as '%@'
 Invalid flags: %#X
+Invalid protection class for file
 Invalid request
 Invalid stream identifier
 Internal failure
@@ -161,9 +170,11 @@ Event class - %@ doesn't - conform to BMStoreData protocol or Maybe the framewor
 Failed to deserialize event with event class - %@
 Unable to determine event class from string, verify that the following class definition is available at runtime - %@
 Data store streamId is %{public}@ while bookmark streamId is %{public}@
-initWithStreamDatastore: offset:%zu beyond bytesUsed:%d for store: %{public}@
+initWithStreamDatastore: frameStore checksum mismatched and is beyond frame offset:%zu bytesUsed:%d for store: %{public}@
+initWithStreamDatastore: offset:%zu beyond bytesUsed:%d (diff:%lu) for store: %{public}@
 initWithStreamDatastore: offset: %zu not 8-byte aligned %{public}@
-bookmark: offset: %zu beyond bytesUsed:%d %{public}@
+bookmark: frameStore checksum mismatched and is beyond frame offset:%zu bytesUsed:%d for store: %{public}@
+bookmark: offset:%zu beyond bytesUsed:%d (diff:%lu) %{public}@
 bookmark: offset: %zu not 8-byte aligned %{public}@
 dup() failed: %{darwin.errno}d
 Failed to close fd %{public}d with %{darwin.errno}d
@@ -184,11 +195,7 @@ Failed to map frames for %{public}@ with permission %lu
 Found a bad lastAbsoluteTimestamp in header for segment file %{public}@ time: %f
 Exception when truncating file %{public}@. %{darwin.errno}d
 Attempting to resize a non-writable file
-isValidFrame: Frame is not 8-byte aligned:%d
-isValidFrame: Frame size:%d runs past the remaining free space in the segment:%td, frame intended to start at offset:%td
-isValidFrame: Unexpected frame state. Expected: %{public}@, found: %{public}@
-%@ - exception during %@: %@. Data length: %i
-Checksums don't match. Header: %u, Generated checksum: %{public}u. Skipping frame.
+isValidFrame failed, path:%{public}@, offset:%td error:%@
 frameWithOffset: offset is not 8-byte aligned:%zu
 frameWithOffset: offset (%lu) is beyond frame size (%lu)
 frameWithOffset: current offset (%lu) leaves insufficient space in the segment size (%lu) for a BMFrameHeader
@@ -199,7 +206,6 @@ Reverse enumeration offset not found %zu.
 Found frame with state: BMFrameStateUnknown
 Unrecognized frame state:%d in segment: %{public}@
 Unrecognized frame state: %d, segment:%{public}@ frame offset:%td frame size:%zu reverse:%d, frameCount=%d, prevFrameState:%{public}@, prevFrameValid:%{public}@ prevLastSize/offset:%zu prevStateSize:%zu
-isValidFrame failed, path:%{public}@, offset:%td
 Frame store: %@, bytesUsed: %llu
 No space left to write to the mapped region
 Unable to update creationTimestamp. We expect to see %llu, but instead are seeing %llu. The write status is %d
@@ -518,20 +524,22 @@ bookmark
 initWithFrame:error:
 initWithFrame:error:metadata:
 frame
+eventBodyDataVersion
 _eventBody
 _dataType
 _frameOffset
-_eventBodyData
-_eventBodyDataVersion
 _error
+_eventBodyDataVersion
 _timestamp
 _frame
 _metadata
+_eventBodyData
 _eventCategory
 T@"BMFrame",R,N,V_frame
 T#,R,N
 T@"BMStreamMetadata",R,N,V_metadata
 T@"NSData",R,N,V_eventBodyData
+TI,R,N,V_eventBodyDataVersion
 TQ,R,N,V_eventCategory
 Td,R,N,V_timestamp
 TC,R,N,V_error
@@ -557,6 +565,7 @@ TQ,R,N,V_deletionReason
 T@"NSString",R,N,V_processName
 segmentWithFilename:error:
 bytesUsed
+isCheckSumValidAtOffset:
 segmentPath
 privacyPathname:
 iterationStartTime
@@ -663,12 +672,15 @@ mapWithFileHandle:fileSize:
 expectedTimestamp:
 _printablePath
 sync
+initWithFormat:
+initWithDomain:code:userInfo:
 start
 initWithBytes:length:
 bytes
+code
 enumerateWithOptions:fromOffset:usingBlock:
 size
-isValidFrame:expectedState:copyOfData:frameStatus:validations:
+isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:
 initWithHeader:storePath:data:framePtr:offset:nextOffset:
 unsignedLongValue
 updateFrameStoreIndex
@@ -723,7 +735,6 @@ UTF8String
 initWithSize:protection:advice:offset:
 arrayWithObjects:count:
 domain
-code
 underlyingErrors
 initWithStream:streamPath:permission:config:
 newStreamDefaultConfigurationForPublicStream:
@@ -799,7 +810,6 @@ newEnumeratorFromBookmark:
 deleteEventAtBookmark:outTombstoneBookmark:
 writeEventData:dataVersion:timestamp:
 writeEventBytes:length:dataVersion:timestamp:
-lockfilePath
 cachingOptionsForMemoryMappingWithFileAttributes:
 pruneStreamToMaxStreamSizeInBytes:
 pruneStreamToMaxSegmentAge:
@@ -830,6 +840,7 @@ T@"BMStoreConfig",R,N,V_config
 initWithDirectory:cachingOptions:
 stringWithUTF8String:
 setUpWithError:
+lock
 _memoryMappingFromFileHandle:flags:error:
 fileSystemRepresentation
 directory
@@ -1074,7 +1085,6 @@ unregisterForLockStateChangeNotifications:
 reverseEnumerateSegmentsNamesFrom:to:withBlock:
 _updateSegments
 removeLastObject
-initWithFormat:
 longLongValue
 segmentNameFromTimestamp:
 compare:
@@ -1156,9 +1166,9 @@ v24@0:8@"NSCoder"16
 @88@0:8@16@24Q32@40I48#52Q60d68@76C84
 B56@0:8@16@24@32@40q48
 @"<BMStoreData>"
-@"NSData"
 @"BMFrame"
 @"BMStreamMetadata"
+@"NSData"
 @32@0:8@16d24
 @28@0:8@16I24
 @24@0:8@"NSData"16
@@ -1197,7 +1207,7 @@ B24@0:8Q16
 B28@0:8Q16B24
 {?=QdI[32c][4c]}36@0:8@16I24^Q28
 B24@0:8d16
-B48@0:8^v16I24^@28{?=II}36B44
+B56@0:8^v16I24^@28{?=II}36B44Q48
 v32@0:8Q16@?24
 @28@0:8Q16I24
 q24@0:8Q16
@@ -1320,7 +1330,8 @@ v32@0:8@16@24
 {?=(?={?=II}Q){?=ddII}}16@0:8
 {?=""(?="frameStatus"{?="size"I"state"I}"frameStatusData"Q)"otherInfo"{?="creationTimestamp"d"modifiedTimestamp"d"checksum"I"dataVersion"I}}
 @40@0:8^v16Q24@32
-@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-89.2.2
+@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-93.1.1
+fffffFW@
 u"AI
 SEGB
 %@ %@
@@ -1369,6 +1380,12 @@ BMFrameWriteStatusFileFull
 BMFrameWriteStatusDataTooLarge
 BMFrameWriteStatusUnknown(%lu)
 Potentially overwriting whatever data is currently there
+com.apple.Biome.BMFramestore
+isValidFrame: Frame is not 8-byte aligned:%d
+isValidFrame: Frame size:%d runs past the remaining free space in the segment:%td, frame intended to start at offset:%td
+isValidFrame: Unexpected frame state. Expected: %@, found: %@
+%@ - exception during %@: %@. Data length: %i
+Checksums don't match. Header: %u, Generated checksum: %u. Skipping frame.
 BMFrameStore.m
 Not Checked
 Valid
@@ -1393,7 +1410,6 @@ v24@?0@"BMStoreEvent"8@"BMFrameStore"16
 BMStreamDatastoreBase.m
 start <= end
 callback
-lock
 /local
 /remote
 /lock
@@ -1415,6 +1431,8 @@ streamId != nil
 [streamId length] != 0
 segmentName != nil
 [segmentName length] != 0
+Start of segment
+End of frames
 streamId
 iterationStartTime
 %@ - %@
@@ -1444,6 +1462,7 @@ BiomeAccessService
 '%@' is not entitled for '%@' access to '%@'
 '%@' is not entitled to access compute as '%@'
 Invalid flags: %#X
+Invalid protection class for file
 Invalid request
 Invalid stream identifier
 Internal failure
@@ -1485,9 +1504,11 @@ Event class - %@ doesn't - conform to BMStoreData protocol or Maybe the framewor
 Failed to deserialize event with event class - %@
 Unable to determine event class from string, verify that the following class definition is available at runtime - %@
 Data store streamId is %{public}@ while bookmark streamId is %{public}@
-initWithStreamDatastore: offset:%zu beyond bytesUsed:%d for store: %{public}@
+initWithStreamDatastore: frameStore checksum mismatched and is beyond frame offset:%zu bytesUsed:%d for store: %{public}@
+initWithStreamDatastore: offset:%zu beyond bytesUsed:%d (diff:%lu) for store: %{public}@
 initWithStreamDatastore: offset: %zu not 8-byte aligned %{public}@
-bookmark: offset: %zu beyond bytesUsed:%d %{public}@
+bookmark: frameStore checksum mismatched and is beyond frame offset:%zu bytesUsed:%d for store: %{public}@
+bookmark: offset:%zu beyond bytesUsed:%d (diff:%lu) %{public}@
 bookmark: offset: %zu not 8-byte aligned %{public}@
 dup() failed: %{darwin.errno}d
 Failed to close fd %{public}d with %{darwin.errno}d
@@ -1508,11 +1529,7 @@ Failed to map frames for %{public}@ with permission %lu
 Found a bad lastAbsoluteTimestamp in header for segment file %{public}@ time: %f
 Exception when truncating file %{public}@. %{darwin.errno}d
 Attempting to resize a non-writable file
-isValidFrame: Frame is not 8-byte aligned:%d
-isValidFrame: Frame size:%d runs past the remaining free space in the segment:%td, frame intended to start at offset:%td
-isValidFrame: Unexpected frame state. Expected: %{public}@, found: %{public}@
-%@ - exception during %@: %@. Data length: %i
-Checksums don't match. Header: %u, Generated checksum: %{public}u. Skipping frame.
+isValidFrame failed, path:%{public}@, offset:%td error:%@
 frameWithOffset: offset is not 8-byte aligned:%zu
 frameWithOffset: offset (%lu) is beyond frame size (%lu)
 frameWithOffset: current offset (%lu) leaves insufficient space in the segment size (%lu) for a BMFrameHeader
@@ -1523,7 +1540,6 @@ Reverse enumeration offset not found %zu.
 Found frame with state: BMFrameStateUnknown
 Unrecognized frame state:%d in segment: %{public}@
 Unrecognized frame state: %d, segment:%{public}@ frame offset:%td frame size:%zu reverse:%d, frameCount=%d, prevFrameState:%{public}@, prevFrameValid:%{public}@ prevLastSize/offset:%zu prevStateSize:%zu
-isValidFrame failed, path:%{public}@, offset:%td
 Frame store: %@, bytesUsed: %llu
 No space left to write to the mapped region
 Unable to update creationTimestamp. We expect to see %llu, but instead are seeing %llu. The write status is %d
@@ -1729,6 +1745,7 @@ BMSegmentManagerProtectedState
 BMSegmentManager
 BMFrame
 BMSharedMemory
+UTF8String
 writeData:error:
 unsignedLongValue
 unsignedIntegerValue
@@ -1802,6 +1819,7 @@ numberWithBool:
 mutableCopy
 minusOrderedSet:
 longLongValue
+lock
 localDevice
 lastPathComponent
 lastObject
@@ -1816,6 +1834,7 @@ initWithListenerEndpoint:
 initWithGuardedData:
 initWithFormat:
 initWithFileDescriptor:closeOnDealloc:
+initWithDomain:code:userInfo:
 initWithData:
 initWithBytes:length:encoding:
 initWithBytes:length:
@@ -1873,7 +1892,6 @@ allocWithZone:
 allKeys
 addObject:
 activate
-UTF8String
 description
 copyWithZone:
 hasSegmentName
@@ -1960,21 +1978,23 @@ checkAndReportDecodingFailureIfNeededForid:key:coder:errorDomain:errorCode:
 frame
 metadata
 eventBodyData
+eventBodyDataVersion
 eventCategory
 _eventBody
 _dataType
 _frameOffset
-_eventBodyData
-_eventBodyDataVersion
 _error
+_eventBodyDataVersion
 _timestamp
 _frame
 _metadata
+_eventBodyData
 _eventCategory
 T@"BMFrame",R,N,V_frame
 T#,R,N
 T@"BMStreamMetadata",R,N,V_metadata
 T@"NSData",R,N,V_eventBodyData
+TI,R,N,V_eventBodyDataVersion
 TQ,R,N,V_eventCategory
 Td,R,N,V_timestamp
 TC,R,N,V_error
@@ -2071,7 +2091,7 @@ initWithFileHandle:maxSize:permission:datastoreVersion:
 segmentPath
 _printablePath
 resizeBackingFileTo:
-isValidFrame:expectedState:copyOfData:frameStatus:validations:
+isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:
 enumerateFromOffset:withCallback:
 frameWithOffset:expectedState:
 updateFrameStoreIndex
@@ -2107,6 +2127,7 @@ TB,N,V_pruneOnAccess
 Td,N,V_maxAge
 TQ,R,N,V_frameStoreSize
 bytesUsed
+isCheckSumValidAtOffset:
 TI,R
 cachingOptionsForFileHandleWithAttributes:
 cachingOptionsForMemoryMappingWithAttributes:
@@ -2143,7 +2164,6 @@ _bookmarkWithSegmentName:offset:
 writeEventBytes:length:dataVersion:timestamp:outBookmark:
 fetchEventFromFrameStore:atOffset:withOptions:callback:
 didMarkFrameAsRemovedWithSegmentName:frame:reason:outTombstoneBookmark:
-lockfilePath
 metadataPath
 updateMetadata:
 updateMetadata:pruningPolicy:
@@ -2480,9 +2500,9 @@ v24@0:8@"NSCoder"16
 @88@0:8@16@24Q32@40I48#52Q60d68@76C84
 B56@0:8@16@24@32@40q48
 @"<BMStoreData>"
-@"NSData"
 @"BMFrame"
 @"BMStreamMetadata"
+@"NSData"
 @32@0:8@16d24
 @28@0:8@16I24
 @24@0:8@"NSData"16
@@ -2521,7 +2541,7 @@ B24@0:8Q16
 B28@0:8Q16B24
 {?=QdI[32c][4c]}36@0:8@16I24^Q28
 B24@0:8d16
-B48@0:8^v16I24^@28{?=II}36B44
+B56@0:8^v16I24^@28{?=II}36B44Q48
 v32@0:8Q16@?24
 @28@0:8Q16I24
 q24@0:8Q16

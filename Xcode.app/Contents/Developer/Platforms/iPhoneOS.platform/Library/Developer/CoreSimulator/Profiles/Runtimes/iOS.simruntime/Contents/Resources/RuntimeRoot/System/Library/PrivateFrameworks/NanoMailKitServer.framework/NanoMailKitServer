@@ -183,6 +183,7 @@ application/x-www-form-urlencoded
 Content-Length
 %@: %@
 v32@?0@"NSData"8@"NSURLResponse"16@"NSError"24
+DELETE
 NanoMailCloudNotificationStagingServer
 General
 Notification
@@ -453,7 +454,7 @@ SELECT A.SOURCE_TYPE FROM MAILBOX M LEFT OUTER JOIN SYNCED_ACCOUNT A ON A.ID = M
 SELECT SOURCE_TYPE FROM SYNCED_ACCOUNT WHERE ID = ?
 SELECT ID FROM SYNCED_ACCOUNT WHERE USERNAME = ? COLLATE NOCASE
 UPDATE SYNCED_ACCOUNT SET SOURCE_TYPE = ? WHERE ID = ?
-INSERT OR REPLACE INTO MAILBOX (ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT OR REPLACE INTO MAILBOX (ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID, SYNC_REQUESTED_DATE) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 SYNC_ENABLED = 1
 SYNC_ENABLED = 1 AND SYNC_ACTIVE = 1
 DELETE FROM MAILBOX WHERE ID = ?
@@ -465,7 +466,7 @@ INSERT OR REPLACE INTO DELETED_MESSAGE (MESSAGE_ID, MAILBOX_ID) VALUES (?, ?)
 SELECT MAILBOX_ID FROM DELETED_MESSAGE WHERE MESSAGE_ID = ?
 DELETE FROM MAILBOX
 WHERE %@
-SELECT ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID FROM MAILBOX M %@
+SELECT ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID, SYNC_REQUESTED_DATE FROM MAILBOX M %@
 INSERT OR REPLACE INTO COMPOSED_MESSAGE (ID, PROGRESS) VALUES (?, ?)
 SELECT PROGRESS FROM COMPOSED_MESSAGE WHERE ID = ?
 SELECT ID FROM COMPOSED_MESSAGE
@@ -515,6 +516,7 @@ NNMKErrorMessageIdsUserInfoKey
 NNMKErrorMessageCountUserInfoKey
 NNMKErrorMessageAccountSourceTypeUserInfoKey
 NNMKErrorInvalidRecipientEmailsUserInfoKey
+NNMKErrorHTTPStatusCodeUserInfoKey
 fetchRequest
 wantsBatchedResponse
 kNSCodingKeyAccountId
@@ -778,6 +780,7 @@ Error attaching protected database. Path: %{public}@, Error Code: %d, Error Mess
 Protected database detached.
 Error detaching protected database (Error Code: %d, Error Message: %{public}@).
 NNMKProtoAccountAuthenticationStatus account does not have account id!
+Unable to parse JSON response: %{public}@
 Scheduling time out for #FETCH #BATCHED_RESPONSE.
 Ignoring mailbox for fetch response because it does not exist or is inactive, %{public}@
 Too many new messages to send as a Batch Response to Watch. We're sending only 40 first new messages... %{public}@
@@ -1018,7 +1021,7 @@ Account RESENT (Id: %{public}@).
 Sending progress for composed message (Id: %{public}@ - Progress: %li - IDS Identifier: %{public}@)...
 Dropping messages to add because mailbox is not active. (Mailbox: %{public}@ - Messages: %{public}@)
 Adding new messages for mailbox. %{public}@ - count: %lu
-Dropping messages to update because mailbox is not active. (Mailbox: %{public}@ - Messages: %{public}@)
+Dropping messages to update because mailbox is not active. (Mailbox: %{public}@ - Sync Requested: %lu - Request Date - %{public}@ - Messages: %{public}@)
 Deletion operation sent to watch. (IDS Identifier: %{public}@, Channel: %{public}@)
 Conversation muted status updated (Id: %{public}@, Muted: %lu).
 No messages to mark as NOT notify in database for conversation id %{public}@
@@ -1098,6 +1101,7 @@ Triggering #full-sync for mailboxes to resume sync due to fetch request.
 Dropping #FETCH request for mailbox because we do not have this mailbox anymore. %{public}@
 Enabling mailbox due to a fetch request from the mailbox: %{public}@
 Ending suspensions, as we've received a fetch request for mailbox: %{public}@
+Not enabling mailbox because syncRequested for mailbox: %{public}@, request date: %{public}@
 Ignoring #initial-sync request due to Mailboxes Mismatch because it was already requested at %@
 Triggering #initial-sync because of mailbox desync detected
 Ignoring mailboxes desync and #initial-sync because no accounts are synced yet
@@ -1678,7 +1682,7 @@ domain
 code
 errorWithDomain:code:userInfo:
 JSONObjectWithData:options:error:
-genericErrorWithMessage:
+httpErrorWithCode:message:
 dataTaskWithRequest:completionHandler:
 resume
 mailNotificationURL
@@ -1874,6 +1878,7 @@ TB,N,V_cancelled
 errorWithCode:userInfo:
 isAuthenticationError
 errorWithCode:
+genericErrorWithMessage:
 addAttachment:
 setDateSynced:
 setText:
@@ -2191,10 +2196,12 @@ localId
 typeIdentifier
 bindInteger:intoStatement:paramIndex:
 accountLocalId
+syncRequestedDate
 _selectMailboxesWhere:blockForBinding:
 deleteMailboxWithId:startTransaction:
 rollbackTransaction
 addOrUpdateMailbox:
+setSyncRequestedDate:
 _mailboxFromCurrentRowInStatement:
 integerFromStatement:columnIndex:
 boolFromStatement:columnIndex:
@@ -2608,6 +2615,16 @@ dataWithLength:
 mutableBytes
 bindData:intoStatement:paramIndex:
 dataFromStatement:columnIndex:
+nano_accountId
+name
+generateMailboxIdWithAccountId:mailboxName:
+displayNameUsingSpecialNames
+nano_mailboxId
+nano_mailboxType
+isNotesMailboxUid
+nano_displayName
+nano_mailbox
+nano_toMailboxType:
 protoMailboxFromMailbox:
 state
 setState:
@@ -2650,7 +2667,6 @@ T@"<NNMKSyncServiceTransport>",&,N,V_serviceTransport
 T@"NSMutableDictionary",&,N,V_repeatPreventionRecords
 T@"NSObject<OS_dispatch_source>",&,N,V_repeatPreventionCleanupTimer
 TQ,R,N
-name
 setName:
 _name
 T@"NSString",C,N,V_name
@@ -3570,7 +3586,6 @@ setDatabaseContentVerified:
 syncedTypeFromFilterType:
 idsFromMailboxes:
 messageStateForMailboxFilterType:
-generateMailboxIdWithAccountId:mailboxName:
 syncedTypeFromMailbox:
 defaultFilterTypes
 setSelected:
@@ -3587,10 +3602,12 @@ _hasSelection
 _isPushEnabled
 _databaseContentVerified
 _accountLocalId
+_syncRequestedDate
 _lastUpdate
 TB,N,V_databaseContentVerified
 TQ,N,V_filterType
 T@"NSString",&,N,V_accountLocalId
+T@"NSDate",&,N,V_syncRequestedDate
 TB,N,V_syncActive
 T@"NSDate",&,N,V_lastUpdate
 selected
@@ -3615,6 +3632,19 @@ hasMessagesAreNew
 messagesAreNew
 _messagesAreNew
 TB,N,V_messagesAreNew
+uniqueID
+supportsArchiving
+shouldArchiveByDefault
+nano_emailAddressesAndAliasesList
+persistentAccount
+accountTypeIdentifier
+accountPropertyForKey:
+emailAddressesAndAliasesList
+_emailAddressStringsFromObjects:
+ea_uncommentedAddress
+nano_account
+activeAccountsWithError:
+nano_activeMailAccounts
 addInitialMessagesSync:
 initialMessagesSyncsCount
 clearInitialMessagesSyncs
@@ -3993,6 +4023,7 @@ v32@0:8B16^{sqlite3_stmt=}20i28
 Q28@0:8^{sqlite3_stmt=}16i24
 d28@0:8^{sqlite3_stmt=}16i24
 B28@0:8^{sqlite3_stmt=}16i24
+i24@0:8Q16
 @52@0:8@16Q24Q32d40B48
 @52@0:8@16Q24Q32Q40B48
 @60@0:8@16Q24Q32@40Q48B56
@@ -4386,6 +4417,7 @@ application/x-www-form-urlencoded
 Content-Length
 %@: %@
 v32@?0@"NSData"8@"NSURLResponse"16@"NSError"24
+DELETE
 NanoMailCloudNotificationStagingServer
 General
 Notification
@@ -4656,7 +4688,7 @@ SELECT A.SOURCE_TYPE FROM MAILBOX M LEFT OUTER JOIN SYNCED_ACCOUNT A ON A.ID = M
 SELECT SOURCE_TYPE FROM SYNCED_ACCOUNT WHERE ID = ?
 SELECT ID FROM SYNCED_ACCOUNT WHERE USERNAME = ? COLLATE NOCASE
 UPDATE SYNCED_ACCOUNT SET SOURCE_TYPE = ? WHERE ID = ?
-INSERT OR REPLACE INTO MAILBOX (ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT OR REPLACE INTO MAILBOX (ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID, SYNC_REQUESTED_DATE) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 SYNC_ENABLED = 1
 SYNC_ENABLED = 1 AND SYNC_ACTIVE = 1
 DELETE FROM MAILBOX WHERE ID = ?
@@ -4668,7 +4700,7 @@ INSERT OR REPLACE INTO DELETED_MESSAGE (MESSAGE_ID, MAILBOX_ID) VALUES (?, ?)
 SELECT MAILBOX_ID FROM DELETED_MESSAGE WHERE MESSAGE_ID = ?
 DELETE FROM MAILBOX
 WHERE %@
-SELECT ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID FROM MAILBOX M %@
+SELECT ID, TYPE, FILTER_TYPE, CUSTOM_NAME, URL, SYNC_ACTIVE, ACCOUNT_ID, SYNC_ENABLED, SYNC_REQUESTED, ACCOUNT_LOCAL_ID, SYNC_REQUESTED_DATE FROM MAILBOX M %@
 INSERT OR REPLACE INTO COMPOSED_MESSAGE (ID, PROGRESS) VALUES (?, ?)
 SELECT PROGRESS FROM COMPOSED_MESSAGE WHERE ID = ?
 SELECT ID FROM COMPOSED_MESSAGE
@@ -4718,6 +4750,7 @@ NNMKErrorMessageIdsUserInfoKey
 NNMKErrorMessageCountUserInfoKey
 NNMKErrorMessageAccountSourceTypeUserInfoKey
 NNMKErrorInvalidRecipientEmailsUserInfoKey
+NNMKErrorHTTPStatusCodeUserInfoKey
 fetchRequest
 wantsBatchedResponse
 kNSCodingKeyAccountId
@@ -4981,6 +5014,7 @@ Error attaching protected database. Path: %{public}@, Error Code: %d, Error Mess
 Protected database detached.
 Error detaching protected database (Error Code: %d, Error Message: %{public}@).
 NNMKProtoAccountAuthenticationStatus account does not have account id!
+Unable to parse JSON response: %{public}@
 Scheduling time out for #FETCH #BATCHED_RESPONSE.
 Ignoring mailbox for fetch response because it does not exist or is inactive, %{public}@
 Too many new messages to send as a Batch Response to Watch. We're sending only 40 first new messages... %{public}@
@@ -5221,7 +5255,7 @@ Account RESENT (Id: %{public}@).
 Sending progress for composed message (Id: %{public}@ - Progress: %li - IDS Identifier: %{public}@)...
 Dropping messages to add because mailbox is not active. (Mailbox: %{public}@ - Messages: %{public}@)
 Adding new messages for mailbox. %{public}@ - count: %lu
-Dropping messages to update because mailbox is not active. (Mailbox: %{public}@ - Messages: %{public}@)
+Dropping messages to update because mailbox is not active. (Mailbox: %{public}@ - Sync Requested: %lu - Request Date - %{public}@ - Messages: %{public}@)
 Deletion operation sent to watch. (IDS Identifier: %{public}@, Channel: %{public}@)
 Conversation muted status updated (Id: %{public}@, Muted: %lu).
 No messages to mark as NOT notify in database for conversation id %{public}@
@@ -5301,6 +5335,7 @@ Triggering #full-sync for mailboxes to resume sync due to fetch request.
 Dropping #FETCH request for mailbox because we do not have this mailbox anymore. %{public}@
 Enabling mailbox due to a fetch request from the mailbox: %{public}@
 Ending suspensions, as we've received a fetch request for mailbox: %{public}@
+Not enabling mailbox because syncRequested for mailbox: %{public}@, request date: %{public}@
 Ignoring #initial-sync request due to Mailboxes Mismatch because it was already requested at %@
 Triggering #initial-sync because of mailbox desync detected
 Ignoring mailboxes desync and #initial-sync because no accounts are synced yet
@@ -5507,15 +5542,17 @@ NNMKBatchRequestHandlerDelegate
 NNMKRequestContext
 NNMKProtoAttachmentMetadata
 writeToFile:options:error:
-URLByAppendingPathComponent:isDirectory:
-URLByAppendingPathComponent:
 JSONObjectWithData:options:error:
+URLByAppendingPathComponent:
+URLByAppendingPathComponent:isDirectory:
 URLByDeletingLastPathComponent
 URLWithString:
 UTF8String
 UUID
 UUIDString
 absoluteString
+accountPropertyForKey:
+accountTypeIdentifier
 accountsSyncServiceClient:didAddOrUpdateAccount:
 accountsSyncServiceClient:didDeleteAccount:
 accountsSyncServiceClient:didFailSendingProtobufWithIDSIdentifier:errorCode:
@@ -5524,6 +5561,7 @@ accountsSyncServiceClient:didReceiveVIPList:
 accountsSyncServiceClient:didRequestAccountAuthenticationStatus:
 accountsSyncServiceClient:didSendProtobufSuccessfullyWithIDSIdentifier:
 accountsSyncServiceClient:didSyncInitialAccounts:
+activeAccountsWithError:
 activeSyncSession
 addAttribute:value:range:
 addCharactersInString:
@@ -5598,7 +5636,10 @@ dictionaryWithCapacity:
 dictionaryWithDictionary:
 dictionaryWithObject:forKey:
 dictionaryWithObjects:forKeys:count:
+displayNameUsingSpecialNames
 domain
+ea_uncommentedAddress
+emailAddressesAndAliasesList
 encodeInteger:forKey:
 encodeObject:forKey:
 enumerateKeysAndObjectsUsingBlock:
@@ -5651,6 +5692,7 @@ isEqualToSet:
 isEqualToString:
 isFilteredByType
 isNearby
+isNotesMailboxUid
 lastObject
 lastPathComponent
 length
@@ -5695,6 +5737,7 @@ objectForKey:
 objectForKeyedSubscript:
 outgoingResponseIdentifier
 pathForResource:ofType:
+persistentAccount
 pointerValue
 punctuationCharacterSet
 rangeAtIndex:
@@ -5746,6 +5789,7 @@ setWithCapacity:
 setWithObject:
 setWithObjects:
 sharedSession
+shouldArchiveByDefault
 sortedArrayUsingComparator:
 sortedArrayUsingSelector:
 standardUserDefaults
@@ -5769,6 +5813,7 @@ subscribeToSectionID:withNotificationAckForwardHandler:
 substringFromIndex:
 substringToIndex:
 substringWithRange:
+supportsArchiving
 supportsCapability:
 syncCoordinatorWithServiceName:
 syncDidComplete
@@ -5794,6 +5839,7 @@ timeIntervalSinceNow
 timeIntervalSinceReferenceDate
 unarchivedObjectOfClass:fromData:error:
 unarchivedObjectOfClasses:fromData:error:
+uniqueID
 unlock
 unsignedIntValue
 unsignedIntegerValue
@@ -6249,6 +6295,7 @@ isAuthenticationError
 errorWithCode:userInfo:
 errorWithCode:
 genericErrorWithMessage:
+httpErrorWithCode:message:
 attachmentType
 hasDateSynced
 setMainAlternativeValid:
@@ -6873,6 +6920,11 @@ integerFromStatement:columnIndex:
 unsignedIntegerFromStatement:columnIndex:
 doubleFromStatement:columnIndex:
 boolFromStatement:columnIndex:
+nano_mailboxId
+nano_displayName
+nano_mailbox
+nano_mailboxType
+nano_toMailboxType:
 protoMailboxFromMailbox:
 state
 setState:
@@ -7737,6 +7789,8 @@ hasCompoundFilters
 resetURL
 accountLocalId
 setAccountLocalId:
+syncRequestedDate
+setSyncRequestedDate:
 syncActive
 setSyncActive:
 lastUpdate
@@ -7750,10 +7804,12 @@ _hasSelection
 _isPushEnabled
 _databaseContentVerified
 _accountLocalId
+_syncRequestedDate
 _lastUpdate
 TB,N,V_databaseContentVerified
 TQ,N,V_filterType
 T@"NSString",&,N,V_accountLocalId
+T@"NSDate",&,N,V_syncRequestedDate
 TB,N,V_syncActive
 T@"NSDate",&,N,V_lastUpdate
 selected
@@ -7781,6 +7837,11 @@ hasMessagesAreNew
 messagesAreNew
 _messagesAreNew
 TB,N,V_messagesAreNew
+nano_account
+nano_emailAddressesAndAliasesList
+_emailAddressStringsFromObjects:
+nano_accountId
+nano_activeMailAccounts
 initialMessagesSyncType
 clearInitialMessagesSyncs
 addInitialMessagesSync:
@@ -8196,6 +8257,7 @@ v32@0:8B16^{sqlite3_stmt=}20i28
 Q28@0:8^{sqlite3_stmt=}16i24
 d28@0:8^{sqlite3_stmt=}16i24
 B28@0:8^{sqlite3_stmt=}16i24
+i24@0:8Q16
 @52@0:8@16Q24Q32d40B48
 @52@0:8@16Q24Q32Q40B48
 @60@0:8@16Q24Q32@40Q48B56

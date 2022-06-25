@@ -117,7 +117,7 @@
 %s #activation _activatePresentation %@
 %s #activation Deferring wake, shouldHandlePocketStateFetch: (%{bool}d)
 %s #activation Setting rotation style for presentation { rotationStyle: %@, presentation: %@ }
-%s #activation should handle pocket state fetch via (requestIsWiredMicOrBluetoothHeadset (%{bool}d) || requestIsB288 (%{bool}d)) && isScreenOff (%{bool}d) && siriActivationDeviceSupportsProxSensor (%{bool}d) && !requestIsEyesFree (%{bool}d)
+%s #activation should handle pocket state fetch via (requestIsWiredMicOrBluetoothHeadset (%{bool}d) || requestIsB288 (%{bool}d)) && isScreenOff (%{bool}d) && siriActivationDeviceSupportsProxSensor (%{bool}d) && !(requestIsEyesFree (%{bool}d) || requestIsBluetoothCar (%{bool}d))
 %s #activation #SiriPocketStateManager: error querying the pocket state for screen wake: %@ Turning on the screen...
 %s #activation #SiriPocketStateManager: Device is face down on table or in pocket. Leaving screen off.
 %s #activation #SiriPocketStateManager: Turning on the screen...
@@ -223,6 +223,9 @@
 %s #activation Updated properties from system state: %@
 %s Unsupported SASRequestSource value: %lu, returning back AFDirectActionSourceUnknown.
 %s Unsupported CARAutomaticFeatureState value: %lu
+%s #modes DisplayTransition called transition=%@
+%s #modes Device went through liftToWake transition setLiftToWake:YES
+%s #modes Device went to sleep or went through another transition setLiftToWake:NO
 %s %i
 %s Disconnected from CarPlay display.
 %s Paired to an untrusted CarPlay device.
@@ -262,6 +265,10 @@ AnnounceTelephony: %@
 %s #ptt Remote Type is %@
 %s Bulletin cache is being asked to insert a bulletin with no ID; ignoring the request because bulletin lookup is ID-based and so there's no reason to store a bulletin with no ID (bulletin: %@; bbBulletin: %@)
 %s Bulletin cache contains a bulletin with a nil identifier; not including the bulletin as part of the return value of -allBulletins (bulletin: %@; bbBulletin: %@)
+%s This should hopefully not happen, endpointType not initialized before called, returning as not Bluetooth.
+%s Failed to subscribe to AVSystemController notifications due to error: %@
+%s Endpoint type is not found from AVSystemController, setting it to %@.
+%s Endpoint type changed, from %@ to %@.
 %s #activation canActivateChangedTo: %@
 %s Error loading areSiriUODAssetsAvailable from AFSettingsConnection : %@
 %s Received results for areSiriUODAssetsAvailable : %d
@@ -380,6 +387,7 @@ UnsupportedVoicePromptStyleDuringAnnouncement
 CarPlayBorrowedAudioDuringAnnouncement
 CloseAssistantCommandSpeechNoPrompt
 SASDismissalReasonPromptForPasscodeUnlockFailure
+AnnounceSpeechManagerStoppedUnexpectedly
 SiriButtonIdentifierLongPressUndefined
 SiriButtonIdentifierLongPressHomeButton
 SiriButtonIdentifierLongPressLockButton
@@ -464,6 +472,7 @@ com.apple.siri.hs.on.carplay
 com.apple.siri.button.on.carplay
 com.apple.siri
 com.apple.siri.EyesFree
+com.apple.siri.BluetoothCar
 com.apple.siri.Compact
 com.apple.siri.CarDisplay
 com.apple.siri.UIFree
@@ -845,6 +854,7 @@ SiriHardwareButtonLongPressBehavior
 #configurationUpdateManager %@ changed to %@
 -[SiriContinuitySource configureConnection]_block_invoke_2
 -[SiriContinuitySource configureConnection]_block_invoke
+-[SASSystemState init]_block_invoke
 com.apple.siri.ActivationService.SystemState
 com.apple.bluetooth.WirelessSplitterOn
 com.apple.bluetooth.GuestConnected
@@ -906,6 +916,10 @@ SBTestingConfigureNextVoiceRecognitionAudioInputPathsNotification
 isTemporaryDevice
 -[SASBulletinCache insertBulletin:fromFeed:]
 -[SASBulletinCache allBulletins]
+com.apple.siri.SerialBluetoothEndpointQueue
+-[SASBluetoothEndpointUtility isConnectedToBluetoothVehicle]
+-[SASBluetoothEndpointUtility _registerListenersAndSetEndpointTypeWithNotification:]
+-[SASBluetoothEndpointUtility _setEndpointTypeWithNotification:]_block_invoke
 v24@?0@"NSNumber"8@"NSError"16
 -[SiriDirectActionSource configureConnection]_block_invoke_2
 -[SiriDirectActionSource configureConnection]_block_invoke
@@ -1074,6 +1088,7 @@ SiriHearstLongPressButtonContext
 SiriLongPressButtonConfiguration
 SASBulletinCacheNode
 SASBulletinCache
+SASBluetoothEndpointUtility
 SiriDirectActionSource
 SASUnderstandingOnDeviceAssetsState
 SASTestingInput
@@ -1770,6 +1785,7 @@ stringWithSiriPresentationActivationCancelReason:
 startingPresentations_cancelPendingActivationWithReason:
 _isInitialRequest
 isConnectedToEyesFreeDevice
+isConnectedToBluetoothVehicle
 lockState
 _preheatPresentation
 numberWithUnsignedInteger:
@@ -1822,6 +1838,8 @@ setVoiceTriggerNotifyTokenIsValid:
 remoteRequestManager
 setTestingInputController:
 canActivateFromDirectActionSource
+bluetoothEndpointUtil
+setBluetoothEndpointUtil:
 presentationManager
 setPresentationManager:
 _buttonTrigger
@@ -1847,6 +1865,7 @@ _bulletinManager
 _remoteRequestManager
 _testingInputController
 _avExternalButtonEvents
+_bluetoothEndpointUtil
 _presentationManager
 T@"AFPreferences",&,N,V_afPreferences
 T@"SASLockStateMonitor",&,N,V_lockStateMonitor
@@ -1868,6 +1887,7 @@ TB,N,V_buttonDownHasOccurredSinceActivation
 TB,N,V_canActivateFromDirectActionSource
 pocketStateFetchingInProgressForHeadsetActivation
 TB,N,G_pocketStateFetchingInProgressForHeadsetActivation,S_setPocketStateFetchingInProgressForHeadsetActivation:,V_pocketStateFetchingInProgressForHeadsetActivation
+T@"SASBluetoothEndpointUtility",&,N,V_bluetoothEndpointUtil
 T@"SASPresentationManager",&,N,V_presentationManager
 configureConnection
 endpointForMachName:service:instance:
@@ -2256,6 +2276,7 @@ isForEyesFree
 initWithRequestSource:
 initWithRequestSource:uiPresentationIdentifier:buttonContext:
 isForAppleTV
+isForBluetoothCar
 isForUIFree
 isRequestMadeWithPhysicalDeviceInteraction
 userTypedInSiri
@@ -2398,9 +2419,11 @@ T@"<SASLockStateMonitorDelegate>",W,N,V_delegate
 _updateAccessibilityState
 monitorCarSessions
 weakObjectsHashTable
+setLiftToWakeDetected:
 initWithName:options:queue:delegate:
 languageCode
 bestSupportedLanguageCodeForLanguageCode:
+liftToWakeDetected
 state
 _internalAlwaysEyesFreeEnabled
 _deviceIsUnlocked
@@ -2446,11 +2469,12 @@ sessionDidDisconnect:
 session:didUpdateConfiguration:
 _initForTesting
 deviceScreenIsOn
+deviceLiftToWake
 isInActiveCall
 hasIncomingCall
 isWirelessSplitterOn
 isGuestConnected
-carDNDActiveOrEyesFreeAndShouldHaveFullScreenPresentation
+carDNDActiveOrEyesFreeAndShouldHaveFullScreenPresentation:
 carPlaySupportsAnyEnhancedSiriCharacteristics
 carPlaySupportsEnhancedSiriCharacteristic:
 carPlayEnhancedVoiceTriggerMode
@@ -2462,6 +2486,7 @@ observerBluetoothGuestConnected
 setObserverBluetoothGuestConnected:
 setCarPlayEnhancedSiriCharacteristics:
 setCarPlayEnhancedVoiceTriggerMode:
+_liftToWakeDetected
 _enabled
 _carPlayConnectionState
 _displayLayoutMonitor
@@ -2477,6 +2502,7 @@ _carPlayEnhancedVoiceTriggerMode
 Ti,N,V_carPlayConnectionState
 TB,N,V_accessibilityShortcutEnabled
 T@"FBSDisplayLayoutMonitor",&,N,V_displayLayoutMonitor
+TB,N,V_liftToWakeDetected
 T@"CARSessionStatus",&,N,V_carPlaySessionStatus
 T@"CARAutomaticDNDStatus",&,N,V_carAutomaticDNDStatus
 T@"NSString",&,N,V_vehicleName
@@ -2570,6 +2596,14 @@ _purgeOldestNodes
 _count
 _oldestNode
 _newestNode
+_registerListenersAndSetEndpointTypeWithNotification:
+setAttribute:forKey:error:
+_setEndpointTypeWithNotification:
+_endpointType
+_setEndpointType:
+_serialBluetoothEndpointQueue
+endpointType
+T@"NSString",&,G_endpointType,S_setEndpointType:,V_endpointType
 activationRequestFromDirectActionEventWithContext:
 activateWithContext:completion:
 T@"<SiriDirectActionSourceDelegate>",W,N,V_delegate
@@ -2753,6 +2787,7 @@ v32@0:8@16@?24
 @"SASBulletinManager"
 @"SASRemoteRequestManager"
 @"SASTestingInputController"
+@"SASBluetoothEndpointUtility"
 @"SASPresentationManager"
 q32@0:8@16@24
 @56@0:8q16@24@32@40@48
@@ -2828,6 +2863,7 @@ v48@0:8@16@24@32^v40
 @"<SASLockStateMonitorDelegate>"
 v24@0:8@"CARSession"16
 v32@0:8@"CARSession"16@"CARSessionConfiguration"24
+B20@0:8B16
 v20@0:8i16
 B24@0:8Q16
 i16@0:8
@@ -2985,7 +3021,7 @@ Vv40@0:8@"NSNumber"16@"NSString"24@"SASTimeIntervalTransport"32
 %s #activation _activatePresentation %@
 %s #activation Deferring wake, shouldHandlePocketStateFetch: (%{bool}d)
 %s #activation Setting rotation style for presentation { rotationStyle: %@, presentation: %@ }
-%s #activation should handle pocket state fetch via (requestIsWiredMicOrBluetoothHeadset (%{bool}d) || requestIsB288 (%{bool}d)) && isScreenOff (%{bool}d) && siriActivationDeviceSupportsProxSensor (%{bool}d) && !requestIsEyesFree (%{bool}d)
+%s #activation should handle pocket state fetch via (requestIsWiredMicOrBluetoothHeadset (%{bool}d) || requestIsB288 (%{bool}d)) && isScreenOff (%{bool}d) && siriActivationDeviceSupportsProxSensor (%{bool}d) && !(requestIsEyesFree (%{bool}d) || requestIsBluetoothCar (%{bool}d))
 %s #activation #SiriPocketStateManager: error querying the pocket state for screen wake: %@ Turning on the screen...
 %s #activation #SiriPocketStateManager: Device is face down on table or in pocket. Leaving screen off.
 %s #activation #SiriPocketStateManager: Turning on the screen...
@@ -3091,6 +3127,9 @@ Vv40@0:8@"NSNumber"16@"NSString"24@"SASTimeIntervalTransport"32
 %s #activation Updated properties from system state: %@
 %s Unsupported SASRequestSource value: %lu, returning back AFDirectActionSourceUnknown.
 %s Unsupported CARAutomaticFeatureState value: %lu
+%s #modes DisplayTransition called transition=%@
+%s #modes Device went through liftToWake transition setLiftToWake:YES
+%s #modes Device went to sleep or went through another transition setLiftToWake:NO
 %s %i
 %s Disconnected from CarPlay display.
 %s Paired to an untrusted CarPlay device.
@@ -3130,6 +3169,10 @@ AnnounceTelephony: %@
 %s #ptt Remote Type is %@
 %s Bulletin cache is being asked to insert a bulletin with no ID; ignoring the request because bulletin lookup is ID-based and so there's no reason to store a bulletin with no ID (bulletin: %@; bbBulletin: %@)
 %s Bulletin cache contains a bulletin with a nil identifier; not including the bulletin as part of the return value of -allBulletins (bulletin: %@; bbBulletin: %@)
+%s This should hopefully not happen, endpointType not initialized before called, returning as not Bluetooth.
+%s Failed to subscribe to AVSystemController notifications due to error: %@
+%s Endpoint type is not found from AVSystemController, setting it to %@.
+%s Endpoint type changed, from %@ to %@.
 %s #activation canActivateChangedTo: %@
 %s Error loading areSiriUODAssetsAvailable from AFSettingsConnection : %@
 %s Received results for areSiriUODAssetsAvailable : %d
@@ -3248,6 +3291,7 @@ UnsupportedVoicePromptStyleDuringAnnouncement
 CarPlayBorrowedAudioDuringAnnouncement
 CloseAssistantCommandSpeechNoPrompt
 SASDismissalReasonPromptForPasscodeUnlockFailure
+AnnounceSpeechManagerStoppedUnexpectedly
 SiriButtonIdentifierLongPressUndefined
 SiriButtonIdentifierLongPressHomeButton
 SiriButtonIdentifierLongPressLockButton
@@ -3333,6 +3377,7 @@ com.apple.siri.hs.on.carplay
 com.apple.siri.button.on.carplay
 com.apple.siri
 com.apple.siri.EyesFree
+com.apple.siri.BluetoothCar
 com.apple.siri.Compact
 com.apple.siri.CarDisplay
 com.apple.siri.UIFree
@@ -3715,6 +3760,7 @@ SiriHardwareButtonLongPressBehavior
 #configurationUpdateManager %@ changed to %@
 -[SiriContinuitySource configureConnection]_block_invoke_2
 -[SiriContinuitySource configureConnection]_block_invoke
+-[SASSystemState init]_block_invoke
 com.apple.siri.ActivationService.SystemState
 com.apple.bluetooth.WirelessSplitterOn
 com.apple.bluetooth.GuestConnected
@@ -3776,6 +3822,10 @@ SBTestingConfigureNextVoiceRecognitionAudioInputPathsNotification
 isTemporaryDevice
 -[SASBulletinCache insertBulletin:fromFeed:]
 -[SASBulletinCache allBulletins]
+com.apple.siri.SerialBluetoothEndpointQueue
+-[SASBluetoothEndpointUtility isConnectedToBluetoothVehicle]
+-[SASBluetoothEndpointUtility _registerListenersAndSetEndpointTypeWithNotification:]
+-[SASBluetoothEndpointUtility _setEndpointTypeWithNotification:]_block_invoke
 v24@?0@"NSNumber"8@"NSError"16
 -[SiriDirectActionSource configureConnection]_block_invoke_2
 -[SiriDirectActionSource configureConnection]_block_invoke
@@ -3944,6 +3994,7 @@ SiriHearstLongPressButtonContext
 SiriLongPressButtonConfiguration
 SASBulletinCacheNode
 SASBulletinCache
+SASBluetoothEndpointUtility
 SiriDirectActionSource
 SASUnderstandingOnDeviceAssetsState
 SASTestingInput
@@ -3963,7 +4014,7 @@ SiriContinuityContext
 SiriBluetoothContext
 weakToWeakObjectsMapTable
 UUIDString
-MFiCertificateSerialNumber
+UUID
 absoluteString
 activationEventTime
 addObject:
@@ -4115,6 +4166,7 @@ serverDidInvalidateConnection:
 setActivationHandler:
 setAssociatedBundleIdentifier:
 setAttachmentStatusChangedHandler:
+setAttribute:forKey:error:
 setAvailableOnLockScreen:
 setButtonEventHandler:
 setContextDictionary:
@@ -4172,7 +4224,7 @@ vehicleModelName
 voiceTriggerEventInfo
 voiceTriggerMode
 weakObjectsHashTable
-UUID
+MFiCertificateSerialNumber
 init
 dealloc
 isEnabled
@@ -4665,6 +4717,8 @@ setButtonDownHasOccurredSinceActivation:
 canActivateFromDirectActionSource
 _pocketStateFetchingInProgressForHeadsetActivation
 _setPocketStateFetchingInProgressForHeadsetActivation:
+bluetoothEndpointUtil
+setBluetoothEndpointUtil:
 presentationManager
 setPresentationManager:
 _buttonTrigger
@@ -4690,6 +4744,7 @@ _bulletinManager
 _remoteRequestManager
 _testingInputController
 _avExternalButtonEvents
+_bluetoothEndpointUtil
 _presentationManager
 T@"AFPreferences",&,N,V_afPreferences
 T@"SASLockStateMonitor",&,N,V_lockStateMonitor
@@ -4711,6 +4766,7 @@ TB,N,V_buttonDownHasOccurredSinceActivation
 TB,N,V_canActivateFromDirectActionSource
 pocketStateFetchingInProgressForHeadsetActivation
 TB,N,G_pocketStateFetchingInProgressForHeadsetActivation,S_setPocketStateFetchingInProgressForHeadsetActivation:,V_pocketStateFetchingInProgressForHeadsetActivation
+T@"SASBluetoothEndpointUtility",&,N,V_bluetoothEndpointUtil
 T@"SASPresentationManager",&,N,V_presentationManager
 configureConnection
 activateWithContext:
@@ -5041,6 +5097,7 @@ _isForSpeechRequest
 isForAppleTV
 isForStark
 isForEyesFree
+isForBluetoothCar
 isForUIFree
 isRequestMadeWithPhysicalDeviceInteraction
 userTypedInSiri
@@ -5266,12 +5323,12 @@ addStateChangeListener:
 removeStateChangeListener:
 deviceScreenIsOn
 _deviceIsUnlocked
+deviceLiftToWake
 isInActiveCall
 hasIncomingCall
 isWirelessSplitterOn
 isGuestConnected
-displayLayoutMonitor
-carDNDActiveOrEyesFreeAndShouldHaveFullScreenPresentation
+carDNDActiveOrEyesFreeAndShouldHaveFullScreenPresentation:
 _internalAlwaysEyesFreeEnabled
 _mapsAppIsVisibleOnLockscreen
 monitorCarSessions
@@ -5289,7 +5346,10 @@ _updateAccessibilityState
 isConnectedToEyesFreeDevice
 carPlayConnectionState
 setCarPlayConnectionState:
+displayLayoutMonitor
 setDisplayLayoutMonitor:
+liftToWakeDetected
+setLiftToWakeDetected:
 carPlaySessionStatus
 setCarPlaySessionStatus:
 carAutomaticDNDStatus
@@ -5308,6 +5368,7 @@ observerBluetoothGuestConnected
 setObserverBluetoothGuestConnected:
 setCarPlayEnhancedSiriCharacteristics:
 setCarPlayEnhancedVoiceTriggerMode:
+_liftToWakeDetected
 _enabled
 _carPlayConnectionState
 _displayLayoutMonitor
@@ -5323,6 +5384,7 @@ _carPlayEnhancedVoiceTriggerMode
 Ti,N,V_carPlayConnectionState
 TB,N,V_accessibilityShortcutEnabled
 T@"FBSDisplayLayoutMonitor",&,N,V_displayLayoutMonitor
+TB,N,V_liftToWakeDetected
 T@"CARSessionStatus",&,N,V_carPlaySessionStatus
 T@"CARAutomaticDNDStatus",&,N,V_carAutomaticDNDStatus
 T@"NSString",&,N,V_vehicleName
@@ -5427,6 +5489,14 @@ _isFeedRelevant:
 _count
 _oldestNode
 _newestNode
+_setEndpointTypeWithNotification:
+isConnectedToBluetoothVehicle
+_registerListenersAndSetEndpointTypeWithNotification:
+_endpointType
+_setEndpointType:
+_serialBluetoothEndpointQueue
+endpointType
+T@"NSString",&,G_endpointType,S_setEndpointType:,V_endpointType
 activateWithContext:completion:
 T@"<SiriDirectActionSourceDelegate>",W,N,V_delegate
 updateState
@@ -5623,6 +5693,7 @@ v32@0:8@16@?24
 @"SASBulletinManager"
 @"SASRemoteRequestManager"
 @"SASTestingInputController"
+@"SASBluetoothEndpointUtility"
 @"SASPresentationManager"
 q32@0:8@16@24
 @56@0:8q16@24@32@40@48
@@ -5698,6 +5769,7 @@ v48@0:8@16@24@32^v40
 @"<SASLockStateMonitorDelegate>"
 v24@0:8@"CARSession"16
 v32@0:8@"CARSession"16@"CARSessionConfiguration"24
+B20@0:8B16
 v20@0:8i16
 B24@0:8Q16
 i16@0:8

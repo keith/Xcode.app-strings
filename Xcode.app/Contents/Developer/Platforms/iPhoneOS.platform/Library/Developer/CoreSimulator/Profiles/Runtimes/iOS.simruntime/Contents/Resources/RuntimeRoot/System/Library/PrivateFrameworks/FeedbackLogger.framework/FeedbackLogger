@@ -5,10 +5,10 @@ com.apple.parsec-fbf.FLUploadImmediately
 FLErrorDomain
 FLCloseAllStores
 FLCloseStore
+com.apple.feedbacklogger.write
 %@-%@
 com.apple.feedbacklogger.closeStore
 bundleIdentifier
-com.apple.feedbacklogger.write
 completed successfully
 failed
 com.apple.feedbacklogger.write.data
@@ -97,7 +97,11 @@ SELECT payload FROM records WHERE rowId=?;
 v8@?0
 v16@?0@"NSError"8
 kern.bootsessionuuid
+Initializing new write transaction.
+TTL timer scheduling was requested, but no timer was found.
+Invalidating write transaction after TTL expiration.
 Received notification to close stores for %@
+Creating new store cache TTL timer
 Purging persistent store cache after inactivity
 Closing all stores
 Received notification to close all stores, closing
@@ -161,7 +165,7 @@ SQLite initialize new batch failed: %d
 Found orphaned batch %@ created at %@
 Failed to get orphaned batches
 Force closing open batches
-Failed to close batch with statement %@
+Failed to close batch with statement %@ with status %d, error: %s
 Can't purgeBatch, initializeConnection failed
 Can't purgeBatch, couldn't begin transaction
 Failed to purgeBatch, rolling back transaction
@@ -270,16 +274,24 @@ closeStoreForApplicationFromNotification:
 _closeAllStores
 removeObserver:
 _cancelStoreCacheTimer
+cancelTransactionTTLTimer
 context
 dealloc
 initWithContext:
+_setupTransactionTTLTimer
+_scheduleTransactionTTLTimer
+transactionTTLTimer
+_transactionTTLTimerDidFire
+writeTransactionTTL
+_cancelTransactionTTLTimer
+setTransactionTTLTimer:
 dbConnections
 objectForKeyedSubscript:
 path
 setObject:forKeyedSubscript:
 stringWithFormat:
 persistentStores
-_resetStoreCacheTimer
+_scheduleStoreCacheTimer
 __dispatched_databaseConnectionWithId:
 URLByStandardizingPath
 allKeys
@@ -299,16 +311,18 @@ distantFuture
 date
 earlierDate:
 distantPast
+persistentStoreCacheTTLTimer
+setPersistentStoreCacheTTLTimer:
+_cleanPersistantStores
+_setupStoreCacheTimer
 _nextTimerFireDate
 isEqualToDate:
-_cleanPersistantStores
-setPersistentStoreCacheTTLTimer:
-persistentStoreCacheTTLTimer
 allValues
 mutableCopy
 dictionary
 setObject:forKey:
 UTF8String
+writeTransaction
 length
 __dispatched_persistentStoreWithId:category:
 parsecStoreId
@@ -344,6 +358,10 @@ persistentStoreCacheTTL
 setPersistentStoreCacheTTL:
 notificationCenter
 setNotificationCenter:
+lock
+setWriteTransactionTTL:
+_lock
+_writeTransaction
 _dbConnections
 _persistentStores
 _context
@@ -351,6 +369,8 @@ _log
 _persistentStoreCacheTTL
 _persistentStoreCacheTTLTimer
 _notificationCenter
+_writeTransactionTTL
+_transactionTTLTimer
 T@"NSMutableDictionary",&,N,V_dbConnections
 T@"NSMutableDictionary",&,N,V_persistentStores
 T@"NSObject<FLLoggingContext>",&,N,V_context
@@ -358,6 +378,10 @@ T@"NSObject<OS_os_log>",&,N,V_log
 TQ,N,V_persistentStoreCacheTTL
 T@"NSObject<OS_dispatch_source>",&,N,V_persistentStoreCacheTTLTimer
 T@"NSDistributedNotificationCenter",&,N,V_notificationCenter
+T{os_unfair_lock_s=I},R,N,V_lock
+T@"NSObject<OS_os_transaction>",R,N,V_writeTransaction
+TQ,N,V_writeTransactionTTL
+T@"NSObject<OS_dispatch_source>",&,N,V_transactionTTLTimer
 _getUploadIdsHelper:
 _updateMetadataHelperForUpload:query:
 _updateStatusHelperForUpload:toStatus:
@@ -461,6 +485,8 @@ setCurrentBatchIdentifier:
 setCurrentBatchCreationDate:
 setCurrentBatchPayloadSize:
 setBatchMaximumDuration:
+maxRowIdStatement
+setMaxRowIdStatement:
 setDb:
 dbConnection
 setDbConnection:
@@ -475,6 +501,7 @@ _currentBatchIdentifier
 _currentBatchCreationDate
 _currentBatchPayloadSize
 _batchMaximumDuration
+_maxRowIdStatement
 _dbConnection
 T@"NSString",R,C,N,V_databasePath
 T@"FLLoggingContext",&,N,V_context
@@ -488,6 +515,7 @@ T@"NSString",C,N,V_currentBatchIdentifier
 T@"NSDate",C,N,V_currentBatchCreationDate
 TQ,N,V_currentBatchPayloadSize
 Td,N,V_batchMaximumDuration
+T^{sqlite3_stmt=},N,V_maxRowIdStatement
 T^{sqlite3=},N,V_db
 T@"FLSQLiteDatabaseConnection",&,N,V_dbConnection
 init
@@ -568,6 +596,7 @@ urlForStoreWithId:
 T@"NSURL",R,N
 maxRowId
 observeInsertionAtRow:observer:
+finalizeObserver
 registerInsertionObserver:
 initWithMachServiceName:options:
 scheduleImmediateUploadWithHeaders:completion:
@@ -605,6 +634,9 @@ v48@0:8@16@24@32@?40
 v32@0:8@16@?24
 v40@0:8@16@24@?32
 @32@0:8@16@?24
+{os_unfair_lock_s=I}16@0:8
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"NSObject<OS_os_transaction>"
 @"NSMutableDictionary"
 @"NSObject<FLLoggingContext>"
 @"NSObject<OS_os_log>"
@@ -670,10 +702,10 @@ com.apple.parsec-fbf.FLUploadImmediately
 FLErrorDomain
 FLCloseAllStores
 FLCloseStore
+com.apple.feedbacklogger.write
 %@-%@
 com.apple.feedbacklogger.closeStore
 bundleIdentifier
-com.apple.feedbacklogger.write
 completed successfully
 failed
 com.apple.feedbacklogger.write.data
@@ -762,7 +794,11 @@ SELECT payload FROM records WHERE rowId=?;
 v8@?0
 v16@?0@"NSError"8
 kern.bootsessionuuid
+Initializing new write transaction.
+TTL timer scheduling was requested, but no timer was found.
+Invalidating write transaction after TTL expiration.
 Received notification to close stores for %@
+Creating new store cache TTL timer
 Purging persistent store cache after inactivity
 Closing all stores
 Received notification to close all stores, closing
@@ -826,7 +862,7 @@ SQLite initialize new batch failed: %d
 Found orphaned batch %@ created at %@
 Failed to get orphaned batches
 Force closing open batches
-Failed to close batch with statement %@
+Failed to close batch with statement %@ with status %d, error: %s
 Can't purgeBatch, initializeConnection failed
 Can't purgeBatch, couldn't begin transaction
 Failed to purgeBatch, rolling back transaction
@@ -887,6 +923,7 @@ FeedbackLogger
 Observer
 FeedbackLoggerDaemonXPC
 FeedbackLoggerFBFClient
+URLByAppendingPathComponent:isDirectory:
 userInfo
 timeIntervalSinceNow
 timeIntervalSinceDate:
@@ -949,12 +986,11 @@ allValues
 allKeys
 addObserver:selector:name:object:
 addObject:
-URLForDirectory:inDomain:appropriateForURL:create:error:
-URLByStandardizingPath
-UTF8String
-UUID
 UUIDString
-URLByAppendingPathComponent:isDirectory:
+URLByStandardizingPath
+URLForDirectory:inDomain:appropriateForURL:create:error:
+UUID
+UTF8String
 batchIdentifier
 setBatchIdentifier:
 timestampReferenceIdentifier
@@ -1003,13 +1039,20 @@ sharedLogger
 readSiriCategoryFrom:recursive:
 categoryForSiriPayload:
 initWithContext:
+writeTransaction
+_setupTransactionTTLTimer
+_scheduleTransactionTTLTimer
+_transactionTTLTimerDidFire
+_cancelTransactionTTLTimer
+cancelTransactionTTLTimer
 __dispatched_databaseConnectionWithId:
 __dispatched_persistentStoreWithId:category:
 pathForStore:
 closeStoreForBundleID:
 _cleanPersistantStores
 _nextTimerFireDate
-_resetStoreCacheTimer
+_setupStoreCacheTimer
+_scheduleStoreCacheTimer
 _cancelStoreCacheTimer
 _closeAllStores
 setValue:forUploadHeaderNamed:
@@ -1043,6 +1086,13 @@ persistentStoreCacheTTLTimer
 setPersistentStoreCacheTTLTimer:
 notificationCenter
 setNotificationCenter:
+lock
+writeTransactionTTL
+setWriteTransactionTTL:
+transactionTTLTimer
+setTransactionTTLTimer:
+_lock
+_writeTransaction
 _dbConnections
 _persistentStores
 _context
@@ -1050,6 +1100,8 @@ _log
 _persistentStoreCacheTTL
 _persistentStoreCacheTTLTimer
 _notificationCenter
+_writeTransactionTTL
+_transactionTTLTimer
 T@"NSMutableDictionary",&,N,V_dbConnections
 T@"NSMutableDictionary",&,N,V_persistentStores
 T@"NSObject<FLLoggingContext>",&,N,V_context
@@ -1057,6 +1109,10 @@ T@"NSObject<OS_os_log>",&,N,V_log
 TQ,N,V_persistentStoreCacheTTL
 T@"NSObject<OS_dispatch_source>",&,N,V_persistentStoreCacheTTLTimer
 T@"NSDistributedNotificationCenter",&,N,V_notificationCenter
+T{os_unfair_lock_s=I},R,N,V_lock
+T@"NSObject<OS_os_transaction>",R,N,V_writeTransaction
+TQ,N,V_writeTransactionTTL
+T@"NSObject<OS_dispatch_source>",&,N,V_transactionTTLTimer
 getUploadIdsWithStatus:
 getUploadIdsWithAllStatuses
 getPurgableUploadIds
@@ -1146,6 +1202,8 @@ currentBatchPayloadSize
 setCurrentBatchPayloadSize:
 batchMaximumDuration
 setBatchMaximumDuration:
+maxRowIdStatement
+setMaxRowIdStatement:
 setDb:
 dbConnection
 setDbConnection:
@@ -1160,6 +1218,7 @@ _currentBatchIdentifier
 _currentBatchCreationDate
 _currentBatchPayloadSize
 _batchMaximumDuration
+_maxRowIdStatement
 _dbConnection
 T@"NSString",R,C,N,V_databasePath
 T@"FLLoggingContext",&,N,V_context
@@ -1173,6 +1232,7 @@ T@"NSString",C,N,V_currentBatchIdentifier
 T@"NSDate",C,N,V_currentBatchCreationDate
 TQ,N,V_currentBatchPayloadSize
 Td,N,V_batchMaximumDuration
+T^{sqlite3_stmt=},N,V_maxRowIdStatement
 T^{sqlite3=},N,V_db
 T@"FLSQLiteDatabaseConnection",&,N,V_dbConnection
 init
@@ -1240,6 +1300,7 @@ T@"NSString",C,N,V_applicationIdentifier
 feedbackLoggerDirectoryURL
 urlForStoreWithId:
 T@"NSURL",R,N
+finalizeObserver
 maxRowId
 registerInsertionObserver:
 observeInsertionAtRow:observer:
@@ -1270,6 +1331,9 @@ v48@0:8@16@24@32@?40
 v32@0:8@16@?24
 v40@0:8@16@24@?32
 @32@0:8@16@?24
+{os_unfair_lock_s=I}16@0:8
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"NSObject<OS_os_transaction>"
 @"NSMutableDictionary"
 @"NSObject<FLLoggingContext>"
 @"NSObject<OS_os_log>"

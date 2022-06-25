@@ -57,8 +57,7 @@ com.apple.pointerui.autohidePointer
 PUIDPointerController.m
 Already tracking a context for display %@, please destroy it first
 v16@?0Q8
-v24@?0@"PUIDPointerClient"8@"PSPointerPortalSourceCollection"16
-v24@?0@"PUIDPointerClient"8@"PSMatchMoveSource"16
+B24@?0@"PUIDPointerClient"8@"<PUIDSourceHandlesDisplayChangesGracefully>"16
 screen digitizer event
 non-pointer event
 v16@?0@"NSTimer"8
@@ -85,6 +84,8 @@ com.apple.pointeruid.PUIDPointerController.transformUpdateQueue
 invalid transform (all 0s) from: %@
 setting value received from BKSHIDServicesGetCALayerTransform()
 AX Preferences Change
+v24@?0@"PUIDPointerClient"8@"PSPointerPortalSourceCollection"16
+v24@?0@"PUIDPointerClient"8@"PSMatchMoveSource"16
 transformFromClientContextToDisplay; just pulled out of clientState (%@)
 transformToReferenceSpace; result from -transformToLocalWindowForCoordinateSpaceTransformToDisplay:, _pointerRenderingController (%@)
 v16@?0@"_PUIDPointerControllerClientState"8
@@ -583,6 +584,7 @@ objectForKeyedSubscript:
 newDisplayContextForDisplay:pointerRenderingScene:systemPointerScene:
 setObject:forKeyedSubscript:
 createPointerPortalSourceCollectionForClient:
+setShouldBeInvalidatedIfPointerLeavesDisplay:
 setSystemPointerPortalSourceCollection:
 setPointerPortalSourceCollection:
 systemShape
@@ -598,16 +600,10 @@ setLumaChangedHandlerBlock:
 _movePointerToDisplay:
 allKeys
 firstObject
+_restartAutohideTimer
 removeObjectForKey:
+_invalidateEffectSourcesPassingTest:displayContext:
 objectForKey:
-invalidatePointerPortalSourceCollections:
-invalidateContentMatchMoveSources:
-keyEnumerator
-allObjects
-setWithArray:
-addObjectsFromArray:
-countByEnumeratingWithState:objects:count:
-invalidatedPortalSourceCollections:matchMoveSources:forClient:
 activeHoverRegion
 isLatching
 _refreshClientTransformWithReason:
@@ -655,6 +651,9 @@ indexOfObject:
 objectAtIndex:
 CGPointValue
 _adjustDecelerationTargetForProjectedPosition:liftOffPointerPosition:pointerVelocity:hitTestContext:locationInsideHitTestedContext:projectedDisplayContext:withLookupGenerationID:withCompletion:
+keyEnumerator
+allObjects
+countByEnumeratingWithState:objects:count:
 decelerationTargetLookupResolution
 decelerationTargetLookupConeAngleInDegrees
 decelerationTargetLookupRadius
@@ -667,17 +666,18 @@ updateWithLocation:timestamp:
 _cancelProvisionalPromotionTimer
 _cancelDelayedUnhideTimer
 _unhidePointerForReason:
-_restartAutohideTimer
 _cancelAutohideTimer
 _startDelayedUnhideTimer
 delayBeforeUnhidingOnTrackpadTouchDown
 _startProvisionalPromotionTimer
+isActiveOnMainDisplay
 autohideDurationForFocusedPointer
 autohideDurationForSystemPointer
 autohideDurationForFocusedPointerMouse
 autohideDurationForSystemPointerMouse
 UTF8String
 setVisibilityTransitionCompletion:
+builtinDisplay
 allValues
 invalidateEffectSourcesForPointerClient:
 invalidateAutomaticRegionExitTimer
@@ -706,6 +706,7 @@ componentsJoinedByString:
 setAssertingPointerHidden:
 setAssertingPointerVisible:
 hidePointer
+shouldBeInvalidatedIfPointerLeavesDisplay
 periodicClientTransformRefreshInterval
 _handlePeriodicRefreshTimerAction
 coordinateSpaceSourceContextID
@@ -716,6 +717,11 @@ isAssertingPointerHidden
 isAssertingPointerVisible
 transformFromClientContextToDisplay
 _beginPeriodicClientTransformRefreshTimer
+invalidatePointerPortalSourceCollectionsPassingTest:additionalInvalidation:
+invalidateContentMatchMoveSourcesPassingTest:additionalInvalidation:
+setWithArray:
+addObjectsFromArray:
+invalidatedPortalSourceCollections:matchMoveSources:forClient:
 pointerRecenteringAxes
 contentBounds
 transformToLocalWindowForCoordinateSpaceTransformToDisplay:
@@ -785,9 +791,9 @@ pointerEventStreamProvider:didReceiveNonPointerEvent:
 xpcClientContextController:didAddPointerClient:
 xpcClientContextController:didRemovePointerClient:
 xpcClientContextController:didUpdateHoverRegion:forClient:transitionCompletion:
-xpcClientContextController:createPointerPortalSourceCollectionForClient:error:
+xpcClientContextController:createPointerPortalSourceCollectionForDisplay:client:error:
 xpcClientContextController:invalidatePointerPortalSourceCollection:forClient:
-xpcClientContextController:createContentMatchMoveSourceForClient:error:
+xpcClientContextController:createContentMatchMoveSourceForDisplay:client:error:
 xpcClientContextController:invalidateContentMatchMoveSource:forClient:
 xpcClientContextController:setWantsServiceKeepAlive:forClient:
 xpcClientContextController:didSetSystemPointerInteractionContextID:display:forClient:
@@ -960,9 +966,9 @@ boolValue
 _removeLaunchingMapBetweenServiceConnection:pointerClient:
 _removeNonLaunchingMapBetweenServiceConnection:pointerClient:
 listener:didReceiveConnection:withContext:
-createPointerPortalSourceCollectionWithCompletion:
+createPointerPortalSourceCollectionForDisplay:completion:
 invalidatePointerPortalSourceCollection:completion:
-createContentMatchMoveSourcesWithCountValue:completion:
+createContentMatchMoveSourcesForDisplay:countValue:completion:
 invalidateContentMatchMoveSources:completion:
 setActiveHoverRegion:transitionCompletion:
 autohidePointerForReason:
@@ -1296,7 +1302,6 @@ _setKeepContextAssociationInBackground:
 _pointerUIServiceDidFinishSceneCreationWithSceneBag:
 _scheduleSceneEventResponseForScene:withResponseBlock:
 _sceneIdentifier
-_performBlockAfterCATransactionCommits:
 _eventFetchRunLoop
 scene:willConnectToSession:options:
 sceneDidDisconnect:
@@ -1760,12 +1765,13 @@ v96@0:8{CGPoint=dd}16{CGPoint=dd}32{CGPoint=dd}48@64@72@80Q88
 v112@0:8{CGPoint=dd}16{CGPoint=dd}32{CGPoint=dd}48@64{CGPoint=dd}72@88Q96@?104
 v56@0:8B16B20^{__IOHIDEvent=}24@32^{__IOHIDEvent=}40@48
 v48@0:8@16@24@32@?40
-@40@0:8@16@24^@32
+@48@0:8@16@24@32^@40
 v36@0:8@16B24@28
 v44@0:8@16I24@28@36
 v40@0:8@16Q24@32
 @20@0:8I16
 v32@0:8@16@?24
+v32@0:8@?16@24
 v20@0:8B16
 {CGPoint=dd}40@0:8{CGPoint=dd}16@32
 v32@0:8Q16@24
@@ -1806,13 +1812,13 @@ v24@0:8@"<BSDescriptionFormatting>"16
 @40@0:8@16@24@32
 @"PUIDDisplayContext"40@0:8@"PSDisplay"16@"UIWindowScene"24@"UIWindowScene"32
 v40@0:8@"BSServiceConnectionListener"16@"BSServiceConnection<BSServiceConnectionHost>"24@"<BSXPCDecoding>"32
-Vv24@0:8@?16
 Vv32@0:8@16@?24
+Vv40@0:8@16@24@?32
 Vv24@0:8@16
 Vv32@0:8@16@24
-Vv24@0:8@?<v@?@"PSPointerPortalSourceCollection"@"NSError">16
+Vv32@0:8@"PSDisplay"16@?<v@?@"PSPointerPortalSourceCollection"@"NSError">24
 Vv32@0:8@"PSPointerPortalSourceCollection"16@?<v@?@"NSError">24
-Vv32@0:8@"NSNumber"16@?<v@?@"NSArray<__PSMatchMoveSource__>"@"NSError">24
+Vv40@0:8@"PSDisplay"16@"NSNumber"24@?<v@?@"NSArray<__PSMatchMoveSource__>"@"NSError">32
 Vv32@0:8@"NSArray<__PSMatchMoveSource__>"16@?<v@?@"NSError">24
 Vv32@0:8@"PSPointerHoverRegion"16@?<v@?@"NSError">24
 Vv24@0:8@"NSNumber"16
@@ -1823,6 +1829,7 @@ v92@0:8@16{CGPoint=dd}24{CGPoint=dd}40I56d60d68d76@?84
 @"BSServiceConnectionListener"
 @"<PUIDXPCClientControllerDelegate>"
 @32@0:8@16@24
+v40@0:8@16@24@?32
 v24@0:8@?16
 @"BSServiceConnection"
 @"<PSPointerDefaultServiceClientToServerInterface><PSPointerDefaultLaunchingServiceClientToServerInterface>"
@@ -1853,7 +1860,6 @@ v40@0:8@16q24d32
 v32@0:8@16q24
 v56@0:8@16{CGRect={CGPoint=dd}{CGSize=dd}}24
 v56@0:8@16@24@32@40@?48
-v40@0:8@16@24@?32
 Q32@0:8@16@24
 B40@0:8@16@24@?32
 v24@0:8@"UIApplication"16
@@ -1915,6 +1921,7 @@ v24@0:8@?<v@?Q>16
 @"NSUUID"
 @"BSAuditToken"
 v24@0:8@"PUIDPointerShapeView"16
+v32@0:8@?16@?24
 B48@0:8@16Q24@32^@40
 B40@0:8Q16@24^@32
 {CATransform3D=dddddddddddddddd}144@0:8{CATransform3D=dddddddddddddddd}16
@@ -1941,7 +1948,6 @@ Changed material Style: %@
 <%{public}@> detaching display was the active display
 <%{public}@> is the only one left, setting it as the new active display
 <%{public}@> detaching display was NOT the active display
-%{public}@ - Notifying client portalSourceCollections were invalidated: %@ matchMoveSources were invalidated: %@
 Got a pointer event with contextID: 0x%x and the last event had contextID: 0x%x, moving pointer to display: %{public}@
 Screen digitizer event with finger down - not hiding pointer (logged once)
 Recentering target: contextID: 0x%x - %{public}@ previousPointerClient: %@ restrictingToPID: %d
@@ -1952,16 +1958,20 @@ Starting delayed unhide timer
 Starting provisional promotion timer
 Promoting to visible based on touch duration
 No previous event, assuming trackpad for delay when restarting autohide timer.
+Timer fired while not on main display, pointer not hiding
 Hiding pointer: %{public}s
 Hiding pointer <Suspended due to visible assertion>: %{public}s
 Unhiding pointer: %{public}s
 Unhiding pointer <Already visible due to assertion>: %{public}s
 %{public}@ - is gone
-%{public}@ - created source collection: %{public}@
+%{public}@ - created source collection on active display: %{public}@
 %{public}@ - requested source collection but we don't have an active display
+%{public}@ - created source collection on display %{public}@: %{public}@
+%{public}@ - requested source collection but we don't have a context for display %{public}@
 %{public}@ - invalidated source collection: %{public}@
 %{public}@ - failed to invalidate source collection: %{public}@ - couldn't find matching display context
 %{public}@ - requested match move source but we don't have an active display
+%{public}@ - requested match move source but we don't have a context for display %{public}@
 %{public}@ - failed to invalidate match move source: %{public}@ - couldn't find matching display context
 %{public}@ - wants keep alive
 %{public}@ - set system pointer interaction contextID: 0x%x display: %{public}@
@@ -1981,6 +1991,7 @@ Forcing pointer hidden by request from entitled client
 No longer forcing pointer hidden by request from entitled client
 Forcing pointer visible by request from entitled client
 No longer forcing pointer visible by request from entitled client
+%{public}@ - Notifying client portalSourceCollections were invalidated: %@ matchMoveSources were invalidated: %@
 Not updating pointer - the display context for the last pointer event no longer exists
 Not updating pointer - the active display is nil
 Deferring material changes
@@ -2064,13 +2075,13 @@ Got Inf from: %@.y
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A6200i</string>
+<string>20A5302u</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.0</string>
 <key>DTSDKBuild</key>
-<string>20A5283e</string>
+<string>20A5302u</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>
@@ -2184,8 +2195,7 @@ com.apple.pointerui.autohidePointer
 PUIDPointerController.m
 Already tracking a context for display %@, please destroy it first
 v16@?0Q8
-v24@?0@"PUIDPointerClient"8@"PSPointerPortalSourceCollection"16
-v24@?0@"PUIDPointerClient"8@"PSMatchMoveSource"16
+B24@?0@"PUIDPointerClient"8@"<PUIDSourceHandlesDisplayChangesGracefully>"16
 screen digitizer event
 non-pointer event
 v16@?0@"NSTimer"8
@@ -2212,6 +2222,8 @@ com.apple.pointeruid.PUIDPointerController.transformUpdateQueue
 invalid transform (all 0s) from: %@
 setting value received from BKSHIDServicesGetCALayerTransform()
 AX Preferences Change
+v24@?0@"PUIDPointerClient"8@"PSPointerPortalSourceCollection"16
+v24@?0@"PUIDPointerClient"8@"PSMatchMoveSource"16
 transformFromClientContextToDisplay; just pulled out of clientState (%@)
 transformToReferenceSpace; result from -transformToLocalWindowForCoordinateSpaceTransformToDisplay:, _pointerRenderingController (%@)
 v16@?0@"_PUIDPointerControllerClientState"8
@@ -2553,7 +2565,7 @@ PUIDPointerState
 NSCopying
 NSMutableCopying
 PUIDMutablePointerState
-BSAnimationSettings
+_createTransformerWithInputAnimatableProperties:modelValueSetter:presentationValueSetter:
 whiteColor
 weakObjectsHashTable
 view
@@ -2582,6 +2594,7 @@ sourceContextID
 source
 shouldPointerUnderlayContent
 shouldPointerSuppressMirroring
+shouldBeInvalidatedIfPointerLeavesDisplay
 sharedInstance
 shapeType
 shape
@@ -2602,6 +2615,7 @@ setSourcePoints:
 setSourceLayerRenderId:
 setSourceContextId:
 setShouldPointerUnderlayContent:
+setShouldBeInvalidatedIfPointerLeavesDisplay:
 setServiceQuality:
 setService:
 setRootViewController:
@@ -2805,6 +2819,7 @@ clearColor
 circleWithBounds:
 bundleID
 bundleForClass:
+builtinDisplay
 builderWithObject:
 build
 bs_valueWithCGPoint:
@@ -2859,29 +2874,28 @@ _setKeepContextAssociationInBackground:
 _setCornerRadius:
 _scheduleSceneEventResponseForScene:withResponseBlock:
 _sceneIdentifier
+_performWithoutRetargetingAnimations:
+CATransform3DValue
+_bindingLayer
+_identifierOfCAContext
+_hidEvent
 _sceneForFBSScene:
 _rotation
 _referenceBounds
-_performWithoutRetargetingAnimations:
-_performBlockAfterCATransactionCommits:
-_identifierOfCAContext
-_hidEvent
+_FBSScene
 _eventFetchRunLoop
+CGPointValue
 _createTransformerWithInputAnimatableProperties:presentationValueChangedCallback:
-_createTransformerWithInputAnimatableProperties:modelValueSetter:presentationValueSetter:
-_contextId
-_bindingLayer
+zoomLevel
 _animateUsingSpringWithDampingRatio:response:tracking:dampingRatioSmoothing:responseSmoothing:targetSmoothing:projectionDeceleration:animations:completion:
 _animateUsingSpringBehavior:tracking:animations:completion:
-zoomLevel
-CGPointValue
-CGColor
+_contextId
+UUIDString
 CGPath
 UUID
+CGColor
 UTF8String
-UUIDString
-_FBSScene
-CATransform3DValue
+BSAnimationSettings
 layerClass
 backdropLayer
 initWithFrame:
@@ -3013,12 +3027,13 @@ _restartAutohideTimer
 _cancelAutohideTimer
 _hidePointerForReason:
 _unhidePointerForReason:
+isActiveOnMainDisplay
 xpcClientContextController:didAddPointerClient:
 xpcClientContextController:didRemovePointerClient:
 xpcClientContextController:didUpdateHoverRegion:forClient:transitionCompletion:
-xpcClientContextController:createPointerPortalSourceCollectionForClient:error:
+xpcClientContextController:createPointerPortalSourceCollectionForDisplay:client:error:
 xpcClientContextController:invalidatePointerPortalSourceCollection:forClient:
-xpcClientContextController:createContentMatchMoveSourceForClient:error:
+xpcClientContextController:createContentMatchMoveSourceForDisplay:client:error:
 xpcClientContextController:invalidateContentMatchMoveSource:forClient:
 xpcClientContextController:setWantsServiceKeepAlive:forClient:
 xpcClientContextController:didSetSystemPointerInteractionContextID:display:forClient:
@@ -3038,6 +3053,7 @@ _handleAccessibilityPointerSizePreferencesDidChange
 _handlePeriodicRefreshTimerAction
 _refreshClientTransformWithReason:
 _invalidateHoverRegionsForAllPointerClientsExcludingPointerClient:hoverRegion:
+_invalidateEffectSourcesPassingTest:displayContext:
 _recenteringContextRelativePointerPositionForPointerClient:
 _setShouldPeriodicallyRefreshClientTransform:
 _transformVelocity:intoCoordinateSpaceForPointerClient:
@@ -3166,9 +3182,9 @@ newDisplayContextForDisplay:pointerRenderingScene:systemPointerScene:
 contextClass
 createStreamsForDisplay:context:
 listener:didReceiveConnection:withContext:
-createPointerPortalSourceCollectionWithCompletion:
+createPointerPortalSourceCollectionForDisplay:completion:
 invalidatePointerPortalSourceCollection:completion:
-createContentMatchMoveSourcesWithCountValue:completion:
+createContentMatchMoveSourcesForDisplay:countValue:completion:
 invalidateContentMatchMoveSources:completion:
 setActiveHoverRegion:transitionCompletion:
 autohidePointerForReason:
@@ -3686,10 +3702,10 @@ T@"BSAuditToken",R,N,V_auditToken
 createPointerPortalSourceCollectionForClient:
 invalidatePointerPortalSourceCollection:forClient:
 isValidPointerPortalSourceCollection:forClient:
-invalidatePointerPortalSourceCollections:
+invalidatePointerPortalSourceCollectionsPassingTest:additionalInvalidation:
 createContentMatchMoveSourceForClient:
 invalidateContentMatchMoveSource:forClient:
-invalidateContentMatchMoveSources:
+invalidateContentMatchMoveSourcesPassingTest:additionalInvalidation:
 invalidateEffectSourcesForPointerClient:
 setPointerState:options:updateHandlerCollection:error:
 _updatePointerWithOptions:updateHandlerCollection:error:
@@ -3888,12 +3904,13 @@ v96@0:8{CGPoint=dd}16{CGPoint=dd}32{CGPoint=dd}48@64@72@80Q88
 v112@0:8{CGPoint=dd}16{CGPoint=dd}32{CGPoint=dd}48@64{CGPoint=dd}72@88Q96@?104
 v56@0:8B16B20^{__IOHIDEvent=}24@32^{__IOHIDEvent=}40@48
 v48@0:8@16@24@32@?40
-@40@0:8@16@24^@32
+@48@0:8@16@24@32^@40
 v36@0:8@16B24@28
 v44@0:8@16I24@28@36
 v40@0:8@16Q24@32
 @20@0:8I16
 v32@0:8@16@?24
+v32@0:8@?16@24
 v20@0:8B16
 {CGPoint=dd}40@0:8{CGPoint=dd}16@32
 v32@0:8Q16@24
@@ -3934,13 +3951,13 @@ v24@0:8@"<BSDescriptionFormatting>"16
 @40@0:8@16@24@32
 @"PUIDDisplayContext"40@0:8@"PSDisplay"16@"UIWindowScene"24@"UIWindowScene"32
 v40@0:8@"BSServiceConnectionListener"16@"BSServiceConnection<BSServiceConnectionHost>"24@"<BSXPCDecoding>"32
-Vv24@0:8@?16
 Vv32@0:8@16@?24
+Vv40@0:8@16@24@?32
 Vv24@0:8@16
 Vv32@0:8@16@24
-Vv24@0:8@?<v@?@"PSPointerPortalSourceCollection"@"NSError">16
+Vv32@0:8@"PSDisplay"16@?<v@?@"PSPointerPortalSourceCollection"@"NSError">24
 Vv32@0:8@"PSPointerPortalSourceCollection"16@?<v@?@"NSError">24
-Vv32@0:8@"NSNumber"16@?<v@?@"NSArray<__PSMatchMoveSource__>"@"NSError">24
+Vv40@0:8@"PSDisplay"16@"NSNumber"24@?<v@?@"NSArray<__PSMatchMoveSource__>"@"NSError">32
 Vv32@0:8@"NSArray<__PSMatchMoveSource__>"16@?<v@?@"NSError">24
 Vv32@0:8@"PSPointerHoverRegion"16@?<v@?@"NSError">24
 Vv24@0:8@"NSNumber"16
@@ -3951,6 +3968,7 @@ v92@0:8@16{CGPoint=dd}24{CGPoint=dd}40I56d60d68d76@?84
 @"BSServiceConnectionListener"
 @"<PUIDXPCClientControllerDelegate>"
 @32@0:8@16@24
+v40@0:8@16@24@?32
 v24@0:8@?16
 @"BSServiceConnection"
 @"<PSPointerDefaultServiceClientToServerInterface><PSPointerDefaultLaunchingServiceClientToServerInterface>"
@@ -3981,7 +3999,6 @@ v40@0:8@16q24d32
 v32@0:8@16q24
 v56@0:8@16{CGRect={CGPoint=dd}{CGSize=dd}}24
 v56@0:8@16@24@32@40@?48
-v40@0:8@16@24@?32
 Q32@0:8@16@24
 B40@0:8@16@24@?32
 v24@0:8@"UIApplication"16
@@ -4043,6 +4060,7 @@ v24@0:8@?<v@?Q>16
 @"NSUUID"
 @"BSAuditToken"
 v24@0:8@"PUIDPointerShapeView"16
+v32@0:8@?16@?24
 B48@0:8@16Q24@32^@40
 B40@0:8Q16@24^@32
 {CATransform3D=dddddddddddddddd}144@0:8{CATransform3D=dddddddddddddddd}16
@@ -4069,7 +4087,6 @@ Changed material Style: %@
 <%{public}@> detaching display was the active display
 <%{public}@> is the only one left, setting it as the new active display
 <%{public}@> detaching display was NOT the active display
-%{public}@ - Notifying client portalSourceCollections were invalidated: %@ matchMoveSources were invalidated: %@
 Got a pointer event with contextID: 0x%x and the last event had contextID: 0x%x, moving pointer to display: %{public}@
 Screen digitizer event with finger down - not hiding pointer (logged once)
 Recentering target: contextID: 0x%x - %{public}@ previousPointerClient: %@ restrictingToPID: %d
@@ -4080,16 +4097,20 @@ Starting delayed unhide timer
 Starting provisional promotion timer
 Promoting to visible based on touch duration
 No previous event, assuming trackpad for delay when restarting autohide timer.
+Timer fired while not on main display, pointer not hiding
 Hiding pointer: %{public}s
 Hiding pointer <Suspended due to visible assertion>: %{public}s
 Unhiding pointer: %{public}s
 Unhiding pointer <Already visible due to assertion>: %{public}s
 %{public}@ - is gone
-%{public}@ - created source collection: %{public}@
+%{public}@ - created source collection on active display: %{public}@
 %{public}@ - requested source collection but we don't have an active display
+%{public}@ - created source collection on display %{public}@: %{public}@
+%{public}@ - requested source collection but we don't have a context for display %{public}@
 %{public}@ - invalidated source collection: %{public}@
 %{public}@ - failed to invalidate source collection: %{public}@ - couldn't find matching display context
 %{public}@ - requested match move source but we don't have an active display
+%{public}@ - requested match move source but we don't have a context for display %{public}@
 %{public}@ - failed to invalidate match move source: %{public}@ - couldn't find matching display context
 %{public}@ - wants keep alive
 %{public}@ - set system pointer interaction contextID: 0x%x display: %{public}@
@@ -4109,6 +4130,7 @@ Forcing pointer hidden by request from entitled client
 No longer forcing pointer hidden by request from entitled client
 Forcing pointer visible by request from entitled client
 No longer forcing pointer visible by request from entitled client
+%{public}@ - Notifying client portalSourceCollections were invalidated: %@ matchMoveSources were invalidated: %@
 Not updating pointer - the display context for the last pointer event no longer exists
 Not updating pointer - the active display is nil
 Deferring material changes
@@ -4192,13 +4214,13 @@ Got Inf from: %@.y
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A6200i</string>
+<string>20A5302u</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.0</string>
 <key>DTSDKBuild</key>
-<string>20A5283e</string>
+<string>20A5302u</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>

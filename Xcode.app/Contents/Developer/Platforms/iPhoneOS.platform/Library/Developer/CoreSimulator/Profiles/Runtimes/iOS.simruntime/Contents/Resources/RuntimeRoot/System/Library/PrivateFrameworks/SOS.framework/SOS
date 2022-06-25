@@ -55,6 +55,7 @@ SOSFlowStateDone
 SOSFlowStateVoiceLoopTester
 SOSFlowStateMedicalID
 SOSFlowStateUnresponsiveResting
+SOSFlowStateMotionCancelled
 SOSTriggerMechanismNone
 SOSTriggerMechanismThreeClicks
 SOSTriggerMechanismFiveClicks
@@ -170,7 +171,9 @@ SOSFlowEventContactsCountdownDismissed
 SOSFlowEventUserRespondedToRestingState
 SOSFlowEventMotionRequestsCountdownToAutoCall
 SOSFlowEventMotionDidCancel
+-[SOSFlow motionDidCancel]
 -[SOSFlow userRespondedToRestingStateWith:]
+v24@?0@"_HKMedicalIDData"8@"NSError"16
 SOSFlowTypeNewton
 SOSFlowTypeSOS
 UNKNOWN SOSFlowEvent
@@ -311,7 +314,9 @@ SOSFlowManager, init
 %s: Starting a fresh SOSFlow
 %s: SOSFlow reached terminal state, tearing down
 Invalid event %@ for current state %@!
+%s: Ignoring SOSFlowEventMotionDidCancel
 %s: Unexpected SOSResponse from resting state
+SOSFlow, prefetchMedicalID
 SOSFlow: Updating state to %@
 SOSFlow: Will handle event %@
 Starting countdown: %f for service identifier: %@
@@ -357,6 +362,7 @@ Rejecting location - locationIntegrity: %d
 Rejecting location - timestamp too old: %@
 Keeping location - horizontalAccuracy:%f locationIntegrity:%d timestamp:%@
 SOSEngine, retrigger SOS disabled
+SOSEngine, cannot retrigger nil SOSStatus
 SOSEngine, resolution for last status: %d
 SOSEngine, last status not auto triggered event
 SOSEngine,opening retrigger URL,%@
@@ -467,6 +473,7 @@ SOSUtilities
 SOSFlowManager
 SOSFlowObserver
 NSObject
+SOSFlowManagerCoexProtocol
 SOSMessagingStatus
 NSCopying
 SOSFlow
@@ -798,10 +805,11 @@ T@"SOSStatus",&,N
 T@"SOSStatus",R,N
 allowedToMessageSOSContacts
 TB,N,GisAllowedToMessageSOSContacts
+_init
 startFreshSOSFlowWithTriggerMechanism:
 activeSOSFlow
 removeObserver:
-initWithTriggerMechanism:
+initWithTriggerMechanism:healthStore:
 setActiveSOSFlow:
 addObserver:
 dictionaryWithObject:forKey:
@@ -888,6 +896,7 @@ TB,N,V_isPairedDeviceStatus
 sosFlowTypeForTriggerMechanism:
 weakObjectsHashTable
 isTriggerMechanismUserInitiated:
+_prefetchMedicalID
 observers
 removeObject:
 willHandleEvent:withMetaData:
@@ -911,8 +920,10 @@ updateState:
 startAnomalyFlow
 startTimerToAutoDial
 restingState
+shouldIgnoreMotionCancel
+fetchMedicalIDDataWithCompletion:
 healthUserDefaults
-medicalIDEnabledPreference
+shouldShowMedicalID
 setCurrentState:
 isUserResponsive
 setIsUserResponsive:
@@ -931,20 +942,27 @@ isFlowActiveWithState:
 sosFlowStateForString:
 setSosFlowType:
 setHealthUserDefaults:
+medicalIDData
+setMedicalIDData:
 setObservers:
+setShouldIgnoreMotionCancel:
 _timer
 _isUserResponsive
+_shouldIgnoreMotionCancel
 _sosFlowType
 _currentState
 _healthUserDefaults
+_medicalIDData
 _sosFlowTrigger
 _observers
 T@"NSUserDefaults",&,N,V_healthUserDefaults
+T@"_HKMedicalIDData",&,N,V_medicalIDData
 Tq,R,N,V_sosFlowTrigger
 TQ,N,V_sosFlowType
 Tq,N,V_currentState
 T@"NSHashTable",&,N,V_observers
 TB,N,V_isUserResponsive
+TB,N,V_shouldIgnoreMotionCancel
 _name
 _phoneNumber
 _nameContactIdentifier
@@ -983,7 +1001,6 @@ isSendingLocationUpdate
 clientConnections
 remoteObjectProxyWithErrorHandler:
 stopRequestingLocationUpdates
-notifyClientsWithSOSStatus:
 locationIsValidToSend:
 timeIntervalSinceNow
 distanceFromLocation:
@@ -1051,7 +1068,6 @@ setQueryItems:
 initWithIdentifier:
 hasAnyData
 lostModeIsActive
-fetchMedicalIDDataWithCompletion:
 valueForEntitlement:
 setRemoteObjectInterface:
 setExportedInterface:
@@ -1071,6 +1087,8 @@ handleNotifyClientsWithSOSStatus:
 triggerUnresolvedSOSEventIfNecessary
 retriggerSOSWithUUID:trigger:
 fetchMedicalIDName
+sosFlowManager
+setSosFlowManager:
 setLocationShifter:
 setClientConnections:
 lastLocationSent
@@ -1083,6 +1101,7 @@ _contactsManager
 _medicalIDName
 _notifyContactsReason
 _sosStatusManager
+_sosFlowManager
 _locationShifter
 _clientConnections
 _lastLocationSent
@@ -1093,6 +1112,7 @@ T@"CLLocation",R,N,V_lastLocationSent
 T@"SOSPersistentTimerLocationManager",R,N,V_sosPersistentTimerLocationManager
 Tq,R,N,V_currentSOSFlowState
 T@"<NSXPCListenerDelegate>",W,N
+T@"<SOSFlowManagerCoexProtocol>",W,N,V_sosFlowManager
 setUsesApplicationAudioSession:
 setMixToTelephonyUplink:
 initWithEffectiveBundle:delegate:onQueue:
@@ -1445,11 +1465,13 @@ i16@0:8
 B24@0:8q16
 Q24@0:8q16
 @24@0:8q16
+@32@0:8q16@24
 v32@0:8Q16@24
 v24@0:8Q16
 d24@0:8Q16
 @"PCPersistentTimer"
 @"NSUserDefaults"
+@"_HKMedicalIDData"
 @"NSHashTable"
 v32@0:8q16@?24
 v40@0:8@16q24@?32
@@ -1474,6 +1496,7 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSDate"
 @"SOSContactsManager"
 @"SOSStatusManager"
+@"<SOSFlowManagerCoexProtocol>"
 @"_MKLocationShifter"
 @"NSMutableArray"
 @"CLLocation"
@@ -1584,6 +1607,7 @@ SOSFlowStateDone
 SOSFlowStateVoiceLoopTester
 SOSFlowStateMedicalID
 SOSFlowStateUnresponsiveResting
+SOSFlowStateMotionCancelled
 SOSTriggerMechanismNone
 SOSTriggerMechanismThreeClicks
 SOSTriggerMechanismFiveClicks
@@ -1699,7 +1723,9 @@ SOSFlowEventContactsCountdownDismissed
 SOSFlowEventUserRespondedToRestingState
 SOSFlowEventMotionRequestsCountdownToAutoCall
 SOSFlowEventMotionDidCancel
+-[SOSFlow motionDidCancel]
 -[SOSFlow userRespondedToRestingStateWith:]
+v24@?0@"_HKMedicalIDData"8@"NSError"16
 SOSFlowTypeNewton
 SOSFlowTypeSOS
 UNKNOWN SOSFlowEvent
@@ -1840,7 +1866,9 @@ SOSFlowManager, init
 %s: Starting a fresh SOSFlow
 %s: SOSFlow reached terminal state, tearing down
 Invalid event %@ for current state %@!
+%s: Ignoring SOSFlowEventMotionDidCancel
 %s: Unexpected SOSResponse from resting state
+SOSFlow, prefetchMedicalID
 SOSFlow: Updating state to %@
 SOSFlow: Will handle event %@
 Starting countdown: %f for service identifier: %@
@@ -1886,6 +1914,7 @@ Rejecting location - locationIntegrity: %d
 Rejecting location - timestamp too old: %@
 Keeping location - horizontalAccuracy:%f locationIntegrity:%d timestamp:%@
 SOSEngine, retrigger SOS disabled
+SOSEngine, cannot retrigger nil SOSStatus
 SOSEngine, resolution for last status: %d
 SOSEngine, last status not auto triggered event
 SOSEngine,opening retrigger URL,%@
@@ -1996,6 +2025,7 @@ SOSUtilities
 SOSFlowManager
 SOSFlowObserver
 NSObject
+SOSFlowManagerCoexProtocol
 SOSMessagingStatus
 NSCopying
 SOSFlow
@@ -2285,14 +2315,14 @@ actionWithTitle:style:handler:
 abRecordGUID
 _ios_meContactWithKeysToFetch:error:
 _cfBundle
-UUIDString
-UUID
-URLsForDirectory:inDomains:
-URLQueryAllowedCharacterSet
-URLForResource:withExtension:
-URLByAppendingPathComponent:
-CGPointValue
 CGImage
+CGPointValue
+URLByAppendingPathComponent:
+URLForResource:withExtension:
+URLsForDirectory:inDomains:
+UUIDString
+URLQueryAllowedCharacterSet
+UUID
 CGColor
 init
 dealloc
@@ -2476,6 +2506,7 @@ T@"SOSStatus",&,N
 T@"SOSStatus",R,N
 allowedToMessageSOSContacts
 TB,N,GisAllowedToMessageSOSContacts
+sharedInstance
 isEqual:
 class
 self
@@ -2501,6 +2532,7 @@ T#,R
 T@"NSString",R,C
 sosFlow:didChangeToState:
 sosFlow:willHandleEvent:withMetaData:
+_init
 startSOSFlowWithTriggerMechanism:
 startFreshSOSFlowWithTriggerMechanism:
 activeSOSFlow
@@ -2564,7 +2596,7 @@ sosFlowTypeForTriggerMechanism:
 validEventsforState:
 isTriggerMechanismUserInitiated:
 sosFlowStateForString:
-initWithTriggerMechanism:
+initWithTriggerMechanism:healthStore:
 addObserver:
 removeObserver:
 handleSOSFlowEvent:withMetaData:
@@ -2578,7 +2610,8 @@ contactsCountdownDismissed
 timerRequestsCountdownToAutoCall
 motionDidCancel
 userRespondedToRestingStateWith:
-medicalIDEnabledPreference
+_prefetchMedicalID
+shouldShowMedicalID
 restingState
 updateState:
 willHandleEvent:withMetaData:
@@ -2592,24 +2625,32 @@ currentState
 setCurrentState:
 healthUserDefaults
 setHealthUserDefaults:
+medicalIDData
+setMedicalIDData:
 sosFlowTrigger
 observers
 setObservers:
 isUserResponsive
 setIsUserResponsive:
+shouldIgnoreMotionCancel
+setShouldIgnoreMotionCancel:
 _timer
 _isUserResponsive
+_shouldIgnoreMotionCancel
 _sosFlowType
 _currentState
 _healthUserDefaults
+_medicalIDData
 _sosFlowTrigger
 _observers
 T@"NSUserDefaults",&,N,V_healthUserDefaults
+T@"_HKMedicalIDData",&,N,V_medicalIDData
 Tq,R,N,V_sosFlowTrigger
 TQ,N,V_sosFlowType
 Tq,N,V_currentState
 T@"NSHashTable",&,N,V_observers
 TB,N,V_isUserResponsive
+TB,N,V_shouldIgnoreMotionCancel
 name
 setName:
 phoneNumber
@@ -2646,7 +2687,6 @@ didDismissClientSOSBeforeSOSCall:
 didUpdateSOSStatus:
 updateSOSFlowState:
 SOSSendingLocationUpdateChanged:
-sharedInstance
 _sendMessageToRecipients:withLocation:isFirstMessage:medicalIDName:Reason:
 _sendSMSMessage:MMSMessage:location:recipients:failureBlock:
 _sendMessage:location:recipients:useStandalone:failureBlock:
@@ -2674,7 +2714,6 @@ setSosStatusManager:
 sosStatusManager
 broadcastUpdatedSOSStatus:
 handleNotifyClientsWithSOSStatus:
-notifyClientsWithSOSStatus:
 notificationEnabledAndContactsExist
 isSendingLocationUpdate
 currentSOSInitiationState
@@ -2682,6 +2721,8 @@ triggerUnresolvedSOSEventIfNecessary
 retriggerSOSWithUUID:trigger:
 isTriggerEnabled:
 fetchMedicalIDName
+sosFlowManager
+setSosFlowManager:
 setLocationShifter:
 clientConnections
 setClientConnections:
@@ -2695,6 +2736,7 @@ _contactsManager
 _medicalIDName
 _notifyContactsReason
 _sosStatusManager
+_sosFlowManager
 _locationShifter
 _clientConnections
 _lastLocationSent
@@ -2705,6 +2747,7 @@ T@"CLLocation",R,N,V_lastLocationSent
 T@"SOSPersistentTimerLocationManager",R,N,V_sosPersistentTimerLocationManager
 Tq,R,N,V_currentSOSFlowState
 T@"<NSXPCListenerDelegate>",W,N
+T@"<SOSFlowManagerCoexProtocol>",W,N,V_sosFlowManager
 _playMessage
 _newUtteranceWithText:voice:volume:
 speechSynthesizer:didStartSpeechUtterance:
@@ -2974,11 +3017,13 @@ i16@0:8
 B24@0:8q16
 Q24@0:8q16
 @24@0:8q16
+@32@0:8q16@24
 v32@0:8Q16@24
 v24@0:8Q16
 d24@0:8Q16
 @"PCPersistentTimer"
 @"NSUserDefaults"
+@"_HKMedicalIDData"
 @"NSHashTable"
 v32@0:8q16@?24
 v40@0:8@16q24@?32
@@ -3003,6 +3048,7 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSDate"
 @"SOSContactsManager"
 @"SOSStatusManager"
+@"<SOSFlowManagerCoexProtocol>"
 @"_MKLocationShifter"
 @"NSMutableArray"
 @"CLLocation"

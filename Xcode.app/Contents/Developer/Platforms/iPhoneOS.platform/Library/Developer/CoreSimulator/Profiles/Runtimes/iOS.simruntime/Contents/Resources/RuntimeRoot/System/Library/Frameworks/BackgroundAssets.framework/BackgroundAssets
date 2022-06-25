@@ -17,19 +17,24 @@ com.apple.background-asset-downloader-extension
 BAInitialDownloadRestrictions
 BADownloadAllowance
 BADownloadDomainAllowList
+com.apple.backgroundassets.application-identifier
+com.apple.backgroundassets.localized-application-name
+com.apple.backgroundassets.application-cache-location
+com.apple.backgroundassets.application-location
 v16@?0@"NSNotification"8
 currentDownloads:
-lockBeforeDate:reply:
+performWithExclusiveControlBeforeDate:handler:
 scheduleDownload:reply:
 -[BAAgentClientProxy currentDownloads:]_block_invoke
 v16@?0@"NSError"8
 v24@?0@"NSArray"8@"NSError"16
 -[BAAgentClientProxy scheduleDownload:error:]_block_invoke
 v20@?0B8@"NSError"12
--[BAAgentClientProxy lockWithError:]_block_invoke
--[BAAgentClientProxy lockWithError:beforeDate:]_block_invoke
-v12@?0B8
--[BAAgentClientProxy unlock]_block_invoke
+-[BAAgentClientProxy acquireExclusiveControlWithHandler:]_block_invoke
+v24@?0@"NSError"8@"NSUUID"16
+-[BAAgentClientProxy acquireExclusiveControlBeforeDate:handler:]_block_invoke
+v28@?0B8@"NSError"12@"NSUUID"20
+-[BAAgentClientProxy _exclusiveControlEndedWithToken:]_block_invoke
 -[BAAgentClientProxy startForegroundDownload:error:]_block_invoke
 -[BAAgentClientProxy cancelDownload:error:]_block_invoke
 -[BAAgentClientProxy _sendApplicationState:]_block_invoke
@@ -41,12 +46,9 @@ download
 Library/Caches
 %@-%ld.%@
 Non BAURLDownload passed to syncTo for BAURLDownload
-com.apple.backgroundassets.application-identifier
-com.apple.backgroundassets.localized-application-name
-com.apple.backgroundassets.application-cache-location
-com.apple.backgroundassets.application-location
 downloadSizeRestricted
 ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.
+ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.*
 Name
 expectedFieldKey must be a valid string.
 expectedFieldValue cannot be passed in as nil.
@@ -65,6 +67,12 @@ BACKD.query
 BACKD.assetKey
 BACKD.zoneID
 BACKD.databaseScope
+BAAppStoreClientErrorDomain
+App at (%@) is not a file URL.
+Application identifier (%@) is not a valid string.
+Application identifier (%@) has invalid app store metadata dictionary.
+App store metadata is missing required BA content restrictions key (%@)
+Unknown error description
 request must be a URLRequest.
 request must have a valid URL.
 https
@@ -114,6 +122,7 @@ com.apple.backgroundassets.BADownloadManager.Completion
 scheduleDownload must be called with a valid BADownload object.
 performWithExclusiveControl must be called with a valid completion block.
 performWithExclusiveControlBeforeDate must be called with a valid completion block.
+performWithExclusiveControlBeforeDate must be called with a valid date.
 startForegroundDownload must be called with a valid BADownload object.
 cancelDownload must be called with a valid BADownload object.
 Download %{public}@ failed to be moved after download. Error:%{public}@
@@ -141,6 +150,7 @@ NSSecureCoding
 NSCoding
 BAUtilities
 BACloudKitDownload
+BAAppStoreClient
 BAURLDownload
 BADownload
 NSCopying
@@ -224,9 +234,9 @@ unlock
 initWithMachServiceName:options:
 currentDownloads:
 scheduleDownload:reply:
-lockWithCompletionHandler:
-lockBeforeDate:reply:
-unlockWithCompletionHandler:
+performWithExclusiveControlBeforeDate:handler:
+performWithExclusiveControlWithHandler:
+exclusiveControlExitedWithToken:
 startForegroundDownload:reply:
 cancelDownload:reply:
 applicationStateDidChange:
@@ -300,6 +310,7 @@ characterSetWithCharactersInString:
 invertedSet
 stringByTrimmingCharactersInSet:
 _baassets_stringByRemovingLastIdentifierComponent
+_baassets_validUTIWithWildcard
 initWithIdentifier:recordType:expectedFieldKey:expectedFieldValue:assetKey:applicationGroupIdentifier:
 defaultContainer
 containerIdentifier
@@ -338,6 +349,18 @@ T@"CKQuery",&,N,V_query
 T@"NSString",&,N,V_assetKey
 T@"CKRecordZoneID",&,N,V_zoneID
 Tq,N,V_databaseScope
+objectForKey:
+dictionaryWithDictionary:
+setObject:forKey:
+applicationWillBeInstalled:
+isFileURL
+dictionaryWithObjects:forKeys:count:
+applicationWasInstalled:
+applicationWasUpdated:
+grantInitialBackgroundActivityWithApplicationIdentifier:appStoreMetadata:error:
+applicationWasInstalledWithApplicationIdentifier:appFileURL:error:
+applicationWasUpdatedWithApplicationIdentifier:appFileURL:error:
+_systemProxy
 initWithIdentifier:request:applicationGroupIdentifier:priority:
 scheme
 caseInsensitiveCompare:
@@ -348,7 +371,6 @@ _request
 T@"NSURLRequest",&,V_request
 bundleForClass:
 localizedStringForKey:value:table:
-dictionaryWithObjects:forKeys:count:
 integerValue
 setUniqueIdentifier:
 setApplicationGroupIdentifier:
@@ -385,15 +407,11 @@ applicationWasUpdated:completionHandler:
 applicationWasRestored:completionHandler:
 triggerPeriodic:completionHandler:
 runDebugCommand:reply:
-applicationWillBeInstalled:
-applicationWasInstalled:
 applicationWasRestored:
-applicationWasUpdated:
 triggerPeriodic:
 runDebugCommand:
 removeAllObjects
 countByEnumeratingWithState:objects:count:
-setObject:forKey:
 sharedManager
 T@"BADownloadManager",R
 scheduleDownload:error:
@@ -410,7 +428,6 @@ _completionHandlerQueue
 _proxy
 _downloads
 T@"<BADownloadManagerDelegate>",W,V_delegate
-objectForKey:
 downloadDidBegin:
 downloadDidPause:
 download:didWriteBytes:totalBytesWritten:totalBytesExpectedToWrite:
@@ -454,8 +471,9 @@ B24@0:8@"NSXPCConnection"16
 v24@0:8q16
 v24@0:8@?<v@?@"NSArray"@"NSError">16
 v32@0:8@"BADownload"16@?<v@?B@"NSError">24
-v24@0:8@?<v@?>16
-v32@0:8@"NSDate"16@?<v@?B>24
+v32@0:8@"NSDate"16@?<v@?B@"NSError"@"NSUUID">24
+v24@0:8@?<v@?@"NSError"@"NSUUID">16
+v24@0:8@"NSUUID"16
 v32@0:8@"NSString"16@?<v@?B@"NSError">24
 v48@0:8@16q24q32q40
 v24@0:8@"NSArray"16
@@ -480,6 +498,8 @@ q16@0:8
 @"CKContainerID"
 @"CKQuery"
 @"CKRecordZoneID"
+B40@0:8@16@24^@32
+@"BAAgentSystemProxy"
 @40@0:8@16@24@32
 @48@0:8@16@24@32q40
 @"NSURLRequest"
@@ -510,19 +530,24 @@ com.apple.background-asset-downloader-extension
 BAInitialDownloadRestrictions
 BADownloadAllowance
 BADownloadDomainAllowList
+com.apple.backgroundassets.application-identifier
+com.apple.backgroundassets.localized-application-name
+com.apple.backgroundassets.application-cache-location
+com.apple.backgroundassets.application-location
 v16@?0@"NSNotification"8
 currentDownloads:
-lockBeforeDate:reply:
+performWithExclusiveControlBeforeDate:handler:
 scheduleDownload:reply:
 -[BAAgentClientProxy currentDownloads:]_block_invoke
 v16@?0@"NSError"8
 v24@?0@"NSArray"8@"NSError"16
 -[BAAgentClientProxy scheduleDownload:error:]_block_invoke
 v20@?0B8@"NSError"12
--[BAAgentClientProxy lockWithError:]_block_invoke
--[BAAgentClientProxy lockWithError:beforeDate:]_block_invoke
-v12@?0B8
--[BAAgentClientProxy unlock]_block_invoke
+-[BAAgentClientProxy acquireExclusiveControlWithHandler:]_block_invoke
+v24@?0@"NSError"8@"NSUUID"16
+-[BAAgentClientProxy acquireExclusiveControlBeforeDate:handler:]_block_invoke
+v28@?0B8@"NSError"12@"NSUUID"20
+-[BAAgentClientProxy _exclusiveControlEndedWithToken:]_block_invoke
 -[BAAgentClientProxy startForegroundDownload:error:]_block_invoke
 -[BAAgentClientProxy cancelDownload:error:]_block_invoke
 -[BAAgentClientProxy _sendApplicationState:]_block_invoke
@@ -534,12 +559,9 @@ download
 Library/Caches
 %@-%ld.%@
 Non BAURLDownload passed to syncTo for BAURLDownload
-com.apple.backgroundassets.application-identifier
-com.apple.backgroundassets.localized-application-name
-com.apple.backgroundassets.application-cache-location
-com.apple.backgroundassets.application-location
 downloadSizeRestricted
 ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.
+ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.*
 Name
 expectedFieldKey must be a valid string.
 expectedFieldValue cannot be passed in as nil.
@@ -558,6 +580,12 @@ BACKD.query
 BACKD.assetKey
 BACKD.zoneID
 BACKD.databaseScope
+BAAppStoreClientErrorDomain
+App at (%@) is not a file URL.
+Application identifier (%@) is not a valid string.
+Application identifier (%@) has invalid app store metadata dictionary.
+App store metadata is missing required BA content restrictions key (%@)
+Unknown error description
 request must be a URLRequest.
 request must have a valid URL.
 https
@@ -607,6 +635,7 @@ com.apple.backgroundassets.BADownloadManager.Completion
 scheduleDownload must be called with a valid BADownload object.
 performWithExclusiveControl must be called with a valid completion block.
 performWithExclusiveControlBeforeDate must be called with a valid completion block.
+performWithExclusiveControlBeforeDate must be called with a valid date.
 startForegroundDownload must be called with a valid BADownload object.
 cancelDownload must be called with a valid BADownload object.
 Download %{public}@ failed to be moved after download. Error:%{public}@
@@ -634,6 +663,7 @@ NSSecureCoding
 NSCoding
 BAUtilities
 BACloudKitDownload
+BAAppStoreClient
 BAURLDownload
 BADownload
 NSCopying
@@ -678,6 +708,7 @@ lock
 localizedStringForKey:value:table:
 length
 lastPathComponent
+isFileURL
 isEqualToString:
 invertedSet
 interfaceWithProtocol:
@@ -694,6 +725,7 @@ encodeObject:forKey:
 encodeInteger:forKey:
 encodeBool:forKey:
 dictionaryWithObjects:forKeys:count:
+dictionaryWithDictionary:
 defaultRecordZone
 defaultManager
 defaultContainer
@@ -715,11 +747,11 @@ arrayWithObjects:count:
 appendFormat:
 allocWithZone:
 allKeys
-addObserverForName:object:queue:usingBlock:
 UTF8String
-UUIDString
-URLByAppendingPathComponent:
 UUID
+UUIDString
+addObserverForName:object:queue:usingBlock:
+URLByAppendingPathComponent:
 isEqual:
 class
 self
@@ -772,9 +804,9 @@ T@"<BADownloaderExtension>",&,V_principalObject
 dealloc
 currentDownloads:
 scheduleDownload:reply:
-lockWithCompletionHandler:
-lockBeforeDate:reply:
-unlockWithCompletionHandler:
+performWithExclusiveControlBeforeDate:handler:
+performWithExclusiveControlWithHandler:
+exclusiveControlExitedWithToken:
 startForegroundDownload:reply:
 cancelDownload:reply:
 applicationStateDidChange:
@@ -815,6 +847,7 @@ T@"NSDate",&,V_lastApplicationLaunchTime
 TB,V_downloadSizeRestricted
 _baassets_stringByRemovingLastIdentifierComponent
 _baassets_validUTI
+_baassets_validUTIWithWildcard
 initPrivatelyWithApplicationGroupIdentifier:
 initWithIdentifier:recordType:recordName:assetKey:applicationGroupIdentifier:
 initWithIdentifier:recordType:expectedFieldKey:expectedFieldValue:assetKey:applicationGroupIdentifier:
@@ -839,6 +872,10 @@ T@"CKQuery",&,N,V_query
 T@"NSString",&,N,V_assetKey
 T@"CKRecordZoneID",&,N,V_zoneID
 Tq,N,V_databaseScope
+grantInitialBackgroundActivityWithApplicationIdentifier:appStoreMetadata:error:
+applicationWasInstalledWithApplicationIdentifier:appFileURL:error:
+applicationWasUpdatedWithApplicationIdentifier:appFileURL:error:
+_systemProxy
 initWithIdentifier:request:applicationGroupIdentifier:
 initWithIdentifier:request:applicationGroupIdentifier:priority:
 request
@@ -947,8 +984,9 @@ B24@0:8@"NSXPCConnection"16
 v24@0:8q16
 v24@0:8@?<v@?@"NSArray"@"NSError">16
 v32@0:8@"BADownload"16@?<v@?B@"NSError">24
-v24@0:8@?<v@?>16
-v32@0:8@"NSDate"16@?<v@?B>24
+v32@0:8@"NSDate"16@?<v@?B@"NSError"@"NSUUID">24
+v24@0:8@?<v@?@"NSError"@"NSUUID">16
+v24@0:8@"NSUUID"16
 v32@0:8@"NSString"16@?<v@?B@"NSError">24
 v48@0:8@16q24q32q40
 v24@0:8@"NSArray"16
@@ -973,6 +1011,8 @@ q16@0:8
 @"CKContainerID"
 @"CKQuery"
 @"CKRecordZoneID"
+B40@0:8@16@24^@32
+@"BAAgentSystemProxy"
 @40@0:8@16@24@32
 @48@0:8@16@24@32q40
 @"NSURLRequest"

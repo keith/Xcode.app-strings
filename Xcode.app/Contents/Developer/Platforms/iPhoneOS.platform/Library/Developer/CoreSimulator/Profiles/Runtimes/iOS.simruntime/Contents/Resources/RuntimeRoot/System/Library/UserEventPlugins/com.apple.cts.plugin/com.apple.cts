@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2458.0.0.112.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.6
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -454,7 +454,7 @@ Minute
 Weekday
 com.apple.launchd.calendarinterval
 calendarinterval
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2458.0.0.112.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.6
 newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@

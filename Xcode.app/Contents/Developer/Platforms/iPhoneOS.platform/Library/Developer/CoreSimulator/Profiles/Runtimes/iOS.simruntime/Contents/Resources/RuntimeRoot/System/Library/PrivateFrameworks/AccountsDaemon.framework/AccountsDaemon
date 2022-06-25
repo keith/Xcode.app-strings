@@ -241,7 +241,10 @@ Keychain item removal failed for item %@: %@
 "Couldn't find an account matching the URL %@"
 "Database keychain version: %@, expected version: %@, will migrate: %@"
 "Failed to migrate keychain items to version %@. Error: %@"
-"Setting client %@ to monitor for types %@"
+@"Not even one account of type %@ with user name %@ found, not pruning"
+@"Pruned %@ accounts"
+@"Error pruning accounts of type %@ with username %@: %@"
+"Setting client %@ to monitor for types %@, preloadedProperties %@"
 BEGIN [%lld]: FaultPlugins 
 FaultPlugins
 END [%lld] %fs: FaultPlugins 
@@ -550,6 +553,7 @@ Unentitled access by client '%{public}@' (selector: %s)
 "Client not entitled to remove accounts from paired devices."
 "Client not entitled to remove account %@ from paired devices."
 "Client is not entitled to migrate keychain items."
+"Client is not entitled to initiate a migration plugin."
 "Client is not entitled to schedule backups."
 "Client is not entitled to reset database version."
 "Client is not entitled to shutdown accountsd"
@@ -907,6 +911,12 @@ v28@?0B8@"NSObject<NSCoding>"12@"NSError"20
 -[ACDAccountStore removeAccountFromPairedDevice:withOptions:completion:]
 -[ACDAccountStore migrateCredentialForAccount:completion:]
 -[ACDAccountStore triggerKeychainMigrationIfNecessary:]
+-[ACDAccountStore runAccountMigrationPlugins:]
+local
+-[ACDAccountStore _pruneDuplicateAccountsForAccountType:withUserName:error:]
+accountType == %@ && username == %@
+Should only be one value returned here!
+accountType == %@ && username == %@ && SELF != %@
 <failed>
 @"NSObject"8@?0
 v24@?0@"NSString"8^B16
@@ -2029,9 +2039,21 @@ migrateKeychainItem:toKeybag:
 keychainVersion
 migrateAllKeychainItems
 setKeychainVersion:
+_pruneDuplicateAccountsForAccountType:withUserName:error:
+fetchRequestWithEntityName:
+setPredicate:
+setSortDescriptors:
+setFetchLimit:
+executeFetchRequest:error:
+initWithFetchRequest:
+setResultType:
+executeRequest:error:
+result
 databaseBackupActivity
 scheduleBackupIfNonexistent
 setMonitoredAccountTypes:
+setPrefetchedProperties:
+accountsWithAccountTypeIdentifiers:preloadedProperties:completion:
 setClientBundleID:withHandler:
 setNotificationsEnabled:
 accountsWithHandler:
@@ -2045,7 +2067,6 @@ accountIdentifiersEnabledForDataclass:handler:
 accountExistsWithDescription:completion:
 kerberosAccountsForDomainFromURL:completion:
 visibleTopLevelAccountsWithAccountTypeIdentifiers:completion:
-accountsWithAccountTypeIdentifiers:preloadedProperties:completion:
 accountsOnPairedDeviceWithAccountTypes:withOptions:handler:
 childAccountsWithAccountTypeIdentifier:parentAccountIdentifier:handler:
 displayAccountTypeForAccountWithIdentifier:handler:
@@ -2096,9 +2117,10 @@ saveAccount:toPairedDeviceWithOptions:completion:
 removeAccountsFromPairedDeviceWithOptions:completion:
 removeAccountFromPairedDevice:withOptions:completion:
 triggerKeychainMigrationIfNecessary:
+runAccountMigrationPlugins:
 scheduleBackupIfNonexistent:
 shutdownAccountsD:
-registerMonitorForAccountsOfTypes:completion:
+registerMonitorForAccountsOfTypes:propertiesToPrefetch:completion:
 resetDatabaseToVersion:withCompletion:
 accountsWithAccountTypeIdentifier:
 addAccountNoSave:error:
@@ -2274,7 +2296,6 @@ T@"NSString",R,N
 T@"ACAccount",R,N
 T@"NSDictionary",R,N
 replyForMessage:withSuccess:result:error:
-result
 replyForMessage:withSuccess:error:
 T@"NSError",R,N
 T@"NSObject<NSSecureCoding>",R,N
@@ -2492,6 +2513,7 @@ hasSuffix:
 valueForEntitlement:
 localizedAppName
 bundle
+prefetchedProperties
 _connection
 _bundle
 _bundleID
@@ -2501,6 +2523,7 @@ _localizedAppName
 _name
 _entitlementChecks
 _monitoredAccountTypes
+_prefetchedProperties
 _clientPropertyLock
 _filter
 T@"NSString",&,N
@@ -2509,6 +2532,7 @@ T@"NSNumber",R,N
 T@"NSXPCConnection",R,N,V_connection
 T@"ACDAccountStoreFilter",&,N,V_filter
 T@"NSSet",&,N
+T@"NSArray",&,N
 TCCStateForClient:accountTypeID:
 initForClient:
 _setFromCSVString:
@@ -2543,12 +2567,9 @@ persistentStores
 entityForName:inManagedObjectContext:
 setEntity:
 setReturnsObjectsAsFaults:
-setPredicate:
 arrayWithObject:
-setSortDescriptors:
 predicateFormat
 ascending
-executeFetchRequest:error:
 refreshObject:mergeChanges:
 _handleManagedObjectContextError:
 existingObjectWithID:error:
@@ -2924,7 +2945,7 @@ v32@0:8@"ACAccount"16@"NSString"24
 v48@0:8@"ACAccount"16@"NSString"24@"NSDictionary"32@?<v@?B@"NSError">40
 v32@0:8@"NSDictionary"16@?<v@?B@"NSError">24
 v24@0:8@?<v@?B@"NSError">16
-v32@0:8@"NSSet"16@?<v@?@"NSArray"@"NSError">24
+v40@0:8@"NSSet"16@"NSArray"24@?<v@?@"NSArray"@"NSError">32
 v32@0:8@"NSNumber"16@?<v@?B@"NSError">24
 @40@0:8@16@24@32
 B32@0:8@16^@24
@@ -3313,7 +3334,10 @@ Keychain item removal failed for item %@: %@
 "Couldn't find an account matching the URL %@"
 "Database keychain version: %@, expected version: %@, will migrate: %@"
 "Failed to migrate keychain items to version %@. Error: %@"
-"Setting client %@ to monitor for types %@"
+@"Not even one account of type %@ with user name %@ found, not pruning"
+@"Pruned %@ accounts"
+@"Error pruning accounts of type %@ with username %@: %@"
+"Setting client %@ to monitor for types %@, preloadedProperties %@"
 BEGIN [%lld]: FaultPlugins 
 FaultPlugins
 END [%lld] %fs: FaultPlugins 
@@ -3622,6 +3646,7 @@ Unentitled access by client '%{public}@' (selector: %s)
 "Client not entitled to remove accounts from paired devices."
 "Client not entitled to remove account %@ from paired devices."
 "Client is not entitled to migrate keychain items."
+"Client is not entitled to initiate a migration plugin."
 "Client is not entitled to schedule backups."
 "Client is not entitled to reset database version."
 "Client is not entitled to shutdown accountsd"
@@ -3979,6 +4004,12 @@ v28@?0B8@"NSObject<NSCoding>"12@"NSError"20
 -[ACDAccountStore removeAccountFromPairedDevice:withOptions:completion:]
 -[ACDAccountStore migrateCredentialForAccount:completion:]
 -[ACDAccountStore triggerKeychainMigrationIfNecessary:]
+-[ACDAccountStore runAccountMigrationPlugins:]
+local
+-[ACDAccountStore _pruneDuplicateAccountsForAccountType:withUserName:error:]
+accountType == %@ && username == %@
+Should only be one value returned here!
+accountType == %@ && username == %@ && SELF != %@
 <failed>
 @"NSObject"8@?0
 v24@?0@"NSString"8^B16
@@ -4354,7 +4385,7 @@ ACDAccountSync
 ACDPluginEntry
 ACDPluginEntryProtocol
 ACDTestManager
-accountWithIdentifier:
+accountsWithAccountType:
 wasProvisionedDataclassesReset
 wasEnabledDataclassesReset
 versionIdentifiers
@@ -4412,6 +4443,7 @@ setSupportsAuthentication:
 setSupportedDataclasses:
 setSortDescriptors:
 setReturnsObjectsAsFaults:
+setResultType:
 setRemoteObjectInterface:
 setProvisionedDataclasses:
 setProvisioned:forDataclass:
@@ -4435,6 +4467,7 @@ setKey:
 setInvalidationHandler:
 setInterruptionHandler:
 setIdentifier:
+setFetchLimit:
 setExportedObject:
 setExportedInterface:
 setExpirationDate:
@@ -4599,6 +4632,7 @@ initWithManagedAccountType:accountStore:
 initWithManagedAccountType:
 initWithManagedAccount:accountStore:
 initWithManagedAccount:
+initWithFetchRequest:
 initWithEffectiveBundleID:
 initWithDictionary:
 initWithData:encoding:
@@ -4624,10 +4658,12 @@ filteredArrayUsingPredicate:
 fileURLWithPath:
 fileSystemRepresentation
 fileExistsAtPath:
+fetchRequestWithEntityName:
 exportedObject
 expirerWithTimeout:
 expirationDate
 existingObjectWithID:error:
+executeRequest:error:
 executeFetchRequest:error:
 exceptionWithName:reason:userInfo:
 evaluateWithObject:
@@ -4730,9 +4766,9 @@ addCustomPropertiesObject:
 actionWithType:
 accountsWithAccountTypeIdentifiers:preloadedProperties:error:
 accountsWithAccountType:options:error:
-accountsWithAccountType:
-accounts
 writeMigrationVersionPref
+accounts
+accountWithIdentifier:
 accountTypeWithAccountTypeIdentifier:
 accountTypeDescription
 accountType
@@ -4753,19 +4789,19 @@ _setAccountStore:
 _resetParentAccount:
 _propertyForKey:
 _obsoleteAccountTypeIDsToRemove
+_applyDirtyStateFromAccount:
+_actionForError:
+UUID
 _loadAllCachedProperties
 _isError
 _isDifferentFrom:
-_applyDirtyStateFromAccount:
-_actionForError:
-URLByAppendingPathComponent:isDirectory:
-UTF8String
 UUIDString
+URLByDeletingLastPathComponent
 URLWithString:
-UUID
 URLForResource:withExtension:
 URIRepresentation
-URLByDeletingLastPathComponent
+UTF8String
+URLByAppendingPathComponent:isDirectory:
 init
 handleCommand:forAccount:options:completion:
 _removeAllAccountsWithCompletion:
@@ -5198,9 +5234,10 @@ saveAccount:toPairedDeviceWithOptions:completion:
 removeAccountsFromPairedDeviceWithOptions:completion:
 removeAccountFromPairedDevice:withOptions:completion:
 triggerKeychainMigrationIfNecessary:
+runAccountMigrationPlugins:
 scheduleBackupIfNonexistent:
 shutdownAccountsD:
-registerMonitorForAccountsOfTypes:completion:
+registerMonitorForAccountsOfTypes:propertiesToPrefetch:completion:
 resetDatabaseToVersion:withCompletion:
 initWithClient:databaseConnection:
 accountTypeWithIdentifier:
@@ -5249,6 +5286,7 @@ _clientTokenForAccountIdentifier:error:
 _removeClientTokenForAccountIdentifer:
 remoteAccountStoreSession
 longLivedRemoteAccountStoreSession
+_pruneDuplicateAccountsForAccountType:withUserName:error:
 delegate
 setDelegate:
 client
@@ -5584,6 +5622,8 @@ bundle
 hasEntitlement:
 setMonitoredAccountTypes:
 monitoredAccountTypes
+setPrefetchedProperties:
+prefetchedProperties
 _rawValueForEntitlement:
 _allowSimulatorExceptions
 connection
@@ -5598,6 +5638,7 @@ _localizedAppName
 _name
 _entitlementChecks
 _monitoredAccountTypes
+_prefetchedProperties
 _clientPropertyLock
 _filter
 T@"NSString",&,N
@@ -5606,6 +5647,7 @@ T@"NSNumber",R,N
 T@"NSXPCConnection",R,N,V_connection
 T@"ACDAccountStoreFilter",&,N,V_filter
 T@"NSSet",&,N
+T@"NSArray",&,N
 authorizationForClient:accountType:
 authorizationForClient:accountTypeWithIdentifier:
 setAuthorization:forClient:onAccountType:
@@ -5995,7 +6037,7 @@ v32@0:8@"ACAccount"16@"NSString"24
 v48@0:8@"ACAccount"16@"NSString"24@"NSDictionary"32@?<v@?B@"NSError">40
 v32@0:8@"NSDictionary"16@?<v@?B@"NSError">24
 v24@0:8@?<v@?B@"NSError">16
-v32@0:8@"NSSet"16@?<v@?@"NSArray"@"NSError">24
+v40@0:8@"NSSet"16@"NSArray"24@?<v@?@"NSArray"@"NSError">32
 v32@0:8@"NSNumber"16@?<v@?B@"NSError">24
 @40@0:8@16@24@32
 B32@0:8@16^@24

@@ -39,6 +39,7 @@ MapsSharedETADefaultSender
 -[MSPSharedTripServer stopSharingTripWithMessagesGroup:]
 -[MSPSharedTripServer stopSharingTrip]
 -[MSPSharedTripServer fetchActiveHandlesWithCompletion:]
+-[MSPSharedTripServer fetchArchivedSharingStateWithCompletion:]
 -[MSPSharedTripServer subscribeToSharedTripUpdatesWithIdentifier:completion:]
 -[MSPSharedTripServer unsubscribeFromSharedTripUpdatesWithIdentifier:completion:]
 -[MSPSharedTripServer fetchSharedTripsWithCompletion:]
@@ -361,6 +362,7 @@ MSPShareETASuppressSharingRoutingPathLegsKey
 MSPShareETASuppressSharingWaypointRoutesKey
 MSPShareETAIncludeMockTripForUITestingKey
 MSPShareETAIncludeMockMPRTripForUITestingKey
+MSPShareETAIncludeMockMPRMiddleOfRouteTripForUITestingKey
 MSPClientRegistrationFetchPeriodKey
 MSPClientRegistrationUpdatePeriodKey
 MSPCloudSynchronizerDefaultDelayAfterErrorKey
@@ -579,6 +581,10 @@ MSPCollections
 MSPCollectionsVersion
 MSPPinnedPlaces
 MSPPinnedPlacesVersion
+created_timestamp
+group_identifier
+maps_identifier
+messages_identifier
 v16@?0@"MSPMutableFavoritePlace"8
 v16@?0@"MSPMutableFavoriteRoute"8
 v16@?0@"MSPMutableFavoriteRegion"8
@@ -767,6 +773,7 @@ v24@?0@"MSPSharedTripSubscriptionToken"8@"NSString"16
 -[MSPSharedTripService removeSendingObserver:]
 none
 com.apple.private.coreservices.canmaplsdatabase
+v16@?0@"MSPSharingRestorationStorage"8
 v16@?0@"MSPSharedTripSharingIdentity"8
 -[MSPSharedTripService sharedTripDidBecomeAvailable:]
 -[MSPSharedTripService destinationDidUpdateForSharedTrip:]
@@ -775,8 +782,8 @@ v16@?0@"MSPSharedTripSharingIdentity"8
 -[MSPSharedTripService routeDidUpdateForSharedTrip:]
 -[MSPSharedTripService sharedTripDidBecomeUnavailable:]
 -[MSPSharedTripService sharedTripDidClose:]
--[MSPSharedTripService sharedTripInvalidatedWithError:]
 -[MSPSharedTripService sharedTripDidUpdateRecipients:]
+-[MSPSharedTripService sharedTripInvalidatedWithError:]
 -[MSPSharedTripService sharingIdentityDidChange:]
 Maps is not installed
 Feature disabled remotely
@@ -814,6 +821,7 @@ strongSelf went away in %s line %d
 [Service] stop sharing trip with group: %@
 [Server] Stop sharing
 [Server] Fetch active handles: %@
+[Server] Fetch archived sharing state
 [Server] Added %@ to subscriptions for trip %@ (%lu subscriptions)
 [Server] %@ already subscribed to trip %@
 [Server] Subscribe to trip: %@
@@ -1267,6 +1275,11 @@ MSPSenderETAController stop listening to navigation
 [Service] Assuming Maps is installed, not entitled to check
 [Service] Maps paths invalidated, clearing cached installation state
 [Service] Maps app is not available
+_archivedSharingState
+[Service] Fetching archived sharing state
+[Service] Supports archiving sharing state: %s
+[Service] Will update archived sharing state...
+[Service] Updated archived sharing state: %@
 _checkinWithCompletion
 _fetchSharingIdentityWithCompletion
 _fetchRequiresUserConfirmationOfSharingIdentityWithCompletion
@@ -1284,6 +1297,8 @@ _stopSharingTrip
 [Service] Stop sharing trip
 _fetchActiveHandlesWithCompletion:
 [Service] Fetch active handles
+_fetchArchivedSharingStateWithCompletion:
+[Service] Fetch archived sharing state
 [Service] Fetch shared trips
 _fetchSharedTripsOnQueue
 [Service] Request to subscribe to trip: %@
@@ -1498,6 +1513,7 @@ SYObject
 MSPSyncManager
 SYServiceDelegate
 SYSessionDelegate
+MSPSharingRestorationStorage
 MSPFavoritesContainer
 MSPMutableFavorite
 MSPMutableFavoritePlace
@@ -1749,6 +1765,7 @@ stopSharingTripWithContacts:
 stopSharingTripWithMessagesGroup:
 stopSharingTrip
 fetchActiveHandlesWithCompletion:
+fetchArchivedSharingStateWithCompletion:
 subscribeToSharedTripUpdatesWithIdentifier:completion:
 unsubscribeFromSharedTripUpdatesWithIdentifier:completion:
 fetchSharedTripsWithCompletion:
@@ -1805,6 +1822,7 @@ startSharingWithGroup:error:
 stopSharingWith:
 stopSharingWithGroup:
 stopSharing
+archivedSharingState
 subscribeToUpdatesToSharedTrip:error:
 numberWithBool:
 listener:shouldAcceptNewConnection:
@@ -2697,11 +2715,13 @@ setLng:
 setCoordinate:
 setLastLocation:
 preciseChicago
+_msp_testTripWithMultipleStops
+setCurrentWaypointIndex:
 _msp_testTripsByIdentifier
 _msp_blockedTestTripIdentifiers
 initWithBase64EncodedString:options:
 _msp_testTrip
-_msp_testTripWithMultipleStops
+_msp_testTripWithMultipleStopsMiddleOfTrip
 _msp_testTripForIdentifier:
 _msp_blockTestTripWithIdentifier:
 _msp_isTestTripBlockedWithIdentifier:
@@ -2802,7 +2822,6 @@ hasLastLocation
 lastLocation
 hasCurrentWaypointIndex
 currentWaypointIndex
-setCurrentWaypointIndex:
 destinationName
 valueForKeyPath:
 hasLatitude
@@ -2862,6 +2881,8 @@ addRouteLeg:
 initWithGeoWaypointRoute:initializerData:
 firstObject
 chargingStationsCount
+indexSetWithIndexesInRange:
+enumerateObjectsAtIndexes:options:usingBlock:
 clearWaypointInfos
 clearRoutingPathLegs
 senderName
@@ -2870,6 +2891,7 @@ updateWaypointsFromComposedRoute:
 updateRouteInfoFromComposedRoute:
 updateFromTraffic:
 equalityTest
+finalETAInfo
 numberOfIntermediateStopsRemaining
 nextWaypointInfo
 T@"GEOSharedNavETAInfo",R,N
@@ -3599,6 +3621,7 @@ transitOptions
 walkingOptions
 cyclingOptions
 navigationWasInterrupted
+archivedSharedTripData
 T@"GEOComposedWaypoint",R,N
 T@"GEOURLRouteHandle",R,N
 T@"GEOAutomobileOptions",R,N
@@ -4053,6 +4076,32 @@ _pinsMap
 _resetSyncRequested
 _pendingSyncItems
 arrayByApplyingSelector:
+addMapsIdentifier:
+addMessagesIdentifier:
+mapsIdentifiersCount
+clearMapsIdentifiers
+mapsIdentifierAtIndex:
+messagesIdentifiersCount
+clearMessagesIdentifiers
+messagesIdentifierAtIndex:
+mapsIdentifierType
+messagesIdentifierType
+setCreatedTimestamp:
+setHasCreatedTimestamp:
+hasCreatedTimestamp
+createdTimestamp
+mapsIdentifiers
+setMapsIdentifiers:
+messagesIdentifiers
+setMessagesIdentifiers:
+_createdTimestamp
+_groupIdentifier
+_mapsIdentifiers
+_messagesIdentifiers
+Td,N,V_createdTimestamp
+T@"NSString",&,N,V_groupIdentifier
+T@"NSMutableArray",&,N,V_mapsIdentifiers
+T@"NSMutableArray",&,N,V_messagesIdentifiers
 moveFavoriteWithIdentifier:belowFavoriteWithIdentifier:context:completionQueue:completion:
 moveFavorite:belowFavorite:context:completionQueue:completion:
 transiteLinesQueryWithDelegate:
@@ -4251,6 +4300,7 @@ navigationType
 hasTrackedTransportType
 trackedTransportType
 hasNavigationState
+_referenceFrameForDestination:
 _checkStateIsReady
 setLatitude:
 setLongitude:
@@ -4301,11 +4351,11 @@ navigationListener:didUpdateLocation:routeMatchedCoordinate:
 navigationListener:didUpdateRoute:
 navigationListener:didUpdateTrafficForCurrentRoute:
 navigationListener:didArriveAtWaypoint:endOfLegIndex:
+navigationListener:didResumeNavigatingFromWaypoint:endOfLegIndex:
 navigationListener:didUpdateETA:
 currentState
 isCompatibleNavigationType
 isCompatibleTransportType
-_referenceFrameForDestination:
 setCurrentState:
 _navigationListener
 _guidanceState
@@ -4387,15 +4437,15 @@ setNextStopsMuids:count:
 _nextStopsMuids
 T^Q,R,N
 _restoreLastSession
+minimalStrategyIdentifiers
+liveStrategyIdentifiers
+messageStrategyIdentifiers
 setMinimalStrategyIdentifiers:
 setLiveStrategyIdentifiers:
 setMessageStrategyIdentifiers:
 minimalStrategyIdentifiersCount
-minimalStrategyIdentifiers
 liveStrategyIdentifiersCount
-liveStrategyIdentifiers
 messageStrategyIdentifiersCount
-messageStrategyIdentifiers
 _createGroupSessionIfNeededWithIdentifier:
 _invalidateActiveHandles
 startSharingGroupSessionWithTripIdentifer:
@@ -4414,6 +4464,7 @@ _liveSender
 _messageSender
 _sessionStorage
 _storageController
+T@"MSPSharingRestorationStorage",R,C,N
 T@"NSObject<MSPSenderETAControllerDelegate>",W,N,V_delegate
 hasRegion
 _region
@@ -4541,14 +4592,12 @@ originatorIdentifier
 lastUpdateTimestamp
 _lastUpdateTimestamp
 _fromID
-_groupIdentifier
 _liveStrategyIdentifiers
 _messageStrategyIdentifiers
 _minimalStrategyIdentifiers
 _originatorIdentifier
 _receivingAccountIdentifier
 _receivingHandle
-T@"NSString",&,N,V_groupIdentifier
 T@"NSString",&,N,V_originatorIdentifier
 T@"GEOSharedNavState",&,N,V_state
 Td,N,V_lastUpdateTimestamp
@@ -4653,6 +4702,8 @@ _isMapsInstalled
 _performBlockWhenCheckinCompleted:
 processHandle
 hasEntitlement:
+_supportsArchivingSharingState
+_archivedSharingStateGroup
 _fetchSharingIdentityWithCompletion:
 _fetchRequiresUserConfirmationOfSharingIdentityWithCompletion:
 _reportUserConfirmationOfSharingIdentity:completion:
@@ -4663,12 +4714,14 @@ _startSharingTripWithMessagesGroup:completion:
 _stopSharingTripWithMessagesGroup:
 _stopSharingTrip
 _fetchActiveHandlesWithCompletion:
+_fetchArchivedSharingStateWithCompletion:
 _fetchSharedTripsWithCompletion:
 _subscribeToSharedTripUpdatesWithIdentifier:completion:
 _addSubscriptionTokenForTripID:
 _remoteObjectProxyWithErrorHandler:
 _blockSharedTrip:
 _insertOrUpdateTrip:
+_updateArchivedSharingState
 _openConnectionIfNeeded
 remoteObjectProxyWithErrorHandler:
 dateWithTimeIntervalSinceNow:
@@ -4687,6 +4740,7 @@ addReceivingObserver:
 removeReceivingObserver:
 addSendingObserver:
 removeSendingObserver:
+contactsFromArchivedTripSharingState:
 _connectionError
 _connectionRetryCounter
 _reconnectionBackoffUntilDate
@@ -4703,6 +4757,7 @@ _userDisabledDefaultListener
 _serverDisabledDefaultListener
 _mapsPaths
 _confirmedMapsIsInstalled
+_archivedSharingState
 _sharedTripIdentifier
 _duplicatesPolicy
 T@"<MSPContainerPersisterDelegate>",W,N,V_delegate
@@ -4778,6 +4833,7 @@ v32@0:8@"NSArray"16@?<v@?@"NSError">24
 v24@0:8@"NSArray"16
 v24@0:8@"NSString"16
 v24@0:8@?<v@?@"NSArray">16
+v24@0:8@?<v@?@"MSPSharingRestorationStorage">16
 v24@0:8@"MSPSharedTripSharingIdentity"16
 v24@0:8@"NSError"16
 v24@0:8@"GEOSharedNavState"16
@@ -5035,6 +5091,7 @@ B32@0:8@"SYSession"16^@24
 v32@0:8@"SYSession"16@?<v@?B@"NSError">24
 v32@0:8@"SYSession"16@"NSSet"24
 @"SYService"
+{?="createdTimestamp"b1}
 v56@0:8@16@24@32@40@?48
 v32@0:8{CLLocationCoordinate2D=dd}16
 @"MSPTransitStorageSystem"
@@ -5225,6 +5282,7 @@ MapsSharedETADefaultSender
 -[MSPSharedTripServer stopSharingTripWithMessagesGroup:]
 -[MSPSharedTripServer stopSharingTrip]
 -[MSPSharedTripServer fetchActiveHandlesWithCompletion:]
+-[MSPSharedTripServer fetchArchivedSharingStateWithCompletion:]
 -[MSPSharedTripServer subscribeToSharedTripUpdatesWithIdentifier:completion:]
 -[MSPSharedTripServer unsubscribeFromSharedTripUpdatesWithIdentifier:completion:]
 -[MSPSharedTripServer fetchSharedTripsWithCompletion:]
@@ -5549,6 +5607,7 @@ MSPShareETASuppressSharingRoutingPathLegsKey
 MSPShareETASuppressSharingWaypointRoutesKey
 MSPShareETAIncludeMockTripForUITestingKey
 MSPShareETAIncludeMockMPRTripForUITestingKey
+MSPShareETAIncludeMockMPRMiddleOfRouteTripForUITestingKey
 MSPClientRegistrationFetchPeriodKey
 MSPClientRegistrationUpdatePeriodKey
 MSPCloudSynchronizerDefaultDelayAfterErrorKey
@@ -5768,6 +5827,10 @@ MSPCollections
 MSPCollectionsVersion
 MSPPinnedPlaces
 MSPPinnedPlacesVersion
+created_timestamp
+group_identifier
+maps_identifier
+messages_identifier
 v16@?0@"MSPMutableFavoritePlace"8
 v16@?0@"MSPMutableFavoriteRoute"8
 v16@?0@"MSPMutableFavoriteRegion"8
@@ -5958,6 +6021,7 @@ v24@?0@"MSPSharedTripSubscriptionToken"8@"NSString"16
 -[MSPSharedTripService removeSendingObserver:]
 none
 com.apple.private.coreservices.canmaplsdatabase
+v16@?0@"MSPSharingRestorationStorage"8
 v16@?0@"MSPSharedTripSharingIdentity"8
 -[MSPSharedTripService sharedTripDidBecomeAvailable:]
 -[MSPSharedTripService destinationDidUpdateForSharedTrip:]
@@ -5966,8 +6030,8 @@ v16@?0@"MSPSharedTripSharingIdentity"8
 -[MSPSharedTripService routeDidUpdateForSharedTrip:]
 -[MSPSharedTripService sharedTripDidBecomeUnavailable:]
 -[MSPSharedTripService sharedTripDidClose:]
--[MSPSharedTripService sharedTripInvalidatedWithError:]
 -[MSPSharedTripService sharedTripDidUpdateRecipients:]
+-[MSPSharedTripService sharedTripInvalidatedWithError:]
 -[MSPSharedTripService sharingIdentityDidChange:]
 Maps is not installed
 Feature disabled remotely
@@ -6005,6 +6069,7 @@ strongSelf went away in %s line %d
 [Service] stop sharing trip with group: %@
 [Server] Stop sharing
 [Server] Fetch active handles: %@
+[Server] Fetch archived sharing state
 [Server] Added %@ to subscriptions for trip %@ (%lu subscriptions)
 [Server] %@ already subscribed to trip %@
 [Server] Subscribe to trip: %@
@@ -6458,6 +6523,11 @@ MSPSenderETAController stop listening to navigation
 [Service] Assuming Maps is installed, not entitled to check
 [Service] Maps paths invalidated, clearing cached installation state
 [Service] Maps app is not available
+_archivedSharingState
+[Service] Fetching archived sharing state
+[Service] Supports archiving sharing state: %s
+[Service] Will update archived sharing state...
+[Service] Updated archived sharing state: %@
 _checkinWithCompletion
 _fetchSharingIdentityWithCompletion
 _fetchRequiresUserConfirmationOfSharingIdentityWithCompletion
@@ -6475,6 +6545,8 @@ _stopSharingTrip
 [Service] Stop sharing trip
 _fetchActiveHandlesWithCompletion:
 [Service] Fetch active handles
+_fetchArchivedSharingStateWithCompletion:
+[Service] Fetch archived sharing state
 [Service] Fetch shared trips
 _fetchSharedTripsOnQueue
 [Service] Request to subscribe to trip: %@
@@ -6689,6 +6761,7 @@ SYObject
 MSPSyncManager
 SYServiceDelegate
 SYSessionDelegate
+MSPSharingRestorationStorage
 MSPFavoritesContainer
 MSPMutableFavorite
 MSPMutableFavoritePlace
@@ -6764,12 +6837,12 @@ MSPContainerPersister
 MSPFileContainerPersister
 MSPContainerArrayStateSnapshot
 writeToURL:options:error:
+URLByAppendingPathComponent:isDirectory:
 URLByDeletingLastPathComponent
 URLForDirectory:inDomain:appropriateForURL:create:error:
 UTF8String
-UUID
 UUIDString
-URLByAppendingPathComponent:isDirectory:
+UUID
 _clientAttributes
 _geo_SHA256Hash
 _geo_hexString
@@ -6914,6 +6987,7 @@ encryptedValuesByKey
 enumerateContactsWithFetchRequest:error:usingBlock:
 enumerateIndexesUsingBlock:
 enumerateKeysAndObjectsUsingBlock:
+enumerateObjectsAtIndexes:options:usingBlock:
 enumerateObjectsUsingBlock:
 enumerateSubstringsInRange:options:usingBlock:
 errorWithDomain:code:userInfo:
@@ -6967,6 +7041,7 @@ historyContainerPerformMaintenanceForValidIdentifiers:completion:
 indexOfObject:
 indexOfObjectPassingTest:
 indexSetWithIndex:
+indexSetWithIndexesInRange:
 indexesOfObjectsPassingTest:
 initWithArray:
 initWithArray:copyItems:
@@ -7448,6 +7523,7 @@ stopSharingTripWithContacts:
 stopSharingTripWithMessagesGroup:
 stopSharingTrip
 fetchActiveHandlesWithCompletion:
+fetchArchivedSharingStateWithCompletion:
 subscribeToSharedTripUpdatesWithIdentifier:completion:
 unsubscribeFromSharedTripUpdatesWithIdentifier:completion:
 fetchSharedTripsWithCompletion:
@@ -8064,6 +8140,7 @@ T@"NSArray",&,N
 T@"NSArray",&,N,V_items
 _msp_testTrip
 _msp_testTripWithMultipleStops
+_msp_testTripWithMultipleStopsMiddleOfTrip
 _msp_registerTestTrip:
 _msp_testTripForIdentifier:
 _msp_blockTestTripWithIdentifier:
@@ -8149,6 +8226,7 @@ equalityTest
 stripArrivedOrClosedTrip
 hasEtaInfo
 etaInfo
+finalETAInfo
 numberOfIntermediateStopsRemaining
 nextWaypointInfo
 stripForSendingUpdatedWaypoints
@@ -8835,6 +8913,7 @@ transitOptions
 walkingOptions
 cyclingOptions
 navigationWasInterrupted
+archivedSharedTripData
 T@"GEOComposedWaypoint",R,N
 T@"GEOURLRouteHandle",R,N
 T@"GEOAutomobileOptions",R,N
@@ -9243,6 +9322,35 @@ _pins
 _pinsMap
 _resetSyncRequested
 _pendingSyncItems
+mapsIdentifierType
+messagesIdentifierType
+setCreatedTimestamp:
+setHasCreatedTimestamp:
+hasCreatedTimestamp
+hasGroupIdentifier
+clearMapsIdentifiers
+addMapsIdentifier:
+mapsIdentifiersCount
+mapsIdentifierAtIndex:
+clearMessagesIdentifiers
+addMessagesIdentifier:
+messagesIdentifiersCount
+messagesIdentifierAtIndex:
+createdTimestamp
+groupIdentifier
+setGroupIdentifier:
+mapsIdentifiers
+setMapsIdentifiers:
+messagesIdentifiers
+setMessagesIdentifiers:
+_createdTimestamp
+_groupIdentifier
+_mapsIdentifiers
+_messagesIdentifiers
+Td,N,V_createdTimestamp
+T@"NSString",&,N,V_groupIdentifier
+T@"NSMutableArray",&,N,V_mapsIdentifiers
+T@"NSMutableArray",&,N,V_messagesIdentifiers
 moveFavoriteWithIdentifier:belowFavoriteWithIdentifier:context:completionQueue:completion:
 moveFavorite:belowFavorite:context:completionQueue:completion:
 placesQueryWithDelegate:
@@ -9439,6 +9547,7 @@ navigationListener:didUpdateLocation:routeMatchedCoordinate:
 navigationListener:didUpdateRoute:
 navigationListener:didUpdateTrafficForCurrentRoute:
 navigationListener:didArriveAtWaypoint:endOfLegIndex:
+navigationListener:didResumeNavigatingFromWaypoint:endOfLegIndex:
 navigationListener:didUpdateETA:
 _initPendingStateIfNeeded
 _initPendingStateIfNeededWithTransportType:
@@ -9553,6 +9662,7 @@ navigationListenerStopped:
 groupSessionEnded:withError:
 rulesForParticipant:
 touchedRules
+archivedSharingState
 _updateStorage
 _restoreLastSession
 _createGroupSessionIfNeededWithIdentifier:
@@ -9577,6 +9687,7 @@ _liveSender
 _messageSender
 _sessionStorage
 _storageController
+T@"MSPSharingRestorationStorage",R,C,N
 T@"NSObject<MSPSenderETAControllerDelegate>",W,N,V_delegate
 hasRegion
 region
@@ -9697,7 +9808,6 @@ instanceCompatibleWithReceiverCapabilities:
 minimalStrategyIdentifierType
 liveStrategyIdentifierType
 messageStrategyIdentifierType
-hasGroupIdentifier
 hasOriginatorIdentifier
 hasState
 setLastUpdateTimestamp:
@@ -9718,8 +9828,6 @@ messageStrategyIdentifiersCount
 messageStrategyIdentifierAtIndex:
 hasReceivingHandle
 hasReceivingAccountIdentifier
-groupIdentifier
-setGroupIdentifier:
 originatorIdentifier
 setOriginatorIdentifier:
 lastUpdateTimestamp
@@ -9737,14 +9845,12 @@ receivingAccountIdentifier
 setReceivingAccountIdentifier:
 _lastUpdateTimestamp
 _fromID
-_groupIdentifier
 _liveStrategyIdentifiers
 _messageStrategyIdentifiers
 _minimalStrategyIdentifiers
 _originatorIdentifier
 _receivingAccountIdentifier
 _receivingHandle
-T@"NSString",&,N,V_groupIdentifier
 T@"NSString",&,N,V_originatorIdentifier
 T@"GEOSharedNavState",&,N,V_state
 Td,N,V_lastUpdateTimestamp
@@ -9854,6 +9960,10 @@ addSendingObserver:
 removeSendingObserver:
 _validateCurrentConfigurationWithCompletion:
 _isMapsInstalled
+contactsFromArchivedTripSharingState:
+_supportsArchivingSharingState
+_archivedSharingStateGroup
+_updateArchivedSharingState
 _checkinWithCompletion:
 _fetchSharingIdentityWithCompletion:
 _fetchRequiresUserConfirmationOfSharingIdentityWithCompletion:
@@ -9865,6 +9975,7 @@ _startSharingTripWithMessagesGroup:completion:
 _stopSharingTripWithMessagesGroup:
 _stopSharingTrip
 _fetchActiveHandlesWithCompletion:
+_fetchArchivedSharingStateWithCompletion:
 _fetchSharedTripsWithCompletion:
 _subscribeToSharedTripUpdatesWithIdentifier:completion:
 _blockSharedTrip:
@@ -9887,6 +9998,7 @@ _userDisabledDefaultListener
 _serverDisabledDefaultListener
 _mapsPaths
 _confirmedMapsIsInstalled
+_archivedSharingState
 initWithSharedTripIdentifier:invalidationHandler:
 _sharedTripIdentifier
 fetchStateSnapshotWithCompletion:
@@ -9969,6 +10081,7 @@ v32@0:8@"NSArray"16@?<v@?@"NSError">24
 v24@0:8@"NSArray"16
 v24@0:8@"NSString"16
 v24@0:8@?<v@?@"NSArray">16
+v24@0:8@?<v@?@"MSPSharingRestorationStorage">16
 v24@0:8@"MSPSharedTripSharingIdentity"16
 v24@0:8@"NSError"16
 v24@0:8@"GEOSharedNavState"16
@@ -10226,6 +10339,7 @@ B32@0:8@"SYSession"16^@24
 v32@0:8@"SYSession"16@?<v@?B@"NSError">24
 v32@0:8@"SYSession"16@"NSSet"24
 @"SYService"
+{?="createdTimestamp"b1}
 v56@0:8@16@24@32@40@?48
 v32@0:8{CLLocationCoordinate2D=dd}16
 @"MSPTransitStorageSystem"
