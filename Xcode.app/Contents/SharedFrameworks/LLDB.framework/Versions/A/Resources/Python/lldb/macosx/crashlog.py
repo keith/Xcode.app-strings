@@ -97,14 +97,11 @@ class CrashLog(symbolication.Symbolicator):
             for frame_idx, frame in enumerate(self.frames):
                 disassemble = (
                     this_thread_crashed or options.disassemble_all_threads) and frame_idx < options.disassemble_depth
-                if frame_idx == 0:
-                    symbolicated_frame_addresses = crash_log.symbolicate(
-                        frame.pc & crash_log.addr_mask, options.verbose)
-                else:
-                    # Any frame above frame zero and we have to subtract one to
-                    # get the previous line entry
-                    symbolicated_frame_addresses = crash_log.symbolicate(
-                        (frame.pc & crash_log.addr_mask) - 1, options.verbose)
+                # Except for the zeroth frame, we should subtract 1 from every
+                # frame pc to get the previous line entry.
+                pc = frame.pc & crash_log.addr_mask
+                pc = pc if frame_idx == 0 or pc == 0 else pc - 1
+                symbolicated_frame_addresses = crash_log.symbolicate(pc, options.verbose)
                 if symbolicated_frame_addresses:
                     symbolicated_frame_address_idx = 0
                     for symbolicated_frame_address in symbolicated_frame_addresses:
@@ -828,11 +825,19 @@ def save_crashlog(debugger, command, exe_ctx, result, dict):
         out_file.close()
     else:
         result.PutCString("error: invalid target")
-def Symbolicate(debugger, command, result, dict):
-    try:
-        SymbolicateCrashLogs(debugger, shlex.split(command))
-    except Exception as e:
-        result.PutCString("error: python exception: %s" % e)
+class Symbolicate:
+    def __init__(self, debugger, internal_dict):
+        pass
+    def __call__(self, debugger, command, exe_ctx, result):
+        try:
+            SymbolicateCrashLogs(debugger, shlex.split(command))
+        except Exception as e:
+            result.PutCString("error: python exception: %s" % e)
+    def get_short_help(self):
+        return "Symbolicate one or more darwin crash log files."
+    def get_long_help(self):
+        option_parser = CrashLogOptionParser()
+        return option_parser.format_help()
 def SymbolicateCrashLog(crash_log, options):
     if options.debug:
         crash_log.dump()
@@ -1063,7 +1068,7 @@ def CreateSymbolicateCrashLogOptions(
             help='dump symbolicated stackframes without creating a debug session',
             default=True)
     return option_parser
-def SymbolicateCrashLogs(debugger, command_args):
+def CrashLogOptionParser():
     description = '''Symbolicate one or more darwin crash log files to provide source file and line information,
 inlined stack frames back to the concrete functions, and disassemble the location of the crash
 for the first frame of the crashed thread.
@@ -1072,8 +1077,12 @@ for use at the LLDB command line. After a crash log has been parsed and symbolic
 created that has all of the shared libraries loaded at the load addresses found in the crash log file. This allows
 you to explore the program as if it were stopped at the locations described in the crash log and functions can
 be disassembled and lookups can be performed using the addresses found in the crash log.'''
-    option_parser = CreateSymbolicateCrashLogOptions(
-        'crashlog', description, True)
+    return CreateSymbolicateCrashLogOptions('crashlog', description, True)
+def SymbolicateCrashLogs(debugger, command_args):
+    option_parser = CrashLogOptionParser()
+    if not len(command_args):
+        option_parser.print_help()
+        return
     try:
         (options, args) = option_parser.parse_args(command_args)
     except:
@@ -1109,8 +1118,10 @@ if __name__ == '__main__':
     debugger = lldb.SBDebugger.Create()
     SymbolicateCrashLogs(debugger, sys.argv[1:])
     lldb.SBDebugger.Destroy(debugger)
-elif getattr(lldb, 'debugger', None):
-    lldb.debugger.HandleCommand(
-        'command script add -f lldb.macosx.crashlog.Symbolicate crashlog')
-    lldb.debugger.HandleCommand(
+def __lldb_init_module(debugger, internal_dict):
+    debugger.HandleCommand(
+        'command script add -c lldb.macosx.crashlog.Symbolicate crashlog')
+    debugger.HandleCommand(
         'command script add -f lldb.macosx.crashlog.save_crashlog save_crashlog')
+    print('"crashlog" and "save_crashlog" commands have been installed, use '
+          'the "--help" options on these commands for detailed help.')

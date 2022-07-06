@@ -65,6 +65,8 @@ ServerFallbackCapableRequestProcessing
 333333
 ?PommesRequestProcessor
 PommesResultCandidateState
+FlowPluginInfoMessage
+CodingKeys
 PommesError
 PommesResultCandidateMessage
 CodingKeys
@@ -147,6 +149,7 @@ apiNotSupported
 copyAceCommandFailed
 partialResult
 finalResult
+finalResultCandidate
 resultType
 local
 remote
@@ -166,6 +169,8 @@ serverFallbackInProgress
 serverFallbackFinished
 invalidState
 canceled
+supportsOnDeviceNL
+isPersonalRequest
 scoreBelowThreshold
 noDelegatedUDA
 timedOut
@@ -387,7 +392,7 @@ rskeProcessorExecutionDelegate
 Execution requested server fallback from an RSKE. Returning a RunSiriKitExecutorCompleted with needsServerExecution=true
 Sending RSKECompleted: %s
 Sending RSKECompleted as response to RSKE
-Warning: RSKE command has no mode, defaulting to .displayForward
+Note: RSKE command has no mode, using nil (SKE will get it from turn context)
 Warning: RSKE command has no inputOrigin, defaulting to that of the last request
 Handling close() from Execution kicked off by RSKE, errorString=%s
 Failed to find requestId for logging selg message
@@ -569,6 +574,8 @@ ResultCandidateState[rcId:
 ", processingStatus: 
 , mitigatedByURS:
 , serverFallback: 
+, voiceIdClassification: 
+, voiceIdScore: 
 NLRequestProcessor received message: %@
 RequestDispatcherBridges.NLRequestProcessor
 _TtC24RequestDispatcherBridges18NLRequestProcessor
@@ -578,6 +585,7 @@ dictationRequestHandler
 sessionState
 turnInputManager
 sessionUserId
+userIdDict
 requestType %s should not receive CDM callback
 Unexpected requestType %s
 Request is cancelled, not processing CDMSetupFailure for nluRequestId: %s
@@ -661,11 +669,13 @@ Missing DictationAsrResult while logging error
 asrResult could not be found for nluRequestId: %s
 CDM setup failure. Sending cached ASR results to dictation client for nluRequestId %s
 CDMSetup failed while trying to send NLURequest for dictation
+Do not handle resultType finalResultCandidate
 resultType is final but speechPackage is nil
 resultType is partial but speechTokens is nil
 Created dictation nluRequest for requestId=%s nluRequest = %s
 CDMNluResponse is corrupted as objcProto is nil
 Received error responseStatus: %s nlResponse: %s
+Recieved final result candidate do not process as of now
 Unexpected DictationAsrResultMessage content. resultType is final but speechPackage is final
 Unexpected DictationAsrResultMessage content. resultType is partial but speechTokens is nil
 RequestDispatcherBridges.ExecutionRequestProcessor
@@ -803,6 +813,11 @@ Request already canceled. Not handling NLResultCandidateMessage.
 RequestContextData: %s
 Current requestId: %s does not match executionRequestId: %s. Not re-triggering another request
 Current request already canceled. Not re-triggering another request.
+Received FlowPluginInfo from Conversation before endpointing. FlowPluginInfo is not supposed to be sent eagerly.
+VoiceIdentificationSignal was not initialized. Refer to RequestDispatcher logs to understand why.
+Could not init FlowPluginInfoMessage
+Posted FlowPluginInfo message to the bus
+Sent VoiceIdentificationSignal, error: %s
 Received close() for requestId:%s on ExecutionRequestProcessor with requestId:%s .. ignoring.
 Request already canceled. Not closing.
 Received FlowOutput for requestId:%s on ExecutionRequestProcessor with requestId:%s .. dropping it on the floor
@@ -888,9 +903,11 @@ Fetched %s
 PommesRequestProcessor received messages: %s
 PommesBridge handling message: %@
 com.apple.siri.pommes
+RequestDispatcherBridges.FlowPluginInfoMessage
+init(withSource:assistantId:sessionId:requestId:resultCandidateId:)
+_TtC24RequestDispatcherBridges21FlowPluginInfoMessage
 PommesResultCandidateMessage invalid init with nil error and nil pommesResponse
 RequestDispatcherBridges.PommesResultCandidateMessage
-init(withSource:assistantId:sessionId:requestId:resultCandidateId:)
 _TtC24RequestDispatcherBridges28PommesResultCandidateMessage
 pommesResponse
 Unexpected unknown taskName, setting deliverEager to true
@@ -922,7 +939,6 @@ homeMembers
 isRMVEnabled
 dictationLanguage
 myriadMonitor
-speechClient
 #AsrOnServer Received SASSpeechRecognized for requestId:%s
 #AsrOnServer Received SASSpeechServerEndpointIdentified for requestId:%s
 #AsrOnServer Received SASResultCandidate for requestId:%s
@@ -1021,7 +1037,7 @@ Handling Error from CDM - removing entry from nluRequestIdToStartRequestId for n
 Dropping NLURequest as active session is not the same session for startRequestId: %s nluRequestId: %s
 cdmClient is nil, cannot send nluRequest for startRequestId: %s nluRequestId: %s
 Dropping NLURequest as NLRequestProcessor is not available for startRequestId: %s nluRequestId: %s
-cdmSetupSucceeded is false or nil, handling setup failure. startRequestId: %s nluRequestId: %s
+cdmSetupSucceeded is false or nil, or has timed out in the session, handling setup failure. startRequestId: %s nluRequestId: %s
 Created a wrapper CDMNluRequest with native Siri_Nlu_External_Cdm_NluRequest
 Sending nluRequest to CDM for startRequestId: %s nluRequestId: %s
 Dropping CDM request as Request is cancelled for startRequestId: %s nluRequestId: %s
@@ -1032,7 +1048,6 @@ CDMProxy received nluRequest for startRequestId: %s nluRequestId: %s
 Active session is not the same as setup session instead of end session %s
 cdmClient observed cdmSetupStatus (successFromSetup) with a nil. Treating this a failure.
 cdmClient setup result, cdmSetupSucceeded: %{bool}d
-Ignoring observed successFromSetup as cdmSetupSucceeded is already set to: %{bool}d
 Can't get end setup signpost id, that should not happen
 CDMSetupTime
 cdmClient is nil so nothing to release here
@@ -1047,7 +1062,7 @@ cdmClient setup result, cdmSetupSucceeded: false, error: %s
 Received errorFromSetup from CDM
 Received successFromSetup from CDM, but the proxy instance was removed
 Received successFromSetup from CDM
-Given local %s is not the same as exists locale %s, should call setup again
+Given locale %s is not the same as exists locale %s, should call setup again
 assets changed, should call setup again
 cdmClient doesn't exist, creating one
 Previous setup failed or not run, should call setup again
@@ -1071,6 +1086,7 @@ v24@0:8@"NSLocale"16
 RequestDispatcherBridges.AsrRequestProcessor
 _TtC24RequestDispatcherBridges19AsrRequestProcessor
 messagePublishing
+speechClient
 isRMVEnabed
 asrOnServer
 speechResponseHandler
@@ -1114,9 +1130,13 @@ Initalizing PommesSearch async
 _TtC24RequestDispatcherBridges18ServerAsrProcessor
 assistantId
 userId
+#AsrOnServer Failed to create ResultSelectedMessage for request: %s
+#AsrOnServer Invoked posting of ResultSelectedMessage for request: %s resultSelectedMsg: %@
 #AsrOnServer Exiting as the requestType is unsupported. Request: %s
 #AsrOnServer Response requestId does not match current requestId
 #AsrOnServer Failed to create AsrResultCandidateMessage for request: %s
+#AsrOnServer we are in StartUnderstandingOnServer path. Not posting ResultSelectedMessage. We shouldn't receive empty recognition for StartUnderstaingOnServer.
+#AsrOnServer Invoked posting of AsrResultCandidateMessage for request: %s rcId: %s
 #AsrOnServer Not posting AsrResultCandidateMessage as the requestType is uos. request: %s rcId: %s
 #AsrOnServer resultCandidate does not contain resultId: using the default 0
 #AsrOnServer resultCandidate does not contain recogniton: using empty AFSpeechPackage for AsrResultCandiateMessage
@@ -1124,8 +1144,6 @@ userId
 #AsrOnServer self expired. Ignoring RC acceptance result for rcId:%s rc refId:%s
 #AsrOnServer Did  not received SAResultSelected for RC acceptance. RC not accepted.
 #AsrOnServer The refId of ResultSelected %s doesn't match the current requestId: %s. Ignoring RC acceptance result.
-#AsrOnServer Failed to create ResultSelectedMessage for request: %s
-#AsrOnServer Posted ResultSelectedMessage for request: %s resultSelectedMsg: %@
 #AsrOnServer we are in StartUnderstaingOnServer path. Sent ResultSelected to the server.
 #AsrOnServer self expired. Ignoring SASSpeechRecognized response refId:%s
 #AsrOnServer self expired. Ignoring SASSpeechServerEndpointIdentified response refId:%s
@@ -1198,8 +1216,9 @@ AceObject
 _TtC24RequestDispatcherBridges31SpeechRecognizerResponseHandler
 sessionId
 RequestDispatcherBridges.SpeechRecognizerResponseHandler
-localSpeechRecognizerClient(_:receivedFinalResultWithRequestId:speechPackage:metadata:)
+localSpeechRecognizerClient(_:receivedFinalResultCandidateWithRequestId:speechPackage:)
 Unexpected %s called on base %s class
+localSpeechRecognizerClient(_:receivedFinalResultWithRequestId:speechPackage:metadata:)
 localSpeechRecognizerClient(_:receivedPartialResultWithRequestId:language:tokens:metadata:)
 localSpeechRecognizerClient(_:receivedVoiceIdScoreCard:)
 localSpeechRecognizerClient(_:didAcceptedEagerResultWithRequestId:rcId:mitigationSignal:featuresToLog:)
@@ -1270,6 +1289,7 @@ From SessionState executedTasks: %s
 From SessionState activeTasks: %s
 From SessionState systemDialogActs: %s
 Creating NLXTurnContext for userId:%s
+Sending loggableSharedUserId: %s to NLX
 Sending userId: %s to NLX
 Created nluRequest for requestId=%s rcId=%s nluRequest = %s
 Not updating TurnContainer as selectedRcId is nil
@@ -1362,6 +1382,8 @@ RequestID: %s has been mitigated
 Mitigating this request: %s. Requested to mitigate by Speech: %s
 Mitigating this request: %s due to empty ASR
 Posted CloseAssistant, error:%s
+ActivePhoneCall#UnsupportedDuringActiveCall
+Rejecting this request: %s since user is on a phone call
 Rejecting this request: %s because it's an unrelated followup to an announced call.
 Action taken on requestId: %s is: %s
 OfflineServerFallback#AirplaneMode
@@ -1479,9 +1501,9 @@ SaySo20SAClientBoundCommand_pGSg
 So32SARDServerContextUpdateCandidateCSg
 So14SASRecognitionCSg
 SDyS2SGSg
+So16SAHomeMemberInfoCGSg
 _pSg
 SbSg
-GSpySo8NSObjectCSgGSgSpyypGSgytIeglllr_
 So29LBLocalSpeechRecognizerClientC
 SDySS
 So20SAClientBoundCommand_p
@@ -1626,6 +1648,7 @@ keysToRemove
 RawValue
 partialResult
 finalResult
+finalResultCandidate
 speechTokens
 speechPackage
 resultType
@@ -1744,6 +1767,7 @@ sessionState
 turnInputManager
 isMUXEnabled
 sessionUserId
+userIdDict
 curareTestSource
 speechRecognizerResponseHandler
 speechRecognizerClient
@@ -1819,6 +1843,9 @@ pommesDUDAThreshold
 resultCandidateId
 finished
 utterance
+supportsOnDeviceNL
+isPersonalRequest
+RawValue
 RawValue
 scoreBelowThreshold
 noDelegatedUDA
@@ -1857,7 +1884,6 @@ dictationLanguage
 isMUXEnabled
 maxEagerRCAllowed
 myriadMonitor
-speechClient
 instrumentationUtil
 pegasusConversationContext
 originalRequestId
@@ -1937,6 +1963,7 @@ requestId
 userId
 serviceHelper
 bufferedResultCandidateHandler
+instrumentationUtil
 currentSessionId
 sessionState
 turnInputManager
@@ -1944,6 +1971,7 @@ cdmProxy
 understandingOnDevice
 isMUXEnabled
 sessionUserId
+muxContextMessage
 systemDialogActs
 activeTasks
 executedTasks
@@ -1994,6 +2022,7 @@ didUpdateTurnContainer
 instrumentationUtil
 isMUXEnabled
 sessionUserId
+userIdDict
 stream
 commonInstrumentationUtil
 requestDispatcherServiceHelper
@@ -2257,11 +2286,11 @@ sharedPreferences
 secureOfflineOnly
 taskHint
 forceOfflineRecognition
-invalidate
 stringForKey:
 serializedContextByKey
 callState
 localSpeechRecognizerClient:receivedPartialResultWithRequestId:language:tokens:metadata:
+localSpeechRecognizerClient:receivedFinalResultCandidateWithRequestId:speechPackage:
 localSpeechRecognizerClient:receivedFinalResultWithRequestId:speechPackage:metadata:
 localSpeechRecognizerClient:receivedEagerRecognitionCandidateWithRequestId:rcId:speechPackage:duration:metadata:
 shouldClassifyIntent
@@ -2279,6 +2308,7 @@ errorFromSetup
 setup:
 initWithLocaleIdentifier:sandboxId:activeServiceGraph:
 registerWithAssetsDelegate:
+invalidate
 stopLocalSpeechRecognitionTaskWithReason:requestId:
 setLocalSpeechRecognizerClientDelegate:
 isDictationAutoPunctuationEnabled
@@ -2330,7 +2360,6 @@ JSONObjectWithData:options:error:
 dataWithJSONObject:options:error:
 data
 localSpeechRecognizerClient:receivedEagerRecognitionCandidateWithRequestId:rcId:rawRecognitionResult:duration:
-localSpeechRecognizerClient:receivedFinalResultCandidateWithRequestId:speechPackage:
 initWithNSUUID:
 setContextId:
 setServerFallbackContext:
@@ -2348,6 +2377,7 @@ setExecutionBridgeContext:
 setExecutionForRSKE:
 setPreExecutionDecision:
 setCommandSource:
+loggableMultiUserSharedUserId
 firstMatchInString:options:range:
 initWithPattern:options:error:
 setMultiUserResultSelected:
@@ -2368,13 +2398,13 @@ execute:catId:parameters:globals:completion:
 UUIDString
 print
 setText:
-setSpeakableText:
 dialogId
 setDialogIdentifier:
 setListenAfterSpeaking:
 setDialogPhase:
 setDisplayTarget:
 setViews:
+setSpeakableText:
 defaultService
 registerContextTransformer:forType:
 proximity
@@ -2451,6 +2481,8 @@ ExecutionRequestProcessing
 ServerFallbackCapableRequestProcessing
 PommesRequestProcessor
 PommesResultCandidateState
+FlowPluginInfoMessage
+CodingKeys
 $*3:
 PommesError
 PommesResultCandidateMessage
@@ -2536,6 +2568,7 @@ apiNotSupported
 copyAceCommandFailed
 partialResult
 finalResult
+finalResultCandidate
 resultType
 local
 remote
@@ -2555,6 +2588,8 @@ serverFallbackInProgress
 serverFallbackFinished
 invalidState
 canceled
+supportsOnDeviceNL
+isPersonalRequest
 scoreBelowThreshold
 noDelegatedUDA
 timedOut
@@ -2776,7 +2811,7 @@ rskeProcessorExecutionDelegate
 Execution requested server fallback from an RSKE. Returning a RunSiriKitExecutorCompleted with needsServerExecution=true
 Sending RSKECompleted: %s
 Sending RSKECompleted as response to RSKE
-Warning: RSKE command has no mode, defaulting to .displayForward
+Note: RSKE command has no mode, using nil (SKE will get it from turn context)
 Warning: RSKE command has no inputOrigin, defaulting to that of the last request
 Handling close() from Execution kicked off by RSKE, errorString=%s
 Failed to find requestId for logging selg message
@@ -2958,6 +2993,8 @@ ResultCandidateState[rcId:
 ", processingStatus: 
 , mitigatedByURS:
 , serverFallback: 
+, voiceIdClassification: 
+, voiceIdScore: 
 NLRequestProcessor received message: %@
 RequestDispatcherBridges.NLRequestProcessor
 _TtC24RequestDispatcherBridges18NLRequestProcessor
@@ -2967,6 +3004,7 @@ dictationRequestHandler
 sessionState
 turnInputManager
 sessionUserId
+userIdDict
 requestType %s should not receive CDM callback
 Unexpected requestType %s
 Request is cancelled, not processing CDMSetupFailure for nluRequestId: %s
@@ -3050,11 +3088,13 @@ Missing DictationAsrResult while logging error
 asrResult could not be found for nluRequestId: %s
 CDM setup failure. Sending cached ASR results to dictation client for nluRequestId %s
 CDMSetup failed while trying to send NLURequest for dictation
+Do not handle resultType finalResultCandidate
 resultType is final but speechPackage is nil
 resultType is partial but speechTokens is nil
 Created dictation nluRequest for requestId=%s nluRequest = %s
 CDMNluResponse is corrupted as objcProto is nil
 Received error responseStatus: %s nlResponse: %s
+Recieved final result candidate do not process as of now
 Unexpected DictationAsrResultMessage content. resultType is final but speechPackage is final
 Unexpected DictationAsrResultMessage content. resultType is partial but speechTokens is nil
 RequestDispatcherBridges.ExecutionRequestProcessor
@@ -3192,6 +3232,11 @@ Request already canceled. Not handling NLResultCandidateMessage.
 RequestContextData: %s
 Current requestId: %s does not match executionRequestId: %s. Not re-triggering another request
 Current request already canceled. Not re-triggering another request.
+Received FlowPluginInfo from Conversation before endpointing. FlowPluginInfo is not supposed to be sent eagerly.
+VoiceIdentificationSignal was not initialized. Refer to RequestDispatcher logs to understand why.
+Could not init FlowPluginInfoMessage
+Posted FlowPluginInfo message to the bus
+Sent VoiceIdentificationSignal, error: %s
 Received close() for requestId:%s on ExecutionRequestProcessor with requestId:%s .. ignoring.
 Request already canceled. Not closing.
 Received FlowOutput for requestId:%s on ExecutionRequestProcessor with requestId:%s .. dropping it on the floor
@@ -3277,9 +3322,11 @@ Fetched %s
 PommesRequestProcessor received messages: %s
 PommesBridge handling message: %@
 com.apple.siri.pommes
+RequestDispatcherBridges.FlowPluginInfoMessage
+init(withSource:assistantId:sessionId:requestId:resultCandidateId:)
+_TtC24RequestDispatcherBridges21FlowPluginInfoMessage
 PommesResultCandidateMessage invalid init with nil error and nil pommesResponse
 RequestDispatcherBridges.PommesResultCandidateMessage
-init(withSource:assistantId:sessionId:requestId:resultCandidateId:)
 _TtC24RequestDispatcherBridges28PommesResultCandidateMessage
 pommesResponse
 Unexpected unknown taskName, setting deliverEager to true
@@ -3311,7 +3358,6 @@ homeMembers
 isRMVEnabled
 dictationLanguage
 myriadMonitor
-speechClient
 #AsrOnServer Received SASSpeechRecognized for requestId:%s
 #AsrOnServer Received SASSpeechServerEndpointIdentified for requestId:%s
 #AsrOnServer Received SASResultCandidate for requestId:%s
@@ -3410,7 +3456,7 @@ Handling Error from CDM - removing entry from nluRequestIdToStartRequestId for n
 Dropping NLURequest as active session is not the same session for startRequestId: %s nluRequestId: %s
 cdmClient is nil, cannot send nluRequest for startRequestId: %s nluRequestId: %s
 Dropping NLURequest as NLRequestProcessor is not available for startRequestId: %s nluRequestId: %s
-cdmSetupSucceeded is false or nil, handling setup failure. startRequestId: %s nluRequestId: %s
+cdmSetupSucceeded is false or nil, or has timed out in the session, handling setup failure. startRequestId: %s nluRequestId: %s
 Created a wrapper CDMNluRequest with native Siri_Nlu_External_Cdm_NluRequest
 Sending nluRequest to CDM for startRequestId: %s nluRequestId: %s
 Dropping CDM request as Request is cancelled for startRequestId: %s nluRequestId: %s
@@ -3421,7 +3467,6 @@ CDMProxy received nluRequest for startRequestId: %s nluRequestId: %s
 Active session is not the same as setup session instead of end session %s
 cdmClient observed cdmSetupStatus (successFromSetup) with a nil. Treating this a failure.
 cdmClient setup result, cdmSetupSucceeded: %{bool}d
-Ignoring observed successFromSetup as cdmSetupSucceeded is already set to: %{bool}d
 Can't get end setup signpost id, that should not happen
 CDMSetupTime
 cdmClient is nil so nothing to release here
@@ -3436,7 +3481,7 @@ cdmClient setup result, cdmSetupSucceeded: false, error: %s
 Received errorFromSetup from CDM
 Received successFromSetup from CDM, but the proxy instance was removed
 Received successFromSetup from CDM
-Given local %s is not the same as exists locale %s, should call setup again
+Given locale %s is not the same as exists locale %s, should call setup again
 assets changed, should call setup again
 cdmClient doesn't exist, creating one
 Previous setup failed or not run, should call setup again
@@ -3460,6 +3505,7 @@ v24@0:8@"NSLocale"16
 RequestDispatcherBridges.AsrRequestProcessor
 _TtC24RequestDispatcherBridges19AsrRequestProcessor
 messagePublishing
+speechClient
 isRMVEnabed
 asrOnServer
 speechResponseHandler
@@ -3503,9 +3549,13 @@ Initalizing PommesSearch async
 _TtC24RequestDispatcherBridges18ServerAsrProcessor
 assistantId
 userId
+#AsrOnServer Failed to create ResultSelectedMessage for request: %s
+#AsrOnServer Invoked posting of ResultSelectedMessage for request: %s resultSelectedMsg: %@
 #AsrOnServer Exiting as the requestType is unsupported. Request: %s
 #AsrOnServer Response requestId does not match current requestId
 #AsrOnServer Failed to create AsrResultCandidateMessage for request: %s
+#AsrOnServer we are in StartUnderstandingOnServer path. Not posting ResultSelectedMessage. We shouldn't receive empty recognition for StartUnderstaingOnServer.
+#AsrOnServer Invoked posting of AsrResultCandidateMessage for request: %s rcId: %s
 #AsrOnServer Not posting AsrResultCandidateMessage as the requestType is uos. request: %s rcId: %s
 #AsrOnServer resultCandidate does not contain resultId: using the default 0
 #AsrOnServer resultCandidate does not contain recogniton: using empty AFSpeechPackage for AsrResultCandiateMessage
@@ -3513,8 +3563,6 @@ userId
 #AsrOnServer self expired. Ignoring RC acceptance result for rcId:%s rc refId:%s
 #AsrOnServer Did  not received SAResultSelected for RC acceptance. RC not accepted.
 #AsrOnServer The refId of ResultSelected %s doesn't match the current requestId: %s. Ignoring RC acceptance result.
-#AsrOnServer Failed to create ResultSelectedMessage for request: %s
-#AsrOnServer Posted ResultSelectedMessage for request: %s resultSelectedMsg: %@
 #AsrOnServer we are in StartUnderstaingOnServer path. Sent ResultSelected to the server.
 #AsrOnServer self expired. Ignoring SASSpeechRecognized response refId:%s
 #AsrOnServer self expired. Ignoring SASSpeechServerEndpointIdentified response refId:%s
@@ -3587,8 +3635,9 @@ AceObject
 _TtC24RequestDispatcherBridges31SpeechRecognizerResponseHandler
 sessionId
 RequestDispatcherBridges.SpeechRecognizerResponseHandler
-localSpeechRecognizerClient(_:receivedFinalResultWithRequestId:speechPackage:metadata:)
+localSpeechRecognizerClient(_:receivedFinalResultCandidateWithRequestId:speechPackage:)
 Unexpected %s called on base %s class
+localSpeechRecognizerClient(_:receivedFinalResultWithRequestId:speechPackage:metadata:)
 localSpeechRecognizerClient(_:receivedPartialResultWithRequestId:language:tokens:metadata:)
 localSpeechRecognizerClient(_:receivedVoiceIdScoreCard:)
 localSpeechRecognizerClient(_:didAcceptedEagerResultWithRequestId:rcId:mitigationSignal:featuresToLog:)
@@ -3659,6 +3708,7 @@ From SessionState executedTasks: %s
 From SessionState activeTasks: %s
 From SessionState systemDialogActs: %s
 Creating NLXTurnContext for userId:%s
+Sending loggableSharedUserId: %s to NLX
 Sending userId: %s to NLX
 Created nluRequest for requestId=%s rcId=%s nluRequest = %s
 Not updating TurnContainer as selectedRcId is nil
@@ -3751,6 +3801,8 @@ RequestID: %s has been mitigated
 Mitigating this request: %s. Requested to mitigate by Speech: %s
 Mitigating this request: %s due to empty ASR
 Posted CloseAssistant, error:%s
+ActivePhoneCall#UnsupportedDuringActiveCall
+Rejecting this request: %s since user is on a phone call
 Rejecting this request: %s because it's an unrelated followup to an announced call.
 Action taken on requestId: %s is: %s
 OfflineServerFallback#AirplaneMode
@@ -3868,9 +3920,9 @@ SaySo20SAClientBoundCommand_pGSg
 So32SARDServerContextUpdateCandidateCSg
 So14SASRecognitionCSg
 SDyS2SGSg
+So16SAHomeMemberInfoCGSg
 _pSg
 SbSg
-GSpySo8NSObjectCSgGSgSpyypGSgytIeglllr_
 So29LBLocalSpeechRecognizerClientC
 SDySS
 So20SAClientBoundCommand_p
@@ -4015,6 +4067,7 @@ keysToRemove
 RawValue
 partialResult
 finalResult
+finalResultCandidate
 speechTokens
 speechPackage
 resultType
@@ -4133,6 +4186,7 @@ sessionState
 turnInputManager
 isMUXEnabled
 sessionUserId
+userIdDict
 curareTestSource
 speechRecognizerResponseHandler
 speechRecognizerClient
@@ -4208,6 +4262,9 @@ pommesDUDAThreshold
 resultCandidateId
 finished
 utterance
+supportsOnDeviceNL
+isPersonalRequest
+RawValue
 RawValue
 scoreBelowThreshold
 noDelegatedUDA
@@ -4246,7 +4303,6 @@ dictationLanguage
 isMUXEnabled
 maxEagerRCAllowed
 myriadMonitor
-speechClient
 instrumentationUtil
 pegasusConversationContext
 originalRequestId
@@ -4326,6 +4382,7 @@ requestId
 userId
 serviceHelper
 bufferedResultCandidateHandler
+instrumentationUtil
 currentSessionId
 sessionState
 turnInputManager
@@ -4333,6 +4390,7 @@ cdmProxy
 understandingOnDevice
 isMUXEnabled
 sessionUserId
+muxContextMessage
 systemDialogActs
 activeTasks
 executedTasks
@@ -4383,6 +4441,7 @@ didUpdateTurnContainer
 instrumentationUtil
 isMUXEnabled
 sessionUserId
+userIdDict
 stream
 commonInstrumentationUtil
 requestDispatcherServiceHelper
@@ -4646,11 +4705,11 @@ sharedPreferences
 secureOfflineOnly
 taskHint
 forceOfflineRecognition
-invalidate
 stringForKey:
 serializedContextByKey
 callState
 localSpeechRecognizerClient:receivedPartialResultWithRequestId:language:tokens:metadata:
+localSpeechRecognizerClient:receivedFinalResultCandidateWithRequestId:speechPackage:
 localSpeechRecognizerClient:receivedFinalResultWithRequestId:speechPackage:metadata:
 localSpeechRecognizerClient:receivedEagerRecognitionCandidateWithRequestId:rcId:speechPackage:duration:metadata:
 shouldClassifyIntent
@@ -4668,6 +4727,7 @@ errorFromSetup
 setup:
 initWithLocaleIdentifier:sandboxId:activeServiceGraph:
 registerWithAssetsDelegate:
+invalidate
 stopLocalSpeechRecognitionTaskWithReason:requestId:
 setLocalSpeechRecognizerClientDelegate:
 isDictationAutoPunctuationEnabled
@@ -4719,7 +4779,6 @@ JSONObjectWithData:options:error:
 dataWithJSONObject:options:error:
 data
 localSpeechRecognizerClient:receivedEagerRecognitionCandidateWithRequestId:rcId:rawRecognitionResult:duration:
-localSpeechRecognizerClient:receivedFinalResultCandidateWithRequestId:speechPackage:
 initWithNSUUID:
 setContextId:
 setServerFallbackContext:
@@ -4737,6 +4796,7 @@ setExecutionBridgeContext:
 setExecutionForRSKE:
 setPreExecutionDecision:
 setCommandSource:
+loggableMultiUserSharedUserId
 firstMatchInString:options:range:
 initWithPattern:options:error:
 setMultiUserResultSelected:
@@ -4757,13 +4817,13 @@ execute:catId:parameters:globals:completion:
 UUIDString
 print
 setText:
-setSpeakableText:
 dialogId
 setDialogIdentifier:
 setListenAfterSpeaking:
 setDialogPhase:
 setDisplayTarget:
 setViews:
+setSpeakableText:
 defaultService
 registerContextTransformer:forType:
 proximity

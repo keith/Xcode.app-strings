@@ -133,7 +133,7 @@ CFBundleVersion
 +[_ICQHelperFunctions isPhotosLibraryIncludedInBackupForAccount:]
 v16@?0@"NSDictionary"8
 v24@?0q8@"NSError"16
-com.apple.icloud.quota.remote-backup-size
+com.apple.icloud.quota.remote-backup-size-timeout-queue
 offer
 flowOptions
 preloadedRemoteUIData
@@ -173,6 +173,7 @@ v32@?0q8@"NSNumber"16@"NSError"24
 v24@?0@"_ICQMegaBackupEligibilityRequest"8@"NSError"16
 v24@?0@"_ICQMegaBackupUpdateStatusRequest"8@"NSError"16
 v24@?0@"_ICQMegaBackupExtendExpirationRequest"8@"NSError"16
+quota.plan.recommendation.request
 v16@?0@"NSError"8
 -[ICQStoragePlanRecommendation calculateExtraQuotaNeededToSyncIsAccountFull:completion:]_block_invoke
 v24@?0@"NSNumber"8@"NSError"16
@@ -189,6 +190,7 @@ prefs:root=APPLE_ACCOUNT&path=PAYMENT_AND_SHIPPING/PRIMARY_PAYMENT
 prefs:root=APPLE_ACCOUNT&path=ICLOUD_SERVICE/STORAGE_AND_BACKUP/STORAGE_UPGRADE
 prefs:root=APPLE_ACCOUNT&path=ICLOUD_SERVICE/STORAGE_AND_BACKUP/MANAGE_STORAGE/CHANGE_STORAGE_PLAN
 prefs:root=ROOT
+https://setup.icloud.com/email/prefs/storage?path=STORAGE_AND_BACKUP/OPEN_STORAGE
 ICQFetchOfferURLSession
 application/x-plist
 application/x-buddyml
@@ -839,7 +841,7 @@ Invalid string
 Failed to get resource values for %@: %@
 Somehow reclaimable space is bigger than used space for %{public}@: %{public}@, %{public}@
 Used Capacity on %{public}@: %{public}@
-MBManager took too long to respond. Returning nil for remote backup
+MBManager took too long to respond. Returning nil for remote backup.
 Caught error (%@) deserializing context data (%@)
 Successfully formed context: %@
 Caught error (%@) serializing ICQRemoteContext
@@ -874,13 +876,15 @@ Failed to create extend expiration date request: %{public}@
 Server says extended expiration date is allowed (%{public}@) and updated expiration date is %{public}@
 missing extendExpirationURL for account: %@
 Invalid URL string for extend expiration: %@, account %@
-Reaching out to daemon to calculate and return estimated total quota usage after turning on all apps.
+Returning cached storage recommendation data.
+Cache does not exist or expired. Reaching out to daemon to calculate and return estimated total quota usage after turning on all apps.
 TotalQuotaUsageAfterTurnOnSync
 SIGNPOST BEGIN [id: %hu]: TotalQuotaUsageAfterTurnOnSync 
 XPC Error while fetching total quota usage.
 SIGNPOST END   [id: %hu]: (%.4fs) TotalQuotaUsageAfterTurnOnSync 
 %s request completed.
 Failed to fetch total quota usage with error: %@
+Caching storage recommendation result with expiry: %@
 attempt to open URL %@ of class %@
 Unable to find dynamicUI route in params %@
 link - presenting purchase flow in Settings
@@ -972,6 +976,8 @@ fetch error %@
 push event (%{public}@)
 reconsidered offers success:%d error:%{public}@
 push notification with unexpected event %@ (ignored)
+Found a matching cached offer. Skipping cache clear for fetchOffers on alert push.
+Offer ID %@ is a new offer! Clearing fetchOffers cache.
 _fetchDictionaryForAccount:%@ quotaKey:%@ quotaReason:%@ stub:%@ notificationID:%@ contextDictionary:%@
 request: %@ headers: %@ body: %@ body (as string): %@
 sending request for latest offer
@@ -1221,6 +1227,7 @@ choose offer type: none present
 Malformed key/format properties in message property of opportunitySheet: %@
 format array "%@" "%@"
 Received notification: %@
+Received CSF notification, posting QuotaDidChange notification named: %@
 Cannot initialize premium offer from server dict due to invalid type: %@
 Successfully initialized premium offer from server response: %@
 The requested RemoteUI URL is nil! We won't be able to present a remoteUI flow
@@ -1352,8 +1359,6 @@ Ieg_
 IeyB_IeyBhy_
 IeyB_
 So8NSObjectC
-IeghH_
-_pIeghHzo_
 ScCyyt
 ypSg
 ySS_yptG
@@ -1364,7 +1369,6 @@ _pSg
 $s11iCloudQuota7AnyTaskP
 SDySS
 SDySS
-GSpySo8NSObjectCSgGSgSpyypGSgytIeglllr_
 taskLimiters
 $defaultActor
 requests
@@ -1453,6 +1457,7 @@ ICQPremiumOffer
 ICQCloudStorageSummary
 ICQDaemonOfferCriteria
 _ICQFollowupSpecification
+ICQStoragePlanRecommendationCache
 ICQRequestProvider
 ICQMLBiomePublisher
 ICQDelayedOfferFailsafeActivityController
@@ -1733,7 +1738,9 @@ unsignedLongLongValue
 blockOperationWithBlock:
 isFinished
 cancel
+_remoteBackupSizeOperationQueue
 addOperation:
+setMaxConcurrentOperationCount:
 replaceWordsIn:with:
 stringFromTemplates:key:
 findPlaceholdersInString:
@@ -1886,7 +1893,11 @@ requestMegaBackupForAccount:deviceBackupUUID:deviceTotalUsedSpaceInBytes:queue:c
 updateMegaBackupStatusForAccount:deviceBackupUUID:status:queue:completion:
 extendExpirationForAccount:deviceBackupUUID:queue:completion:
 stringWithNonBreakingSpaces
-daemonWithErrorHandler:
+_requestQueue
+extraQuotaNeeded
+synchronousDaemonWithErrorHandler:
+dateWithTimeIntervalSinceNow:
+setExtraQuotaNeeded:expiry:
 calculateExtraQuotaNeededToSyncForAccountWithID:isAccountFull:completion:
 calculateExtraQuotaNeededToSyncIsAccountFull:completion:
 setAccount:
@@ -2263,11 +2274,13 @@ shared
 parseNotification:
 _subdRefreshOfferDetailsAndDisplay:completion:account:accountStore:notificationID:isoNewOfferResponse:
 _subdFetchNewOfferResponseWithContent:andMaxDelaySecs:completion:
+_clearCachedStubsIfOfferIDIsNew:
 _addSampleAlert
 shouldShowForDaemonOffer:
 _showDaemonAlertForOffer:notificationDictionary:store:account:completion:
 clearAllFollowupsWithCompletion:
 _updateOffer:buttonId:info:account:accountStore:completion:
+containsOfferID:
 _mockFetchDictionaryForAccount:quotaKey:stub:notificationID:contextDictionary:completion:
 _useFetchOffersDataDirectly
 daemonOfferSource
@@ -2375,7 +2388,6 @@ initWithSuiteName:
 defaults
 dictionaryForKey:
 timeIntervalSinceNow
-dateWithTimeIntervalSinceNow:
 setDefaults:
 _defaults
 T@"NSUserDefaults",&,N,V_defaults
@@ -2717,13 +2729,12 @@ substringFromIndex:
 initWithPlaceholderInfo:
 stringForPlaceholder:
 _placeholderInfo
-_requestQueue
 shouldIgnoreCache
 cachedStorageSummary
-synchronousDaemonWithErrorHandler:
 setStorageSummary:forAltDSID:
 fetchStorageSummaryForAltDSID:completion:
 storageSummaryForAltDSID:
+daemonWithErrorHandler:
 fetchStorageByApp:forAltDSID:completion:
 fetchBackupInfoForAltDSID:completion:
 sendTipDisplayedNetworkRequestForAltDSID:tip:completion:
@@ -2846,6 +2857,7 @@ _chooseStubFromServerStubs:conditions:
 buddyStubs
 defaultStubs
 premiumStubs
+_stubsArrayContainsOfferID:stubs:
 _initServerStubsFromServerDictionary
 sortedArrayWithOptions:usingComparator:
 _isValidServerStubs:key:
@@ -2904,14 +2916,19 @@ T@"NSString",R,N,V_textFormat
 T@"NSString",R,N,V_linkFormat
 T@"NSDictionary",&,N,V_linkForBundleIdentifier
 _startObservingQuotaChangeNotifications
+_startObservingCloudSubscriptionFeaturesNotifications
 _stopObservingQuotaChangeNotifications
+_stopObservingCloudSubscriptionFeaturesNotifications
 mainQueue
 _cleanupCacheForPrimaryAccount
 addObserverForName:object:queue:usingBlock:
+registerForFeatureChangeNotificationsUsingBlock:
 removeObserver:
+unregisterForFeatureChangeNotificationsUsingObserver:
 _summaryCache
 _quotaChangeNotificationObserver
 _quotaInfoChangeNotificationObserver
+_cloudSubscriptionFeaturesObserver
 getBadgeAppFromServerDict:
 setIsBadgeApp:
 _ICQOpportunityBubbleSpecificationForServerDict:bundleId:
@@ -3035,6 +3052,7 @@ _sfSymbolID
 _sfSymbolBundlePath
 _notifyingAppId
 TB,N,V_premiumOffer
+T@"NSString",C,N,V_offerId
 T@"NSString",C,N,V_altMessage
 T@"NSString",C,N,V_noteTitle
 T@"NSString",C,N,V_noteSubTitle
@@ -3049,6 +3067,8 @@ Tq,N,V_followupDisplayStyle
 T@"NSString",C,N,V_sfSymbolID
 T@"NSString",C,N,V_sfSymbolBundlePath
 T@"NSString",C,N,V_notifyingAppId
+_extraQuotaNeeded
+_expiry
 _urlForQuotaKey:offerID:notificationID:
 _bagURLForKey:withOfferID:withNotificationID:
 _keyIsEligibleForURLStringReplacement:
@@ -3126,7 +3146,6 @@ _internalAlertSpecification
 _internalFollowupSpecification
 T@"_ICQAlertSpecification",&,N,V_internalAlertSpecification
 T@"_ICQFollowupSpecification",&,N,V_internalFollowupSpecification
-T@"NSString",C,N,V_offerId
 stringFromByteCount:countStyle:
 substitutionForPlaceholderKey:outIsBelowMin:
 substitutionsForPlaceholderKeys:checkIfBelowMin:outIsMissingSubstitution:
@@ -3427,7 +3446,7 @@ CFBundleVersion
 +[_ICQHelperFunctions isPhotosLibraryIncludedInBackupForAccount:]
 v16@?0@"NSDictionary"8
 v24@?0q8@"NSError"16
-com.apple.icloud.quota.remote-backup-size
+com.apple.icloud.quota.remote-backup-size-timeout-queue
 offer
 flowOptions
 preloadedRemoteUIData
@@ -3467,6 +3486,7 @@ v32@?0q8@"NSNumber"16@"NSError"24
 v24@?0@"_ICQMegaBackupEligibilityRequest"8@"NSError"16
 v24@?0@"_ICQMegaBackupUpdateStatusRequest"8@"NSError"16
 v24@?0@"_ICQMegaBackupExtendExpirationRequest"8@"NSError"16
+quota.plan.recommendation.request
 v16@?0@"NSError"8
 -[ICQStoragePlanRecommendation calculateExtraQuotaNeededToSyncIsAccountFull:completion:]_block_invoke
 v24@?0@"NSNumber"8@"NSError"16
@@ -3483,6 +3503,7 @@ prefs:root=APPLE_ACCOUNT&path=PAYMENT_AND_SHIPPING/PRIMARY_PAYMENT
 prefs:root=APPLE_ACCOUNT&path=ICLOUD_SERVICE/STORAGE_AND_BACKUP/STORAGE_UPGRADE
 prefs:root=APPLE_ACCOUNT&path=ICLOUD_SERVICE/STORAGE_AND_BACKUP/MANAGE_STORAGE/CHANGE_STORAGE_PLAN
 prefs:root=ROOT
+https://setup.icloud.com/email/prefs/storage?path=STORAGE_AND_BACKUP/OPEN_STORAGE
 ICQFetchOfferURLSession
 application/x-plist
 application/x-buddyml
@@ -4133,7 +4154,7 @@ Invalid string
 Failed to get resource values for %@: %@
 Somehow reclaimable space is bigger than used space for %{public}@: %{public}@, %{public}@
 Used Capacity on %{public}@: %{public}@
-MBManager took too long to respond. Returning nil for remote backup
+MBManager took too long to respond. Returning nil for remote backup.
 Caught error (%@) deserializing context data (%@)
 Successfully formed context: %@
 Caught error (%@) serializing ICQRemoteContext
@@ -4168,13 +4189,15 @@ Failed to create extend expiration date request: %{public}@
 Server says extended expiration date is allowed (%{public}@) and updated expiration date is %{public}@
 missing extendExpirationURL for account: %@
 Invalid URL string for extend expiration: %@, account %@
-Reaching out to daemon to calculate and return estimated total quota usage after turning on all apps.
+Returning cached storage recommendation data.
+Cache does not exist or expired. Reaching out to daemon to calculate and return estimated total quota usage after turning on all apps.
 TotalQuotaUsageAfterTurnOnSync
 SIGNPOST BEGIN [id: %hu]: TotalQuotaUsageAfterTurnOnSync 
 XPC Error while fetching total quota usage.
 SIGNPOST END   [id: %hu]: (%.4fs) TotalQuotaUsageAfterTurnOnSync 
 %s request completed.
 Failed to fetch total quota usage with error: %@
+Caching storage recommendation result with expiry: %@
 attempt to open URL %@ of class %@
 Unable to find dynamicUI route in params %@
 link - presenting purchase flow in Settings
@@ -4266,6 +4289,8 @@ fetch error %@
 push event (%{public}@)
 reconsidered offers success:%d error:%{public}@
 push notification with unexpected event %@ (ignored)
+Found a matching cached offer. Skipping cache clear for fetchOffers on alert push.
+Offer ID %@ is a new offer! Clearing fetchOffers cache.
 _fetchDictionaryForAccount:%@ quotaKey:%@ quotaReason:%@ stub:%@ notificationID:%@ contextDictionary:%@
 request: %@ headers: %@ body: %@ body (as string): %@
 sending request for latest offer
@@ -4515,6 +4540,7 @@ choose offer type: none present
 Malformed key/format properties in message property of opportunitySheet: %@
 format array "%@" "%@"
 Received notification: %@
+Received CSF notification, posting QuotaDidChange notification named: %@
 Cannot initialize premium offer from server dict due to invalid type: %@
 Successfully initialized premium offer from server response: %@
 The requested RemoteUI URL is nil! We won't be able to present a remoteUI flow
@@ -4646,8 +4672,6 @@ Ieg_
 IeyB_IeyBhy_
 IeyB_
 So8NSObjectC
-IeghH_
-_pIeghHzo_
 ScCyyt
 ypSg
 ySS_yptG
@@ -4658,7 +4682,6 @@ _pSg
 $s11iCloudQuota7AnyTaskP
 SDySS
 SDySS
-GSpySo8NSObjectCSgGSgSpyypGSgytIeglllr_
 taskLimiters
 $defaultActor
 requests
@@ -4747,6 +4770,7 @@ ICQPremiumOffer
 ICQCloudStorageSummary
 ICQDaemonOfferCriteria
 _ICQFollowupSpecification
+ICQStoragePlanRecommendationCache
 ICQRequestProvider
 ICQMLBiomePublisher
 ICQDelayedOfferFailsafeActivityController
@@ -4756,279 +4780,283 @@ ICQDaemonBuddyOffer
 ICQDaemonOffer
 Debugging
 _ICQMegaBackupEligibilityRequest
-whitespaceCharacterSet
-UUID
-URLWithString:
-UUIDString
-HTTPBody
-MIMEType
-JSONObjectWithData:options:error:
-Subscription
-aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
-aa_altDSID
-aa_appleAccountWithAltDSID:
-aa_isPrimaryAccount
-aa_lastKnownQuota
-aa_personID
-aa_primaryAppleAccount
-aa_setLastKnownQuota:
-abbreviation
-absoluteString
-actionWithLabel:url:
-activateWithContext:
 addEntriesFromDictionary:
+componentsSeparatedByCharactersInSet:
+source
+removeObjectForKey:
+errorWithDomain:code:userInfo:
+setUniqueIdentifier:
+UUIDString
+standardUserDefaults
+null
+defaultCenter
+componentsSeparatedByString:
+removeObserver:
 addFinishBlock:
+JSONObjectWithData:options:error:
+componentsWithString:
+initWithServiceName:viewControllerClassName:
+isValidJSONObject:
+renewCredentialsForAccount:force:reason:completion:
+numberFromString:
+componentsWithURL:resolvingAgainstBaseURL:
 addNotificationRequest:withCompletionHandler:
+toContext
+initWithServiceType:placements:
+bundleForClass:
+groupIdentifier
+defaultManager
+numberWithBool:
+containerWithIdentifier:
 addObject:
+unarchivedObjectOfClass:fromData:error:
+length
+statusCode
+containsObject:
+numberWithDouble:
+initWithString:
+defaultSessionConfiguration
+setDisplayStyle:
+underlyingDictionary
 addObjectsFromArray:
+numberWithInteger:
+setBody:
+setInformativeText:
+defaultStore
+initWithSuiteName:
+unlock
+buttonActions
+setUserInfo:
 addObserverForName:object:queue:usingBlock:
+hasPrefix:
+containsString:
+setBool:forKey:
+numberWithLongLong:
 addOperation:
+setQueryItems:
+setUsesGroupingSeparator:
+unregisterForFeatureChangeNotificationsUsingObserver:
+hasSuffix:
+numberWithUnsignedLong:
+unsignedIntegerValue
+isEqualToNumber:
+setValue:forHTTPHeaderField:
+placements
+fetchBackupInfoForAltDSID:completion:
+numberWithUnsignedLongLong:
+unsignedLongLongValue
+stringByAppendingString:
+initWithURL:
+fetchCurrentDeviceIDWithCompletionHandler:
+setValue:forKey:
+setRepresentingBundlePath:
+stringByReplacingOccurrencesOfString:withString:
+defaultWorkspace
+objectAtIndex:
+localizedStringForKey:value:table:
+initWithUnderlyingDictionary:
+iCloud
+requestWithIdentifier:content:trigger:
+postFollowUpItem:completion:
+fetchStorageByApp:forAltDSID:completion:
+count
+objectAtIndexedSubscript:
+iCloudServerOfferForAccount:options:completion:
+postFollowUpItem:error:
+lock
+setWithArray:
+lowDiskThreshold
+insertObject:atIndex:
+fetchStorageSummaryForAltDSID:completion:
+countByEnumeratingWithState:objects:count:
+objectForKey:
 ak_addAnisetteHeaders
+setBundleIconName:
+stringFromByteCount:countStyle:
+requestWithURL:cachePolicy:timeoutInterval:
+intValue
+lowercaseString
+setWithObjects:
+objectForKeyedSubscript:
 ak_addClientInfoHeader
+stringFromDate:
+deviceOffersContainType:
+postNotificationName:object:
+mainBundle
+stringFromNumber:
 ak_addCountryHeader
 ak_anisetteHeadersWithData:
-allHTTPHeaderFields
-allHeaderFields
-allKeys
-ams_DSID
-ams_activeiTunesAccount
-ams_sharedAccountStore
-anisetteDataWithError:
-appendString:
-archivedDataWithRootObject:requiringSecureCoding:error:
-array
-arrayWithArray:
-arrayWithObjects:count:
-availableSpace
-base64EncodedStringWithOptions:
-blockOperationWithBlock:
-boolForKey:
-bundleForClass:
-buttonActions
-cancel
-clearNotificationState:
-clearPendingFollowUpItemsWithUniqueIdentifiers:completion:
-clearPendingFollowUpItemsWithUniqueIdentifiers:error:
-compare:
-componentsSeparatedByCharactersInSet:
-componentsSeparatedByString:
-componentsWithString:
-componentsWithURL:resolvingAgainstBaseURL:
-containerWithIdentifier:
-containsObject:
-containsString:
-count
-countByEnumeratingWithState:objects:count:
-currentLocale
-dataTaskWithRequest:completionHandler:
-dataUsingEncoding:
-dataWithJSONObject:options:error:
-date
-dateByAddingTimeInterval:
-dateFromString:
-dateWithTimeIntervalSince1970:
-dateWithTimeIntervalSinceNow:
-dateWithTimeIntervalSinceReferenceDate:
-decodeBoolForKey:
-decodeDoubleForKey:
-decodeIntegerForKey:
-decodeObjectOfClass:forKey:
-decodeObjectOfClasses:forKey:
-deepLink
-defaultCenter
-defaultManager
-defaultSessionConfiguration
-defaultStore
-defaultWorkspace
-deviceOffersContainType:
 dictionary
-dictionaryForKey:
-dictionaryWithCapacity:
-dictionaryWithObjects:forKeys:count:
-displayStyle
-earlierDate:
-enabledDataclassesForAccount:
-encodeBool:forKey:
-encodeDouble:forKey:
-encodeInteger:forKey:
-encodeObject:forKey:
-enqueueData:
-enqueueMessageEvent:
-enumerateKeysAndObjectsUsingBlock:
-enumerateObjectsUsingBlock:
-errorWithDomain:code:userInfo:
-fetchBackupInfoForAltDSID:completion:
-fetchCurrentDeviceIDWithCompletionHandler:
-fetchStorageByApp:forAltDSID:completion:
-fetchStorageSummaryForAltDSID:completion:
-fileSystemRepresentation
-fileURLWithPath:
-filteredArrayUsingPredicate:
-firstObject
-getLibrarySizes:
-getLibrarySizesFromDB:handler:
-getPhotoCount:videoCount:
-groupIdentifier
-hasPrefix:
-hasSuffix:
-iCloud
-iCloudServerOfferForAccount:options:completion:
-infoDictionary
-initWithBundleIdentifier:
-initWithCapacity:
-initWithClientIdentifier:
-initWithData:encoding:
-initWithIdentifier:
-initWithLocaleIdentifier:
-initWithMlServerScore:totalQuota:totalUsed:totalAvailable:bundleQuotaInBytes:commerceQuotaInBytes:iCloudSubscriptionEventType:
-initWithObjectsAndKeys:
-initWithPath:
-initWithServiceName:viewControllerClassName:
-initWithServiceType:placements:
-initWithString:
-initWithSuiteName:
-initWithURL:
-initWithUnderlyingDictionary:
-insertObject:atIndex:
-intValue
-isEnabledForDataclass:
-isEqual:
-isEqualToNumber:
-isEqualToString:
-isFinished
 isValid
-isValidJSONObject:
-length
-localizedStringForKey:value:table:
-lock
-lowDiskThreshold
-lowercaseString
-mainBundle
-mainQueue
-makeDialogRequest
-messageActions
-metricsEvent
-mutableCopy
-name
-nearLowDiskThreshold
-newHandleWithDefinition:configurationContext:
-newOffer:andCallback:
-newOfferResponse
-notUploadedPhotosCount
-notUploadedVideosCount
-null
-numberFromString:
-numberWithBool:
-numberWithDouble:
-numberWithInteger:
-numberWithLongLong:
-numberWithUnsignedLong:
-numberWithUnsignedLongLong:
-objectAtIndex:
-objectAtIndexedSubscript:
-objectForKey:
-objectForKeyedSubscript:
-openSensitiveURL:withOptions:
-parseDelayedOfferFromJson:
-parseNotification:
-placements
-postFollowUpItem:completion:
-postFollowUpItem:error:
-postNotificationName:object:
-predicateWithBlock:
-preferredLanguages
-productVersion
-propertiesForDataclass:
-propertyList:isValidForFormat:
-queryItemWithName:value:
-queryItems
-rangeOfString:
-rangeOfString:options:range:
-reload
-removeObjectForKey:
-removeObserver:
-renewCredentialsForAccount:force:reason:completion:
-requestWithIdentifier:content:trigger:
-requestWithURL:cachePolicy:timeoutInterval:
+fileSystemRepresentation
 resourceValuesForKeys:error:
-resume
-saveVerifiedAccount:withCompletionHandler:
-scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
-sendEvent:
-sessionWithConfiguration:
-setActivateAction:
-setAllHTTPHeaderFields:
-setBody:
-setBool:forKey:
-setBundleIconName:
-setClearAction:
-setDateFormat:
-setDefaultActionURL:
-setDisplayStyle:
-setExtensionIdentifier:
-setFrequency:
-setGroupIdentifier:
-setHTTPBody:
-setHTTPMethod:
-setInformativeText:
-setLocale:
-setMaximumFractionDigits:
-setName:
-setNotification:
-setNumberStyle:
-setObject:forKey:
-setObject:forKeyedSubscript:
-setOptions:
-setQueryItems:
-setRepresentingBundlePath:
-setSubtitle:
-setSubtitleText:
-setTimeZone:
-setUniqueIdentifier:
-setUserInfo:
-setUsesGroupingSeparator:
-setValue:forHTTPHeaderField:
-setValue:forKey:
-setWithArray:
-setWithObjects:
+Subscription
 setXpcEndpoint:
-set_appleIDContext:
-shared
-sharedPhotoLibrary
-sharedSession
-shouldCallMlDaemon
-sortedArrayWithOptions:usingComparator:
-source
-standardUserDefaults
-statusCode
-stringByAppendingString:
-stringByReplacingOccurrencesOfString:withString:
-stringFromByteCount:countStyle:
-stringFromDate:
-stringFromNumber:
+mainQueue
+currentLocale
+resume
+fileURLWithPath:
+dictionaryForKey:
 stringValue
+infoDictionary
+predicateWithBlock:
+set_appleIDContext:
+filteredArrayUsingPredicate:
+makeDialogRequest
 stringWithFormat:
-substringFromIndex:
-substringToIndex:
-substringWithRange:
-synchronousDaemonWithErrorHandler:
-systemLibraryURL
-systemPhotoLibrary
-systemTimeZone
-timeIntervalSince1970
-timeIntervalSinceDate:
-timeIntervalSinceNow
-timeZoneForSecondsFromGMT:
-toContext
-unarchivedObjectOfClass:fromData:error:
-underlyingDictionary
-unlock
-unsignedIntegerValue
-unsignedLongLongValue
+allHTTPHeaderFields
 uppercaseString
+dictionaryWithCapacity:
+cancel
+preferredLanguages
+setLocale:
+isEnabledForDataclass:
+allHeaderFields
+aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
+dictionaryWithObjects:forKeys:count:
+firstObject
+aa_altDSID
+openSensitiveURL:withOptions:
+allKeys
+shared
+aa_appleAccountWithAltDSID:
+saveVerifiedAccount:withCompletionHandler:
+aa_isPrimaryAccount
+productVersion
+scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+messageActions
+setMaxConcurrentOperationCount:
+initWithBundleIdentifier:
+aa_lastKnownQuota
+setClearAction:
+propertiesForDataclass:
+sendEvent:
+initWithCapacity:
+aa_personID
+setMaximumFractionDigits:
+daemonWithErrorHandler:
+ams_DSID
+propertyList:isValidForFormat:
+sharedPhotoLibrary
+dataTaskWithRequest:completionHandler:
+aa_primaryAppleAccount
+initWithClientIdentifier:
+setExtensionIdentifier:
+substringFromIndex:
+ams_activeiTunesAccount
+sharedSession
+metricsEvent
+dataUsingEncoding:
+substringToIndex:
+aa_setLastKnownQuota:
+ams_sharedAccountStore
+displayStyle
+shouldCallMlDaemon
+dataWithJSONObject:options:error:
+anisetteDataWithError:
+abbreviation
+substringWithRange:
+mutableCopy
+absoluteString
+initWithData:encoding:
+synchronousDaemonWithErrorHandler:
+date
+parseDelayedOfferFromJson:
+appendString:
+name
+systemLibraryURL
 userInfo
+archivedDataWithRootObject:requiringSecureCoding:error:
+MIMEType
+isEqual:
+dateByAddingTimeInterval:
+sessionWithConfiguration:
+nearLowDiskThreshold
+isFinished
+dateFromString:
+earlierDate:
+array
+systemPhotoLibrary
+dateWithTimeIntervalSince1970:
+setDateFormat:
+parseNotification:
+isEqualToString:
 valueForKey:
+setSubtitle:
+newHandleWithDefinition:configurationContext:
+systemTimeZone
+arrayWithArray:
+dateWithTimeIntervalSinceNow:
+initWithIdentifier:
+setDefaultActionURL:
+arrayWithObjects:count:
+enabledDataclassesForAccount:
 valueForKeyPath:
+setSubtitleText:
+newOffer:andCallback:
+initWithLocaleIdentifier:
+encodeBool:forKey:
+queryItemWithName:value:
+setNotification:
+setName:
+dateWithTimeIntervalSinceReferenceDate:
+newOfferResponse
+setTimeZone:
+whitespaceCharacterSet
+availableSpace
+encodeDouble:forKey:
+queryItems
+getLibrarySizes:
+clearNotificationState:
+notUploadedPhotosCount
+decodeBoolForKey:
+actionWithLabel:url:
+encodeInteger:forKey:
+rangeOfString:
+setActivateAction:
+notUploadedVideosCount
+initWithMlServerScore:totalQuota:totalUsed:totalAvailable:bundleQuotaInBytes:commerceQuotaInBytes:iCloudSubscriptionEventType:
+getLibrarySizesFromDB:handler:
+clearPendingFollowUpItemsWithUniqueIdentifiers:completion:
+setNumberStyle:
+decodeDoubleForKey:
+encodeObject:forKey:
+setAllHTTPHeaderFields:
+clearPendingFollowUpItemsWithUniqueIdentifiers:error:
+initWithObjectsAndKeys:
+rangeOfString:options:range:
+setObject:forKey:
+decodeIntegerForKey:
+base64EncodedStringWithOptions:
+activateWithContext:
+enqueueData:
+setFrequency:
+setObject:forKeyedSubscript:
+decodeObjectOfClass:forKey:
+blockOperationWithBlock:
+enqueueMessageEvent:
+registerForFeatureChangeNotificationsUsingBlock:
+HTTPBody
+setGroupIdentifier:
+decodeObjectOfClasses:forKey:
+timeIntervalSince1970
+initWithPath:
+enumerateKeysAndObjectsUsingBlock:
+setHTTPBody:
+getPhotoCount:videoCount:
+timeIntervalSinceDate:
+deepLink
+boolForKey:
+reload
+enumerateObjectsUsingBlock:
+setHTTPMethod:
+sortedArrayWithOptions:usingComparator:
+setOptions:
+timeIntervalSinceNow
+compare:
+URLWithString:
+timeZoneForSecondsFromGMT:
+UUID
 init
 initWithServerDictionary:
 linkForButtonIndex:
@@ -5210,6 +5238,7 @@ getPhotosLibrarySizeWithCompletion:
 getOriginalPhotosSizeWithCompletion:
 usedCapacityForVolume:
 remoteBackupSizeForAccount:timeoutInSeconds:completion:
+_remoteBackupSizeOperationQueue
 dictionaryForKey:from:
 numberForKey:from:
 ICQContextFromRemoteAlertContext:
@@ -5303,8 +5332,7 @@ extendExpirationForAccount:deviceBackupUUID:queue:completion:
 extendExpirationForAccount:deviceBackupUUID:requestedExpirationDate:queue:completion:
 _extendExpirationURLForAccount:
 stringWithNonBreakingSpaces
-daemonWithErrorHandler:
-calculateExtraQuotaNeededToSyncForAccountWithID:isAccountFull:completion:
+_requestQueue
 initWithAccount:
 calculateExtraQuotaNeededToSyncIsAccountFull:completion:
 setAccount:
@@ -5607,6 +5635,7 @@ _daemonLocalOfferStubsDictionaryForAccount:requestType:completion:
 _isCacheValidForRequestType:offerStubs:
 _processPushNotificationCheckHardwareIDWithDictionary:completion:
 _processPushNotificationDictionary:completion:
+_clearCachedStubsIfOfferIDIsNew:
 _fetchDictionaryForAccount:quotaKey:quotaReason:stub:notificationID:contextDictionary:mlDaemonExtraFields:completion:
 _mockFetchDictionaryForAccount:quotaKey:stub:notificationID:contextDictionary:completion:
 _updateQuotaForAccount:withServerDictionary:
@@ -5798,6 +5827,7 @@ _offerType
 Tq,N,V_offerType
 TB,N,V_needsWiFi
 daemonOfferStubsDictionarySample
+calculateExtraQuotaNeededToSyncForAccountWithID:isAccountFull:completion:
 calculateExtraQuotaNeededToSyncWithBackupSize:
 accountForID:
 isBackupEnabledForAccount:
@@ -5997,7 +6027,6 @@ stringForPlaceholder:withDeviceInfo:
 _placeholderInfo
 sendTipDisplayedNetworkRequestForAltDSID:tip:completion:
 sendTipDismissedNetworkRequestForAltDSID:tip:completion:
-_requestQueue
 fetchStorageSummaryWithCompletion:
 cachedStorageSummary
 fetchStorageByApp:completion:
@@ -6128,10 +6157,12 @@ chooseFirstDefaultStub
 choosePremiumStub
 choosePremiumStubForConditions:
 chooseFirstPremiumStub
+containsOfferID:
 sortedServerStubs:
 _initServerStubsFromServerDictionary
 _isValidServerStubs:key:
 _chooseStubFromServerStubs:conditions:
+_stubsArrayContainsOfferID:stubs:
 serverStubs
 buddyStubs
 defaultStubs
@@ -6189,11 +6220,14 @@ T@"NSDictionary",&,N,V_linkForBundleIdentifier
 setStorageSummary:forAltDSID:
 storageSummaryForAltDSID:
 _startObservingQuotaChangeNotifications
+_startObservingCloudSubscriptionFeaturesNotifications
 _stopObservingQuotaChangeNotifications
+_stopObservingCloudSubscriptionFeaturesNotifications
 _cleanupCacheForPrimaryAccount
 _summaryCache
 _quotaChangeNotificationObserver
 _quotaInfoChangeNotificationObserver
+_cloudSubscriptionFeaturesObserver
 getBadgeAppFromServerDict:
 _hasFollowupEnabledFromServerDict:
 _ICQOpportunityBubbleSpecificationForServerDict:bundleId:
@@ -6318,6 +6352,7 @@ _sfSymbolID
 _sfSymbolBundlePath
 _notifyingAppId
 TB,N,V_premiumOffer
+T@"NSString",C,N,V_offerId
 T@"NSString",C,N,V_altMessage
 T@"NSString",C,N,V_noteTitle
 T@"NSString",C,N,V_noteSubTitle
@@ -6332,6 +6367,10 @@ Tq,N,V_followupDisplayStyle
 T@"NSString",C,N,V_sfSymbolID
 T@"NSString",C,N,V_sfSymbolBundlePath
 T@"NSString",C,N,V_notifyingAppId
+setExtraQuotaNeeded:expiry:
+extraQuotaNeeded
+_extraQuotaNeeded
+_expiry
 _urlReplacementDictionaryForKey:withOfferID:withNotificationID:
 _keyIsEligibleForURLStringReplacement:
 _newAccountBagKeyForOldKey:
@@ -6411,7 +6450,6 @@ _internalAlertSpecification
 _internalFollowupSpecification
 T@"_ICQAlertSpecification",&,N,V_internalAlertSpecification
 T@"_ICQFollowupSpecification",&,N,V_internalFollowupSpecification
-T@"NSString",C,N,V_offerId
 alertSpecification
 placeholderExistsInString:
 placeholderKeysInString:fromKeys:

@@ -323,7 +323,7 @@ class LinkageGraph
     # Did we already process this image?
     return if self[image]
     # If this is an executable, it becomes the new @executable_path
-    executablePath = if image.type == "MH_EXECUTE" then image.machoFile.path.parent else executablePath end
+    executablePath = if image.type == MH_EXECUTE then image.machoFile.path.parent else executablePath end
     executablePath.assert_kind_of(Pathname) unless executablePath.nil?
     # Add its rpaths to the rpath stack
     rpaths = image.rpaths
@@ -735,7 +735,7 @@ OptionParser.new do |opts|
           "Specify the platforms path, if it isn't in the standard location realtive to ipatool",
           "This is normally not needed when invoking ipatool as part of AppStoreTools, but is used when invoked by Xcode.app") \
   do |v|
-    OPTIONS.platformDirs += Pathname(v).children.select { |c| c.extname == ".platform" }.sort
+    OPTIONS.platformDirs += Pathname(v).children.select { |c| c.extname == ".platform" }
   end
   opts.on("--platform=DIR",
           "Specify a .platform path") \
@@ -925,7 +925,7 @@ if OPTIONS.urlPrefix and not OPTIONS.createAssetPacks
 # If we weren't given any platforms, we try to locate them
 if OPTIONS.platformDirs.empty?
   #  On the AppStoreTools disk image, the platforms directory is off of the parent directory of the toolchains directory.
-  OPTIONS.platformDirs = (OPTIONS.toolchainDir.parent + "Platforms").children.select { |c| c.extname == ".platform" }.sort
+  OPTIONS.platformDirs = (OPTIONS.toolchainDir.parent + "Platforms").children.select { |c| c.extname == ".platform" }
 # Prepend the tools directory to the command line search path.
 ENV["PATH"] = "#{OPTIONS.toolchainDir}/bin" + ":" + ENV["PATH"]
 # Check that we were given an output directory if we're asked to compile bitcode and/or create thinned outputs.
@@ -960,7 +960,7 @@ log { CmdSpec.new(locate_tool("find"), ["-s", "-f", OPTIONS.inputPath]).run(fals
 #  Data Model
 # Represents a single Mach-O image, backed by either a thin file or a slice of a fat file.
 class MachOImage
-  attr           :type             # Type of file, e.g. MH_EXECUTE, MH_DYLIB, etc
+  attr           :type      # Type of file, e.g. MH_EXECUTE, MH_DYLIB, etc. Integer.
   attr           :platformIdentifier # iphoneos, watchos, etc
   attr           :arch             # Architecture, e.g. x86_64 or arm64
   attr           :uuid             # UUID, from the UUID load command
@@ -1005,9 +1005,6 @@ class MachOImage
       # We don't have a thin file, so we use lipo(1) to extract the slice from our Mach-O file.
       CmdSpec.new(locate_tool("lipo", [self.platform.toolsPath]), ["-thin", arch, machoFile.path, "-output", dstPath]).run(true)
     end
-  end
-  def isDylib
-    return self.type == 'MH_DYLIB'
   end
   # Where are we storing the thinned version of this image before we process it (strip or recompile bitcode)?
   def thinnedInputPath(ipa, options)
@@ -1137,7 +1134,7 @@ class FSDirectoryNode < FSNode
 class FSMachOFileNode < FSFileNode
   # Array of Mach-O images contained in the file (note that even if one, it could be a fat file)
   attr_accessor  :machoImages
-  # MH_EXECUTE, MH_DYLIB, etc (technically an image property, but all should be the same)
+  # Technically an image property, but all should be the same
   attr           :type
   def initialize(path, enclosingBundle, machoImages)
     super(path, enclosingBundle)
@@ -1209,14 +1206,11 @@ class FSMachOFileNode < FSFileNode
       super(dstPath, thinningContext, level)
     end
   end
-  def isDylib
-    return machoImages.first.isDylib
-  end
   def isSwiftRuntimeDylib
-    return isDylib && self.name =~ /libswift.*\.dylib/
+    return type == MH_DYLIB && self.name =~ /libswift.*\.dylib/
   end
   def isSwiftConcurrencyDylib
-    return isDylib && self.name == "libswift_Concurrency.dylib"
+    return type == MH_DYLIB && self.name == "libswift_Concurrency.dylib"
   end
   # After we've recompiled each image, where do we store the universal reassembled MachO?
   def universalReassemblyPath(ipa, options)
@@ -1603,7 +1597,7 @@ class IPA
     # Resolve dylibs, starting with executables so that we can get a concrete @executable_path.
     machOs.
       # Partition by executable so that they go first, then flatten so that we process executables and dylibs as one collection.
-      partition{|m| m.type == "MH_EXECUTE" }.flatten.
+      partition{|m| m.type == MH_EXECUTE }.flatten.
       each{|m|
       m.machoImages.each {|img|
         self.linkageGraph.resolveLoadedDylibs(img, rpathFallbackStack, [], machOsByRealPath)
@@ -1730,11 +1724,10 @@ def otool_archs_load_commands(path)
   # The options being passed to otool:
   #   -h: Display the Mach header.  llvm-otool emits this when `-l` is passed, but 'otool-classic' does not, so we must pass this option.
   #   -l: Display the load commands.
-  #   -v: Display verbosely (symbolically) when possible.
   #   -m: The  object  file  names  are  not  assumed  to be in the archive(member) syntax,  which  allows  file  names  containing parenthesis.
   #   -f: print the fat header
   #   -arch all: print all archs (otherwise otool either prints just the host arch or all archs depending on the host context and what architectures the binary contains)
-  CmdSpec.new(OTOOL_PATH, ["-h", "-l", "-v", "-m", "-f", "-arch", "all", path.to_s]).run(true, true)
+  CmdSpec.new(OTOOL_PATH, ["-h", "-l", "-m", "-f", "-arch", "all", path.to_s]).run(true, true)
 METAL_LIPO_PATH = locate_tool('metal-lipo')
 def metal_lipo_archs(path)
   return CmdSpec.new(METAL_LIPO_PATH, ["-archs", path.to_s]).run(true, true).split(' ')
@@ -1802,21 +1795,21 @@ def GetMachOImagesFromOToolInfoForFile(path)
   path.assert_kind_of(Pathname)
   obj = otool_archs_load_commands(path)
   return nil if obj =~ /\A.*: is not an object file/
-  objspl = obj.split('Mach header')
-  assert(objspl.count > 1, "Couldn't split otool output on 'Mach header' for #{path}")
-  # If it's a universal binary, this is the fat header. If it isn't, it's just the input path.
-  obj_fat_header = objspl[0]
+  objspl = obj.split("Mach header\n")
+  assert(objspl.count > 1, "Couldn't split otool output on 'Mach header\\n' for #{path}: #{obj.inspect}")
+  # If it's a universal binary, objspl[0] is the fat header. If it isn't, it's just the input path.
   obj_slices = objspl.drop(1)
-  archs = obj_fat_header.scan(/^architecture ([^ ]+)$/).collect { |groups| groups[0] }
-  if archs.empty?
-    # If it's a universal binary, otool will tell us the archs. If it isn't universal, we need lipo.
-    archs,_ = lipo_archs(path)
-  end
+  archs,_ = lipo_archs(path)
   assert(obj_slices.count == archs.count, "Expected #{archs.count} archs in otool output:\n#{obj}")
   # Go through the architectures, and construct a Mach-O image for it.
   machoImages = []
   for arch,output in archs.zip(obj_slices)
-    machOType = /[0-9]+\s+(EXECUTE|DYLIB|BUNDLE)\s+[0-9]+/.match(output)[1] rescue "???"
+    output_lines = output.lines
+    assert(output_lines.size > 2, "Expected >2 lines in: #{output_lines.inspect}")
+    cols_headers_line = "      magic  cputype cpusubtype  caps    filetype ncmds sizeofcmds      flags\n"
+    assert(output_lines[0] == cols_headers_line, output_lines.inspect)
+    machOType = Integer(output_lines[1].split[4], 16)
+    
     loadedDylibs = output.
       scan(/cmd LC(_LAZY)?_LOAD(_WEAK)?_DYLIB.*?name\s+(.*?)\s+\(offset\s+\d+\)/m).
       map{|groups| groups[2] }
@@ -1833,13 +1826,10 @@ def GetMachOImagesFromOToolInfoForFile(path)
     if platformIdentifier.nil?
       versionLoadCommand = loadCommands.detect{ |lc| lc[:cmd] == "LC_BUILD_VERSION" }
       if versionLoadCommand
-        # May be a name or a number depending on if otool knows about the platform. We can get a number consistently by invoking otool without -v, but we rely on that elsewhere, and don't want to invoke otool twice.
-        # llvm-otool emits this field in lower case, while otool-classic emits it in upper case, so we downcase.
-        buildVersionPlatformID = versionLoadCommand[:platform].as(String).downcase
+        buildVersionPlatformID = Integer(versionLoadCommand[:platform].as(String), 10)
         
         plat = Platform.allKnownPlatforms.values.detect { |p|
-          p.targetTripleSystem == buildVersionPlatformID ||
-            p.buildVersionPlatformID == (Integer(buildVersionPlatformID, 10) rescue nil)
+            p.buildVersionPlatformID == buildVersionPlatformID
         }
         
         if plat
@@ -1862,7 +1852,7 @@ def GetMachOImagesFromOToolInfoForFile(path)
       lc[:segname] == "__TEXT" and lc[:filesize].to_i > 0
     }.count > 0
     # Finally, create a MachOImage object to represent the Mach-O image.
-    machoImages << MachOImage.new("MH_" + machOType, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, hasCodeSignature, loadedDylibs, rpaths)
+    machoImages << MachOImage.new(machOType, platformIdentifier, arch, uuid, hasBitcode, hasExecCode, hasCodeSignature, loadedDylibs, rpaths)
   end
   return machoImages
 MH_MAGIC     = 0xfeedface
@@ -1874,6 +1864,19 @@ FAT_CIGAM    = 0xbebafeca
 FAT_MAGIC_64 = 0xcafebabf
 FAT_CIGAM_64 = 0xbfbafeca
 MACHO_SINATURES = [MH_MAGIC, MH_CIGAM, MH_MAGIC_64, MH_CIGAM_64, FAT_MAGIC, FAT_CIGAM, FAT_MAGIC_64, FAT_CIGAM_64]
+# Mach-O file type from loader.h
+MH_OBJECT      = 0x1     # relocatable object file
+MH_EXECUTE     = 0x2     # demand paged executable file
+MH_FVMLIB      = 0x3     # fixed VM shared library file
+MH_CORE        = 0x4     # core file
+MH_PRELOAD     = 0x5     # preloaded executable file
+MH_DYLIB       = 0x6     # dynamically bound shared library
+MH_DYLINKER    = 0x7     # dynamic link editor
+MH_BUNDLE      = 0x8     # dynamically bound bundle file
+MH_DYLIB_STUB  = 0x9     # shared library stub for static linking only, no section contents
+MH_DSYM        = 0xa     # companion file with only debug sections
+MH_KEXT_BUNDLE = 0xb     # x86_64 kexts
+MH_FILESET     = 0xc     # a file composed of other Mach-Os to be run in the same userspace sharing a single linkedit.
 # Returns true if the file is Mach-O that may be eligible for processing by ipatool
 def is_eligible_macho?(path)
   # We run this on a lot of files; checking the magic header first is significantly faster than shelling out to `file` right away
@@ -2288,7 +2291,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
   for machoFile in bundle.machoFiles
     # Now go through the Mach-O images in the file, either compiling, stripping, or excluding as appropriate
     # based on its architecture.  We replace the list of Mach-O images with a possibly smaller list.
-    log { "  #{"|  " * level}#{machoFile.type.downcase} '#{machoFile.path.relative_path_from(ipa.payloadPath)}'..." }
+    log { "  #{"|  " * level}#{machoFile.type} '#{machoFile.path.relative_path_from(ipa.payloadPath)}'..." }
     adjustedMachoImages = []
     for machoImage in machoFile.machoImages
       # Exclude this Mach-O image if its architecture isn't one of the ones we want.
@@ -2377,7 +2380,7 @@ def CompileOrStripBitcodeInBundle(bundle, ipa, bitcodeContext, machoImagesToComp
       while not remainingMachoImagesForArch.empty?
         # We still have Mach-O images to compile, so we need to find the next one whose dependencies have all
         # been resolved.
-        namesOfRemainingMachOs = remainingMachoImagesForArch.select{|image| image.isDylib }.map{ |image| image.machoFile.name }
+        namesOfRemainingMachOs = remainingMachoImagesForArch.select{|image| image.type == MH_DYLIB }.map{ |image| image.machoFile.name }
         machoImage = remainingMachoImagesForArch.select{ |image| (namesOfRemainingMachOs & image.dylibNames) == [] }.first
         # If we found a Mach-O image, we compile it.  If not, it means we hit a dependency cycle.
         if machoImage
@@ -2800,11 +2803,12 @@ class ThinningTraits
     @supportsSwiftConcurrencyNatively = supportsSwiftConcurrencyNatively
     @gpuArchName = gpuArchName
     # precache memoized properties so that instances can be frozen
+    assetutil_translation_map
     hash
-    to_dict
-    @to_s = to_dict.to_s
-    to_assetutil_dict
     to_assetutil_T_string
+    to_assetutil_dict
+    to_dict
+    to_s
     
     freeze
   end
@@ -2831,7 +2835,7 @@ class ThinningTraits
     memoize '@hash', lambda { to_s.hash }
   end
   def to_s
-    @to_s
+    memoize '@to_s', lambda { to_dict.to_s }
   end
   def to_dict
     memoize '@to_dict', lambda {
@@ -3308,14 +3312,13 @@ class Platform
   attr  :thinningVariants  # :: [ThinningVariant]
   attr  :UIDeviceFamilies_AssetutilIdioms # :: { int => str }
   attr  :CFBundleSupportedPlatforms_value
-  attr  :targetTripleSystem
   attr  :buildVersionPlatformID
   # :: { Identifier => Platform }
   def self.allKnownPlatforms
     if not defined? @@allKnownPlatformsByIdentifier
       # Create a hash that we'll add entries to.
       @@allKnownPlatformsByIdentifier = {}
-      for path in OPTIONS.platformDirs
+      for path in OPTIONS.platformDirs.sort
         begin
           platform = Platform.new(path)
           prev = @@allKnownPlatformsByIdentifier[platform.identifier]
@@ -3381,7 +3384,6 @@ class Platform
     
     sdkInfoPlist = LoadPlist(@sdkPath + "SDKSettings.plist")
     mainTarget = sdkInfoPlist["SupportedTargets"][identifier]
-    @targetTripleSystem = mainTarget["LLVMTargetTripleSys"].as(String)
     @buildVersionPlatformID = mainTarget["BuildVersionPlatformID"].to_s.to_i
     deviceTraitsDBPath = path + "usr" + "standalone" + "device_traits.db"
     if File.exist?(deviceTraitsDBPath)

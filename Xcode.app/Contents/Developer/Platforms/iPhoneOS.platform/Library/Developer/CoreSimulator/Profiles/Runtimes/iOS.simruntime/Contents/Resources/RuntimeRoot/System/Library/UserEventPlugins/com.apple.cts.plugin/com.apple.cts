@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.6
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.11
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -454,7 +454,7 @@ Minute
 Weekday
 com.apple.launchd.calendarinterval
 calendarinterval
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.6
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.11
 newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@
@@ -503,46 +503,46 @@ Rescheduling StartCalendarInterval: %{public}@: %{public}@
 CTSActivityTime
 CTSActivity
 CTSCalendarInterval
-weekday
-timeIntervalSinceReferenceDate
-timeIntervalSinceNow
-stringWithUTF8String:
-stringWithFormat:
-stringForKey:
-setValue:forComponent:
-setSecond:
-setObject:forKey:
-setMonth:
-setDay:
-setCalendar:
-removeObjectForKey:
-removeObject:
-objectForKeyedSubscript:
-objectForKey:
-numberWithUnsignedLongLong:
 nextDateAfterDate:matchingComponents:options:
-mutableCopy
-month
-minute
-isValidDate
 isEqualToString:
-initWithSuiteName:
-initWithCapacity:
-hour
-earlierDate:
-distantFuture
-descriptionWithLocale:
-date
-currentLocale
-countByEnumeratingWithState:objects:count:
-copy
-containsObject:
-compare:
-calendarWithIdentifier:
-calendar
 arrayForKey:
+setSecond:
+countByEnumeratingWithState:objects:count:
+distantFuture
+stringWithFormat:
+calendarWithIdentifier:
+setCalendar:
+date
+hour
+stringForKey:
+calendar
+copy
+setObject:forKey:
+objectForKeyedSubscript:
+timeIntervalSinceReferenceDate
+mutableCopy
+descriptionWithLocale:
+containsObject:
+currentLocale
+timeIntervalSinceNow
+objectForKey:
+weekday
+month
+removeObjectForKey:
+earlierDate:
 addObject:
+setMonth:
+minute
+initWithSuiteName:
+numberWithUnsignedLongLong:
 UTF8String
+setValue:forComponent:
+removeObject:
+isValidDate
+initWithCapacity:
+setDay:
+stringWithUTF8String:
+compare:
 loadBaseTime
 advanceBaseTime
 resetBaseTime

@@ -56,6 +56,8 @@ SOSFlowStateVoiceLoopTester
 SOSFlowStateMedicalID
 SOSFlowStateUnresponsiveResting
 SOSFlowStateMotionCancelled
+SOSFlowStateSliderView
+SOSFlowStateTriggered
 SOSTriggerMechanismNone
 SOSTriggerMechanismThreeClicks
 SOSTriggerMechanismFiveClicks
@@ -225,7 +227,6 @@ EMERGENCY_TEXT_CALLBACK_NUMBER_ADDITION_HAS_NAME
 EMERGENCY_TEXT_CALLBACK_NUMBER_ADDITION_NO_NAME
 EMERGENCY_TEXT_CALLBACK_NO_NUMBER_ADDITION_HAS_NAME
 v24@?0@"NSDictionary"8@"NSError"16
-v16@?0q8
 telSOS
 reason
 TPRemoteAlertActivationReasonActivatingForSOSWithVolumeLockHold
@@ -268,6 +269,7 @@ position
 com.apple.sos.ctserverqueue
 com.apple.sos.ctserver
 v24@?0^{__CFString=}8^{__CFDictionary=}16
+v16@?0q8
 5lAK1Xp+ezh1Qu+4jnHAOg
 SOSDeviceSupportedKey
 Initializing %@ with _healthStore: %@
@@ -304,8 +306,10 @@ This is Tinker config, allowing to message SOS contacts
 isAllowedToMessageSOSContacts: %d
 setAllowedToMessageSOSContacts: %d
 Tinker config, ignoring setAllowedToMessageSOSContacts
+SOSUtilities,should block non-emergency calls due to %@
 %s - no SOS status found
 %s - Unable to decode currentDeviceSOSStatus, error: %@
+%s - SOSStatus is invalid: %@
 %s - loaded SOS status, sosStatus: %@
 %s - Unable to encode currentDeviceSOSStatus, currentDeviceSOSStatus: %@, error: %@
 %s - saving SOS status, sosStatus: %@
@@ -453,10 +457,20 @@ SOSMessagingStatus, missing uuid!
 SOSMessagingStatus, missing trigger!
 SOSMessagingStatus, missing timeOfDetection!
 SOSStatusManager, init
+SOSStatusManager,flow was active on init,current,%@,paired,%@
 SOSStatusManager, sosTriggeredWithUUID
 SOSStatusManager, previousState: %d
 SOSStatusManager, updateSOSFlowState: %d
 SOSStatusManager, updating currentDeviceSOSStatus with triggerMechanism: %d, resolution: %d
+SOSStatusManager,flowStartedOnEitherDevice
+SOSStatusManager,flowStartedOnCurrentDevice
+SOSStatusManager,flowEndedOnBothDevices
+SOSStatusManager,flowEndedOnCurrentDevice
+SOSStatusManager,error when setting category for audio session,%@
+SOSStatusManager,failed to activate audio session with error,%@
+SOSStatusManager,activated audio session
+SOSStatusManager,failed to deactivate audio session with error,%@
+SOSStatusManager,deactivated audio session
 SOSStatusManager, shouldAcceptNewConnection
 [WARN] SOSStatusManager,New connection %@ missing entitlement: %@
 [WARN] SOSStatusManager,Cannot accept new connection %@ because of existing client connection
@@ -616,6 +630,7 @@ _SOSDomainAccessor
 isEqual:
 _userSOSDefaults
 boolForKey:
+_copySOSPrefsValueForKey:
 newtonTriggersEmergencySOSNumber
 setNewtonTriggersEmergencySOSNumber:
 alertControllerWithTitle:message:preferredStyle:
@@ -663,7 +678,6 @@ _potentialForAccessibilityConflict
 setCurrentSOSTriggerMechanism:
 _hasAccessibilityConflict
 setCallWithSideButtonPresses:presentErrorAlertOnViewController:completion:
-_copySOSPrefsValueForKey:
 integerValue
 SOSTriggerMechanismForClickCount:
 _setSOSPrefsValue:forKey:
@@ -721,8 +735,10 @@ currentDeviceSOSStatus
 pairedDeviceSOSStatus
 timeOfDetection
 timeIntervalSince1970
+shouldBlockNonEmergencyCalls
 initWithArray:
 unarchivedObjectOfClasses:fromData:error:
+isValid
 archivedDataWithRootObject:requiringSecureCoding:error:
 automaticDialingSectionDescription
 holdSideButtonTitleDescription
@@ -938,7 +954,6 @@ canDeviceTriggerAutoDial
 invalidate
 isInterruptibleState:
 isPreCallState:
-isFlowActiveWithState:
 sosFlowStateForString:
 setSosFlowType:
 setHealthUserDefaults:
@@ -1034,7 +1049,6 @@ dateByAddingTimeInterval:
 dictionaryWithObjects:forKeys:count:
 invalidateTimer
 removeObjectForKey:
-isValid
 currentSOSInitiationState
 descriptorForRequiredKeysForStyle:
 arrayByAddingObjectsFromArray:
@@ -1055,7 +1069,6 @@ integrity
 timestamp
 getUrlForTrigger:
 defaultWorkspace
-setCurrentSOSInitiationState:
 openURL:configuration:completionHandler:
 UUID
 isTriggerEnabled:
@@ -1083,7 +1096,7 @@ contactsManager
 setSosStatusManager:
 sosStatusManager
 broadcastUpdatedSOSStatus:
-handleNotifyClientsWithSOSStatus:
+handleNotifyThirdPartyClientsWithSOSStatus:
 triggerUnresolvedSOSEventIfNecessary
 retriggerSOSWithUUID:trigger:
 fetchMedicalIDName
@@ -1147,6 +1160,7 @@ indexOfObject:
 timerWithTimeInterval:target:selector:userInfo:repeats:
 currentRunLoop
 addTimer:forMode:
+lastObject
 locationToSynthesize
 timeIntervalSinceDate:
 setLocationToSynthesize:
@@ -1249,6 +1263,8 @@ initWithCoder:
 TB,R
 initWithUUID:trigger:timeOfDetection:timeOfResolution:resolution:
 initWithUUID:trigger:timeOfDetection:
+isFlowActive
+isFlowActiveAndNotResting
 T@"NSUUID",&,N,V_uuid
 Tq,N,V_trigger
 T@"NSDate",&,N,V_timeOfDetection
@@ -1336,7 +1352,6 @@ removeAnimationForKey:
 _createNewSpriteArray:currentFrame:arraySize:interrupted:
 addAnimation:forKey:
 animationForKey:
-lastObject
 CGPointValue
 setPosition:
 sizeThatFits:
@@ -1385,6 +1400,7 @@ observerToQueue
 didUpdateCurrentSOSInitiationState:
 triggerSOS
 startSendingLocationUpdateForReason:withCompletion:
+setCurrentSOSInitiationState:
 setCurrentSOSInteractiveState:
 currentSOSInteractiveState
 addObserver:queue:
@@ -1399,12 +1415,29 @@ UUIDString
 initWithTimeIntervalSince1970:
 initWithSOSStatus:
 sosStatus
-updateSiriListeningIfNeeded:
-updateStatusWithState:withPreviousState:
+flowStarted
+inSOSFlowOnCurrentDevice
+flowEnded
+flowStartedOnEitherDevice
+flowStartedOnCurrentDevice
+inSOSFlow
+setInSOSFlow:
+startAudioSession
+setInSOSFlowOnCurrentDevice:
+flowEndedOnCurrentDevice
+flowEndedOnBothDevices
+endAudioSession
+setCategory:error:
+setActive:error:
+setActive:withOptions:error:
 clientConnection
 setClientConnection:
+_inSOSFlow
+_inSOSFlowOnCurrentDevice
 _clientConnection
 T@"NSXPCConnection",&,N,V_clientConnection
+TB,N,V_inSOSFlow
+TB,N,V_inSOSFlowOnCurrentDevice
 v16@0:8
 @16@0:8
 B16@0:8
@@ -1547,7 +1580,6 @@ Q40@0:8{CGPoint=dd}16@32
 @"UIImage"
 @"NSXPCConnection"
 @"NSMapTable"
-v32@0:8q16q24
 @(#)PROGRAM:SOS  PROJECT:SOS-1
 0ARq
 %(+8;
@@ -1608,6 +1640,8 @@ SOSFlowStateVoiceLoopTester
 SOSFlowStateMedicalID
 SOSFlowStateUnresponsiveResting
 SOSFlowStateMotionCancelled
+SOSFlowStateSliderView
+SOSFlowStateTriggered
 SOSTriggerMechanismNone
 SOSTriggerMechanismThreeClicks
 SOSTriggerMechanismFiveClicks
@@ -1777,7 +1811,6 @@ EMERGENCY_TEXT_CALLBACK_NUMBER_ADDITION_HAS_NAME
 EMERGENCY_TEXT_CALLBACK_NUMBER_ADDITION_NO_NAME
 EMERGENCY_TEXT_CALLBACK_NO_NUMBER_ADDITION_HAS_NAME
 v24@?0@"NSDictionary"8@"NSError"16
-v16@?0q8
 telSOS
 reason
 TPRemoteAlertActivationReasonActivatingForSOSWithVolumeLockHold
@@ -1820,6 +1853,7 @@ position
 com.apple.sos.ctserverqueue
 com.apple.sos.ctserver
 v24@?0^{__CFString=}8^{__CFDictionary=}16
+v16@?0q8
 5lAK1Xp+ezh1Qu+4jnHAOg
 SOSDeviceSupportedKey
 Initializing %@ with _healthStore: %@
@@ -1856,8 +1890,10 @@ This is Tinker config, allowing to message SOS contacts
 isAllowedToMessageSOSContacts: %d
 setAllowedToMessageSOSContacts: %d
 Tinker config, ignoring setAllowedToMessageSOSContacts
+SOSUtilities,should block non-emergency calls due to %@
 %s - no SOS status found
 %s - Unable to decode currentDeviceSOSStatus, error: %@
+%s - SOSStatus is invalid: %@
 %s - loaded SOS status, sosStatus: %@
 %s - Unable to encode currentDeviceSOSStatus, currentDeviceSOSStatus: %@, error: %@
 %s - saving SOS status, sosStatus: %@
@@ -2005,10 +2041,20 @@ SOSMessagingStatus, missing uuid!
 SOSMessagingStatus, missing trigger!
 SOSMessagingStatus, missing timeOfDetection!
 SOSStatusManager, init
+SOSStatusManager,flow was active on init,current,%@,paired,%@
 SOSStatusManager, sosTriggeredWithUUID
 SOSStatusManager, previousState: %d
 SOSStatusManager, updateSOSFlowState: %d
 SOSStatusManager, updating currentDeviceSOSStatus with triggerMechanism: %d, resolution: %d
+SOSStatusManager,flowStartedOnEitherDevice
+SOSStatusManager,flowStartedOnCurrentDevice
+SOSStatusManager,flowEndedOnBothDevices
+SOSStatusManager,flowEndedOnCurrentDevice
+SOSStatusManager,error when setting category for audio session,%@
+SOSStatusManager,failed to activate audio session with error,%@
+SOSStatusManager,activated audio session
+SOSStatusManager,failed to deactivate audio session with error,%@
+SOSStatusManager,deactivated audio session
 SOSStatusManager, shouldAcceptNewConnection
 [WARN] SOSStatusManager,New connection %@ missing entitlement: %@
 [WARN] SOSStatusManager,Cannot accept new connection %@ because of existing client connection
@@ -2054,276 +2100,279 @@ SOSStatusReporter
 SOSManager
 Additions
 SOSStatusManager
-year
-weakToStrongObjectsMapTable
-weakObjectsHashTable
-voiceWithLanguage:
-valueWithCGPoint:
-valueForProperty:
-valueForKey:
-valueForEntitlement:
-value
-userInterfaceIdiom
-useStandalone
-unifiedContactWithIdentifier:keysToFetch:error:
-unformattedInternationalStringValue
-unarchivedObjectOfClasses:fromData:error:
-traitCollection
-tintColor
-timestamp
-timerWithTimeInterval:target:selector:userInfo:repeats:
-timeIntervalSinceReferenceDate
-timeIntervalSinceNow
-timeIntervalSinceDate:
-timeIntervalSince1970
-synchronizeUserDefaultsDomain:keys:
-synchronizeNanoDomain:keys:
-synchronize
-supportsCapability:
-substringWithRange:
-subscriptions
-subarrayWithRange:
-stringWithFormat:
-stringFromNumber:
-stringFromDate:
-stringFromContact:style:
-stringByAppendingString:
-stringByAddingPercentEncodingWithAllowedCharacters:
-string
-storeWithOptions:
-stopUpdatingLocation
-stopSpeakingAtBoundary:
-startUpdatingLocation
-standardUserDefaults
-speechUtteranceWithString:
-speakUtterance:
-size
-shiftLocation:withCompletionHandler:callbackQueue:
-sharedUtilities
-setWithObjects:
-setWithObject:
-setVolume:
-setVoice:
-setValues:
-setValue:forKey:
-setUsesApplicationAudioSession:
-setUseStandalone:
-setTransform:
-setTimeStyle:
-setScheme:
-setRepeatCount:
-setRemoteObjectInterface:
-setRate:
-setQueryItems:
-setPresentingViewController:
-setPosition:
-setObject:forKey:
-setNumberStyle:
-setNeedsLayout
-setMixToTelephonyUplink:
-setMinimumEarlyFireProportion:
-setMaximumFractionDigits:
-setMaxGroupCount:domain:
-setMask:
-setLocationURL:
-setLocation:
-setLocalizedDateFormatFromTemplate:
-setLocale:
-setKeyPath:
-setInvalidationHandler:
-setInterruptionHandler:
-setGroupSize:domain:
-setFriendsChangedExternallyNotificationName:domain:
-setFrame:
-setFailureBlock:
-setExportedObject:
-setExportedInterface:
-setDuration:
-setDisableActions:
-setDidTriggerSOSToday:
-setDesiredAccuracy:
-setDebugIdentifier:
-setDateStyle:
-setContents:
-setClipsToBounds:
-setClasses:forSelector:argumentIndex:ofReply:
-setCalculationMode:
-setBackgroundColor:
-sendMessage:
-scheduleInRunLoop:
-scale
-resume
-replaceOccurrencesOfString:withString:options:range:
-removeObjectForKey:
-removeObject:
-removeAnimationForKey:
-remoteObjectProxyWithErrorHandler:
-regularExpressionWithPattern:options:error:
-recipients
-range
-queryItemWithName:value:
-presenterForPrivacySplashWithIdentifier:
-presentationLayer
-presentViewController:animated:completion:
-presentConfirmationWithTitle:message:cancelTitle:cancelHandler:confirmTitle:confirmHandler:
 present
-preferredLocalizationsFromArray:forPreferences:
-preferredLanguagesForRegion:
-predicateWithBlock:
-postNotificationName:object:userInfo:
-postNotificationName:object:
-position
-phoneNumbers
-openURL:configuration:completionHandler:
-objectForKeyedSubscript:
-objectForKey:
-objectAtIndexedSubscript:
-numberWithUnsignedInteger:
-numberWithInteger:
-numberWithInt:
-numberWithFloat:
-numberWithDouble:
-numberWithBool:
-numberFromString:
-notifySpeakServicesToStopSpeaking
-notifySpeakServicesForAttributedSpeechOutput:
-newAssertionForBundle:withReason:
-nativeBounds
-mutableCopy
-metadataValueForKey:
-message
-matchesInString:options:range:
-managerForDomain:
-mainScreen
-mainRunLoop
-mainBundle
-lostModeIsActive
-location
-localizedStringForKey:value:table:
-localizations
-localeWithLocaleIdentifier:
-loadPackageViewWithContentsOfURL:publishedObjectViewClassMap:completion:
-length
-layer
-lastObject
-languageFromLanguage:byReplacingRegion:
-isLocationShiftRequiredForLocation:
-isEqualToString:
-invertedSet
-invalidate
-interfaceWithProtocol:
-integrity
-integerValue
-intValue
-initWithUUIDString:
-initWithTimeIntervalSinceReferenceDate:
-initWithTimeIntervalSince1970:
-initWithTimeInterval:serviceIdentifier:target:selector:userInfo:
-initWithSuiteName:
-initWithString:attributes:
-initWithString:
-initWithSMSMessage:mmsMessage:recipients:
-initWithMessage:recipients:
-initWithMachServiceName:options:
-initWithImage:
-initWithIdentifier:
-initWithEffectiveBundle:delegate:onQueue:
-initWithDomain:pairedDevice:
-initWithCalendarIdentifier:
-initWithArray:
-indexOfObject:
-imageWithTintColor:renderingMode:
-imageWithRenderingMode:
-imageNamed:inBundle:withConfiguration:
-horizontalAccuracy
-hasAnyData
-gmtBirthdate
-getSubscriptionInfoWithError:
-getSIMStatus:error:
-getAllDevicesWithArchivedAltAccountDevicesMatching:
-friends
-friendGroups
-frame
-formattedStringValue
-firstObject
-filteredArrayUsingPredicate:
-fetchMedicalIDEmergencyContactsWithCompletion:
-fetchMedicalIDDataWithCompletion:
-enumerateObjectsWithOptions:usingBlock:
-encodeObject:forKey:
-encodeInteger:forKey:
-encodeDouble:forKey:
-encodeBool:forKey:
-doubleValue
-distantPast
-distanceFromLocation:
-displayName
-dictionaryWithObjects:forKeys:count:
-dictionaryWithObject:forKey:
-dictionaryWithDictionary:
-dictionary
-descriptorForRequiredKeysForStyle:
-defaultWorkspace
-defaultManager
-defaultCenter
-decodeObjectForKey:
-decodeIntegerForKey:
-decodeDoubleForKey:
-decodeBoolForKey:
-decimalDigitCharacterSet
-dateOfBirthComponentsWithError:
-dateFromComponents:
-dateByAddingTimeInterval:
-date
-currentRunLoop
-countByEnumeratingWithState:objects:count:
-count
-copy
-coordinate
-containsObject:
-componentsSeparatedByCharactersInSet:
-componentsJoinedByString:
-components:fromDate:toDate:options:
-compare:
-commit
-bundleWithURL:
-bundleIdentifier
-bundleForClass:
-boolValue
-boolForKey:
-begin
 authorizationStatusForEntityType:
+voiceWithLanguage:
+unifiedContactWithIdentifier:keysToFetch:error:
+scheduleInRunLoop:
+numberWithInt:
+setKeyPath:
+decimalDigitCharacterSet
+localeWithLocaleIdentifier:
+setDebugIdentifier:
+supportsCapability:
+indexOfObject:
+unformattedInternationalStringValue
 arrayWithObjects:count:
-arrayByAddingObjectsFromArray:
-array
-archivedDataWithRootObject:requiringSecureCoding:error:
-appendAttributedString:
-animationForKey:
-animation
-allocWithZone:
-allPeople
-alertControllerWithTitle:message:preferredStyle:
-addTimer:forMode:
-addSublayer:
-addObserver:selector:name:object:
-addObjectsFromArray:
-addObject:
-addAnimation:forKey:
-addAction:
-activeDeviceSelectorBlock
+substringWithRange:
+dateOfBirthComponentsWithError:
+scale
+setObject:forKey:
+componentsSeparatedByCharactersInSet:
+numberWithFloat:
+setDateStyle:
+preferredLocalizationsFromArray:forPreferences:
+setTimeStyle:
 actionWithTitle:style:handler:
+isEqualToString:
+arrayByAddingObjectsFromArray:
+valueWithCGPoint:
+unarchivedObjectOfClasses:fromData:error:
+loadPackageViewWithContentsOfURL:publishedObjectViewClassMap:completion:
+setNumberStyle:
+componentsJoinedByString:
+filteredArrayUsingPredicate:
+resume
+dateFromComponents:
+numberWithDouble:
+subscriptions
 abRecordGUID
-_ios_meContactWithKeysToFetch:error:
-_cfBundle
-CGImage
+preferredLanguagesForRegion:
+components:fromDate:toDate:options:
+array
+length
+valueForProperty:
+subarrayWithRange:
+metadataValueForKey:
+gmtBirthdate
 CGPointValue
-URLByAppendingPathComponent:
-URLForResource:withExtension:
-URLsForDirectory:inDomains:
+imageWithTintColor:renderingMode:
+dateByAddingTimeInterval:
+layer
+initWithTimeIntervalSinceReferenceDate:
+numberWithBool:
+setInvalidationHandler:
+valueForKey:
+dictionaryWithObjects:forKeys:count:
+archivedDataWithRootObject:requiringSecureCoding:error:
+predicateWithBlock:
+message
+compare:
+fetchMedicalIDEmergencyContactsWithCompletion:
+initWithTimeIntervalSince1970:
+date
+lastObject
+commit
+numberFromString:
+appendAttributedString:
+setInterruptionHandler:
+dictionaryWithObject:forKey:
+postNotificationName:object:userInfo:
+imageWithRenderingMode:
+valueForEntitlement:
+setContents:
 UUIDString
-URLQueryAllowedCharacterSet
-UUID
+stringWithFormat:
+setNeedsLayout
+getSubscriptionInfoWithError:
+animationForKey:
+replaceOccurrencesOfString:withString:options:range:
+languageFromLanguage:byReplacingRegion:
+dictionaryWithDictionary:
 CGColor
+imageNamed:inBundle:withConfiguration:
+postNotificationName:object:
+initWithTimeInterval:serviceIdentifier:target:selector:userInfo:
+fetchMedicalIDDataWithCompletion:
+value
+standardUserDefaults
+stringFromNumber:
+speechUtteranceWithString:
+notifySpeakServicesToStopSpeaking
+getSIMStatus:error:
+animation
+UUID
+position
+horizontalAccuracy
+setClipsToBounds:
+initWithSuiteName:
+notifySpeakServicesForAttributedSpeechOutput:
+matchesInString:options:range:
+shiftLocation:withCompletionHandler:callbackQueue:
+getAllDevicesWithArchivedAltAccountDevicesMatching:
+stringFromDate:
+enumerateObjectsWithOptions:usingBlock:
+allocWithZone:
+dictionary
+CGImage
+traitCollection
+initWithString:attributes:
+currentRunLoop
+speakUtterance:
+removeObjectForKey:
+URLsForDirectory:inDomains:
+stringFromContact:style:
+setClasses:forSelector:argumentIndex:ofReply:
+tintColor
+initWithString:
+sharedUtilities
+setMixToTelephonyUplink:
+phoneNumbers
+allPeople
+setGroupSize:domain:
+setCategory:error:
+URLQueryAllowedCharacterSet
+removeObject:
+setScheme:
+removeAnimationForKey:
+timestamp
+stringByAppendingString:
+encodeObject:forKey:
+friends
+_ios_meContactWithKeysToFetch:error:
+alertControllerWithTitle:message:preferredStyle:
+setFriendsChangedExternallyNotificationName:domain:
+initWithSMSMessage:mmsMessage:recipients:
+setMinimumEarlyFireProportion:
+URLForResource:withExtension:
+managerForDomain:
+setFrame:
+invertedSet
+timerWithTimeInterval:target:selector:userInfo:repeats:
+encodeInteger:forKey:
+stringByAddingPercentEncodingWithAllowedCharacters:
+friendGroups
+setWithObjects:
+mainScreen
+userInterfaceIdiom
+descriptorForRequiredKeysForStyle:
+URLByAppendingPathComponent:
+initWithMessage:recipients:
+frame
+remoteObjectProxyWithErrorHandler:
+initWithMachServiceName:options:
+string
+regularExpressionWithPattern:options:error:
+addTimer:forMode:
+encodeDouble:forKey:
+setMaximumFractionDigits:
+setWithObject:
+mainRunLoop
+bundleWithURL:
+encodeBool:forKey:
+recipients
+formattedStringValue
+storeWithOptions:
+countByEnumeratingWithState:objects:count:
+useStandalone
+addSublayer:
+setVolume:
+setCalculationMode:
+initWithImage:
+setRepeatCount:
+setMaxGroupCount:domain:
+mainBundle
+bundleIdentifier
+stopUpdatingLocation
+setMask:
+setVoice:
+count
+defaultWorkspace
+lostModeIsActive
+openURL:configuration:completionHandler:
+setFailureBlock:
+initWithIdentifier:
+addObserver:selector:name:object:
+setBackgroundColor:
+year
+bundleForClass:
+newAssertionForBundle:withReason:
+stopSpeakingAtBoundary:
+setRemoteObjectInterface:
+setValues:
+invalidate
+timeIntervalSinceReferenceDate
+setExportedObject:
+range
+doubleValue
+setRate:
+interfaceWithProtocol:
+nativeBounds
+copy
+setValue:forKey:
+setExportedInterface:
+queryItemWithName:value:
+timeIntervalSinceNow
+addObjectsFromArray:
+defaultManager
+setLocationURL:
+distantPast
+setQueryItems:
+boolValue
+integrity
+setDuration:
+coordinate
+initWithEffectiveBundle:delegate:onQueue:
+timeIntervalSinceDate:
+objectForKeyedSubscript:
+defaultCenter
+addObject:
+distanceFromLocation:
+presentationLayer
+weakToStrongObjectsMapTable
+presenterForPrivacySplashWithIdentifier:
+boolForKey:
+size
+containsObject:
+addAnimation:forKey:
+begin
+setPresentingViewController:
+integerValue
+setDisableActions:
+decodeObjectForKey:
+setUsesApplicationAudioSession:
+setActive:withOptions:error:
+timeIntervalSince1970
+objectForKey:
+setPosition:
+initWithDomain:pairedDevice:
+displayName
+setDidTriggerSOSToday:
+mutableCopy
+decodeIntegerForKey:
+weakObjectsHashTable
+intValue
+isLocationShiftRequiredForLocation:
+setUseStandalone:
+synchronizeUserDefaultsDomain:keys:
+initWithCalendarIdentifier:
+setActive:error:
+addAction:
+objectAtIndexedSubscript:
+location
+setLocation:
+presentViewController:animated:completion:
+startUpdatingLocation
+decodeDoubleForKey:
+setDesiredAccuracy:
+_cfBundle
+hasAnyData
+numberWithUnsignedInteger:
+synchronizeNanoDomain:keys:
+sendMessage:
+initWithArray:
+setLocalizedDateFormatFromTemplate:
+presentConfirmationWithTitle:message:cancelTitle:cancelHandler:confirmTitle:confirmHandler:
+localizedStringForKey:value:table:
+firstObject
+initWithUUIDString:
+decodeBoolForKey:
+localizations
+activeDeviceSelectorBlock
+setLocale:
+numberWithInteger:
+setTransform:
+synchronize
 init
 dealloc
 preloadContactStoreIfNecessary
@@ -2484,6 +2533,7 @@ setCurrentDeviceSOSStatus:
 pairedDeviceSOSStatus
 setPairedDeviceSOSStatus:
 mostRecentSOSStatus
+shouldBlockNonEmergencyCalls
 fetchSOSStatusWithKey:
 setSOSStatus:withKey:
 _isInternalDevice
@@ -2591,7 +2641,6 @@ timerFired:
 isTerminalState:
 isInterruptibleState:
 isPreCallState:
-isFlowActiveWithState:
 sosFlowTypeForTriggerMechanism:
 validEventsforState:
 isTriggerMechanismUserInitiated:
@@ -2713,7 +2762,7 @@ contactsManager
 setSosStatusManager:
 sosStatusManager
 broadcastUpdatedSOSStatus:
-handleNotifyClientsWithSOSStatus:
+handleNotifyThirdPartyClientsWithSOSStatus:
 notificationEnabledAndContactsExist
 isSendingLocationUpdate
 currentSOSInitiationState
@@ -2837,6 +2886,9 @@ TB,R
 initWithUUID:trigger:timeOfDetection:timeOfResolution:resolution:
 initWithUUID:trigger:timeOfDetection:
 initWithUUID:trigger:timeOfDetection:timeOfResolution:resolution:flowState:isPairedDeviceStatus:
+isValid
+isFlowActive
+isFlowActiveAndNotResting
 T@"NSUUID",&,N,V_uuid
 Tq,N,V_trigger
 T@"NSDate",&,N,V_timeOfDetection
@@ -2855,7 +2907,6 @@ _startTimer
 fireAndStartTimertWithTimeInterval:
 invalidateTimer
 invalidateInitialTimer
-isValid
 setRequestingLocation:
 setForceEnableLocationAssertion:
 shouldStopRequestingLocationAfterCallback
@@ -2951,12 +3002,26 @@ initWithSOSStatus:
 sosStatus
 sosTriggeredWithUUID:trigger:
 sosTriggerDisabledWithUUID:trigger:
-updateStatusWithState:withPreviousState:
-updateSiriListeningIfNeeded:
+flowStarted
+flowStartedOnEitherDevice
+flowStartedOnCurrentDevice
+flowEnded
+flowEndedOnBothDevices
+flowEndedOnCurrentDevice
+startAudioSession
+endAudioSession
 clientConnection
 setClientConnection:
+inSOSFlow
+setInSOSFlow:
+inSOSFlowOnCurrentDevice
+setInSOSFlowOnCurrentDevice:
+_inSOSFlow
+_inSOSFlowOnCurrentDevice
 _clientConnection
 T@"NSXPCConnection",&,N,V_clientConnection
+TB,N,V_inSOSFlow
+TB,N,V_inSOSFlowOnCurrentDevice
 v16@0:8
 @16@0:8
 B16@0:8
@@ -3099,4 +3164,3 @@ Q40@0:8{CGPoint=dd}16@32
 @"UIImage"
 @"NSXPCConnection"
 @"NSMapTable"
-v32@0:8q16q24
