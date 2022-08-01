@@ -62,8 +62,9 @@ else
 # last word of the command-line array, so we must decrement the
 # count by 1
 COMP_CWORD=\$((\${#COMP_WORDS[@]}-1))
-# Call _git() or _gitk() of the bash script, based on the first argument
-_\${1}
+# Call __git_wrap__git_main() or __git_wrap__gitk_main() of the bash script,
+# based on the first argument
+__git_wrap__\${1}_main
 IFS=\$'\n'
 if [ \${#COMPREPLY[*]} -eq 0 ]; then
 # No completions suggested.  In this case, we want tcsh to perform

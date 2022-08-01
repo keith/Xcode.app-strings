@@ -10,11 +10,13 @@ INTEGER PRIMARY KEY
 INSERT OR REPLACE INTO medication_user_domain_concepts (udc_id) VALUES (?)
 @"NSString"8@?0
 v16@?0^{sqlite3_stmt=}8
+B24@?0@"HKDismissedDrugInteractionResult"8^@16
+B24@?0@"HDDatabaseTransaction"8^@16
+%@: medication.firstConceptIdentifier must not be nil
 @16@?0@"HDCodableMedicationSchedule"8
 @16@?0@"HDCodableMedicationScheduleIntervalData"8
 @16@?0@"HKMedicationScheduleIntervalData"8
 The -%@ method is not available on %@
-B24@?0@"HDDatabaseTransaction"8^@16
 hasLoggedMedsInPast24hrs
 hasLoggedMedsInPastWeek
 hasLoggedMedsInPastMonth
@@ -57,10 +59,13 @@ deleted
 intervalData
 com.apple.healthd.medications.gated-reschedule
 v32@?0@"HDXPCGatedActivity"8@"NSObject<OS_xpc_object>"16@?<v@?q@"NSError">24
+B16@?0^@8
 B24@?0@"HKMedicationSchedule"8^@16
 v20@?0B8@"NSError"12
 Activity "%@" Deferred
 v24@?0q8@"NSError"16
+%@-%@
+@16@?0@"HKMedicationSchedule"8
 v16@?0@"<HDMedicationScheduleObserver>"8
 schedules
 item_identifier
@@ -100,7 +105,6 @@ Could not find severity concept with identifier: %@
 Could not determine correct severity type for severity concept with identifier: %@
 startingConcept != nil
 Could not find any relationships for concept: %@ with starting concept: %@
-@16@?0@"HKConceptRelationship"8
 B24@?0@"HKMedicationUserDomainConcept"8^@16
 HDMedicationNotificationManager
 MedicationExpirationAlarmIdentifier
@@ -142,11 +146,21 @@ INTEGER NOT NULL
 BLOB NOT NULL
 HDDrugInteractionFactorStateObserver
 v16@?0@"<HDDrugInteractionFactorStateObserver>"8
+interaction_identifier
+first_drug_class_identifier
+first_drug_class_ancestor_identifier
+second_drug_class_identifier
+second_drug_class_ancestor_identifier
+creation_date
+medication_dismissed_interactions
+B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
+dismissed_results
 com.apple.health.MedicationsDaemonPlugin
 didObserve medications count change to %ld
 HDDrugInteractionClass.m
 relationships != nil
 <%@:%p name:%@, relationship count:%ld, ancestorIdentifier: %@, ontologyIdentifier:%@, validRegionCodes:[%@]>
+v16@?0q8
 HDMedicationSearchEngine.m
 scanResult != nil
 codeAttributeType
@@ -154,8 +168,6 @@ tokens != nil
 @16@?0@"HKConceptIdentifier"8
 Could not find any relationships for concept: %@ 
 @16@?0@"NSString"8
-Q16@?0q8
-[%@] Could not find any generic product for given clinical product of identifier: %@
 clinicalProduct != nil
 @16@?0@8
 Cannot require %@ shard because device configuration does not support ontology backed medications
@@ -181,14 +193,13 @@ hasAddedMedsInPastYear
 numberOfMedsInList
 hasMedsList
 com.apple.healthd.medications.scheduler
-%@-%@
-B16@?0^@8
 v16@?0@?<v@?>8
 B64@?0@"HDSQLiteEntity"8@"NSArray"16^{HDSQLiteRow=}24q32Q40^B48^@56
 q40@?0@"HDDatabaseMigrator"8@"HDDatabaseMigrationTransaction"16q24^@32
 DROP TABLE IF EXISTS medication_ingredients
 DROP TABLE IF EXISTS medication_schedules
 CREATE TABLE IF NOT EXISTS medication_schedules (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, uuid BLOB UNIQUE NOT NULL, medication_uuid BLOB NOT NULL, medication_identifier TEXT NOT NULL, start_date_time REAL NOT NULL, end_date_time REAL, created_time_zone TEXT NOT NULL, frequency_type INTEGER NOT NULL, cycle_start_date_components BLOB, note TEXT, creation_date REAL NOT NULL, deleted INTEGER NOT NULL, sync_provenance INTEGER NOT NULL)
+CREATE TABLE IF NOT EXISTS medication_dismissed_interactions (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, interaction_identifier INTEGER NOT NULL, first_drug_class_identifier INTEGER NOT NULL, first_drug_class_ancestor_identifier INTEGER NOT NULL, second_drug_class_identifier INTEGER NOT NULL, second_drug_class_ancestor_identifier INTEGER NOT NULL, creation_date REAL NOT NULL, UNIQUE(interaction_identifier, first_drug_class_identifier, first_drug_class_ancestor_identifier, second_drug_class_identifier, second_drug_class_ancestor_identifier))
 hasDrugInteractionFactor changed to %@
 @"<HKAnalyticsEvent>"8@?0
 HDHealthMedicationsProfileExtension.m
@@ -196,7 +207,6 @@ Health Medications Profile Extension is nil in profile %@
 B16@?0@"HKMedicationDoseEvent"8
 hasMedsScheduled
 numberOfMedsScheduled
-HKConcept+MedicationsGraphWalk.m
 date
 status
 isPaddedDay
@@ -245,7 +255,6 @@ freeTextMedicationName
 freeTextMedicationStrengthQuantity
 start_date_time
 end_date_time
-creation_date
 medication_uuid
 medication_identifier
 created_time_zone
@@ -267,7 +276,6 @@ cycle_index
 cycle_interval_days
 medication_schedule_interval_data
 INTEGER
-B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Error when determining if user has any dose events in the database, continuing daily analytics submission: %{public}@
 [%{public}@] Error loading oldest logged dose event, continuing daily analytics submission: %{public}@
 [%{public}@] No scheduled dose events found for yesterday
@@ -298,8 +306,10 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Does not have initial setup for Medications Demo data. So skipping Dose event sample generation.
 %{public}@: Trigger gated update with maximum delay %0.3fs
 %{public}@: Gated update result: %{public}@, error: %{public}@
+[%{public}@]: unable to take accessibility assertion: %{public}@
 [%{public}@]: Failed to reschedule medications with sync provenance: %{public}@
 [%{public}@]: Initial gated reschedule activity failed with sync provenance: %{public}@
+[%{public}@] Abort update to the same time zone: %{public}@.
 [%{public}@] Notifying %{public}@ observers of reschedule items.
 [%{public}@] Notifying %{public}@ observers of prune schedule items.
 [%{public}@] Started pruning schedule items before date %{public}@
@@ -332,7 +342,6 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Could not load interaction concept for drug interaction with identifier: %{public}@
 [%{public}@] Could not load severity concept for drug interaction with identifier: %{public}@
 [%{public}@] Could not load localized education concept for drug interaction with identifier: %{public}@
-[%{public}@] Could not load relationships for identifier: %{public}@, concept: %@
 [%{public}@] Forced HealthKit NanoSync.
 [%{public}@] Error forcing HealthKit NanoSync: %{public}@
 [%{public}@]: Failed to remove notifications taken or skipped outside of notification UI: %{public}@
@@ -387,10 +396,21 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Failed to query a concept using code: %{public}@
 [%{public}@] Could not find a concept: %{public}@
 [%{public}@] Could not find any relationships for concept: %{public}@
-[%{public}@] Could not find a product type concept: %{public}@
-[%{public}@] Failed to query concepts using tokens: %{public}@
-[%{public}@] Failed to expand search result with concept: %@
-[%{public}@] Encountered problem collecting auxiliary concepts: %{public}@, error: %@
+[%{public}@] START enumerating concepts for tokens %{public}@
+[%{public}@] Failed to query concepts for tokens: %{public}@: %{public}@
+[%{public}@] FOUND %ld matching concepts for tokens: %{public}@ in %{public}@
+[%{public}@] Failed to expand search result with concept: %@: %{public}@
+[%{public}@] EXPANDED sub-graph for matches for tokens: %{public}@ in %{public}@
+%{public}@: Time zone changed
+%{public}@: Time zone change is inconsequential.
+%{public}@: Will post notification request: %{public}@
+[%{public}@]: Did successfully post time zone changed notification
+[%{public}@]: Failed to post time zone changed notification request error:%{public}@
+[%{public}@]: Should not fire time zone alert. Not supported.
+[%{public}@]: Should not fire time zone alert. Setting toggle off
+[%{public}@]: Should not fire time zone alert. Health notifications not authorized.
+[%{public}@]: Should not fire time zone alert. No active medication.
+[%{public}@]: Should fire time zone alert.
 [%{public}@] Error fetching oldest medication while determening weeks since first med added, continuing daily analytics submission: %{public}@
 [%{public}@] No error when fetching oldest medications added, but also no value
 [%{public}@] Error fetching medications while determining interactions, continuing daily analytics submission: %{public}@
@@ -400,7 +420,6 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@]: periodic activity %{public}@ is not an expected activity, not configuring
 [%{public}@]: configuring periodic activity %{public}@
 [%{public}@]: periodic activity %{public}@ is not an expected activity, not performing
-[%{public}@]: unable to take accessibility assertion: %{public}@
 [%{public}@]: performing periodic activity %{public}@
 %{public}@: Ignoring %lu sync objects from sync store %{public}@ with version %{public}@ because our current version is %{public}@
 [%{public}@] Plugin loaded for profileType %{public}@
@@ -410,13 +429,14 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] dose event samples added.
 [%{public}@] dose event samples removed, triggering nano sync.
 [%{public}@] Error loading a count of scheduled medication, continuing daily analytics submission: %{public}@
-[%{public}@] Could not find any product "isA" relationships for identifier: %{public}@, concept: %@
-[%{public}@] Could not walk graph for concept: %{public}@, error: %@
 [%{public}@] Error enumerating shard registry entries: %{public}@
 %{public}@: Failed to fetch intervals for schedule UUID: %{public}@ error: %{public}@
 HDMedicationsDemoDataGeneratorState
 HDMedicationUserDomainConceptEntity
 _HDMedicationUserDomainConceptEntityEncoder
+HDMedicationControlTaskServer
+HKMedicationControlServerInterface
+HKUnitTestingTaskServerInterface
 HDCodingSupport
 HDDecodingSupport
 HDMedicationDoseEventDailyAnalytics
@@ -448,7 +468,8 @@ HDCodableMedicationMonthHighlight
 HDMedicationScheduleControlServer
 HDMedicationScheduleItemEntity
 HDDrugInteractionFactorStateProvider
-HDBreadthFirstSearchConfiguration
+HDDismissedDrugInteractionResultEntity
+HDDismissedDrugInteractionResultInsertOperation
 HDOntologyManufacturedDoseFormProvider
 HDOntologyComponentNameProvider
 HDMedicationUserDomainConceptGenerator
@@ -468,11 +489,11 @@ HDDrugInteractionClass
 HDNotificationEngineConfiguration
 HDMedicationSearchEngine
 HDOntologyMedicationFeatureEvaluator
+HDMedicationTimeZoneManager
 HDHealthMedicationsPluginUnprotectedDatabaseSchema
 HDHealthMedicationsPluginDatabaseSchema
 HDDrugInteractionEngineTaskServer
 HKDrugInteractionEngineServerInterface
-HKUnitTestingTaskServerInterface
 HDOntologyCoreMedsFeatureEvaluator
 HDOntologyBrandNameProvider
 HDMedicationNotificationEngine
@@ -495,7 +516,6 @@ HDMedicationDoseEventObserver
 HDDataObserver
 HDOntologyGenericMedicationContentProvider
 HDMedicationScheduleDailyAnalytics
-Medications
 HDCodableHighlightDay
 HDCodableMedicationChartSeries
 HDMedicationScheduleItemQueryServer
@@ -587,6 +607,25 @@ applyPropertiesToObject:persistentID:row:error:
 transaction
 retrievePrivateDataEntitiesForUserDomainConcept:persistentID:transaction:error:
 createBareObjectWithRow:
+serverInterface
+clientInterface
+_initWithDrugInteractionResult:
+insertDismissedDrugInteractionResult:profile:error:
+database
+addObject:
+enumerateDismissedDrugInteractionResultsWithWithPredicate:transaction:error:enumerationHandler:
+performReadTransactionWithHealthDatabase:error:block:
+firstConceptIdentifier
+hk_errorForInvalidArgument:class:selector:format:
+deleteEntitiesWithPredicate:healthDatabase:error:
+taskIdentifier
+remote_unitTesting_createTaskServerNoOpWithCompletion:
+remote_markInteractionAsDismissed:completion:
+remote_allDismissedDrugInteractionsWithCompletion:
+remote_deleteDismissedDrugInteractionsForMedication:completion:
+exportedInterface
+remoteInterface
+connectionInvalidated
 hk_UUIDWithData:
 decodedUUID
 decodedMedicationUUID
@@ -655,10 +694,8 @@ numberWithDouble:
 initWithStartTimeComponent:daysOfWeek:cycleIndex:cycleIntervalDays:dose:
 hd_codableFromIntervalData
 raise:format:
-database
 _weeksSinceFirstLoggedMedPayload
 hk_addEntriesFromNonNilDictionary:
-performReadTransactionWithHealthDatabase:error:block:
 _hasLoggedMedsInPastPayloadWithTransaction:
 _hasLoggedAllScheduledMedsInPreviousDayPayloadWithTransaction:
 hk_dateByAddingDays:toDate:
@@ -703,16 +740,13 @@ allValuesWithError:
 restoreState
 _saveStateWithError:
 stringWithFormat:
-sourceManager
-entitlementsWithDictionary:
-sourceForApplicationIdentifier:createOrUpdateIfNecessary:entitlements:name:error:
 syncIdentifierForScheduleItemIdentifier:medicationIdentifier:
 syncVersionForStatus:
 medicationDoseEventWithLogOrigin:scheduleItemIdentifier:medicationIdentifier:scheduledDoseQuantity:doseQuantity:scheduledDate:startDate:status:metadata:
-_medicationsAppSourceEntity:
+notificationManager
+medicationsAppSourceEntityWithError:
 insertDataObjects:sourceEntity:deviceEntity:sourceVersion:creationDate:error:
 doseEventWithLogOrigin:scheduleItemIdentifier:medicationIdentifier:scheduledDoseQuantity:doseQuantity:scheduledDate:startDate:status:
-addObject:
 dateByAddingTimeInterval:
 _makeStableIdentifierFromScheduledDateTime:
 scheduledDoseEventsForMedication:startDateTime:historyDayCount:
@@ -878,9 +912,13 @@ scheduleManager:didPruneScheduleItems:
 initWithName:loggingCategory:
 initWithProfile:
 registerProfileReadyObserver:queue:
+dealloc
 initWithName:criteria:loggingCategory:handler:
 _unitTesting_activity_result
+setCacheScope:
+addAccessibilityAssertion:
 rescheduleMedicationsWithError:
+performWithTransactionContext:error:block:
 shouldDefer
 schedulePredicateForMedicationIdentifier:
 schedulePredicateForScheduleIdentifier:
@@ -892,10 +930,27 @@ scheduleMedicationsFromDate:error:
 hk_error:format:
 requestRunWithMaximumDelay:completion:
 runUngatedWithCompletion:
+invalidate
+UUIDString
+takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
 triggerGatedRescheduleWithMaximumDelay:completion:
 orderingTermWithProperty:entityClass:ascending:
 enumerateSchedulesWithPredicate:orderingTerms:transaction:error:enumerationHandler:
 initWithScheduleItemIdentifier:notificationSent:
+localTimeZone
+_updateSchedulesToTimeZone:maintainCalendarDatesAndTimes:error:
+autoupdatingCurrentCalendar
+medicationSchedulesWithError:
+isEqualToString:
+secondsFromGMT
+setCalendar:
+initWithName:
+setTimeZone:
+hour
+minute
+second
+setMinute:
+setSecond:
 deletedSchedule
 insertMedicationSchedule:error:
 registerObserver:queue:
@@ -906,12 +961,11 @@ pruneAllScheduleItemsBeforeDate:createDoseEvents:error:
 profileDidBecomeReady:
 medicationSchedule:medicationIdentifier:error:
 medicationSchedule:identifier:error:
-medicationSchedulesWithError:
 medicationSchedulesWithPredicate:transaction:error:
 deletedSchedulesWithError:
 updateNotificationSent:scheduleItemIdentifier:error:
+updateSchedulesToLocalTimeZoneAndMaintainCalendarDatesAndTimes:error:
 deleteMedicationSchedule:error:
-notificationManager
 _unitTesting_gatedRescheduleRetryCount
 unitTesting_willTriggerGatedActivity
 setUnitTesting_willTriggerGatedActivity:
@@ -919,9 +973,11 @@ set_unitTesting_activity_result:
 _queue
 _observers
 _notificationManager
+_timeZoneManager
 _gatedRescheduleActivity
 _gatedRescheduleRetryCount
 _gatedRescheduleRetryAbort
+_accessibilityAssertion
 _lock
 _unitTesting_willTriggerGatedActivity
 __unitTesting_activity_result
@@ -943,7 +999,6 @@ decodeBoolForKey:
 _itemIdentifier
 _notificationSent
 schemaType
-isEqualToString:
 schemaVersion
 canImportEntry:
 hk_assignError:code:format:
@@ -987,7 +1042,6 @@ ontologyDatabase
 performTransactionWithError:transactionHandler:
 interactionClassesForConceptWithIdentifier:ontologyTransaction:error:
 interactionClassesForMedication:ontologyTransaction:error:
-firstConceptIdentifier
 interactionResultForFirstInteractionClass:secondInteractionClass:ontologyTransaction:interactionResultOut:error:
 relationships
 type
@@ -1062,9 +1116,11 @@ submitNotificationSentMetricWithHealthNotificationsAuthorizedStatus:dataSource:
 postNotificationWithRequest:completion:
 removeDeliveredNotificationsWithIdentifiers:
 clientIdentifier
+sourceManager
+entitlementsWithDictionary:
+sourceForApplicationIdentifier:createOrUpdateIfNecessary:entitlements:name:error:
 deleteMedicationScheduleItemsWithPredicate:transaction:error:
 predicateMatchingAnyPredicates:
-autoupdatingCurrentCalendar
 initWithCalendar:startGenerationDate:endGenerationDate:
 generateForSchedules:configuration:error:
 insertMedicationScheduleItem:transaction:error:
@@ -1180,9 +1236,6 @@ _days
 T@"NSMutableArray",&,N,V_days
 medicationNanoSyncTriggerManager
 initWithUUID:configuration:client:delegate:
-serverInterface
-clientInterface
-taskIdentifier
 remoteObjectProxyWithErrorHandler:
 client_notifyForDidRescheduleMedications
 client_notifyForDidPruneSchduleItems:
@@ -1191,13 +1244,12 @@ createTaskServerWithUUID:configuration:client:delegate:error:
 configurationClass
 validateConfiguration:client:error:
 remote_saveSchedule:completion:
+remote_updateSchedulesToLocalTimeZoneAndMaintainCalendarDatesAndTimes:completion:
 remote_fetchScheduleWithMedicationIdentifier:completion:
 remote_fetchAllSchedulesWithCompletion:
 remote_deleteSchedule:completion:
 remote_rescheduleMedicationsWithCompletion:
 remote_observeMedicationScheduleChanges:completion:
-exportedInterface
-remoteInterface
 remote_saveScheduleItems:completion:
 remote_updateNotificationSent:scheduleItemIdentifier:completion:
 _shouldObserveChanges
@@ -1211,7 +1263,6 @@ updateProperties:predicate:database:error:bindingHandler:
 deleteEntitiesInDatabase:predicate:error:
 medicationScheduleItemWithIdentifier:transaction:error:
 predicateWithProperty:value:comparisonType:
-dealloc
 addObserver:forKeyPath:options:context:
 removeObserver:forKeyPath:context:
 observeValueForKeyPath:ofObject:change:context:
@@ -1224,16 +1275,17 @@ _lock_medicationsUserDefaults
 _lock_isAlcoholDrugInteractionFactorEnabled
 _lock_isMarijuanaDrugInteractionFactorEnabled
 _lock_isTobaccoDrugInteractionFactorEnabled
-initWithMaxDepth:allowedRelationships:optionsForLevel:
-maxDepth
-allowedRelationships
-optionsForLevel
-_maxDepth
-_allowedRelationships
-_optionsForLevel
-Tq,R,N,V_maxDepth
-T@"NSSet",R,C,N,V_allowedRelationships
-T@?,R,C,N,V_optionsForLevel
+queryWithDatabase:predicate:
+_initWithInteractionIdentifier:firstDrugClassIdentifier:firstDrugClassAncestorIdentifier:secondDrugClassIdentifier:secondDrugClassAncestorIdentifier:creationDate:
+enumerateProperties:error:enumerationHandler:
+initWithDismissedDrugInteractionResults:
+interactionIdentifier
+firstDrugClassIdentifier
+firstDrugClassAncestorIdentifier
+secondDrugClassIdentifier
+secondDrugClassAncestorIdentifier
+uniquedColumns
+_dismissedResults
 manufacturedDoseFormsForConceptWithIdentifier:ontologyTransaction:error:
 _componentNamesFromClinicalProductConceptWithIdentifier:ontologyTransaction:error:
 version
@@ -1295,6 +1347,10 @@ _endGenerationDate
 T@"NSDate",R,C,N,V_startGenerationDate
 T@"NSDate",R,C,N,V_endGenerationDate
 T@"NSCalendar",R,N,V_calendar
+enumerateIntegersUsingBlock:
+predicateForRelationshipsWithTypes:onConceptId:
+attributes
+conceptWithIdentifier:attributes:relationships:
 _medicationClustersFromScanResult:limit:ontologyTransaction:errorOut:
 initWithArray:
 medicationClusterFromMachineReadableCode:codeAttributeType:profile:errorOut:
@@ -1306,15 +1362,19 @@ numberRepresentation
 specificProduct
 predicateMatchingConceptsWithAttributeType:attributeValue:
 _medicationSearchResultForSpecificProduct:seedMercuryId:ontologyTransaction:errorOut:
-medicationProductTypeForConcept:ontologyTransaction:error:
+meds_isSpecificProduct
+meds_isClinicalProduct
 _medicationSearchResultForClinicalProduct:seedMercuryId:ontologyTransaction:errorOut:
 predicateMatchingConceptsWithRelationshipType:withObjectId:
 predicateMatchingConceptsWithAttributeType:likeAttributeValue:
-breadthFirstSearchWithStartingConcept:configuration:ontologyTransaction:error:visit:
-initWithSeedHgId:specificProduct:tradeNameProduct:clinicalProducts:routedDoseFormProducts:ingredientProducts:
+concept:withRelationshipTypesLoaded:ontologyTransaction:error:
+containsInteger:
+_inflate:transaction:types:level:max:
+initWithType:destination:
+addInteger:
+_relationshipsForInflation
+initWithSeedHgId:specificProduct:traversedRelationships:traversedDepth:
 _genericProductForClinicalProduct:ontologyTransaction:genericProductOut:error:
-relationshipsLoadedConceptWithConcept:ontologyTransaction:error:
-breadthFirstSearchWithStartingConcept:relationshipTypes:maxLevelWalked:ontologyTransaction:error:visit:
 isGeneric
 medicationOrderTypeForIdentifier:
 medicationRecordTypeForIdentifier:
@@ -1333,10 +1393,18 @@ hkt_genericMedicationWithClinicalProductConcept:profile:errorOut:
 hkt_importEligibleMedicationConceptsSinceDate:limit:profile:errorOut:
 featureCoordinator
 evaluteRequiredShardsForEvalulator:reason:
+defaultCenter
+_timeZoneDidChange
+addObserver:selector:name:object:
+didChange
+updateSystemTimeZoneName
+hkmd_requestForTimeZoneNotification
+content
+title
+hkmd_supportsTimeZone
 medicationsFutureMigrationsEnabled
 T@"NSArray",R,C,N
 requiredEntitlements
-remote_unitTesting_createTaskServerNoOpWithCompletion:
 remote_interactionClassesForConceptWithIdentifier:completion:
 remote_interactionClassesForMedication:completion:
 remote_interactionClassForLifestyleFactor:completion:
@@ -1344,21 +1412,13 @@ remote_interactionResultsForInteractionClasses:completion:
 remote_interactionResultForFirstMedication:secondMedication:completion:
 remote_interactionResultForMedication:lifestyleFactor:completion:
 remote_interactionResultsForMedications:lifestyleFactors:completion:
-connectionInvalidated
 orderedSetWithCapacity:
 indexOfObject:
 setObject:atIndexedSubscript:
-setTimeZone:
 dateByAddingComponents:toDate:options:
 components:fromDate:toDate:options:
 _generateScheduleItemsAtDate:withSchedule:startGenerationDate:calendar:
 weekday
-hour
-minute
-setMinute:
-second
-setSecond:
-setCalendar:
 initWithScheduleUUID:dose:medicationIdentifier:
 hk_reversed
 arrayWithCapacity:
@@ -1383,12 +1443,6 @@ _countOfUserDomainConceptsWithPredicate:transaction:error:
 predicateWithProperty:greaterThanValue:
 shouldDeleteDuplicateConcept
 initWithProfile:name:interval:delegate:loggingCategory:
-UUIDString
-takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
-setCacheScope:
-addAccessibilityAssertion:
-performWithTransactionContext:error:block:
-invalidate
 maintenanceOperationWithName:asynchronousBlock:
 maintenanceWorkCoordinator
 enqueueMaintenanceOperation:
@@ -1433,6 +1487,7 @@ T@"HDSyncEntityIdentifier",R,C,N
 _sydney_dropMedicationIngredientsTableWithTransaction:error:
 addMigrationForSchema:toVersion:foreignKeyStatus:handler:
 _sydney_dropAndReAddMedicationScheduleTableWithTransaction:error:
+_sydney_createMedicationDismissedInteractionsTableWithTransaction:error:
 executeSQLStatements:error:
 remote_fetchMedicationClustersWithScanResult:limit:completion:
 remote_fetchMedicationClustersWithTextSearchTokens:limit:completion:
@@ -1473,13 +1528,6 @@ _samplesAddedDidRecheduleHandler
 T@?,C,N,V_samplesAddedDidRecheduleHandler
 _makeMedicationCountPayloadForSchedulesWithProfile:
 _medicationCountForSchedulesWithProfile:error:
-conceptsMatchingRelationshipType:startingConcept:ontologyTransaction:error:
-predicateForConceptsFollowingRelationshipOfTypes:fromSubjectId:
-hkt_medicationProductTypeForConcept:profile:error:
-hkt_conceptsMatchingRelationshipType:startingConcept:profile:error:
-hkt_breadthFirstSearchWithStartingConcept:relationshipTypes:maxLevelWalked:profile:error:visit:
-hkt_breadthFirstSearchWithStartingConcept:configuration:profile:error:visit:
-hkt_relationshipsLoadedConceptWithConcept:profile:error:
 setDate:
 setHasDate:
 hasDate
@@ -1681,9 +1729,7 @@ insertPersistableMedicationScheduleIntervalData:ownerID:database:error:
 propertyForSyncProvenance
 objectForPersistentID:row:error:
 isNullPredicateWithProperty:
-queryWithDatabase:predicate:
 _medicationScheduleIntervalDataFromRow:
-enumerateProperties:error:enumerationHandler:
 _medicationScheduleIntervalDataEntityPropertiesForModel
 _codableRepresentationForMedicationScheduleIntervalData:
 @24@0:8@16
@@ -1704,6 +1750,12 @@ B56@0:8@16q24q32@40^@48
 @40@0:8@16@24^@32
 @24@0:8^{HDSQLiteRow=}16
 B48@0:8@16q24^{HDSQLiteRow=}32^@40
+v24@0:8@?16
+v24@0:8@?<v@?B@"NSError">16
+v32@0:8@16@?24
+v32@0:8@"HKDrugInteractionResult"16@?<v@?B@"NSError">24
+v24@0:8@?<v@?@"NSArray"@"NSError">16
+v32@0:8@"HKMedicationUserDomainConcept"16@?<v@?B@"NSError">24
 @32@0:8@16^@24
 @"NSDictionary"32@0:8@"HKAnalyticsDataSource"16^@24
 @"NSString"16@0:8
@@ -1728,7 +1780,6 @@ v24@0:8@"HDProfile"16
 v40@0:8@"HDDemoDataPerson"16@"NSDate"24@"HDDemoDataBaseSampleGeneratorObjectCollection"32
 v56@0:8@"HDDemoDataPerson"16d24d32@"NSDate"40@"HDDemoDataBaseSampleGeneratorObjectCollection"48
 B24@0:8^@16
-@24@0:8^@16
 @80@0:8q16@24@32@40@48@56@64q72
 B32@0:8@16^@24
 @40@0:8@16@24Q32
@@ -1752,17 +1803,20 @@ v32@0:8@16@24
 v24@0:8@"HDMedicationScheduleManager"16
 v32@0:8@"HDMedicationScheduleManager"16@"NSArray"24
 B40@0:8^@16@24^@32
+@24@0:8^@16
 B40@0:8@16q24^@32
 v32@0:8d16@?24
 v24@0:8q16
 B36@0:8B16@20^@28
+B28@0:8B16^@20
 B36@0:8@16B24^@28
 @?16@0:8
-v24@0:8@?16
 @"NSObject<OS_dispatch_queue>"
 @"HKObserverSet<HDMedicationScheduleObserver>"
 @"HDMedicationNotificationManager"
+@"HDMedicationTimeZoneManager"
 @"HDXPCGatedActivity"
+@"HDAssertion"
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"NSNumber"
 B40@0:8@16@24^@32
@@ -1795,7 +1849,6 @@ v24@0:8@"<HDMedicationCountObserver>"16
 @"NSMapTable"
 @"HDDaemon"
 @56@0:8@16@24@32@40^@48
-v32@0:8@16@?24
 v28@0:8B16@?20
 @48@0:8@16@24@32@40
 v36@0:8B16@20@?28
@@ -1805,8 +1858,7 @@ v32@0:8@"<HDDrugInteractionFactorStateObserver>"16@"NSObject<OS_dispatch_queue>"
 v24@0:8@"<HDDrugInteractionFactorStateObserver>"16
 v48@0:8@16@24@32^v40
 @"HKObserverSet<HDDrugInteractionFactorStateObserver>"
-@40@0:8q16@24@?32
-@"NSSet"
+B48@0:8@16@24^@32@?40
 @"<HDHealthDaemonExtension>"24@0:8@"<HDHealthDaemon>"16
 @"<HDProfileExtension>"24@0:8@"HDProfile"16
 B24@0:8@"<HDHealthDaemon>"16
@@ -1826,9 +1878,9 @@ v32@0:8@"HDProfile"16@"NSObject<OS_dispatch_queue>"24
 @48@0:8@16q24@32^@40
 @56@0:8@16@24q32@40^@48
 B56@0:8@16q24^@32@40^@48
+@56@0:8@16@24@32Q40Q48
 B48@0:8@16@24^@32^@40
 v32@0:8@"HDDatabaseMigrator"16@"NSString"24
-v24@0:8@?<v@?B@"NSError">16
 v32@0:8Q16@?24
 v40@0:8@16@24@?32
 v40@0:8@16Q24@?32
@@ -1882,8 +1934,6 @@ v40@0:8@"<HDDrugInteractionFactorStateProvider>"16@"HDProfile"24q32
 v32@0:8@"NSArray"16@"NSNumber"24
 v32@0:8@"NSSet"16@"NSNumber"24
 v32@0:8@"NSArray"16@"HKSampleType"24
-@48@0:8q16@24@32^@40
-B64@0:8@16@24q32@40^@48@?56
 {?="date"b1"isPaddedDay"b1"status"b1}
 @"HKMedicationScheduleItemQueryConfiguration"
 B24@0:8r*16
@@ -1903,7 +1953,6 @@ B24@0:8r*16
 B48@0:8q16@24^@32@?40
 @(#)PROGRAM:HealthMedicationsDaemonPlugin  PROJECT:Medications-1
 !28I\bk|
-47:=@
 HDMedicationsDemoDataGeneratorDidSetupOntologyKey
 HDMedicationsDemoDataGeneratorDidSaveInitialDataKey
 HDMedicationsDemoDataGeneratorHasScheduledMedicationsKey
@@ -1915,11 +1964,13 @@ INTEGER PRIMARY KEY
 INSERT OR REPLACE INTO medication_user_domain_concepts (udc_id) VALUES (?)
 @"NSString"8@?0
 v16@?0^{sqlite3_stmt=}8
+B24@?0@"HKDismissedDrugInteractionResult"8^@16
+B24@?0@"HDDatabaseTransaction"8^@16
+%@: medication.firstConceptIdentifier must not be nil
 @16@?0@"HDCodableMedicationSchedule"8
 @16@?0@"HDCodableMedicationScheduleIntervalData"8
 @16@?0@"HKMedicationScheduleIntervalData"8
 The -%@ method is not available on %@
-B24@?0@"HDDatabaseTransaction"8^@16
 hasLoggedMedsInPast24hrs
 hasLoggedMedsInPastWeek
 hasLoggedMedsInPastMonth
@@ -1962,10 +2013,13 @@ deleted
 intervalData
 com.apple.healthd.medications.gated-reschedule
 v32@?0@"HDXPCGatedActivity"8@"NSObject<OS_xpc_object>"16@?<v@?q@"NSError">24
+B16@?0^@8
 B24@?0@"HKMedicationSchedule"8^@16
 v20@?0B8@"NSError"12
 Activity "%@" Deferred
 v24@?0q8@"NSError"16
+%@-%@
+@16@?0@"HKMedicationSchedule"8
 v16@?0@"<HDMedicationScheduleObserver>"8
 schedules
 item_identifier
@@ -2005,7 +2059,6 @@ Could not find severity concept with identifier: %@
 Could not determine correct severity type for severity concept with identifier: %@
 startingConcept != nil
 Could not find any relationships for concept: %@ with starting concept: %@
-@16@?0@"HKConceptRelationship"8
 B24@?0@"HKMedicationUserDomainConcept"8^@16
 HDMedicationNotificationManager
 MedicationExpirationAlarmIdentifier
@@ -2047,11 +2100,21 @@ INTEGER NOT NULL
 BLOB NOT NULL
 HDDrugInteractionFactorStateObserver
 v16@?0@"<HDDrugInteractionFactorStateObserver>"8
+interaction_identifier
+first_drug_class_identifier
+first_drug_class_ancestor_identifier
+second_drug_class_identifier
+second_drug_class_ancestor_identifier
+creation_date
+medication_dismissed_interactions
+B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
+dismissed_results
 com.apple.health.MedicationsDaemonPlugin
 didObserve medications count change to %ld
 HDDrugInteractionClass.m
 relationships != nil
 <%@:%p name:%@, relationship count:%ld, ancestorIdentifier: %@, ontologyIdentifier:%@, validRegionCodes:[%@]>
+v16@?0q8
 HDMedicationSearchEngine.m
 scanResult != nil
 codeAttributeType
@@ -2059,8 +2122,6 @@ tokens != nil
 @16@?0@"HKConceptIdentifier"8
 Could not find any relationships for concept: %@ 
 @16@?0@"NSString"8
-Q16@?0q8
-[%@] Could not find any generic product for given clinical product of identifier: %@
 clinicalProduct != nil
 @16@?0@8
 Cannot require %@ shard because device configuration does not support ontology backed medications
@@ -2086,14 +2147,13 @@ hasAddedMedsInPastYear
 numberOfMedsInList
 hasMedsList
 com.apple.healthd.medications.scheduler
-%@-%@
-B16@?0^@8
 v16@?0@?<v@?>8
 B64@?0@"HDSQLiteEntity"8@"NSArray"16^{HDSQLiteRow=}24q32Q40^B48^@56
 q40@?0@"HDDatabaseMigrator"8@"HDDatabaseMigrationTransaction"16q24^@32
 DROP TABLE IF EXISTS medication_ingredients
 DROP TABLE IF EXISTS medication_schedules
 CREATE TABLE IF NOT EXISTS medication_schedules (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, uuid BLOB UNIQUE NOT NULL, medication_uuid BLOB NOT NULL, medication_identifier TEXT NOT NULL, start_date_time REAL NOT NULL, end_date_time REAL, created_time_zone TEXT NOT NULL, frequency_type INTEGER NOT NULL, cycle_start_date_components BLOB, note TEXT, creation_date REAL NOT NULL, deleted INTEGER NOT NULL, sync_provenance INTEGER NOT NULL)
+CREATE TABLE IF NOT EXISTS medication_dismissed_interactions (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, interaction_identifier INTEGER NOT NULL, first_drug_class_identifier INTEGER NOT NULL, first_drug_class_ancestor_identifier INTEGER NOT NULL, second_drug_class_identifier INTEGER NOT NULL, second_drug_class_ancestor_identifier INTEGER NOT NULL, creation_date REAL NOT NULL, UNIQUE(interaction_identifier, first_drug_class_identifier, first_drug_class_ancestor_identifier, second_drug_class_identifier, second_drug_class_ancestor_identifier))
 hasDrugInteractionFactor changed to %@
 @"<HKAnalyticsEvent>"8@?0
 HDHealthMedicationsProfileExtension.m
@@ -2101,7 +2161,6 @@ Health Medications Profile Extension is nil in profile %@
 B16@?0@"HKMedicationDoseEvent"8
 hasMedsScheduled
 numberOfMedsScheduled
-HKConcept+MedicationsGraphWalk.m
 date
 status
 isPaddedDay
@@ -2150,7 +2209,6 @@ freeTextMedicationName
 freeTextMedicationStrengthQuantity
 start_date_time
 end_date_time
-creation_date
 medication_uuid
 medication_identifier
 created_time_zone
@@ -2172,7 +2230,6 @@ cycle_index
 cycle_interval_days
 medication_schedule_interval_data
 INTEGER
-B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Error when determining if user has any dose events in the database, continuing daily analytics submission: %{public}@
 [%{public}@] Error loading oldest logged dose event, continuing daily analytics submission: %{public}@
 [%{public}@] No scheduled dose events found for yesterday
@@ -2203,8 +2260,10 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Does not have initial setup for Medications Demo data. So skipping Dose event sample generation.
 %{public}@: Trigger gated update with maximum delay %0.3fs
 %{public}@: Gated update result: %{public}@, error: %{public}@
+[%{public}@]: unable to take accessibility assertion: %{public}@
 [%{public}@]: Failed to reschedule medications with sync provenance: %{public}@
 [%{public}@]: Initial gated reschedule activity failed with sync provenance: %{public}@
+[%{public}@] Abort update to the same time zone: %{public}@.
 [%{public}@] Notifying %{public}@ observers of reschedule items.
 [%{public}@] Notifying %{public}@ observers of prune schedule items.
 [%{public}@] Started pruning schedule items before date %{public}@
@@ -2237,7 +2296,6 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Could not load interaction concept for drug interaction with identifier: %{public}@
 [%{public}@] Could not load severity concept for drug interaction with identifier: %{public}@
 [%{public}@] Could not load localized education concept for drug interaction with identifier: %{public}@
-[%{public}@] Could not load relationships for identifier: %{public}@, concept: %@
 [%{public}@] Forced HealthKit NanoSync.
 [%{public}@] Error forcing HealthKit NanoSync: %{public}@
 [%{public}@]: Failed to remove notifications taken or skipped outside of notification UI: %{public}@
@@ -2292,10 +2350,21 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] Failed to query a concept using code: %{public}@
 [%{public}@] Could not find a concept: %{public}@
 [%{public}@] Could not find any relationships for concept: %{public}@
-[%{public}@] Could not find a product type concept: %{public}@
-[%{public}@] Failed to query concepts using tokens: %{public}@
-[%{public}@] Failed to expand search result with concept: %@
-[%{public}@] Encountered problem collecting auxiliary concepts: %{public}@, error: %@
+[%{public}@] START enumerating concepts for tokens %{public}@
+[%{public}@] Failed to query concepts for tokens: %{public}@: %{public}@
+[%{public}@] FOUND %ld matching concepts for tokens: %{public}@ in %{public}@
+[%{public}@] Failed to expand search result with concept: %@: %{public}@
+[%{public}@] EXPANDED sub-graph for matches for tokens: %{public}@ in %{public}@
+%{public}@: Time zone changed
+%{public}@: Time zone change is inconsequential.
+%{public}@: Will post notification request: %{public}@
+[%{public}@]: Did successfully post time zone changed notification
+[%{public}@]: Failed to post time zone changed notification request error:%{public}@
+[%{public}@]: Should not fire time zone alert. Not supported.
+[%{public}@]: Should not fire time zone alert. Setting toggle off
+[%{public}@]: Should not fire time zone alert. Health notifications not authorized.
+[%{public}@]: Should not fire time zone alert. No active medication.
+[%{public}@]: Should fire time zone alert.
 [%{public}@] Error fetching oldest medication while determening weeks since first med added, continuing daily analytics submission: %{public}@
 [%{public}@] No error when fetching oldest medications added, but also no value
 [%{public}@] Error fetching medications while determining interactions, continuing daily analytics submission: %{public}@
@@ -2305,7 +2374,6 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@]: periodic activity %{public}@ is not an expected activity, not configuring
 [%{public}@]: configuring periodic activity %{public}@
 [%{public}@]: periodic activity %{public}@ is not an expected activity, not performing
-[%{public}@]: unable to take accessibility assertion: %{public}@
 [%{public}@]: performing periodic activity %{public}@
 %{public}@: Ignoring %lu sync objects from sync store %{public}@ with version %{public}@ because our current version is %{public}@
 [%{public}@] Plugin loaded for profileType %{public}@
@@ -2315,13 +2383,14 @@ B32@?0@"NSArray"8^{HDSQLiteRow=}16^@24
 [%{public}@] dose event samples added.
 [%{public}@] dose event samples removed, triggering nano sync.
 [%{public}@] Error loading a count of scheduled medication, continuing daily analytics submission: %{public}@
-[%{public}@] Could not find any product "isA" relationships for identifier: %{public}@, concept: %@
-[%{public}@] Could not walk graph for concept: %{public}@, error: %@
 [%{public}@] Error enumerating shard registry entries: %{public}@
 %{public}@: Failed to fetch intervals for schedule UUID: %{public}@ error: %{public}@
 HDMedicationsDemoDataGeneratorState
 HDMedicationUserDomainConceptEntity
 _HDMedicationUserDomainConceptEntityEncoder
+HDMedicationControlTaskServer
+HKMedicationControlServerInterface
+HKUnitTestingTaskServerInterface
 HDCodingSupport
 HDDecodingSupport
 HDMedicationDoseEventDailyAnalytics
@@ -2353,7 +2422,8 @@ HDCodableMedicationMonthHighlight
 HDMedicationScheduleControlServer
 HDMedicationScheduleItemEntity
 HDDrugInteractionFactorStateProvider
-HDBreadthFirstSearchConfiguration
+HDDismissedDrugInteractionResultEntity
+HDDismissedDrugInteractionResultInsertOperation
 HDOntologyManufacturedDoseFormProvider
 HDOntologyComponentNameProvider
 HDMedicationUserDomainConceptGenerator
@@ -2373,11 +2443,11 @@ HDDrugInteractionClass
 HDNotificationEngineConfiguration
 HDMedicationSearchEngine
 HDOntologyMedicationFeatureEvaluator
+HDMedicationTimeZoneManager
 HDHealthMedicationsPluginUnprotectedDatabaseSchema
 HDHealthMedicationsPluginDatabaseSchema
 HDDrugInteractionEngineTaskServer
 HKDrugInteractionEngineServerInterface
-HKUnitTestingTaskServerInterface
 HDOntologyCoreMedsFeatureEvaluator
 HDOntologyBrandNameProvider
 HDMedicationNotificationEngine
@@ -2400,7 +2470,6 @@ HDMedicationDoseEventObserver
 HDDataObserver
 HDOntologyGenericMedicationContentProvider
 HDMedicationScheduleDailyAnalytics
-Medications
 HDCodableHighlightDay
 HDCodableMedicationChartSeries
 HDMedicationScheduleItemQueryServer
@@ -2411,397 +2480,425 @@ HDCodableMedicationShareableModel
 HDMedicationScheduleEntity
 HDMedicationScheduleEntityEncoder
 HDMedicationScheduleIntervalDataEntity
-components:fromDate:
-enumerateUserDomainConceptsWithPredicate:limit:orderingTerms:error:enumerationHandler:
-stringWithFormat:
-deleteDataObjects:restrictedSourceEntities:failIfNotFound:recursiveDeleteAuthorizationBlock:error:
-removeObserver:forKeyPath:context:
-weekday
-isEqualToString:
-setDay:
-deleteAllEntitiesWithError:
-predicateMatchingConceptsWithAttributeType:attributeValue:
-type
-UUID
-createAndRefreshOntologyBackedUserDomainConceptWithConceptIdentifier:additionalProperties:userDomainConceptTypeIdentifier:profile:error:
-allScheduledEventsWithError:
-isEqualToArray:
-enumerateUserDomainConceptsWithPredicate:error:enumerationHandler:
-beginReceivingEventsWithHandler:
-client_notifyForDidPruneSchduleItems:
-initWithProfile:eventSubmissionManager:logCategory:eventConstructor:
-hk_isUSLocale
-notificationNotMissedWithScheduleItemIdentifier:
-setWithObject:
-client_deliverScheduleItems:queryUUID:
-stringWithContentsOfFile:encoding:error:
-ontologyDatabase
-allObjects
-longLongValue
-removeItemAtPath:error:
-countValueForProperty:predicate:database:error:
-doubleValue
-weakToStrongObjectsMapTable
-medicationRecordTypeForIdentifier:
-predicateMatchingAnyPredicates:
-hk_isCocoaNoSuchFileError
-database
-countOfUserDomainConceptsMatchingPredicate:options:transaction:error:
-fromDate
-stringValue
-ageWithCurrentDate:error:
-basicAttributesForConcept:ofTypes:
-initWithCodingCollection:supplementalPropertyCollection:
-defaultForeignKey
-removeEvents:error:
-client_deliverError:forQuery:
-version
-initWithProfile:clientIdentifier:eventHandlerQueue:
-ontologyConceptManager
-hk_isBeforeDate:
-healthDirectoryPath
-doses
-setWithArray:
-logOrigin
-stringByDeletingPathExtension
 advanceWithError:
-dataWithContentsOfFile:
-predicateMatchingAllPredicates:
-initWithCategory:domainName:profile:
-availableState
-protectedDatabase
-healthDataSource
-predicateForElementsOfListType:
-isDeleted
-clientProxy
-removeDeliveredNotificationsWithIdentifiers:
-validRegionCodes
-nextSyncAnchorWithStartAnchor:predicate:session:healthDatabase:error:
-countDistinctForProperty:predicate:database:error:
-hk_isAfterOrEqualToDate:
-invalidate
-enumerateRelationshipsMatchingPredicate:options:transaction:error:enumerationHandler:
-enumerateProperties:error:enumerationHandler:
-stringByAppendingPathComponent:
-addUserDomainConceptObserver:queue:
-scheduledDateTime
-setValuesWithDictionary:error:
-dataManager
-predicateForConceptsFollowingRelationshipOfTypes:fromSubjectId:
-healthDaemon
-initWithCapacity:
-propertyCollectionWithUserSpecifiedName:userSpecifiedNotes:medicationVisualizationConfig:freeTextProperties:
-localizedPreferredName
-medicationOrderTypeForIdentifier:
-hk_isAfterDate:
-removeAllObjects
-autoupdatingCurrentCalendar
-countByEnumeratingWithState:objects:count:
 oldestSampleWithType:profile:encodingOptions:predicate:error:
-transaction
-validInRegions
-toDate
-clientInterface
-addObserver:forKeyPath:options:context:
-insertDataObjects:sourceEntity:deviceEntity:sourceVersion:creationDate:error:
-nanoSyncManager
-userDomainConceptUUIDForCanonicalConceptWithSemanticIdentifierString:transaction:error:
-healthAppHiddenOrNotInstalled
-decodeObjectOfClasses:forKey:
-followRelationshipsWithTypes:startingIdentifier:options:ontologyTransaction:conceptOut:deletedRelationshipVersionOut:error:
-removeAllEventsWithError:
-daemonExtensionWithIdentifier:
-properties
-localizedOntologyPreferredNamesForConcept:withUserDomainConceptPropertyType:
-ascending
-objectForKeyedSubscript:
-addObserver:forDataType:
-count
-setTimeZone:
-profileType
-initWithOntologyCoding:userSpecifiedName:userSpecifiedNotes:medicationVisualizationConfig:freeTextProperties:
-enumeratePersistentIDsAndProperties:error:enumerationHandler:
-postNotificationWithRequest:completion:
-initWithArray:
-localizedOntologyPreferredNamesForConcept:version:withUserDomainConceptPropertyType:
-hk_filter:
-initWithUUID:medicationUUID:medicationIdentifier:createdUTCOffset:startDateTime:endDateTime:timeIntervals:frequencyType:cycleStartDateComponent:note:creationTimestamp:deleted:
-clientIdentifier
-remoteObjectProxyWithErrorHandler:
-decodeObjectOfClass:forKey:
-persistentID
-firstOntologyCoding
-name
-_setMedicationUUID:
-hk_fileSizeWithError:
-JSONObjectWithData:options:error:
-timeZoneForSecondsFromGMT:
-objectForKey:
-timeZoneWithName:
-remoteObjectProxy
-userDomainConceptPropertyListWithFreeTextMedicationName:freeTextFormCode:freeTextStrengthQuantity:
-initWithUUID:medicationIdentifier:createdUTCOffset:startDateTime:endDateTime:timeIntervals:frequencyType:cycleStartDateComponent:note:
-profileIdentifier
-UUIDString
-firstObject
-disambiguatedDatabaseTable
-decodeBoolForKey:
-copy
-performWriteTransactionWithHealthDatabase:error:block:
-startTimeComponent
-mutableCopy
-localizedLoggingUnitsForConcept:
-initWithName:loggingCategory:
-objectAtIndexedSubscript:
-hk_error:format:
-profileExtensionWithIdentifier:
-addObjectsFromArray:
-enumerateEntriesWithPredicate:orderingTerms:error:enumerationHandler:
-interactions
-userDomainConceptManager
-hk_error:description:
-medicationDoseEventWithLogOrigin:scheduleItemIdentifier:medicationIdentifier:scheduledDoseQuantity:doseQuantity:scheduledDate:startDate:status:metadata:
-setCalendar:
-localizedEducationContentForConceptWithIdentifier:ontologyTransaction:localizedEducationContentOut:error:
+predicateForRelationshipsWithTypes:onConceptId:
 arrayWithObjects:count:
-mostRecentSampleWithType:profile:encodingOptions:predicate:anchor:error:
-initWithName:criteria:loggingCategory:handler:
-firstConceptIdentifier
-objectAtIndex:
-performWithTransactionContext:error:block:
-startOfDayForDate:
-daysOfWeek
+hk_allObjectsPassTestWithError:test:
+enqueueMaintenanceOperation:
+content
 arrayWithCapacity:
-contextForWritingProtectedData
+updateUserDomainConcepts:error:
+setTimeZone:
+predicateForElementsOfListType:
+addObject:
+isDeleted
+hk_allObjectsPassTest:
+updateSystemTimeZoneName
+gramUnitWithMetricPrefix:
+propertyCollectionWithUserSpecifiedName:userSpecifiedNotes:medicationVisualizationConfig:freeTextProperties:
+nanoSyncManager
+removeDeliveredNotificationsWithIdentifiers:
+medicationRecordTypeForIdentifier:
+localizedPreferredName
+timeZoneForSecondsFromGMT:
+objectForKeyedSubscript:
+timeZoneWithName:
+currentVersion
+scheduledDateTime
+_setMedicationUUID:
+ginkgo
+executeCachedStatementForKey:error:SQLGenerator:bindingHandler:enumerationHandler:
+hk_minus:
+containsObject:
+initWithProfile:eventSubmissionManager:logCategory:eventConstructor:
+destination
+invalidate
+medicationOrderTypeForIdentifier:
+properties
+startTimeComponent
+name
+hk_addNonNilObject:
+profileType
+arrayWithArray:
+localizedOntologyPreferredNamesForConcept:withUserDomainConceptPropertyType:
+eventWithIdentifier:dueDate:eventOptions:
+addMigrationForSchema:toVersion:foreignKeyStatus:handler:
+removeAllObjects
+objectForKey:
+hk_mapToSet:
+localizedOntologyPreferredNamesForConcept:version:withUserDomainConceptPropertyType:
+getChangesCount
+postNotificationWithRequest:completion:
+containsInteger:
+removeAllEventsWithError:
+desiredState
+persistentID
+initWithProfile:clientIdentifier:eventHandlerQueue:
+setCalendar:
+arrayByAddingObjectsFromArray:
+updateProperties:predicate:database:error:bindingHandler:
+startOfDayForDate:
+UUID
+mutableCopy
+objectAtIndexedSubscript:
+profileIdentifier
+JSONObjectWithData:options:error:
+array
 setHour:
 timeZone
-addObject:
-updateUserDomainConcepts:error:
-setCacheScope:
-object
-initWithSuiteName:
-medicationDoseEventType
-cycleStartDate
-enumerateEntitiesForSyncWithProperties:predicate:session:syncAnchorRange:limit:lastSyncAnchor:healthDatabase:error:block:
-relationshipsAreLoaded
-contentsOfDirectoryAtPath:error:
-fileURLWithPath:
-updateProperties:predicate:database:error:bindingHandler:
-timeIntervals
-scheduleItemIdentifier
-indexOfObject:
-performTransactionWithError:transactionHandler:
-arrayWithArray:
-addMigrationForSchema:toVersion:foreignKeyStatus:handler:
-initWithStartTimeComponent:daysOfWeek:cycleIndex:cycleIntervalDays:dose:
-hk_dateComponentsWithCodableDateComponents:
-incrementSyncAnchorAndAdjustSyncProvenanceIfNotLocalForUserDomainConceptWithUUID:transaction:error:
-setSecond:
-primaryProfile
-fileExistsAtPath:
-containsObject:
-scheduleEvents:error:
-numberWithUnsignedInteger:
-hk_dateByAddingDays:toDate:
-listByAddingUserDomainConcepts:
-timeIntervalSinceReferenceDate
-dictionaryWithObjects:forKeys:count:
-initWithLoggingCategory:healthDataSource:
-primaryConcept
-performTransactionWithContext:error:block:inaccessibilityHandler:
-initWithStartDate:duration:
-relationshipCount
-enumerateConceptsMatchingPredicate:options:limit:transaction:error:enumerationHandler:
-arrayByAddingObjectsFromArray:
-updateOntologyWithShardIdentifier:schemaType:schemaVersion:localShardURL:shardVersion:error:
-startDate
-timeIntervalSinceDate:
-currentVersion
-setBool:forKey:
-features
-numberWithLongLong:
-array
-identifierWithSchema:entity:
-initWithSeverityLevel:validRegionCodes:
-performReadTransactionWithHealthDatabase:error:block:
-hk_dataForUUIDBytes
-numberWithLong:
-specificProduct
-predicateWithProperty:value:comparisonType:
-hk_containsObjectPassingTest:
-conceptForIdentifier:options:transaction:error:
-registerProfileReadyObserver:queue:
-initWithSeedHgId:specificProduct:tradeNameProduct:clinicalProducts:routedDoseFormProducts:ingredientProducts:
-minute
-initWithListType:listName:
-areHealthNotificationsAuthorized
-compoundPredicateWithPredicate:otherPredicate:
-performOrJournalWithProfile:error:
-entitlementsWithDictionary:
-featureCoordinator
-takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
-destination
-identifierWithNumber:
-sourceManager
-predicateWithProperty:notEqualToValue:
-enqueueMaintenanceOperation:
-initWithScheduledDateTime:notificationSent:doses:
-initWithHealthEntityClass:profile:transaction:purpose:encodingOptions:authorizationFilter:
-numberWithInteger:
-samplesWithType:profile:encodingOptions:predicate:limit:anchor:error:
-predicateWithProperty:lessThanValue:
-currentHandler
-pathForResource:ofType:
-hk_codableDateComponents
-metadata
-identifier
-isSubsetOfSet:
-appleOntologySystem
-bundleForClass:
-sourceForApplicationIdentifier:createOrUpdateIfNecessary:entitlements:name:error:
-falsePredicate
-componentsJoinedByString:
-sortDescriptors
-initWithScheduleUUID:dose:medicationIdentifier:
-desiredState
-syncVersionForStatus:
-executeSQLStatements:error:
-numberWithInt:
-hk_assignError:invalidArgument:class:selector:
-syncProvenance
-predicateWithProperty:lessThanOrEqualToValue:
-currentDate
-pathExtension
-components:fromDate:toDate:options:
-runningInStoreDemoModeF201
-medicalCoding
-hour
-maxEncodedBytesPerCodableChangeForSyncEntityClass:
-initWithFormat:
-addEntriesFromDictionary:
-unzipStagedShardFileForEntry:toURL:error:
-isNullPredicateWithProperty:
-dateWithTimeIntervalSinceReferenceDate:
+hk_addEntriesFromNonNilDictionary:
+eventIdentifier
+conceptWithIdentifier:attributes:relationships:
+remoteObjectProxyWithErrorHandler:
+hk_map:
+evaluteRequiredShardsForEvalulator:reason:
+mostRecentSampleWithType:profile:encodingOptions:predicate:anchor:error:
 deletedSchedule
-predicateWithProperty:greaterThanValue:
-hk_assignError:code:format:
-isRunningStoreDemoMode
-medicationsFutureMigrationsEnabled
-numberWithDouble:
-runUngatedWithCompletion:
-sortDescriptorWithKey:ascending:
-currentCalendar
-setObject:forKeyedSubscript:
-serverInterface
-initWithFirstInteractionClass:secondInteractionClass:severity:educationContent:ontologyIdentifier:validRegionCodes:
-hkmd_requestForNotification:
-dateFromComponents:
-rawIdentifier
-initWithSampleTypes:encodingOptions:restrictedSourceEntities:authorizationFilter:samplePredicate:
-integerValue
-executeCachedStatementForKey:error:SQLGenerator:bindingHandler:enumerationHandler:
-handleFailureInMethod:object:file:lineNumber:description:
-sendCodableChange:version:resultAnchor:sequence:done:error:
 endDate
-quantityWithUnit:doubleValue:
+setCacheScope:
+initWithCodingCollection:supplementalPropertyCollection:
+currentHandler
+performWriteTransactionWithHealthDatabase:error:block:
+localizedLoggingUnitsForConcept:
+objectAtIndex:
+timeIntervals
+hk_UUIDWithData:
+remoteObjectProxy
+updateOntologyWithShardIdentifier:schemaType:schemaVersion:localShardURL:shardVersion:error:
+insertDataObjects:sourceEntity:deviceEntity:sourceVersion:creationDate:error:
+profileExtensionWithIdentifier:
+encodedByteCount
+hk_isUSLocale
+conceptForIdentifier:options:transaction:error:
+object
+hk_isCocoaNoSuchFileError
+initWithCategory:domainName:profile:
+currentDate
+areHealthNotificationsAuthorized
+localizedEducationContentForConceptWithIdentifier:ontologyTransaction:localizedEducationContentOut:error:
+interactions
+timeIntervalSinceReferenceDate
+setSecond:
+timeIntervalSinceDate:
+performWithTransactionContext:error:block:
+evaluateIsCanonicalConcept:entityClass:transaction:error:
+relationshipsAreLoaded
+dateWithTimeIntervalSinceReferenceDate:
+initWithUUID:medicationUUID:medicationIdentifier:createdUTCOffset:startDateTime:endDateTime:timeIntervals:frequencyType:cycleStartDateComponent:note:creationTimestamp:deleted:
+medicationDoseEventWithLogOrigin:scheduleItemIdentifier:medicationIdentifier:scheduledDoseQuantity:doseQuantity:scheduledDate:startDate:status:metadata:
+encodeObject:forKey:
+initWithCapacity:
+localTimeZone
+startDate
+setBool:forKey:
+numberWithUnsignedInteger:
+environmentDataSource
+currentCalendar
+hk_isBeforeDate:
+compoundPredicateWithPredicate:otherPredicate:
+initWithOntologyCoding:userSpecifiedName:userSpecifiedNotes:medicationVisualizationConfig:freeTextProperties:
+performTransactionWithError:transactionHandler:
+addInteger:
+appleOntologySystem
+dateFromComponents:
+initWithUUID:medicationIdentifier:createdUTCOffset:startDateTime:endDateTime:timeIntervals:frequencyType:cycleStartDateComponent:note:
+medicationDoseEventType
+specificProduct
+enumerateUserDomainConceptsWithPredicate:limit:orderingTerms:error:enumerationHandler:
+primaryProfile
+fromDate
+healthDirectoryPath
+encodeBool:forKey:
+numberWithLongLong:
+creationTimestamp
+scheduleItemIdentifier
+hk_isAfterOrEqualToDate:
+performTransactionWithContext:error:block:inaccessibilityHandler:
+primaryConcept
+numberWithLong:
+bundleForClass:
+dateByAddingUnit:value:toDate:options:
+initWithArray:
+relationshipCount
+sourceManager
+componentsJoinedByString:
+healthDataSource
+enumerateUserDomainConceptsWithPredicate:error:enumerationHandler:
+deleteEntitiesWithPredicate:healthDatabase:error:
+dueDate
+takeAccessibilityAssertionWithOwnerIdentifier:timeout:error:
+initWithType:destination:
+components:fromDate:toDate:options:
+initWithName:loggingCategory:
+listByAddingUserDomainConcepts:
+scheduleEvents:error:
+hk_isAfterDate:
+predicateWithProperty:value:comparisonType:
+healthDaemon
+dateByAddingTimeInterval:
+performReadTransactionWithHealthDatabase:error:block:
+deleteEntitiesInDatabase:predicate:error:
+dateByAddingComponents:toDate:options:
+initWithName:criteria:loggingCategory:handler:
+addEntriesFromDictionary:
+sourceForApplicationIdentifier:createOrUpdateIfNecessary:entitlements:name:error:
+registerProfileReadyObserver:queue:
+minute
+hk_filter:
+syncVersionForStatus:
+anyInDatabase:predicate:error:
+unzipStagedShardFileForEntry:toURL:error:
+sortDescriptors
+createdUTCOffset
+numberWithInteger:
+performOrJournalWithProfile:error:
+syncProvenance
+healthAppHiddenOrNotInstalled
+initWithSuiteName:
+boolValue
+metadata
+ancestorIdentifier
+followRelationshipsWithTypes:startingIdentifier:options:ontologyTransaction:conceptOut:deletedRelationshipVersionOut:error:
+boolForKey:
+components:fromDate:
+predicateWithProperty:notEqualToValue:
+deleteDataObjectsOfClass:predicate:limit:deletedSampleCount:notifyObservers:generateDeletedObjects:recursiveDeleteAuthorizationBlock:error:
+initWithName:
+unsignedIntValue
+enumerateRelationshipsMatchingPredicate:options:transaction:error:enumerationHandler:
+predicateWithProperty:lessThanValue:
+numberWithInt:
+doubleValue
+hk_fileSizeWithError:
+sortDescriptorWithKey:ascending:
+pathForResource:ofType:
+setObject:forKeyedSubscript:
+initWithStartTimeComponent:daysOfWeek:cycleIndex:cycleIntervalDays:dose:
+interactionIdentifier
+deleteDataObjects:restrictedSourceEntities:failIfNotFound:recursiveDeleteAuthorizationBlock:error:
+enumerateProperties:error:enumerationHandler:
+serverInterface
+firstOntologyCoding
+allocWithZone:
+deleteAllEntitiesWithError:
+biologicalSexWithError:
+doses
+initWithLoggingCategory:healthDataSource:
+syncIdentifierForScheduleItemIdentifier:medicationIdentifier:
+initWithStartDate:duration:
+predicateWithProperty:lessThanOrEqualToValue:
+numberWithDouble:
+setObject:atIndexedSubscript:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+samplesWithType:profile:encodingOptions:predicate:limit:anchor:error:
+_initWithInteractionIdentifier:firstDrugClassIdentifier:firstDrugClassAncestorIdentifier:secondDrugClassIdentifier:secondDrugClassAncestorIdentifier:creationDate:
+sendCodableChange:version:resultAnchor:sequence:done:error:
+databaseForEntityClass:
+hk_errorForInvalidArgument:class:selector:format:
+indexOfObject:
+setObject:forKey:
+pathExtension
+enumeratePersistentIDsAndProperties:error:enumerationHandler:
+meds_isSpecificProduct
+firstObject
+createAndRefreshOntologyBackedUserDomainConceptWithConceptIdentifier:additionalProperties:userDomainConceptTypeIdentifier:profile:error:
+behavior
+addAccessibilityAssertion:
+shouldDefer
+collapseUserDomainConcept:with:transaction:error:
+allValuesWithError:
+incrementSyncAnchorAndAdjustSyncProvenanceIfNotLocalForUserDomainConceptWithUUID:transaction:error:
 numberRepresentation
 numberWithBool:
-unsignedIntValue
-syncIdentifierForScheduleItemIdentifier:medicationIdentifier:
-hk_allObjectsPassTestWithError:test:
-eventWithIdentifier:dueDate:eventOptions:
-orderingTermWithProperty:entityClass:ascending:
-retrievePrivateDataEntitiesForUserDomainConcept:persistentID:transaction:error:
-hk_typesForArrayOf:
-setObject:forKey:
-creationTimestamp
-anyInDatabase:predicate:error:
-shouldDefer
-encodedByteCount
-dateByAddingUnit:value:toDate:options:
+initWithSeverityLevel:validRegionCodes:
+predicateWithProperty:greaterThanValue:
 syncHealthDataWithOptions:reason:completion:
-orderedSetWithCapacity:
-addAccessibilityAssertion:
-intValue
-predicateWithProperty:equalToValue:
-initWithFirstConceptIdentifier:secondConceptIdentifier:interactionType:interactions:
-hk_reversed
-setObject:atIndexedSubscript:
-gramUnitWithMetricPrefix:
-raise:format:
-_initBareObject
-hk_allObjectsPassTest:
-queryWithDatabase:predicate:limit:orderingTerms:groupBy:
-sharedBehavior
-initWithRawIdentifier:
-ancestorIdentifier
-eventIdentifier
-predicateMatchingRelationshipsWithSubjectId:relationshipType:
-isImproveHealthRecordsAllowedWithError:
-medicationUserDomainConceptTypeIdentifier
-dateByAddingTimeInterval:
-ginkgo
-initWithQueryDescriptors:includeDeletedObjects:anchor:sortDescriptors:bufferSize:profile:
-semanticIdentifier
-boolValue
-nullLocalizedOntologyPreferredNamesWithVersion:withUserDomainConceptPropertyType:
-hk_addNonNilObject:
-supportsOntologyBackedMedications
-queryWithDatabase:predicate:
+isSubsetOfSet:
+hk_error:format:
+allScheduledEventsWithError:
 URLForResource:withExtension:
-collapseUserDomainConcept:with:transaction:error:
-getChangesCount
-second
-encodeObject:forKey:
-dateByAddingComponents:toDate:options:
-initWithData:
-createdUTCOffset
-evaluteRequiredShardsForEvalulator:reason:
-insertOrReplaceEntity:database:properties:error:bindingHandler:
-predicateMatchingConceptsWithRelationshipType:withSubjectId:
-deleteEntitiesInDatabase:predicate:error:
-boolForKey:
-hk_minus:
-isImproveHealthAndActivityEnabled
-severityLevel
-initWithProperties:
+runningInStoreDemoModeF201
+meds_isClinicalProduct
+rawIdentifier
+medicalCoding
+firstDrugClassIdentifier
+hk_error:description:
+supportsOntologyBackedMedications
 activePairedDeviceProductType
-nullLocalizedOntologyLoggingUnitsWithVersion:withUserDomainConceptPropertyType:
+sharedBehavior
+maxEncodedBytesPerCodableChangeForSyncEntityClass:
+semanticIdentifier
 code
+defaultForeignKey
+initWithListType:listName:
+initWithSeedHgId:specificProduct:traversedRelationships:traversedDepth:
+isNullPredicateWithProperty:
+isRunningStoreDemoMode
+identifierWithSchema:entity:
+countValueForProperty:predicate:database:error:
+_initWithDrugInteractionResult:
+beginReceivingEventsWithHandler:
+countOfUserDomainConceptsMatchingPredicate:options:transaction:error:
+weekday
+runUngatedWithCompletion:
+orderingTermWithProperty:entityClass:ascending:
+allObjects
+severityLevel
+database
+medicationsFutureMigrationsEnabled
+orderedSetWithCapacity:
+nullLocalizedOntologyPreferredNamesWithVersion:withUserDomainConceptPropertyType:
+defaultCenter
+firstDrugClassAncestorIdentifier
+secondsFromGMT
+predicateWithProperty:equalToValue:
+raise:format:
+initWithScheduledDateTime:notificationSent:doses:
+secondDrugClassIdentifier
+_initBareObject
+initWithHealthEntityClass:profile:transaction:purpose:encodingOptions:authorizationFilter:
 superclassEncoder
-queryUUID
-predicateMatchingConceptsWithRelationshipType:withObjectId:
-encodeBool:forKey:
-biologicalSexWithError:
-allocWithZone:
-hk_addEntriesFromNonNilDictionary:
-hk_mapToSet:
-isGeneric
-schemaVersion
-maintenanceWorkCoordinator
-evaluateIsCanonicalConcept:entityClass:transaction:error:
-submitNotificationSentMetricWithHealthNotificationsAuthorizedStatus:dataSource:
-severity
-initWithProfile:name:interval:delegate:loggingCategory:
-notifyObservers:
-dueDate
-predicateMatchingConceptsWithAttributeType:likeAttributeValue:
-deleteDataObjectsOfClass:predicate:limit:deletedSampleCount:notifyObservers:generateDeletedObjects:recursiveDeleteAuthorizationBlock:error:
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-requestRunWithMaximumDelay:completion:
-maintenanceOperationWithName:asynchronousBlock:
-ontologyUpdateCoordinator
-environmentDataSource
-notificationSent
-allValuesWithError:
-hk_UUIDWithData:
-typeIdentifier
-behavior
-setMinute:
+queryWithDatabase:predicate:limit:orderingTerms:groupBy:
 client_notifyForDidRescheduleMedications
+dataWithContentsOfFile:
+weakToStrongObjectsMapTable
+ageWithCurrentDate:error:
+hk_dateComponentsWithCodableDateComponents:
+retrievePrivateDataEntitiesForUserDomainConcept:persistentID:transaction:error:
+typeIdentifier
+predicateMatchingRelationshipsWithSubjectId:relationshipType:
+submitNotificationSentMetricWithHealthNotificationsAuthorizedStatus:dataSource:
+identifierWithNumber:
+severity
+nullLocalizedOntologyLoggingUnitsWithVersion:withUserDomainConceptPropertyType:
+initWithScheduleUUID:dose:medicationIdentifier:
+integerValue
+firstConceptIdentifier
+UUIDString
+version
+enumerateIntegersUsingBlock:
+basicAttributesForConcept:ofTypes:
+hk_reversed
+secondDrugClassAncestorIdentifier
+countDistinctForProperty:predicate:database:error:
+availableState
+client_notifyForDidPruneSchduleItems:
+type
+enumerateEntriesWithPredicate:orderingTerms:error:enumerationHandler:
+predicateMatchingConceptsWithRelationshipType:withSubjectId:
+initWithFormat:
+hk_dateByAddingDays:toDate:
+dataManager
+queryWithDatabase:predicate:
+fileURLWithPath:
+identifier
+disambiguatedDatabaseTable
+intValue
+isImproveHealthRecordsAllowedWithError:
+client_deliverScheduleItems:queryUUID:
+notifyObservers:
+queryUUID
+setDay:
+predicateMatchingConceptsWithRelationshipType:withObjectId:
+countByEnumeratingWithState:objects:count:
+stringWithFormat:
+setMinute:
+validRegionCodes
+ontologyUpdateCoordinator
+fileExistsAtPath:
+hk_dataForUUIDBytes
+daemonExtensionWithIdentifier:
+notificationSent
+decodeObjectOfClasses:forKey:
+client_deliverError:forQuery:
+hour
+addUserDomainConceptObserver:queue:
+hk_containsObjectPassingTest:
+second
+addObserver:selector:name:object:
+medicationUserDomainConceptTypeIdentifier
+isImproveHealthAndActivityEnabled
+hkmd_supportsTimeZone
+enumerateEntitiesForSyncWithProperties:predicate:session:syncAnchorRange:limit:lastSyncAnchor:healthDatabase:error:block:
+initWithFirstInteractionClass:secondInteractionClass:severity:educationContent:ontologyIdentifier:validRegionCodes:
+isGeneric
+maintenanceWorkCoordinator
+setWithObject:
+count
+maintenanceOperationWithName:asynchronousBlock:
+stringWithContentsOfFile:encoding:error:
+notificationNotMissedWithScheduleItemIdentifier:
+predicateMatchingConceptsWithAttributeType:likeAttributeValue:
+initWithSampleTypes:encodingOptions:restrictedSourceEntities:authorizationFilter:samplePredicate:
+insertOrReplaceEntity:database:properties:error:bindingHandler:
+initWithFirstConceptIdentifier:secondConceptIdentifier:interactionType:interactions:
+autoupdatingCurrentCalendar
+features
+userDomainConceptUUIDForCanonicalConceptWithSemanticIdentifierString:transaction:error:
+validInRegions
+attributes
+schemaVersion
+decodeObjectOfClass:forKey:
+clientProxy
+initWithRawIdentifier:
+stringValue
+didChange
+quantityWithUnit:doubleValue:
+ontologyDatabase
+hkmd_requestForTimeZoneNotification
+requestRunWithMaximumDelay:completion:
+ascending
+predicateMatchingConceptsWithAttributeType:attributeValue:
+addObserver:forKeyPath:options:context:
+hk_codableDateComponents
+initWithQueryDescriptors:includeDeletedObjects:anchor:sortDescriptors:bufferSize:profile:
+copy
+setWithArray:
+featureCoordinator
 schemaType
-databaseForEntityClass:
-hk_map:
+decodeBoolForKey:
+isEqualToString:
+hk_assignError:invalidArgument:class:selector:
+stringByDeletingPathExtension
+addObserver:forDataType:
+removeObserver:forKeyPath:context:
+hkmd_requestForNotification:
+enumerateConceptsMatchingPredicate:options:limit:transaction:error:enumerationHandler:
+predicateMatchingAnyPredicates:
+ontologyConceptManager
+longLongValue
+isEqualToArray:
+transaction
+stringByAppendingPathComponent:
+userDomainConceptPropertyListWithFreeTextMedicationName:freeTextFormCode:freeTextStrengthQuantity:
+toDate
+setValuesWithDictionary:error:
+daysOfWeek
+clientInterface
+contextForWritingProtectedData
+dictionaryWithObjects:forKeys:count:
+initWithData:
+clientIdentifier
+initWithProperties:
+logOrigin
+removeItemAtPath:error:
+hk_typesForArrayOf:
+nextSyncAnchorWithStartAnchor:predicate:session:healthDatabase:error:
+hk_assignError:code:format:
+cycleStartDate
+initWithProfile:name:interval:delegate:loggingCategory:
+userDomainConceptManager
+handleFailureInMethod:object:file:lineNumber:description:
+title
+predicateMatchingAllPredicates:
+falsePredicate
+contentsOfDirectoryAtPath:error:
+executeSQLStatements:error:
+entitlementsWithDictionary:
+removeEvents:error:
+addObjectsFromArray:
+protectedDatabase
 init
 initWithDictionary:
 dictionary
@@ -2848,6 +2945,14 @@ refreshOntologyContentForUserDomainConcept:transaction:error:
 orderedProperties
 createBareObjectWithRow:
 applyPropertiesToObject:persistentID:row:error:
+taskIdentifier
+remote_unitTesting_createTaskServerNoOpWithCompletion:
+remote_markInteractionAsDismissed:completion:
+remote_allDismissedDrugInteractionsWithCompletion:
+remote_deleteDismissedDrugInteractionsForMedication:completion:
+exportedInterface
+remoteInterface
+connectionInvalidated
 decodedUUID
 decodedMedicationUUID
 hd_codableMedicationSchedule
@@ -2909,7 +3014,6 @@ _keyValueDomain
 _saveStateWithError:
 restoreState
 _makeStableIdentifierFromScheduledDateTime:
-_medicationsAppSourceEntity:
 doseEventWithLogOrigin:scheduleItemIdentifier:medicationIdentifier:scheduledDoseQuantity:doseQuantity:scheduledDate:startDate:status:
 saveMedicationDoseEvents:error:
 asNeededDoseEventsForMedication:startDateTime:historyDayCount:
@@ -3013,6 +3117,7 @@ T@"NSMutableArray",&,N,V_intervalDatas
 basicDoseFormsForConceptWithIdentifier:ontologyTransaction:error:
 scheduleManagerDidRescheduleMedications:
 scheduleManager:didPruneScheduleItems:
+dealloc
 profileDidBecomeReady:
 initWithProfile:
 medicationSchedule:medicationIdentifier:error:
@@ -3028,6 +3133,8 @@ scheduleMedicationsFromDate:error:
 triggerGatedRescheduleWithMaximumDelay:completion:
 rescheduleMedicationsWithSyncProvenance:
 updateNotificationSent:scheduleItemIdentifier:error:
+updateSchedulesToLocalTimeZoneAndMaintainCalendarDatesAndTimes:error:
+_updateSchedulesToTimeZone:maintainCalendarDatesAndTimes:error:
 deleteMedicationSchedule:error:
 notificationManager
 registerObserver:queue:
@@ -3041,9 +3148,11 @@ set_unitTesting_activity_result:
 _queue
 _observers
 _notificationManager
+_timeZoneManager
 _gatedRescheduleActivity
 _gatedRescheduleRetryCount
 _gatedRescheduleRetryAbort
+_accessibilityAssertion
 _lock
 _unitTesting_willTriggerGatedActivity
 __unitTesting_activity_result
@@ -3101,6 +3210,7 @@ _hkt_willTriggerNanoSyncHandler
 T@?,C,N,V_hkt_willTriggerNanoSyncHandler
 _rescheduleMedicationsFromDate:error:
 _queue_alarm:didReceiveDueEvents:
+medicationsAppSourceEntityWithError:
 unitTesting_restorableAlarmQueue
 unitTesting_expirationAlarmQueue
 unitTesting_restorableAlarm
@@ -3196,15 +3306,13 @@ initWithUUID:configuration:client:delegate:
 createTaskServerWithUUID:configuration:client:delegate:error:
 configurationClass
 validateConfiguration:client:error:
-taskIdentifier
 remote_saveSchedule:completion:
+remote_updateSchedulesToLocalTimeZoneAndMaintainCalendarDatesAndTimes:completion:
 remote_fetchScheduleWithMedicationIdentifier:completion:
 remote_fetchAllSchedulesWithCompletion:
 remote_deleteSchedule:completion:
 remote_rescheduleMedicationsWithCompletion:
 remote_observeMedicationScheduleChanges:completion:
-exportedInterface
-remoteInterface
 remote_saveScheduleItems:completion:
 insertMedicationScheduleItems:error:
 remote_updateNotificationSent:scheduleItemIdentifier:completion:
@@ -3214,7 +3322,6 @@ enumerateItemsWithPredicate:orderingTerms:transaction:error:enumerationHandler:
 insertMedicationScheduleItem:transaction:error:
 updateNotification:itemIdentifier:transaction:error:
 deleteMedicationScheduleItemsWithPredicate:transaction:error:
-dealloc
 observeValueForKeyPath:ofObject:change:context:
 monitorDrugInteractionFactorsInProfile:
 hasDrugInteractionFactorInProfile:
@@ -3224,16 +3331,11 @@ _lock_medicationsUserDefaults
 _lock_isAlcoholDrugInteractionFactorEnabled
 _lock_isMarijuanaDrugInteractionFactorEnabled
 _lock_isTobaccoDrugInteractionFactorEnabled
-initWithMaxDepth:allowedRelationships:optionsForLevel:
-maxDepth
-allowedRelationships
-optionsForLevel
-_maxDepth
-_allowedRelationships
-_optionsForLevel
-Tq,R,N,V_maxDepth
-T@"NSSet",R,C,N,V_allowedRelationships
-T@?,R,C,N,V_optionsForLevel
+uniquedColumns
+enumerateDismissedDrugInteractionResultsWithWithPredicate:transaction:error:enumerationHandler:
+insertDismissedDrugInteractionResult:profile:error:
+initWithDismissedDrugInteractionResults:
+_dismissedResults
 manufacturedDoseFormsForConceptWithIdentifier:ontologyTransaction:error:
 componentNamesForConceptWithIdentifier:ontologyTransaction:error:
 _componentNamesFromClinicalProductConceptWithIdentifier:ontologyTransaction:error:
@@ -3282,12 +3384,15 @@ T@"NSDate",R,C,N,V_startGenerationDate
 T@"NSDate",R,C,N,V_endGenerationDate
 T@"NSCalendar",R,N,V_calendar
 medicationClusterFromMachineReadableCode:codeAttributeType:profile:errorOut:
+concept:withRelationshipTypesLoaded:ontologyTransaction:error:
 medicationClustersFromScanResult:limit:profile:errorOut:
 medicationClustersFromTextSearchTokens:limit:profile:errorOut:
 medicationClustersForCHRImportWithExistingMedications:sinceDate:limit:profile:errorOut:
 _medicationClusterFromMachineReadableCode:codeAttributeType:searchResultOut:ontologyTransaction:errorOut:
 _medicationClustersFromScanResult:limit:ontologyTransaction:errorOut:
 _medicationClustersFromTextSearchTokens:limit:ontologyTransaction:errorOut:
+_inflate:transaction:types:level:max:
+_relationshipsForInflation
 _medicationSearchResultForSpecificProduct:seedMercuryId:ontologyTransaction:errorOut:
 _medicationSearchResultForClinicalProduct:seedMercuryId:ontologyTransaction:errorOut:
 _genericProductForClinicalProduct:ontologyTransaction:genericProductOut:error:
@@ -3295,12 +3400,12 @@ _importEligibleMedicationConceptsSinceDate:limit:profile:errorOut:
 hkt_genericMedicationWithClinicalProductConcept:profile:errorOut:
 hkt_importEligibleMedicationConceptsSinceDate:limit:profile:errorOut:
 triggerShardEvaluatorWithReason:
+_timeZoneDidChange
 registerMigrationStepsWithMigrator:schemaName:
 currentSchemaVersion
 databaseEntities
 T@"NSArray",R,C,N
 requiredEntitlements
-remote_unitTesting_createTaskServerNoOpWithCompletion:
 remote_interactionClassesForConceptWithIdentifier:completion:
 remote_interactionClassesForMedication:completion:
 remote_interactionClassForLifestyleFactor:completion:
@@ -3308,7 +3413,6 @@ remote_interactionResultsForInteractionClasses:completion:
 remote_interactionResultForFirstMedication:secondMedication:completion:
 remote_interactionResultForMedication:lifestyleFactor:completion:
 remote_interactionResultsForMedications:lifestyleFactors:completion:
-connectionInvalidated
 brandNamesForConceptWithIdentifier:ontologyTransaction:error:
 _generateScheduleItemsAtDate:withSchedule:startGenerationDate:calendar:
 generateForSchedules:configuration:error:
@@ -3349,6 +3453,7 @@ currentSyncVersion
 T@"HDSyncEntityIdentifier",R,C,N
 _sydney_dropMedicationIngredientsTableWithTransaction:error:
 _sydney_dropAndReAddMedicationScheduleTableWithTransaction:error:
+_sydney_createMedicationDismissedInteractionsTableWithTransaction:error:
 remote_fetchMedicationClustersWithScanResult:limit:completion:
 remote_fetchMedicationClustersWithTextSearchTokens:limit:completion:
 remote_fetchMedicationClusterWithMachineReadableCode:codeAttributeType:completion:
@@ -3384,16 +3489,6 @@ T@?,C,N,V_samplesAddedDidRecheduleHandler
 genericMedicationContentForConceptWithIdentifier:ontologyTransaction:error:
 _medicationCountForSchedulesWithProfile:error:
 _makeMedicationCountPayloadForSchedulesWithProfile:
-medicationProductTypeForConcept:ontologyTransaction:error:
-conceptsMatchingRelationshipType:startingConcept:ontologyTransaction:error:
-breadthFirstSearchWithStartingConcept:relationshipTypes:maxLevelWalked:ontologyTransaction:error:visit:
-breadthFirstSearchWithStartingConcept:configuration:ontologyTransaction:error:visit:
-relationshipsLoadedConceptWithConcept:ontologyTransaction:error:
-hkt_medicationProductTypeForConcept:profile:error:
-hkt_conceptsMatchingRelationshipType:startingConcept:profile:error:
-hkt_breadthFirstSearchWithStartingConcept:relationshipTypes:maxLevelWalked:profile:error:visit:
-hkt_breadthFirstSearchWithStartingConcept:configuration:profile:error:visit:
-hkt_relationshipsLoadedConceptWithConcept:profile:error:
 setDate:
 setHasDate:
 hasDate
@@ -3608,6 +3703,12 @@ B56@0:8@16q24q32@40^@48
 @40@0:8@16@24^@32
 @24@0:8^{HDSQLiteRow=}16
 B48@0:8@16q24^{HDSQLiteRow=}32^@40
+v24@0:8@?16
+v24@0:8@?<v@?B@"NSError">16
+v32@0:8@16@?24
+v32@0:8@"HKDrugInteractionResult"16@?<v@?B@"NSError">24
+v24@0:8@?<v@?@"NSArray"@"NSError">16
+v32@0:8@"HKMedicationUserDomainConcept"16@?<v@?B@"NSError">24
 @32@0:8@16^@24
 @"NSDictionary"32@0:8@"HKAnalyticsDataSource"16^@24
 @"NSString"16@0:8
@@ -3632,7 +3733,6 @@ v24@0:8@"HDProfile"16
 v40@0:8@"HDDemoDataPerson"16@"NSDate"24@"HDDemoDataBaseSampleGeneratorObjectCollection"32
 v56@0:8@"HDDemoDataPerson"16d24d32@"NSDate"40@"HDDemoDataBaseSampleGeneratorObjectCollection"48
 B24@0:8^@16
-@24@0:8^@16
 @80@0:8q16@24@32@40@48@56@64q72
 B32@0:8@16^@24
 @40@0:8@16@24Q32
@@ -3656,17 +3756,20 @@ v32@0:8@16@24
 v24@0:8@"HDMedicationScheduleManager"16
 v32@0:8@"HDMedicationScheduleManager"16@"NSArray"24
 B40@0:8^@16@24^@32
+@24@0:8^@16
 B40@0:8@16q24^@32
 v32@0:8d16@?24
 v24@0:8q16
 B36@0:8B16@20^@28
+B28@0:8B16^@20
 B36@0:8@16B24^@28
 @?16@0:8
-v24@0:8@?16
 @"NSObject<OS_dispatch_queue>"
 @"HKObserverSet<HDMedicationScheduleObserver>"
 @"HDMedicationNotificationManager"
+@"HDMedicationTimeZoneManager"
 @"HDXPCGatedActivity"
+@"HDAssertion"
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
 @"NSNumber"
 B40@0:8@16@24^@32
@@ -3699,7 +3802,6 @@ v24@0:8@"<HDMedicationCountObserver>"16
 @"NSMapTable"
 @"HDDaemon"
 @56@0:8@16@24@32@40^@48
-v32@0:8@16@?24
 v28@0:8B16@?20
 @48@0:8@16@24@32@40
 v36@0:8B16@20@?28
@@ -3709,8 +3811,7 @@ v32@0:8@"<HDDrugInteractionFactorStateObserver>"16@"NSObject<OS_dispatch_queue>"
 v24@0:8@"<HDDrugInteractionFactorStateObserver>"16
 v48@0:8@16@24@32^v40
 @"HKObserverSet<HDDrugInteractionFactorStateObserver>"
-@40@0:8q16@24@?32
-@"NSSet"
+B48@0:8@16@24^@32@?40
 @"<HDHealthDaemonExtension>"24@0:8@"<HDHealthDaemon>"16
 @"<HDProfileExtension>"24@0:8@"HDProfile"16
 B24@0:8@"<HDHealthDaemon>"16
@@ -3730,9 +3831,9 @@ v32@0:8@"HDProfile"16@"NSObject<OS_dispatch_queue>"24
 @48@0:8@16q24@32^@40
 @56@0:8@16@24q32@40^@48
 B56@0:8@16q24^@32@40^@48
+@56@0:8@16@24@32Q40Q48
 B48@0:8@16@24^@32^@40
 v32@0:8@"HDDatabaseMigrator"16@"NSString"24
-v24@0:8@?<v@?B@"NSError">16
 v32@0:8Q16@?24
 v40@0:8@16@24@?32
 v40@0:8@16Q24@?32
@@ -3786,8 +3887,6 @@ v40@0:8@"<HDDrugInteractionFactorStateProvider>"16@"HDProfile"24q32
 v32@0:8@"NSArray"16@"NSNumber"24
 v32@0:8@"NSSet"16@"NSNumber"24
 v32@0:8@"NSArray"16@"HKSampleType"24
-@48@0:8q16@24@32^@40
-B64@0:8@16@24q32@40^@48@?56
 {?="date"b1"isPaddedDay"b1"status"b1}
 @"HKMedicationScheduleItemQueryConfiguration"
 B24@0:8r*16

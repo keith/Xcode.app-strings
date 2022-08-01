@@ -281,8 +281,6 @@ invalid RESET_STREAM final size
 quic_frame_process_RESET_STREAM
 RESET_STREAM for send-only stream
 quic_frame_process_RESET_STREAM_block_invoke
-inorder_offset_delta
-conn->inorder_offset
 quic_frame_write_RESET_STREAM
 quic_frame_acknowledged_RESET_STREAM_block_invoke
 quic_frame_parse_STOP_SENDING
@@ -458,6 +456,8 @@ retry_source_connection_id
 initial_source_connection_id
 disable_active_migration
 max_ack_delay
+active_connection_id_limit
+initial_max_streams_uni
 packet_type
 -[QUICLog processPacketSentAndPacketRecieved:]
 is_coalesced
@@ -554,7 +554,6 @@ local
 remote
 0RTT
 1RTT
-retry
 version_negotiation
 sending
 recieving
@@ -567,7 +566,6 @@ congestion_window_reduced
 reordering_threshold
 time_threshold
 pto_expired
-client
 false
 error parsing JSON: %@
 quiclog_packet_sent
@@ -612,10 +610,8 @@ max_udp_payload_size
 initial_max_stream_data_bidi_remote
 initial_max_stream_data_uni
 initial_max_streams_bidi
-initial_max_streams_uni
 ack_delay_exponent
 preferred_address
-active_connection_id_limit
 initial_scid
 retry_scid
 max_datagram_frame_size
@@ -922,8 +918,8 @@ quic_send_stream_data
 quic_process_max_data
 quic_process_max_stream_data
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_fc.c
-quic_process_data_blocked
-quic_process_stream_data_blocked
+quic_fc_process_data_blocked
+quic_fc_process_stream_data_blocked
 quic_process_max_streams_bidi
 quic_process_max_streams_uni
 quic_prepare_max_data
@@ -972,6 +968,7 @@ quic_stream_add_new_flow_block_invoke
 quic_stream_closed_already
 inconsistent next inbound stream ID
 server
+client
 invalid stream ID
 exceeded maximum stream ID
 quic_stream_create_inbound
@@ -1000,6 +997,13 @@ conn->last_offset
 stream->last_offset
 exceeded flow control limits
 quic_stream_send_stop_sending
+quic_stream_send_reset_stream
+quic_stream_zombie_create
+quic_stream_zombie_lookup
+quic_stream_zombie_final_size
+inorder_offset_delta
+conn->inorder_offset
+quic_stream_zombie_flush
 quic_stream_process_inner
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_conn.c
 quic_conn_deallocate
@@ -1050,8 +1054,6 @@ quic_conn_handle_inbound
 v24@?0*8Q16
 quic_conn_inbound_stopping
 quic_conn_handle_start
-quic_conn_handle_stop
-quic_conn_handle_stop_block_invoke
 quic_conn_get_bg_cc
 quic_conn_get_l4s_cc
 quic_conn_traffic_mgmt_block_invoke
@@ -1152,6 +1154,8 @@ quic_conn_stream_dequeue_block_invoke
 quic_conn_handle_start_inner
 enabled
 disabled
+quic_conn_handle_stop_inner
+quic_conn_handle_stop_inner_block_invoke
 quic_conn_handle_stop_read
 quic_conn_handle_stop_read_block_invoke
 quic_conn_handle_stop_write
@@ -1299,6 +1303,7 @@ quic_shorthand_packet_received
 quic_shorthand_copyout
 quic_shorthand_describe_entry
 <invalid version %u>
+retry
 %s %4u.%.03us LH<%s, %llu>
 %s %4u.%.03us SH<%llu>
 <invalid entry length %zu>
@@ -2020,8 +2025,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] MAX_STREAM_DATA was %llu, is now %llu
 %{public}s processed a higher max_stream_data, stream offset %llu can't be greater/equal to max_stream_data %llu
 %{public}s [S%llu] has received more credit, unblocking it
-%{public}s %{public}s [%{public}s-%{public}s] received DATA_BLOCKED, app read %llu bytes and is yet to read %llu bytes, connection receive window is %llu bytes, current local max data is %llu bytes and last received offset is %llu
-%{public}s %{public}s [%{public}s-%{public}s] received STREAM_DATA_BLOCKED [S%llu] app read %llu bytes and is yet to read %llu bytes, stream receive window is %llu bytes, current local stream max data is %llu bytes and the last received offset is %llu
+%{public}s %{public}s [%{public}s-%{public}s] received DATA_BLOCKED (max=%llu), app read %llu bytes and has yet to read %llu bytes, connection receive window is %llu bytes, local max data is %llu bytes and last received offset is %llu
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] received STREAM_DATA_BLOCKED (max=%llu), app read %llu bytes and has yet to read %llu bytes, stream receive window is %llu bytes, local stream max data is %llu bytes and the last received offset is %llu
 %{public}s %{public}s [%{public}s-%{public}s] new MAX_STREAMS_BIDI %llu doesn't advance current limit %llu
 %{public}s bidirectional max streams now %llu
 %{public}s %{public}s [%{public}s-%{public}s] new MAX_STREAMS_UNI %llu doesn't advance current limit %llu
@@ -2068,7 +2073,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s obj is null or 0
 %{public}s deallocating unassigned stream
 %{public}s deallocating TLS stream
-%{public}s deallocating stream ID %llu
+%{public}s [S%llu] deallocating
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] unknown final size; creating a zombie stream (last size %llu)
 %{public}s dealloc a pending start stream with NULL conn
 %{public}s dealloc a pending dequeue stream with NULL conn
 %{public}s [S%llu] clearing key
@@ -2115,6 +2121,11 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] final size set to %llu
 %{public}s [S%llu] [%hhu:%hhu] adjusted last offset (conn %llu, stream %llu)
 %{public}s %{public}s [%{public}s-%{public}s] [S%llu] endpoint received final size %llu which had exceeded flow control limits
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] sending RESET_STREAM
+%{public}s zombie_stream is null or 0
+%{public}s [S%llu] (zombie) received final size of %llu (previous received size %llu)
+%{public}s [S%llu] (zombie) adjusted inorder offset (conn %llu)
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] (zombie) final size invariants violated (final %llu)
 %{public}s %{public}s [%{public}s-%{public}s] not enough recv buffer space: %llu > %llu
 %{public}s %{public}s [%{public}s-%{public}s] final_size invariants violated
 %{public}s bytes received %llu > fin offset %llu
@@ -2169,9 +2180,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s consumed past buffer
 %{public}s %{public}s [%{public}s-%{public}s] unable to parse packet
 %{public}s %{public}s [%{public}s-%{public}s] unable to parse packet (decryption keys may not be ready)
-%{public}s connection pointer is NULL
-%{public}s stopping all flows (direction %u)
-%{public}s stopping flow %llx (direction %u)
 %{public}s conn->pacer is null or 0
 %{public}s %{public}s [%{public}s-%{public}s] traffic management is now %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] sending %llu new CIDs to the peer
@@ -2267,9 +2275,10 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] L4S is enabled for this connection, ACK compression is %s
 %{public}s deferring TLS start until after processing INITIAL
 %{public}s starting TLS stream
+%{public}s stopping all flows (direction %u)
+%{public}s stopping flow %llx (direction %u)
 %{public}s [S%llu] read closed
 %{public}s [S%llu] write closed
-%{public}s %{public}s [%{public}s-%{public}s] [S%llu] sending RESET_STREAM
 %{public}s send stream data queue is not empty, deferring close
 %{public}s zero-length SCID, not advertising NEW_CONNECTION_ID
 %{public}s created new CID with sequence number %llu, have %llu outstanding already
@@ -2775,8 +2784,6 @@ invalid RESET_STREAM final size
 quic_frame_process_RESET_STREAM
 RESET_STREAM for send-only stream
 quic_frame_process_RESET_STREAM_block_invoke
-inorder_offset_delta
-conn->inorder_offset
 quic_frame_write_RESET_STREAM
 quic_frame_acknowledged_RESET_STREAM_block_invoke
 quic_frame_parse_STOP_SENDING
@@ -3415,8 +3422,8 @@ quic_send_stream_data
 quic_process_max_data
 quic_process_max_stream_data
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_fc.c
-quic_process_data_blocked
-quic_process_stream_data_blocked
+quic_fc_process_data_blocked
+quic_fc_process_stream_data_blocked
 quic_process_max_streams_bidi
 quic_process_max_streams_uni
 quic_prepare_max_data
@@ -3494,6 +3501,13 @@ conn->last_offset
 stream->last_offset
 exceeded flow control limits
 quic_stream_send_stop_sending
+quic_stream_send_reset_stream
+quic_stream_zombie_create
+quic_stream_zombie_lookup
+quic_stream_zombie_final_size
+inorder_offset_delta
+conn->inorder_offset
+quic_stream_zombie_flush
 quic_stream_process_inner
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_conn.c
 quic_conn_deallocate
@@ -3544,8 +3558,6 @@ quic_conn_handle_inbound
 v24@?0*8Q16
 quic_conn_inbound_stopping
 quic_conn_handle_start
-quic_conn_handle_stop
-quic_conn_handle_stop_block_invoke
 quic_conn_get_bg_cc
 quic_conn_get_l4s_cc
 quic_conn_traffic_mgmt_block_invoke
@@ -3646,6 +3658,8 @@ quic_conn_stream_dequeue_block_invoke
 quic_conn_handle_start_inner
 enabled
 disabled
+quic_conn_handle_stop_inner
+quic_conn_handle_stop_inner_block_invoke
 quic_conn_handle_stop_read
 quic_conn_handle_stop_read_block_invoke
 quic_conn_handle_stop_write
@@ -4514,8 +4528,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] MAX_STREAM_DATA was %llu, is now %llu
 %{public}s processed a higher max_stream_data, stream offset %llu can't be greater/equal to max_stream_data %llu
 %{public}s [S%llu] has received more credit, unblocking it
-%{public}s %{public}s [%{public}s-%{public}s] received DATA_BLOCKED, app read %llu bytes and is yet to read %llu bytes, connection receive window is %llu bytes, current local max data is %llu bytes and last received offset is %llu
-%{public}s %{public}s [%{public}s-%{public}s] received STREAM_DATA_BLOCKED [S%llu] app read %llu bytes and is yet to read %llu bytes, stream receive window is %llu bytes, current local stream max data is %llu bytes and the last received offset is %llu
+%{public}s %{public}s [%{public}s-%{public}s] received DATA_BLOCKED (max=%llu), app read %llu bytes and has yet to read %llu bytes, connection receive window is %llu bytes, local max data is %llu bytes and last received offset is %llu
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] received STREAM_DATA_BLOCKED (max=%llu), app read %llu bytes and has yet to read %llu bytes, stream receive window is %llu bytes, local stream max data is %llu bytes and the last received offset is %llu
 %{public}s %{public}s [%{public}s-%{public}s] new MAX_STREAMS_BIDI %llu doesn't advance current limit %llu
 %{public}s bidirectional max streams now %llu
 %{public}s %{public}s [%{public}s-%{public}s] new MAX_STREAMS_UNI %llu doesn't advance current limit %llu
@@ -4562,7 +4576,8 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s obj is null or 0
 %{public}s deallocating unassigned stream
 %{public}s deallocating TLS stream
-%{public}s deallocating stream ID %llu
+%{public}s [S%llu] deallocating
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] unknown final size; creating a zombie stream (last size %llu)
 %{public}s dealloc a pending start stream with NULL conn
 %{public}s dealloc a pending dequeue stream with NULL conn
 %{public}s [S%llu] clearing key
@@ -4609,6 +4624,11 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] final size set to %llu
 %{public}s [S%llu] [%hhu:%hhu] adjusted last offset (conn %llu, stream %llu)
 %{public}s %{public}s [%{public}s-%{public}s] [S%llu] endpoint received final size %llu which had exceeded flow control limits
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] sending RESET_STREAM
+%{public}s zombie_stream is null or 0
+%{public}s [S%llu] (zombie) received final size of %llu (previous received size %llu)
+%{public}s [S%llu] (zombie) adjusted inorder offset (conn %llu)
+%{public}s %{public}s [%{public}s-%{public}s] [S%llu] (zombie) final size invariants violated (final %llu)
 %{public}s %{public}s [%{public}s-%{public}s] not enough recv buffer space: %llu > %llu
 %{public}s %{public}s [%{public}s-%{public}s] final_size invariants violated
 %{public}s bytes received %llu > fin offset %llu
@@ -4663,9 +4683,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s consumed past buffer
 %{public}s %{public}s [%{public}s-%{public}s] unable to parse packet
 %{public}s %{public}s [%{public}s-%{public}s] unable to parse packet (decryption keys may not be ready)
-%{public}s connection pointer is NULL
-%{public}s stopping all flows (direction %u)
-%{public}s stopping flow %llx (direction %u)
 %{public}s conn->pacer is null or 0
 %{public}s %{public}s [%{public}s-%{public}s] traffic management is now %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] sending %llu new CIDs to the peer
@@ -4761,9 +4778,10 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] L4S is enabled for this connection, ACK compression is %s
 %{public}s deferring TLS start until after processing INITIAL
 %{public}s starting TLS stream
+%{public}s stopping all flows (direction %u)
+%{public}s stopping flow %llx (direction %u)
 %{public}s [S%llu] read closed
 %{public}s [S%llu] write closed
-%{public}s %{public}s [%{public}s-%{public}s] [S%llu] sending RESET_STREAM
 %{public}s send stream data queue is not empty, deferring close
 %{public}s zero-length SCID, not advertising NEW_CONNECTION_ID
 %{public}s created new CID with sequence number %llu, have %llu outstanding already
@@ -4888,19 +4906,19 @@ Connection attempts: %u, RETRY received: %s, PTOs: %u
 %{public}s description_len > 0 is null or 0
 QUICLog
 defaultManager
+setValue:forKey:
 stringWithFormat:
-numberWithUnsignedLongLong:
 dataUsingEncoding:
-JSONObjectWithData:options:error:
+numberWithUnsignedLongLong:
 initWithData:encoding:
+createFileAtPath:contents:attributes:
 stringWithCString:encoding:
 numberWithInt:
-createFileAtPath:contents:attributes:
+JSONObjectWithData:options:error:
 writeToFile:atomically:
-numberWithUnsignedShort:
 dataWithJSONObject:options:error:
+numberWithUnsignedShort:
 addObject:
-setValue:forKey:
 init
 dealloc
 packetType:

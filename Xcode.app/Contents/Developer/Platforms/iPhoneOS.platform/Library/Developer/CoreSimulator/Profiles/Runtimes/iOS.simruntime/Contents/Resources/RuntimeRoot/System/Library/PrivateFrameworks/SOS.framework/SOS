@@ -173,6 +173,7 @@ SOSFlowEventContactsCountdownDismissed
 SOSFlowEventUserRespondedToRestingState
 SOSFlowEventMotionRequestsCountdownToAutoCall
 SOSFlowEventMotionDidCancel
+SOSFlowEventEmergencyCallInitiated
 -[SOSFlow motionDidCancel]
 -[SOSFlow userRespondedToRestingStateWith:]
 v24@?0@"_HKMedicalIDData"8@"NSError"16
@@ -272,6 +273,7 @@ v24@?0^{__CFString=}8^{__CFDictionary=}16
 v16@?0q8
 5lAK1Xp+ezh1Qu+4jnHAOg
 SOSDeviceSupportedKey
+v16@?0@"NSTimer"8
 Initializing %@ with _healthStore: %@
 Failed to register for Health contacts notification: %d
 _medicalIDEmergencyContactsMutex pthread_mutex_init failure: %d
@@ -333,6 +335,8 @@ Invalidating SOSFlow timer
 SOSEngine, init
 Stopping location updates based on timeToStopSending: %@
 Starting location updates based on timeToStopSending: %@
+SOSEngine, received TUCallCenterCallStatusChangedNotification notification
+SOSEngine, unexpected call event notification %s
 Could not send client a location update change due to connection error %@
 Attempting to update current sos initiation state to %ld for connections: %@
 Could not send client a current initiation state due to connection error %@
@@ -365,10 +369,6 @@ Rejecting location - horizontalAccuracy > 165.0: %f
 Rejecting location - locationIntegrity: %d
 Rejecting location - timestamp too old: %@
 Keeping location - horizontalAccuracy:%f locationIntegrity:%d timestamp:%@
-SOSEngine, retrigger SOS disabled
-SOSEngine, cannot retrigger nil SOSStatus
-SOSEngine, resolution for last status: %d
-SOSEngine, last status not auto triggered event
 SOSEngine,opening retrigger URL,%@
 SOSEngine,failed to launch SOS with error: %@
 SOSEngine,SOS triggered successfully
@@ -430,8 +430,8 @@ Newton Eligibility based on age: %lu
 Could not retrieve age from Health record; error: %@. Querying medical ID.
 initializing SOSStatusReporter
 Handling %s by requesting current state
-SOSStatusReporter, sosd launched
-SOSStatusReporter, updateSOSFlowState with state
+SOSStatusReporter, sosd launched, updating state %@
+SOSStatusReporter, updateSOSFlowState with state %@
 Could not send a flow state update due to connection error %@
 SOSStatusReporter, setting connection
 SOSStatusReporter, connection interrupted
@@ -457,11 +457,22 @@ SOSMessagingStatus, missing uuid!
 SOSMessagingStatus, missing trigger!
 SOSMessagingStatus, missing timeOfDetection!
 SOSStatusManager, init
-SOSStatusManager,flow was active on init,current,%@,paired,%@
-SOSStatusManager, sosTriggeredWithUUID
+SOSStatusManager, sosTriggeredWithUUID: %@
+SOSStatusManager, sosTriggerDisabledWithUUID: %@
 SOSStatusManager, previousState: %d
 SOSStatusManager, updateSOSFlowState: %d
-SOSStatusManager, updating currentDeviceSOSStatus with triggerMechanism: %d, resolution: %d
+SOSStatusManager, updating currentDeviceSOSStatus to %@
+SOSStatusManager,current device status was nil on launch
+SOSStatusManager,retriggering unresolved SOS event on launch: %@
+SOSStatusManager,found active current device flow on launch: %@
+SOSStatusManager,current device status not active on launch
+SOSStatusManager,nil status on lost status reporter connection
+SOSStatusManager,retriggering unresolved SOS event due to lost status reporter connection: %@
+SOSStatusManager,no need to retrigger SOS event due to lost status reporter connection: %@
+SOSStatusManager,not starting current device clear status timer
+SOSStatusManager,starting current device clear status timer: %.1f s
+SOSStatusManager,current device clear status timer fired
+SOSStatusManager,canceling current device clear status timer
 SOSStatusManager,flowStartedOnEitherDevice
 SOSStatusManager,flowStartedOnCurrentDevice
 SOSStatusManager,flowEndedOnBothDevices
@@ -822,15 +833,15 @@ T@"SOSStatus",R,N
 allowedToMessageSOSContacts
 TB,N,GisAllowedToMessageSOSContacts
 _init
-startFreshSOSFlowWithTriggerMechanism:
 activeSOSFlow
+handleSOSFlowEvent:withMetaData:
+startFreshSOSFlowWithTriggerMechanism:
 removeObserver:
 initWithTriggerMechanism:healthStore:
 setActiveSOSFlow:
 addObserver:
 dictionaryWithObject:forKey:
 postNotificationName:object:userInfo:
-handleSOSFlowEvent:withMetaData:
 updateSOSFlowState:
 isTerminalState:
 class
@@ -857,6 +868,7 @@ T#,R
 T@"NSString",R,C
 sosFlow:didChangeToState:
 sosFlow:willHandleEvent:withMetaData:
+emergencyCallInitiated
 startSOSFlowWithTriggerMechanism:
 _activeSOSFlow
 T@"SOSFlow",&,N,V_activeSOSFlow
@@ -931,16 +943,19 @@ contactsCountdownDismissed
 userRespondedToRestingStateWith:
 timerRequestsCountdownToAutoCall
 motionDidCancel
+handleEmergencyCallInititated
 sosFlowTrigger
 updateState:
 startAnomalyFlow
 startTimerToAutoDial
+didSeeUnresponsiveResting
 restingState
 shouldIgnoreMotionCancel
 fetchMedicalIDDataWithCompletion:
 healthUserDefaults
 shouldShowMedicalID
 setCurrentState:
+setDidSeeUnresponsiveResting:
 isUserResponsive
 setIsUserResponsive:
 sosFlowType
@@ -950,7 +965,7 @@ initWithTimeInterval:serviceIdentifier:target:selector:userInfo:
 setMinimumEarlyFireProportion:
 mainRunLoop
 scheduleInRunLoop:
-canDeviceTriggerAutoDial
+canDeviceTriggerAutoDialForSOSFlowType:
 invalidate
 isInterruptibleState:
 isPreCallState:
@@ -964,6 +979,7 @@ setShouldIgnoreMotionCancel:
 _timer
 _isUserResponsive
 _shouldIgnoreMotionCancel
+_didSeeUnresponsiveResting
 _sosFlowType
 _currentState
 _healthUserDefaults
@@ -978,6 +994,7 @@ Tq,N,V_currentState
 T@"NSHashTable",&,N,V_observers
 TB,N,V_isUserResponsive
 TB,N,V_shouldIgnoreMotionCancel
+TB,N,V_didSeeUnresponsiveResting
 _name
 _phoneNumber
 _nameContactIdentifier
@@ -1010,8 +1027,20 @@ initWithoutEntitlement
 setDelegate:
 SOSSendingLocationUpdateChanged:
 addObserver:selector:name:object:
+checkSOSStatusOnLaunch
+_tuCallCenterStatusChanged:
+_checkEmergencyCallStatus
+_checkSOSCallStatus
+registerWithCompletionHandler:
 compare:
 distantPast
+UTF8String
+currentCalls
+callsOnDefaultPairedDevice
+isEmergency
+_onEmergencyCallStatusChanged:
+isSOS
+handleSOSCallStatusChange:
 isSendingLocationUpdate
 clientConnections
 remoteObjectProxyWithErrorHandler:
@@ -1071,6 +1100,7 @@ getUrlForTrigger:
 defaultWorkspace
 openURL:configuration:completionHandler:
 UUID
+shouldRejectNewSOSTriggers
 isTriggerEnabled:
 sosTriggerDisabledWithUUID:trigger:
 sosTriggeredWithUUID:trigger:
@@ -1097,7 +1127,6 @@ setSosStatusManager:
 sosStatusManager
 broadcastUpdatedSOSStatus:
 handleNotifyThirdPartyClientsWithSOSStatus:
-triggerUnresolvedSOSEventIfNecessary
 retriggerSOSWithUUID:trigger:
 fetchMedicalIDName
 sosFlowManager
@@ -1114,6 +1143,8 @@ _contactsManager
 _medicalIDName
 _notifyContactsReason
 _sosStatusManager
+_callCenter
+_isEmergencyCallOngoing
 _sosFlowManager
 _locationShifter
 _clientConnections
@@ -1265,6 +1296,7 @@ initWithUUID:trigger:timeOfDetection:timeOfResolution:resolution:
 initWithUUID:trigger:timeOfDetection:
 isFlowActive
 isFlowActiveAndNotResting
+shouldRetriggerSOS
 T@"NSUUID",&,N,V_uuid
 Tq,N,V_trigger
 T@"NSDate",&,N,V_timeOfDetection
@@ -1378,11 +1410,12 @@ setKeyPath:
 setCalculationMode:
 setDuration:
 setRepeatCount:
+connectionRequestNotificationToken
 handleSosdLaunch
+_updateSOSFlowState
 connection
 initWithMachServiceName:options:
 setConnection:
-connectionRequestNotificationToken
 setConnectionRequestNotificationToken:
 _connectionRequestNotificationToken
 _connection
@@ -1416,8 +1449,15 @@ initWithTimeIntervalSince1970:
 initWithSOSStatus:
 sosStatus
 flowStarted
+startCurrentDeviceClearStatusTimer
+activeSOSCall
+cancelCurrentDeviceClearStatusTimer
 inSOSFlowOnCurrentDevice
 flowEnded
+setActiveSOSCall:
+scheduledTimerWithTimeInterval:repeats:block:
+setCurrentDeviceStatusClearTimer:
+currentDeviceStatusClearTimer
 flowStartedOnEitherDevice
 flowStartedOnCurrentDevice
 inSOSFlow
@@ -1432,12 +1472,21 @@ setActive:error:
 setActive:withOptions:error:
 clientConnection
 setClientConnection:
+handleLostStatusReporterConnection
+pairedDeviceStatusClearTimer
+setPairedDeviceStatusClearTimer:
 _inSOSFlow
 _inSOSFlowOnCurrentDevice
+_activeSOSCall
 _clientConnection
+_currentDeviceStatusClearTimer
+_pairedDeviceStatusClearTimer
 T@"NSXPCConnection",&,N,V_clientConnection
 TB,N,V_inSOSFlow
 TB,N,V_inSOSFlowOnCurrentDevice
+TB,N,V_activeSOSCall
+T@"NSTimer",&,N,V_currentDeviceStatusClearTimer
+T@"NSTimer",&,N,V_pairedDeviceStatusClearTimer
 v16@0:8
 @16@0:8
 B16@0:8
@@ -1529,6 +1578,7 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSDate"
 @"SOSContactsManager"
 @"SOSStatusManager"
+@"TUCallCenter"
 @"<SOSFlowManagerCoexProtocol>"
 @"_MKLocationShifter"
 @"NSMutableArray"
@@ -1757,6 +1807,7 @@ SOSFlowEventContactsCountdownDismissed
 SOSFlowEventUserRespondedToRestingState
 SOSFlowEventMotionRequestsCountdownToAutoCall
 SOSFlowEventMotionDidCancel
+SOSFlowEventEmergencyCallInitiated
 -[SOSFlow motionDidCancel]
 -[SOSFlow userRespondedToRestingStateWith:]
 v24@?0@"_HKMedicalIDData"8@"NSError"16
@@ -1856,6 +1907,7 @@ v24@?0^{__CFString=}8^{__CFDictionary=}16
 v16@?0q8
 5lAK1Xp+ezh1Qu+4jnHAOg
 SOSDeviceSupportedKey
+v16@?0@"NSTimer"8
 Initializing %@ with _healthStore: %@
 Failed to register for Health contacts notification: %d
 _medicalIDEmergencyContactsMutex pthread_mutex_init failure: %d
@@ -1917,6 +1969,8 @@ Invalidating SOSFlow timer
 SOSEngine, init
 Stopping location updates based on timeToStopSending: %@
 Starting location updates based on timeToStopSending: %@
+SOSEngine, received TUCallCenterCallStatusChangedNotification notification
+SOSEngine, unexpected call event notification %s
 Could not send client a location update change due to connection error %@
 Attempting to update current sos initiation state to %ld for connections: %@
 Could not send client a current initiation state due to connection error %@
@@ -1949,10 +2003,6 @@ Rejecting location - horizontalAccuracy > 165.0: %f
 Rejecting location - locationIntegrity: %d
 Rejecting location - timestamp too old: %@
 Keeping location - horizontalAccuracy:%f locationIntegrity:%d timestamp:%@
-SOSEngine, retrigger SOS disabled
-SOSEngine, cannot retrigger nil SOSStatus
-SOSEngine, resolution for last status: %d
-SOSEngine, last status not auto triggered event
 SOSEngine,opening retrigger URL,%@
 SOSEngine,failed to launch SOS with error: %@
 SOSEngine,SOS triggered successfully
@@ -2014,8 +2064,8 @@ Newton Eligibility based on age: %lu
 Could not retrieve age from Health record; error: %@. Querying medical ID.
 initializing SOSStatusReporter
 Handling %s by requesting current state
-SOSStatusReporter, sosd launched
-SOSStatusReporter, updateSOSFlowState with state
+SOSStatusReporter, sosd launched, updating state %@
+SOSStatusReporter, updateSOSFlowState with state %@
 Could not send a flow state update due to connection error %@
 SOSStatusReporter, setting connection
 SOSStatusReporter, connection interrupted
@@ -2041,11 +2091,22 @@ SOSMessagingStatus, missing uuid!
 SOSMessagingStatus, missing trigger!
 SOSMessagingStatus, missing timeOfDetection!
 SOSStatusManager, init
-SOSStatusManager,flow was active on init,current,%@,paired,%@
-SOSStatusManager, sosTriggeredWithUUID
+SOSStatusManager, sosTriggeredWithUUID: %@
+SOSStatusManager, sosTriggerDisabledWithUUID: %@
 SOSStatusManager, previousState: %d
 SOSStatusManager, updateSOSFlowState: %d
-SOSStatusManager, updating currentDeviceSOSStatus with triggerMechanism: %d, resolution: %d
+SOSStatusManager, updating currentDeviceSOSStatus to %@
+SOSStatusManager,current device status was nil on launch
+SOSStatusManager,retriggering unresolved SOS event on launch: %@
+SOSStatusManager,found active current device flow on launch: %@
+SOSStatusManager,current device status not active on launch
+SOSStatusManager,nil status on lost status reporter connection
+SOSStatusManager,retriggering unresolved SOS event due to lost status reporter connection: %@
+SOSStatusManager,no need to retrigger SOS event due to lost status reporter connection: %@
+SOSStatusManager,not starting current device clear status timer
+SOSStatusManager,starting current device clear status timer: %.1f s
+SOSStatusManager,current device clear status timer fired
+SOSStatusManager,canceling current device clear status timer
 SOSStatusManager,flowStartedOnEitherDevice
 SOSStatusManager,flowStartedOnCurrentDevice
 SOSStatusManager,flowEndedOnBothDevices
@@ -2100,279 +2161,286 @@ SOSStatusReporter
 SOSManager
 Additions
 SOSStatusManager
-present
-authorizationStatusForEntityType:
-voiceWithLanguage:
-unifiedContactWithIdentifier:keysToFetch:error:
-scheduleInRunLoop:
-numberWithInt:
-setKeyPath:
-decimalDigitCharacterSet
-localeWithLocaleIdentifier:
-setDebugIdentifier:
-supportsCapability:
-indexOfObject:
-unformattedInternationalStringValue
-arrayWithObjects:count:
-substringWithRange:
-dateOfBirthComponentsWithError:
-scale
-setObject:forKey:
-componentsSeparatedByCharactersInSet:
-numberWithFloat:
-setDateStyle:
-preferredLocalizationsFromArray:forPreferences:
-setTimeStyle:
-actionWithTitle:style:handler:
-isEqualToString:
-arrayByAddingObjectsFromArray:
-valueWithCGPoint:
-unarchivedObjectOfClasses:fromData:error:
-loadPackageViewWithContentsOfURL:publishedObjectViewClassMap:completion:
-setNumberStyle:
-componentsJoinedByString:
-filteredArrayUsingPredicate:
-resume
-dateFromComponents:
-numberWithDouble:
-subscriptions
-abRecordGUID
-preferredLanguagesForRegion:
-components:fromDate:toDate:options:
-array
-length
-valueForProperty:
-subarrayWithRange:
-metadataValueForKey:
-gmtBirthdate
-CGPointValue
-imageWithTintColor:renderingMode:
-dateByAddingTimeInterval:
-layer
-initWithTimeIntervalSinceReferenceDate:
-numberWithBool:
-setInvalidationHandler:
-valueForKey:
-dictionaryWithObjects:forKeys:count:
-archivedDataWithRootObject:requiringSecureCoding:error:
-predicateWithBlock:
-message
-compare:
-fetchMedicalIDEmergencyContactsWithCompletion:
-initWithTimeIntervalSince1970:
-date
-lastObject
-commit
-numberFromString:
-appendAttributedString:
-setInterruptionHandler:
-dictionaryWithObject:forKey:
-postNotificationName:object:userInfo:
-imageWithRenderingMode:
-valueForEntitlement:
-setContents:
-UUIDString
-stringWithFormat:
-setNeedsLayout
-getSubscriptionInfoWithError:
-animationForKey:
-replaceOccurrencesOfString:withString:options:range:
-languageFromLanguage:byReplacingRegion:
-dictionaryWithDictionary:
-CGColor
-imageNamed:inBundle:withConfiguration:
-postNotificationName:object:
-initWithTimeInterval:serviceIdentifier:target:selector:userInfo:
-fetchMedicalIDDataWithCompletion:
-value
-standardUserDefaults
-stringFromNumber:
-speechUtteranceWithString:
-notifySpeakServicesToStopSpeaking
-getSIMStatus:error:
-animation
-UUID
-position
-horizontalAccuracy
-setClipsToBounds:
-initWithSuiteName:
-notifySpeakServicesForAttributedSpeechOutput:
-matchesInString:options:range:
-shiftLocation:withCompletionHandler:callbackQueue:
-getAllDevicesWithArchivedAltAccountDevicesMatching:
 stringFromDate:
-enumerateObjectsWithOptions:usingBlock:
-allocWithZone:
-dictionary
-CGImage
 traitCollection
-initWithString:attributes:
-currentRunLoop
-speakUtterance:
-removeObjectForKey:
-URLsForDirectory:inDomains:
-stringFromContact:style:
-setClasses:forSelector:argumentIndex:ofReply:
-tintColor
-initWithString:
-sharedUtilities
-setMixToTelephonyUplink:
-phoneNumbers
-allPeople
-setGroupSize:domain:
-setCategory:error:
-URLQueryAllowedCharacterSet
-removeObject:
-setScheme:
-removeAnimationForKey:
-timestamp
-stringByAppendingString:
-encodeObject:forKey:
-friends
-_ios_meContactWithKeysToFetch:error:
-alertControllerWithTitle:message:preferredStyle:
-setFriendsChangedExternallyNotificationName:domain:
-initWithSMSMessage:mmsMessage:recipients:
-setMinimumEarlyFireProportion:
-URLForResource:withExtension:
-managerForDomain:
-setFrame:
-invertedSet
-timerWithTimeInterval:target:selector:userInfo:repeats:
-encodeInteger:forKey:
-stringByAddingPercentEncodingWithAllowedCharacters:
-friendGroups
-setWithObjects:
-mainScreen
-userInterfaceIdiom
-descriptorForRequiredKeysForStyle:
-URLByAppendingPathComponent:
-initWithMessage:recipients:
-frame
-remoteObjectProxyWithErrorHandler:
-initWithMachServiceName:options:
-string
-regularExpressionWithPattern:options:error:
-addTimer:forMode:
-encodeDouble:forKey:
-setMaximumFractionDigits:
-setWithObject:
-mainRunLoop
-bundleWithURL:
-encodeBool:forKey:
-recipients
-formattedStringValue
-storeWithOptions:
-countByEnumeratingWithState:objects:count:
-useStandalone
-addSublayer:
-setVolume:
-setCalculationMode:
-initWithImage:
-setRepeatCount:
-setMaxGroupCount:domain:
-mainBundle
-bundleIdentifier
-stopUpdatingLocation
-setMask:
-setVoice:
-count
+speechUtteranceWithString:
 defaultWorkspace
-lostModeIsActive
-openURL:configuration:completionHandler:
-setFailureBlock:
-initWithIdentifier:
-addObserver:selector:name:object:
-setBackgroundColor:
-year
-bundleForClass:
-newAssertionForBundle:withReason:
-stopSpeakingAtBoundary:
-setRemoteObjectInterface:
-setValues:
-invalidate
-timeIntervalSinceReferenceDate
-setExportedObject:
-range
-doubleValue
-setRate:
-interfaceWithProtocol:
-nativeBounds
-copy
-setValue:forKey:
-setExportedInterface:
-queryItemWithName:value:
-timeIntervalSinceNow
-addObjectsFromArray:
-defaultManager
-setLocationURL:
-distantPast
-setQueryItems:
-boolValue
-integrity
-setDuration:
-coordinate
-initWithEffectiveBundle:delegate:onQueue:
-timeIntervalSinceDate:
-objectForKeyedSubscript:
-defaultCenter
-addObject:
-distanceFromLocation:
-presentationLayer
-weakToStrongObjectsMapTable
-presenterForPrivacySplashWithIdentifier:
-boolForKey:
-size
-containsObject:
-addAnimation:forKey:
-begin
-setPresentingViewController:
-integerValue
-setDisableActions:
-decodeObjectForKey:
-setUsesApplicationAudioSession:
-setActive:withOptions:error:
-timeIntervalSince1970
-objectForKey:
-setPosition:
-initWithDomain:pairedDevice:
-displayName
-setDidTriggerSOSToday:
-mutableCopy
-decodeIntegerForKey:
-weakObjectsHashTable
-intValue
 isLocationShiftRequiredForLocation:
-setUseStandalone:
-synchronizeUserDefaultsDomain:keys:
-initWithCalendarIdentifier:
-setActive:error:
-addAction:
 objectAtIndexedSubscript:
-location
-setLocation:
 presentViewController:animated:completion:
-startUpdatingLocation
-decodeDoubleForKey:
-setDesiredAccuracy:
-_cfBundle
-hasAnyData
+intValue
+initWithDomain:pairedDevice:
+URLsForDirectory:inDomains:
+doubleValue
+setInterruptionHandler:
+location
 numberWithUnsignedInteger:
-synchronizeNanoDomain:keys:
-sendMessage:
-initWithArray:
-setLocalizedDateFormatFromTemplate:
+countByEnumeratingWithState:objects:count:
+allocWithZone:
+URLByAppendingPathComponent:
+scheduleInRunLoop:
+tintColor
+initWithCalendarIdentifier:
+stringFromContact:style:
+distantPast
+setNeedsLayout
 presentConfirmationWithTitle:message:cancelTitle:cancelHandler:confirmTitle:confirmHandler:
 localizedStringForKey:value:table:
-firstObject
-initWithUUIDString:
-decodeBoolForKey:
+speakUtterance:
+hasAnyData
 localizations
-activeDeviceSelectorBlock
-setLocale:
+scale
+count
+stringByAppendingString:
+defaultManager
 numberWithInteger:
-setTransform:
+allPeople
+timestamp
+distanceFromLocation:
+initWithArray:
+present
+setContents:
+initWithUUIDString:
+stringByAddingPercentEncodingWithAllowedCharacters:
+numberWithInt:
+localeWithLocaleIdentifier:
+timerWithTimeInterval:target:selector:userInfo:repeats:
+defaultCenter
+alertControllerWithTitle:message:preferredStyle:
+shiftLocation:withCompletionHandler:callbackQueue:
+callsOnDefaultPairedDevice
+displayName
+CGPointValue
+decodeObjectForKey:
+copy
+resume
+numberWithFloat:
+preferredLocalizationsFromArray:forPreferences:
+string
+indexOfObject:
+isEqualToString:
+sharedUtilities
+loadPackageViewWithContentsOfURL:publishedObjectViewClassMap:completion:
+setGroupSize:domain:
+setClipsToBounds:
+setMixToTelephonyUplink:
+decodeIntegerForKey:
+coordinate
+userInterfaceIdiom
+addTimer:forMode:
+setScheme:
+preferredLanguagesForRegion:
+numberWithDouble:
+storeWithOptions:
+setFriendsChangedExternallyNotificationName:domain:
+bundleWithURL:
+length
+setMinimumEarlyFireProportion:
+containsObject:
+addSublayer:
+metadataValueForKey:
+firstObject
+stopUpdatingLocation
+setFrame:
+decodeDoubleForKey:
+layer
+URLQueryAllowedCharacterSet
+isEmergency
+numberWithBool:
+_ios_meContactWithKeysToFetch:error:
+setWithObjects:
+predicateWithBlock:
+bundleIdentifier
+message
+useStandalone
+CGImage
+imageWithTintColor:renderingMode:
+decodeBoolForKey:
+stopSpeakingAtBoundary:
+addObserver:selector:name:object:
+timeIntervalSinceReferenceDate
+replaceOccurrencesOfString:withString:options:range:
+setClasses:forSelector:argumentIndex:ofReply:
+numberFromString:
+lastObject
+initWithTimeIntervalSinceReferenceDate:
+postNotificationName:object:userInfo:
+setMaximumFractionDigits:
+setWithObject:
+bundleForClass:
+setCategory:error:
+year
+languageFromLanguage:byReplacingRegion:
+initWithTimeIntervalSince1970:
+decimalDigitCharacterSet
+setVolume:
+timeIntervalSinceNow
+imageWithRenderingMode:
+postNotificationName:object:
+setRepeatCount:
+dateOfBirthComponentsWithError:
+filteredArrayUsingPredicate:
+setMaxGroupCount:domain:
+notifySpeakServicesToStopSpeaking
+position
+timeIntervalSinceDate:
+addObjectsFromArray:
+setVoice:
+setMask:
+setFailureBlock:
+imageNamed:inBundle:withConfiguration:
+boolValue
+gmtBirthdate
+removeObjectForKey:
+dateFromComponents:
+setValues:
+initWithTimeInterval:serviceIdentifier:target:selector:userInfo:
+notifySpeakServicesForAttributedSpeechOutput:
+UUIDString
+setExportedObject:
+setRemoteObjectInterface:
+horizontalAccuracy
+addObject:
+timeIntervalSince1970
+matchesInString:options:range:
+weakToStrongObjectsMapTable
+boolForKey:
+fetchMedicalIDEmergencyContactsWithCompletion:
+initWithSuiteName:
+addAnimation:forKey:
+begin
+removeObject:
+setValue:forKey:
+setRate:
+removeAnimationForKey:
+dateByAddingTimeInterval:
+synchronizeUserDefaultsDomain:keys:
+size
+phoneNumbers
+initWithString:attributes:
+setCalculationMode:
+setExportedInterface:
+dictionaryWithObjects:forKeys:count:
+setLocationURL:
+startUpdatingLocation
+setQueryItems:
+setDuration:
+componentsSeparatedByCharactersInSet:
+weakObjectsHashTable
+date
+getSubscriptionInfoWithError:
+addAction:
+dictionaryWithObject:forKey:
+initWithString:
+setBackgroundColor:
+synchronizeNanoDomain:keys:
+remoteObjectProxyWithErrorHandler:
+setDisableActions:
+fetchMedicalIDDataWithCompletion:
+componentsJoinedByString:
+managerForDomain:
+dictionaryWithDictionary:
+setPresentingViewController:
+setUsesApplicationAudioSession:
+regularExpressionWithPattern:options:error:
+getSIMStatus:error:
+components:fromDate:toDate:options:
 synchronize
+initWithSMSMessage:mmsMessage:recipients:
+setPosition:
+setDidTriggerSOSToday:
+mainScreen
+setUseStandalone:
+enumerateObjectsWithOptions:usingBlock:
+getAllDevicesWithArchivedAltAccountDevicesMatching:
+invertedSet
+supportsCapability:
+initWithMessage:recipients:
+authorizationStatusForEntityType:
+setLocation:
+compare:
+registerWithCompletionHandler:
+mainRunLoop
+unifiedContactWithIdentifier:keysToFetch:error:
+voiceWithLanguage:
+CGColor
+activeDeviceSelectorBlock
+substringWithRange:
+initWithMachServiceName:options:
+dictionary
+commit
+arrayWithObjects:count:
+recipients
+currentRunLoop
+setLocalizedDateFormatFromTemplate:
+mainBundle
+unformattedInternationalStringValue
+setDesiredAccuracy:
+encodeObject:forKey:
+friends
+openURL:configuration:completionHandler:
+valueWithCGPoint:
+setLocale:
+arrayByAddingObjectsFromArray:
+newAssertionForBundle:withReason:
+setTransform:
+subscriptions
+subarrayWithRange:
+lostModeIsActive
+UUID
+array
+unarchivedObjectOfClasses:fromData:error:
+initWithImage:
+URLForResource:withExtension:
+UTF8String
+friendGroups
+isSOS
+actionWithTitle:style:handler:
+setActive:withOptions:error:
+setKeyPath:
+range
+encodeInteger:forKey:
+initWithIdentifier:
+frame
+invalidate
+valueForProperty:
+_cfBundle
+nativeBounds
+setObject:forKey:
+abRecordGUID
+encodeDouble:forKey:
+descriptorForRequiredKeysForStyle:
+setActive:error:
+archivedDataWithRootObject:requiringSecureCoding:error:
+setTimeStyle:
+setDebugIdentifier:
+queryItemWithName:value:
+valueForKey:
+setNumberStyle:
+interfaceWithProtocol:
+formattedStringValue
+appendAttributedString:
+encodeBool:forKey:
+objectForKeyedSubscript:
+setDateStyle:
+stringWithFormat:
+valueForEntitlement:
+presenterForPrivacySplashWithIdentifier:
+integrity
+presentationLayer
+animationForKey:
+sendMessage:
+currentCalls
+stringFromNumber:
+initWithEffectiveBundle:delegate:onQueue:
+setInvalidationHandler:
+scheduledTimerWithTimeInterval:repeats:block:
+objectForKey:
+mutableCopy
+animation
+integerValue
+standardUserDefaults
+value
 init
 dealloc
 preloadContactStoreIfNecessary
@@ -2582,6 +2650,7 @@ T#,R
 T@"NSString",R,C
 sosFlow:didChangeToState:
 sosFlow:willHandleEvent:withMetaData:
+emergencyCallInitiated
 _init
 startSOSFlowWithTriggerMechanism:
 startFreshSOSFlowWithTriggerMechanism:
@@ -2659,6 +2728,7 @@ contactsCountdownDismissed
 timerRequestsCountdownToAutoCall
 motionDidCancel
 userRespondedToRestingStateWith:
+handleEmergencyCallInititated
 _prefetchMedicalID
 shouldShowMedicalID
 restingState
@@ -2667,7 +2737,7 @@ willHandleEvent:withMetaData:
 checkInTimeoutForSOSFlowType:
 startTimerToAutoDial
 _invalidateTimer
-canDeviceTriggerAutoDial
+canDeviceTriggerAutoDialForSOSFlowType:
 sosFlowType
 setSosFlowType:
 currentState
@@ -2683,9 +2753,12 @@ isUserResponsive
 setIsUserResponsive:
 shouldIgnoreMotionCancel
 setShouldIgnoreMotionCancel:
+didSeeUnresponsiveResting
+setDidSeeUnresponsiveResting:
 _timer
 _isUserResponsive
 _shouldIgnoreMotionCancel
+_didSeeUnresponsiveResting
 _sosFlowType
 _currentState
 _healthUserDefaults
@@ -2700,6 +2773,7 @@ Tq,N,V_currentState
 T@"NSHashTable",&,N,V_observers
 TB,N,V_isUserResponsive
 TB,N,V_shouldIgnoreMotionCancel
+TB,N,V_didSeeUnresponsiveResting
 name
 setName:
 phoneNumber
@@ -2736,6 +2810,7 @@ didDismissClientSOSBeforeSOSCall:
 didUpdateSOSStatus:
 updateSOSFlowState:
 SOSSendingLocationUpdateChanged:
+_tuCallCenterStatusChanged:
 _sendMessageToRecipients:withLocation:isFirstMessage:medicalIDName:Reason:
 _sendSMSMessage:MMSMessage:location:recipients:failureBlock:
 _sendMessage:location:recipients:useStandalone:failureBlock:
@@ -2761,12 +2836,14 @@ start
 contactsManager
 setSosStatusManager:
 sosStatusManager
+_checkEmergencyCallStatus
+_onEmergencyCallStatusChanged:
+_checkSOSCallStatus
 broadcastUpdatedSOSStatus:
 handleNotifyThirdPartyClientsWithSOSStatus:
 notificationEnabledAndContactsExist
 isSendingLocationUpdate
 currentSOSInitiationState
-triggerUnresolvedSOSEventIfNecessary
 retriggerSOSWithUUID:trigger:
 isTriggerEnabled:
 fetchMedicalIDName
@@ -2785,6 +2862,8 @@ _contactsManager
 _medicalIDName
 _notifyContactsReason
 _sosStatusManager
+_callCenter
+_isEmergencyCallOngoing
 _sosFlowManager
 _locationShifter
 _clientConnections
@@ -2889,6 +2968,8 @@ initWithUUID:trigger:timeOfDetection:timeOfResolution:resolution:flowState:isPai
 isValid
 isFlowActive
 isFlowActiveAndNotResting
+shouldRejectNewSOSTriggers
+shouldRetriggerSOS
 T@"NSUUID",&,N,V_uuid
 Tq,N,V_trigger
 T@"NSDate",&,N,V_timeOfDetection
@@ -2968,6 +3049,7 @@ Tq,N,V_spriteFrameCount
 Tq,N,V_spriteColumnCount
 TQ,N,V_framesPerSecond
 handleSosdLaunch
+_updateSOSFlowState
 setConnection:
 connection
 connectionRequestNotificationToken
@@ -3002,6 +3084,11 @@ initWithSOSStatus:
 sosStatus
 sosTriggeredWithUUID:trigger:
 sosTriggerDisabledWithUUID:trigger:
+handleSOSCallStatusChange:
+checkSOSStatusOnLaunch
+handleLostStatusReporterConnection
+startCurrentDeviceClearStatusTimer
+cancelCurrentDeviceClearStatusTimer
 flowStarted
 flowStartedOnEitherDevice
 flowStartedOnCurrentDevice
@@ -3016,12 +3103,24 @@ inSOSFlow
 setInSOSFlow:
 inSOSFlowOnCurrentDevice
 setInSOSFlowOnCurrentDevice:
+activeSOSCall
+setActiveSOSCall:
+currentDeviceStatusClearTimer
+setCurrentDeviceStatusClearTimer:
+pairedDeviceStatusClearTimer
+setPairedDeviceStatusClearTimer:
 _inSOSFlow
 _inSOSFlowOnCurrentDevice
+_activeSOSCall
 _clientConnection
+_currentDeviceStatusClearTimer
+_pairedDeviceStatusClearTimer
 T@"NSXPCConnection",&,N,V_clientConnection
 TB,N,V_inSOSFlow
 TB,N,V_inSOSFlowOnCurrentDevice
+TB,N,V_activeSOSCall
+T@"NSTimer",&,N,V_currentDeviceStatusClearTimer
+T@"NSTimer",&,N,V_pairedDeviceStatusClearTimer
 v16@0:8
 @16@0:8
 B16@0:8
@@ -3113,6 +3212,7 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSDate"
 @"SOSContactsManager"
 @"SOSStatusManager"
+@"TUCallCenter"
 @"<SOSFlowManagerCoexProtocol>"
 @"_MKLocationShifter"
 @"NSMutableArray"

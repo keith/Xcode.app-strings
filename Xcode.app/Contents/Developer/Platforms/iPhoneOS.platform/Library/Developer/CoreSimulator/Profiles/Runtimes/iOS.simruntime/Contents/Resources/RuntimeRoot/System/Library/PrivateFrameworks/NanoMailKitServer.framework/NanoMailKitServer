@@ -27,6 +27,7 @@
 ?yyyyyy
 ?PPPPPP
 messageId
+value
 delay
 duration
 fullSyncVersion
@@ -64,8 +65,7 @@ unread
 toOrCC
 importantThreads
 today
-fromApp
-mailTo
+includesAttachments
 com.apple.NanoMail.messageReceived
 com.apple.NanoMail.messageUpdated
 com.apple.NanoMail.messageDeleted
@@ -91,6 +91,7 @@ com.apple.NanoMail.attachmentDownload.failure
 com.apple.NanoMail.composedMessage
 com.apple.NanoMail.composedMessage.failure
 com.apple.NanoMail.messageDelivery.duration
+com.apple.NanoMail.composedMessage.cannedReply
 com.apple.NanoMail.action.reached
 com.apple.NanoMail.action
 com.apple.NanoMail.cellSwipe.changed
@@ -98,6 +99,7 @@ com.apple.NanoMail.app.launched
 com.apple.NanoMail.app.resumed
 com.apple.NanoMail.app.backgroundRefreshed
 com.apple.NanoMail.notification.received
+com.apple.NanoMail.notification.subscribed
 com.apple.NanoMail.standalone.credentialsExpired
 com.apple.NanoMail.WebView.RenderingProcess.Crash
 com.apple.NanoMail.WebView.Interaction.Link
@@ -149,6 +151,11 @@ powerpoint
 word
 pass
 watchface
+nanoMail
+firstParty
+thirdParty
+shareSheet
+mailTo
 %@ %@
 conversationId
 beforeDateReceived
@@ -184,6 +191,7 @@ from
 standaloneState
 subsectionId
 emailAddressToken
+pccEmailAddress
 X-Apple-Authentication
 https://mailnotifications.apple.com
 com.apple.NanoMail
@@ -465,7 +473,7 @@ SELECT ID FROM SYNCED_MESSAGE WHERE SANITIZED_ID = ?
 DELETE FROM SYNCED_MESSAGE WHERE DATE_RECEIVED < ? AND MAILBOX_ID = ?
 MAILBOX_ID = ? AND DATE_RECEIVED >= ?
 MAILBOX_ID = ? AND ID IS NOT NULL
-INSERT OR REPLACE INTO SYNCED_ACCOUNT (ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT OR REPLACE INTO SYNCED_ACCOUNT (ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN, PCC_EMAIL_ADDRESS) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 DELETE FROM SYNCED_ACCOUNT WHERE ID = ?
 SELECT ID FROM SYNCED_ACCOUNT WHERE RESEND_REQUESTED = ?
 SELECT A.SOURCE_TYPE FROM SYNCED_MESSAGE SM LEFT OUTER JOIN  MAILBOX M ON SM.MAILBOX_ID = M.ID LEFT OUTER JOIN SYNCED_ACCOUNT A ON A.ID = M.ACCOUNT_ID  WHERE SM.ID = ?
@@ -512,7 +520,7 @@ SELECT ID, STATUS, STATUS_VERSION, DATE_RECEIVED, USED_PROTECTED_CHANNEL, USED_N
 ") FROM ATTACHMENT_NOT_SYNCED T WHERE T.MESSAGE_ID == ID GROUP BY T.MESSAGE_ID) AS ATTACHMENTS_NOT_SYNCED, CONVERSATION_ID, RESEND_REQUESTED, RESEND_INTERVAL, CONTENT_RESEND_INTERVAL, MAILBOX_ID, THREAD_SPECIFIC, SPECIAL_MAILBOX_SPECIFIC, SANITIZED_ID FROM SYNCED_MESSAGE WHERE %@ ORDER BY DATE_RECEIVED DESC
 SELECT ID FROM SYNCED_MESSAGE WHERE %@ ORDER BY DATE_RECEIVED DESC
  LIMIT %lu
-SELECT ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN FROM SYNCED_ACCOUNT %@
+SELECT ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN, PCC_EMAIL_ADDRESS FROM SYNCED_ACCOUNT %@
 SELECT 1 FROM MAILBOX WHERE SYNC_ACTIVE = 1
 kNSCodingKeyMailboxesWithAllMessagesSyncEnabled
 kNSCodingKeyInboxes
@@ -550,6 +558,7 @@ kNSCodingKeyUsername
 kNSCodingKeyDefaultEmailAddress
 kNSCodingKeyTypeIdentifier
 NNMKEmailAddressTokenKey
+NNMKPCCEmailAddressKey
 @gmail.com
 @me.com
 @icloud.com
@@ -575,6 +584,7 @@ kNSCodingKeyType
 kNSCodingKeyAccountIdentifier
 messageIds
 requestTime
+D8A5B9F1-722E-436E-B616-1398AEB94F1B
 /\?%*|"<>:
 InitialSync
 Message
@@ -762,6 +772,7 @@ v24@?0@"NSArray"8@"NNMKMailbox"16
 v36@?0@"NNMKMessagesSyncServiceServer"8@"NNMKProtoMessageStatusUpdates"16@"NSArray"24B32
 v36@?0@"NNMKMessagesSyncServiceServer"8@"NNMKProtoMessageDeletions"16@"NSArray"24B32
 v32@?0@"NSString"8@"NNMKSyncedAccount"16^B24
+v20@?0B8@"NSError"12
 v32@?0@"NSString"8@"NNMKProtoAccountAuthenticationState"16^B24
 #BATCHED_RESPONSE
 PairedDeviceRegistry returned no devices.
@@ -887,6 +898,7 @@ Error checking if has synced mailbox active (%{public}@).
 NNMKAccount entity is unable to decode some of the fields (possible Message.framework API changes): %{public}@
 Missing typeIdentifier for accountId: %{public}@
 Error instantiating NSDataDetector: %{public}@
+Missing mailbox url and falling back to legacy id: %{public}@
 Unknown type: %lu
 IDS message sent. (IDS Identifier: %{public}@, Type:%{public}@ )
 Error sending IDS Messages (IDS Identifier: %{public}@ - Object Type: %{public}@ - Resend Interval: %lu - Error code: %li).
@@ -905,6 +917,9 @@ Not resending content for message, as it's not for a notification and the user d
 Resending account (Id: %{public}@ - IDS Identifier: %{public}@)...
 Resending progress for composed message (Id: %{public}@ - IDS Identifier: %{public}@)...
 [%{public}@] %{public}@
+Failed to begin transaction. (%{public}@)
+Failed to commit transaction. (%{public}@)
+Failed to rollback transaction. (%{public}@)
 Error creating database directory. (Path: %{public}@, Error: %{public}@, Parent Exists: %d)
 Database opened (%{public}@, %{public}@).
 Error opening database. Check sandbox permissions. Closing... (Path: %{public}@, Error Code: %d, Error Message: %{public}@).
@@ -947,10 +962,10 @@ Username, token or refreshToken is empty. Standalone account information won't b
 No account for username. Standalone account information won't be synced. %@
 Dropping messages. Receiving an old batch of messages from MobileMail. Ignoring so we don't create a gap between the current messages we have and the old batch. (Count: %lu, Newest message received date: %{public}@
 New received messages changed date cap (New date: %{public}@).
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: New)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: New)
 Dropping message added because account source type does not allow sync. Account Id: %{public}@, Message Id: %{public}@
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES)
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES for Conversation)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES for Conversation)
 Message being RESENT (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - StatusVersion: %lu).
 Message Status UPDATED but updates are being ignored for it. Dropping... (Id: %{public}@ - Date Received: %{public}@ - Status: %@).
 Message Status UPDATED (Id: %{public}@ - Status: %@ - Date Received: %{public}@ - Source: MobileMail).
@@ -1026,7 +1041,7 @@ Preparing messages to send for mailbox. (Mailbox: %{public}@, #mailbox-sync-vers
 It won't send mailbox on #full-sync. %{public}@
 #full-sync messages sent (%lu messages - IDS identifier: %{public}@ - Mailbox ids: %{public}@).
 Ignoring MobileMail reply for first messages. Mailbox: %{public}@, active: %lu, enabled: %lu.
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #full-sync)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #full-sync)
 Reply from delegate for didRequestFirstMessages but mailbox is already active.
 #full-sync messages sent (%lu messages - Mailbox id: %{public}@ IDS identifier: %{public}@).
 MobileMail responded for #LOAD_MORE_MESSAGES request but we were actually expecting another response.
@@ -1088,6 +1103,7 @@ Ignoring "organized by thread" flag changed because no accounts are synced yet. 
 Messages sent successfully by IDS (IDS Identifier: %{public}@).
 IDS Reported Space Became Available.
 Connectivity changed (Connected: %d - Connectivity type: %lu)
+Message Status DROPPED (Id: %{public}@ - Source: Watch).
 Message Status UPDATED (Id: %{public}@ - Status: %@ - Source: Watch).
 Message Status UPDATED but version is outdated (Id: %{public}@ - Status: %@ - Local Status: %@ - Client Version: %lu - Local Version: %lu - Source: Watch).
 Message Status UPDATED but we don't have it in our records. Updating anyway... (Id: %{public}@ - Status: %@ - Source: Watch).
@@ -1111,6 +1127,8 @@ Account source type changed back to source type companion. Triggering #full-sync
 Received watch accounts authentication status from watch.
 Received outdated accounts status, Ignoring. requestTime: %f, lastRequestTime: %f
 Updating standalone state for account. Account: %{public}@ - State: %lu
+#cloud-notifications Updated local account properties (hasToken: %d)
+#cloud-notifications Failed to update local account properties (hasToken: %d)
 No account for watch account. Standalone state will be dropped. %{public}@
 Requesting re-authentication for account: %{public}@ - State: %lu
 Notifying authentication failed for account: %{public}@ - State: %lu
@@ -1250,6 +1268,7 @@ NNMKSQLiteUtils
 NNMKProtoPrepareForFullSyncRequest
 Bridge
 NNMKAccountAuthenticationState
+NNMKStandaloneAccountHelper
 NNMKSyncServiceEndpoint
 NNMKVIPSender
 NNMKMessagesSyncServiceServer
@@ -1327,7 +1346,6 @@ NNMKSyncStateManagerDelegate
 NNMKBatchRequestHandlerDelegate
 NNMKRequestContext
 NNMKProtoAttachmentMetadata
-_reportingEnabled
 stringForFetchType:
 stringForDeviceMode:
 dictionaryWithObjects:forKeys:count:
@@ -1363,8 +1381,10 @@ intValue
 numberWithInt:
 stringForAction:
 stringForSendingType:
+stringForCompositionSource:
 timeIntervalSinceNow
 sharedInstance
+_reportingEnabled
 reportFetch:inMode:accountType:
 reportFailedFetchWithType:inMode:
 reportMessageReceivedWithId:willGenerateNotification:fullSyncVersion:dateSynced:
@@ -1387,6 +1407,7 @@ reportAppResumed
 reportAppBackgroundRefreshed
 reportNotificationReceivedInMode:accountType:
 reportRenderedNotificationUsingLocalContent:mailboxSynced:messageSynced:contentDownloaded:
+reportSubscribedToNotificationForAccountType:isPCC:
 reportFullSyncRequestedFromDevice:corruptionDetected:migrationRelated:idsFailureRelated:fullSyncVersionMatchRelated:
 reportHaltSyncRequestedFromSource:
 reportContentDisplayedForMessageWithId:hasMainAlternative:hasTextAlternative:
@@ -1396,9 +1417,10 @@ reportMailboxSelectionChanged:source:
 reportAction:source:
 reportCellRighSwipeActionChanged:
 reportWebKitLinkTapped
-reportMessageSentFromApp:mailto:sendingType:sizeInBytes:
+reportMessageSentFrom:sendingType:attachmentCount:sizeInBytes:
 reportMessageDeliveryFailedInMode:
 reportMessageDeliveryDurationWithStartDate:inMode:
+reportCannedReplyUsed:sendingType:
 reportCredentialsExpired
 description
 dictionaryRepresentation
@@ -1668,20 +1690,25 @@ Td,N,V_screenWidth
 Td,N,V_screenScale
 setSubsectionId:
 setEmailAddressToken:
+setPccEmailAddress:
 setStandaloneState:
 setHasStandaloneState:
 hasStandaloneState
 hasSubsectionId
 hasEmailAddressToken
+hasPccEmailAddress
 standaloneState
 subsectionId
 emailAddressToken
+pccEmailAddress
 _emailAddressToken
+_pccEmailAddress
 _standaloneState
 _subsectionId
 TI,N,V_standaloneState
 T@"NSString",&,N,V_subsectionId
 T@"NSString",&,N,V_emailAddressToken
+T@"NSString",&,N,V_pccEmailAddress
 _getRequestWithBaseURLString:path:params:token:errorParser:completion:
 _methodNameForType:
 _jsonBodyRequestWithBaseURLString:path:body:method:token:needsBAA:errorParser:completion:
@@ -2642,9 +2669,12 @@ dataWithLength:
 mutableBytes
 bindData:intoStatement:paramIndex:
 dataFromStatement:columnIndex:
+getActivePairedDevice
+initWithUUIDString:
+supportsCapability:
 nano_accountId
 name
-generateMailboxIdWithAccountId:mailboxName:
+generateLegacyMailboxIdWithAccountId:mailboxName:
 displayNameUsingSpecialNames
 nano_mailboxId
 nano_mailboxType
@@ -2657,6 +2687,13 @@ state
 setState:
 _state
 TQ,N,V_state
+accountWithUniqueId:
+persistentAccount
+setAccountProperty:forKey:
+sharedAccountStore
+persistentStore
+saveAccount:withCompletionHandler:
+saveLocalAccountProperties:withCompletion:
 _initializeServiceTransport
 _removeExpiredRepeatPreventionRecords
 initWithServiceName:queue:delegate:
@@ -2823,8 +2860,8 @@ preparedStatementForPattern:cacheStatement:
 _preparedStatementForPattern:cacheStatement:
 _stepPreparedStatement:
 _executeSQL:
-_lastErrorCode
 _lastErrorMessage
+_lastErrorCode
 stringByAppendingString:
 stringByDeletingLastPathComponent
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
@@ -3416,6 +3453,7 @@ size
 copyWithNewId
 _standaloneReferenceMessageId
 TQ,N,V_sendingType
+Tq,N,V_progress
 T@"NSArray",&,N,V_to
 T@"NSArray",&,N,V_cc
 T@"NSString",&,N,V_standaloneReferenceMessageId
@@ -3530,14 +3568,11 @@ _bbSubsectionIdsForMessage:
 getWillNanoPresentNotificationForSectionID:subsectionIDs:completion:
 syncStateManagerDidUnpair:
 syncStateManagerDidChangePairedDevice:
-initWithUUIDString:
-supportsCapability:
 syncSessionType
 sessionIdentifier
 syncStateManagerDidBeginSyncSession:syncSessionType:syncSessionIdentifier:
 syncStateManagerDidInvalidateSyncSession:syncSessionIdentifier:
 syncStateManagerShouldAddFavoriteSubsectionForMailboxId:
-getDevices
 syncCoordinator:beginSyncSession:
 syncCoordinator:didInvalidateSyncSession:
 syncCoordinatorDidChangeSyncRestriction:
@@ -3664,7 +3699,6 @@ uniqueID
 supportsArchiving
 shouldArchiveByDefault
 nano_emailAddressesAndAliasesList
-persistentAccount
 accountTypeIdentifier
 accountPropertyForKey:
 emailAddressesAndAliasesList
@@ -3912,15 +3946,17 @@ v16@0:8
 v32@0:8Q16@24
 v36@0:8Q16B24@28
 v32@0:8B16B20B24B28
+v28@0:8@16B24
 v40@0:8Q16B24B28B32B36
 v32@0:8@16B24B28
 v28@0:8Q16B24
 v32@0:8@16Q24
 v24@0:8@16
-v40@0:8B16B20Q24Q32
+v48@0:8q16Q24Q32Q40
 v32@0:8@16@?24
 q24@0:8@16
 @24@0:8Q16
+@24@0:8q16
 @24@0:8^{_NSZone=}16
 v20@0:8I16
 v20@0:8B16
@@ -3984,7 +4020,6 @@ v24@0:8^{_xmlParserCtxt=^{_xmlSAXHandler}^v^{_xmlDoc}ii**ii^{_xmlParserInput}ii^
 @"NSMutableData"
 {_xmlSAXHandler="internalSubset"^?"isStandalone"^?"hasInternalSubset"^?"hasExternalSubset"^?"resolveEntity"^?"getEntity"^?"entityDecl"^?"notationDecl"^?"attributeDecl"^?"elementDecl"^?"unparsedEntityDecl"^?"setDocumentLocator"^?"startDocument"^?"endDocument"^?"startElement"^?"endElement"^?"reference"^?"characters"^?"ignorableWhitespace"^?"processingInstruction"^?"comment"^?"warning"^?"error"^?"fatalError"^?"getParameterEntity"^?"cdataBlock"^?"externalSubset"^?"initialized"I"_private"^v"startElementNs"^?"endElementNs"^?"serror"^?}
 @32@0:8q16@24
-@24@0:8q16
 @"NNMKProtoMessage"
 {?="fullSyncVersion"b1"mainAlternativeValid"b1"partiallyLoaded"b1}
 @32@0:8@16B24B28
@@ -4003,7 +4038,6 @@ v24@0:8^{_xmlParserCtxt=^{_xmlSAXHandler}^v^{_xmlDoc}ii**ii^{_xmlParserInput}ii^
 {?="fullSyncVersion"b1"mailboxSyncVersion"b1"syncedMailboxType"b1"organizedByThread"b1}
 {?="fullSyncVersion"b1"sourceType"b1}
 {?="filterType"b1"type"b1"syncEnabled"b1"syncRequested"b1}
-v28@0:8@16B24
 @32@0:8@16@?24
 @24@0:8^{sqlite3_stmt=}16
 v32@0:8q16@24
@@ -4248,6 +4282,7 @@ f16@0:8
 {?="fileSize"b1"imageHeight"b1"imageWidth"b1"type"b1"renderOnClient"b1}
 @36@0:8@16B24B28B32
 !'-LRqw
+.4:?
 ?______
 ?}}}}}}
 ?QQQQQQ
@@ -4283,7 +4318,7 @@ f16@0:8
 -<KZ
 '-3HQ
 #)>G
-$*05
+(.4:?
 3<Qpv|
  ?ENW]cisy
 #)>G
@@ -4292,6 +4327,7 @@ $*05
 555 
 '-BHgp
 messageId
+value
 delay
 duration
 fullSyncVersion
@@ -4329,8 +4365,7 @@ unread
 toOrCC
 importantThreads
 today
-fromApp
-mailTo
+includesAttachments
 com.apple.NanoMail.messageReceived
 com.apple.NanoMail.messageUpdated
 com.apple.NanoMail.messageDeleted
@@ -4356,6 +4391,7 @@ com.apple.NanoMail.attachmentDownload.failure
 com.apple.NanoMail.composedMessage
 com.apple.NanoMail.composedMessage.failure
 com.apple.NanoMail.messageDelivery.duration
+com.apple.NanoMail.composedMessage.cannedReply
 com.apple.NanoMail.action.reached
 com.apple.NanoMail.action
 com.apple.NanoMail.cellSwipe.changed
@@ -4363,6 +4399,7 @@ com.apple.NanoMail.app.launched
 com.apple.NanoMail.app.resumed
 com.apple.NanoMail.app.backgroundRefreshed
 com.apple.NanoMail.notification.received
+com.apple.NanoMail.notification.subscribed
 com.apple.NanoMail.standalone.credentialsExpired
 com.apple.NanoMail.WebView.RenderingProcess.Crash
 com.apple.NanoMail.WebView.Interaction.Link
@@ -4414,6 +4451,11 @@ powerpoint
 word
 pass
 watchface
+nanoMail
+firstParty
+thirdParty
+shareSheet
+mailTo
 %@ %@
 conversationId
 beforeDateReceived
@@ -4449,6 +4491,7 @@ from
 standaloneState
 subsectionId
 emailAddressToken
+pccEmailAddress
 X-Apple-Authentication
 https://mailnotifications.apple.com
 com.apple.NanoMail
@@ -4730,7 +4773,7 @@ SELECT ID FROM SYNCED_MESSAGE WHERE SANITIZED_ID = ?
 DELETE FROM SYNCED_MESSAGE WHERE DATE_RECEIVED < ? AND MAILBOX_ID = ?
 MAILBOX_ID = ? AND DATE_RECEIVED >= ?
 MAILBOX_ID = ? AND ID IS NOT NULL
-INSERT OR REPLACE INTO SYNCED_ACCOUNT (ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT OR REPLACE INTO SYNCED_ACCOUNT (ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN, PCC_EMAIL_ADDRESS) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 DELETE FROM SYNCED_ACCOUNT WHERE ID = ?
 SELECT ID FROM SYNCED_ACCOUNT WHERE RESEND_REQUESTED = ?
 SELECT A.SOURCE_TYPE FROM SYNCED_MESSAGE SM LEFT OUTER JOIN  MAILBOX M ON SM.MAILBOX_ID = M.ID LEFT OUTER JOIN SYNCED_ACCOUNT A ON A.ID = M.ACCOUNT_ID  WHERE SM.ID = ?
@@ -4777,7 +4820,7 @@ SELECT ID, STATUS, STATUS_VERSION, DATE_RECEIVED, USED_PROTECTED_CHANNEL, USED_N
 ") FROM ATTACHMENT_NOT_SYNCED T WHERE T.MESSAGE_ID == ID GROUP BY T.MESSAGE_ID) AS ATTACHMENTS_NOT_SYNCED, CONVERSATION_ID, RESEND_REQUESTED, RESEND_INTERVAL, CONTENT_RESEND_INTERVAL, MAILBOX_ID, THREAD_SPECIFIC, SPECIAL_MAILBOX_SPECIFIC, SANITIZED_ID FROM SYNCED_MESSAGE WHERE %@ ORDER BY DATE_RECEIVED DESC
 SELECT ID FROM SYNCED_MESSAGE WHERE %@ ORDER BY DATE_RECEIVED DESC
  LIMIT %lu
-SELECT ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN FROM SYNCED_ACCOUNT %@
+SELECT ID, DISPLAY_NAME, SHOULD_ARCHIVE, EMAIL_ADDRESSES, DEFAULT_ADDRESS, RESEND_REQUESTED, RESEND_INTERVAL, SOURCE_TYPE, USERNAME, LOCAL_ID, TYPE_IDENTIFIER, EMAIL_ADDRESS_TOKEN, PCC_EMAIL_ADDRESS FROM SYNCED_ACCOUNT %@
 SELECT 1 FROM MAILBOX WHERE SYNC_ACTIVE = 1
 kNSCodingKeyMailboxesWithAllMessagesSyncEnabled
 kNSCodingKeyInboxes
@@ -4815,6 +4858,7 @@ kNSCodingKeyUsername
 kNSCodingKeyDefaultEmailAddress
 kNSCodingKeyTypeIdentifier
 NNMKEmailAddressTokenKey
+NNMKPCCEmailAddressKey
 @gmail.com
 @me.com
 @icloud.com
@@ -4840,6 +4884,7 @@ kNSCodingKeyType
 kNSCodingKeyAccountIdentifier
 messageIds
 requestTime
+D8A5B9F1-722E-436E-B616-1398AEB94F1B
 /\?%*|"<>:
 InitialSync
 Message
@@ -5027,6 +5072,7 @@ v24@?0@"NSArray"8@"NNMKMailbox"16
 v36@?0@"NNMKMessagesSyncServiceServer"8@"NNMKProtoMessageStatusUpdates"16@"NSArray"24B32
 v36@?0@"NNMKMessagesSyncServiceServer"8@"NNMKProtoMessageDeletions"16@"NSArray"24B32
 v32@?0@"NSString"8@"NNMKSyncedAccount"16^B24
+v20@?0B8@"NSError"12
 v32@?0@"NSString"8@"NNMKProtoAccountAuthenticationState"16^B24
 #BATCHED_RESPONSE
 PairedDeviceRegistry returned no devices.
@@ -5152,6 +5198,7 @@ Error checking if has synced mailbox active (%{public}@).
 NNMKAccount entity is unable to decode some of the fields (possible Message.framework API changes): %{public}@
 Missing typeIdentifier for accountId: %{public}@
 Error instantiating NSDataDetector: %{public}@
+Missing mailbox url and falling back to legacy id: %{public}@
 Unknown type: %lu
 IDS message sent. (IDS Identifier: %{public}@, Type:%{public}@ )
 Error sending IDS Messages (IDS Identifier: %{public}@ - Object Type: %{public}@ - Resend Interval: %lu - Error code: %li).
@@ -5170,6 +5217,9 @@ Not resending content for message, as it's not for a notification and the user d
 Resending account (Id: %{public}@ - IDS Identifier: %{public}@)...
 Resending progress for composed message (Id: %{public}@ - IDS Identifier: %{public}@)...
 [%{public}@] %{public}@
+Failed to begin transaction. (%{public}@)
+Failed to commit transaction. (%{public}@)
+Failed to rollback transaction. (%{public}@)
 Error creating database directory. (Path: %{public}@, Error: %{public}@, Parent Exists: %d)
 Database opened (%{public}@, %{public}@).
 Error opening database. Check sandbox permissions. Closing... (Path: %{public}@, Error Code: %d, Error Message: %{public}@).
@@ -5212,10 +5262,10 @@ Username, token or refreshToken is empty. Standalone account information won't b
 No account for username. Standalone account information won't be synced. %@
 Dropping messages. Receiving an old batch of messages from MobileMail. Ignoring so we don't create a gap between the current messages we have and the old batch. (Count: %lu, Newest message received date: %{public}@
 New received messages changed date cap (New date: %{public}@).
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: New)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: New)
 Dropping message added because account source type does not allow sync. Account Id: %{public}@, Message Id: %{public}@
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES)
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES for Conversation)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #LOAD_MORE_MESSAGES for Conversation)
 Message being RESENT (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - StatusVersion: %lu).
 Message Status UPDATED but updates are being ignored for it. Dropping... (Id: %{public}@ - Date Received: %{public}@ - Status: %@).
 Message Status UPDATED (Id: %{public}@ - Status: %@ - Date Received: %{public}@ - Source: MobileMail).
@@ -5291,7 +5341,7 @@ Preparing messages to send for mailbox. (Mailbox: %{public}@, #mailbox-sync-vers
 It won't send mailbox on #full-sync. %{public}@
 #full-sync messages sent (%lu messages - IDS identifier: %{public}@ - Mailbox ids: %{public}@).
 Ignoring MobileMail reply for first messages. Mailbox: %{public}@, active: %lu, enabled: %lu.
-Message ADDED (Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #full-sync)
+Message ADDED (Id: %{public}@ - Account Id: %{public}@ - Date Received: %{public}@ - Status: %@ - Message ID Header %{public}@ - Reason: #full-sync)
 Reply from delegate for didRequestFirstMessages but mailbox is already active.
 #full-sync messages sent (%lu messages - Mailbox id: %{public}@ IDS identifier: %{public}@).
 MobileMail responded for #LOAD_MORE_MESSAGES request but we were actually expecting another response.
@@ -5353,6 +5403,7 @@ Ignoring "organized by thread" flag changed because no accounts are synced yet. 
 Messages sent successfully by IDS (IDS Identifier: %{public}@).
 IDS Reported Space Became Available.
 Connectivity changed (Connected: %d - Connectivity type: %lu)
+Message Status DROPPED (Id: %{public}@ - Source: Watch).
 Message Status UPDATED (Id: %{public}@ - Status: %@ - Source: Watch).
 Message Status UPDATED but version is outdated (Id: %{public}@ - Status: %@ - Local Status: %@ - Client Version: %lu - Local Version: %lu - Source: Watch).
 Message Status UPDATED but we don't have it in our records. Updating anyway... (Id: %{public}@ - Status: %@ - Source: Watch).
@@ -5376,6 +5427,8 @@ Account source type changed back to source type companion. Triggering #full-sync
 Received watch accounts authentication status from watch.
 Received outdated accounts status, Ignoring. requestTime: %f, lastRequestTime: %f
 Updating standalone state for account. Account: %{public}@ - State: %lu
+#cloud-notifications Updated local account properties (hasToken: %d)
+#cloud-notifications Failed to update local account properties (hasToken: %d)
 No account for watch account. Standalone state will be dropped. %{public}@
 Requesting re-authentication for account: %{public}@ - State: %lu
 Notifying authentication failed for account: %{public}@ - State: %lu
@@ -5515,6 +5568,7 @@ NNMKSQLiteUtils
 NNMKProtoPrepareForFullSyncRequest
 Bridge
 NNMKAccountAuthenticationState
+NNMKStandaloneAccountHelper
 NNMKSyncServiceEndpoint
 NNMKVIPSender
 NNMKMessagesSyncServiceServer
@@ -5592,315 +5646,320 @@ NNMKSyncStateManagerDelegate
 NNMKBatchRequestHandlerDelegate
 NNMKRequestContext
 NNMKProtoAttachmentMetadata
+base64EncodedStringWithOptions:
+containsString:
+initWithProtobufData:type:isResponse:
+addObserver:selector:name:object:
+setQueryItems:
+domain
+accountsSyncServiceClient:didSyncInitialAccounts:
+writeToFile:options:error:
+unsignedIntegerValue
+punctuationCharacterSet
+URLByAppendingPathComponent:
+hasSuffix:
+initWithService:
+dateWithTimeInterval:sinceDate:
+syncCoordinatorWithServiceName:
+dateWithTimeIntervalSince1970:
+saveAccount:withCompletionHandler:
+content
+rangeAtIndex:
+syncDidComplete
+string
+ea_uncommentedAddress
+dateWithTimeIntervalSinceNow:
+initWithString:
+rangeOfCharacterFromSet:options:range:
+stringByAppendingFormat:
+syncDidCompleteSending
+nextObject
+rangeOfString:
+initWithString:attributes:
+stringByAppendingPathComponent:
+dd_replaceResultAttributesWithSimpleLinksForTypes:context:
+syncDidFailWithError:
+rangeOfString:options:range:
+initWithUUIDString:
+setHTTPBody:
+fileExistsAtPath:
+emailAddressesAndAliasesList
+stringByAppendingString:
+activeAccountsWithError:
+decodeIntegerForKey:
+reportProgress:
+host
+messagesSyncServiceClient:didAddMessages:
+setHTTPMethod:
+fileExistsAtPath:isDirectory:
+decodeObjectOfClass:forKey:
+scanHexInt:
+messagesSyncServiceClient:didDeleteMessages:
+activeSyncSession
+request
+addValue:forHTTPHeaderField:
+stringByDeletingLastPathComponent
+setHost:
+scannerWithString:
+stringByPaddingToLength:withString:startingAtIndex:
+matchesInString:options:range:
+decodeObjectOfClasses:forKey:
+messagesSyncServiceClient:didFailSendingProtobufWithIDSIdentifier:errorCode:
+setHour:
+pathForResource:ofType:
+stringByTrimmingCharactersInSet:
+contentsOfDirectoryAtPath:error:
+messagesSyncServiceClient:didFetchMoreMessages:
+scheme
+defaultCenter
+messagesSyncServiceClient:didFetchMoreMessagesForConversation:
+encodeInteger:forKey:
+requestWithURL:
+copy
+encodeObject:forKey:
+messagesSyncServiceClient:didReceivedCoalescedBatchedFetchResult:
+defaultManager
+syncProvider:didRequestContentForMessageWithId:highPriority:
+messagesSyncServiceClient:didSendInitialMessagesSync:
+setMinute:
+addAttribute:value:range:
+lastObject
+regularExpressionWithPattern:options:error:
+finishDecoding
+messagesSyncServiceClient:didSendProtobufSuccessfullyWithIDSIdentifier:
+countByEnumeratingWithState:objects:count:
+setValue:forHTTPHeaderField:
+setScheme:
+syncProvider:didRequestFirstMessages:mailboxes:
+removeAllObjects
+lastPathComponent
+messagesSyncServiceClient:didUpdateMailboxSelection:
+allKeys
+null
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+syncProvider:didRequestMessagesToSendAsFetchResponseForMessageIds:
+persistentAccount
+enumerateKeysAndObjectsUsingBlock:
+messagesSyncServiceClient:didUpdateMessagesStatus:
+addCharactersInString:
+numberWithBool:
+messageContentSyncServiceClient:didNotifyInitialContentSyncCompleted:
+removeCharactersInString:
+firstObject
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+setWithArray:
+persistentStore
+increaseLengthBy:
+stringForKey:
+syncProvider:didRequestMessagesWithContext:
+insertObject:atIndex:
 messageContentSyncServiceClient:didSyncAttachment:
+messagesSyncServiceClientConnectivityDidChange:
+setSecond:
+addDelegate:queue:
+numberWithDouble:
+removeDelegate:
 enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
-stringWithContentsOfFile:encoding:error:
 currentCalendar
+setObject:atIndexedSubscript:
+synchronize
+pointerValue
 intValue
 messageContentSyncServiceClient:didSyncMessageContent:
-removeItemAtURL:error:
+UUID
+sendProtobuf:toDestinations:priority:options:identifier:error:
+setWithCapacity:
 floatValue
 numberWithFloat:
 allObjects
-stringWithFormat:
-userInfo
-syncProviderDidRequestAccounts:
-removeLastObject
-sendResourceAtURL:metadata:toDestinations:priority:options:identifier:error:
-shouldArchiveByDefault
+setObject:forKey:
+setWithObject:
+removeItemAtPath:error:
+syncProvider:didRequestResendAccountWithId:
 length
 numberWithInt:
+setWithObjects:
+setObject:forKeyedSubscript:
+syncProvider:didRequestResendMessagesWithIds:
 indexOfObject:inSortedRange:options:usingComparator:
-syncProviderDidRequestFetch:forConversationId:mailbox:
-stringWithString:
-URLWithString:
-errorWithDomain:code:userInfo:
 integerValue
+errorWithDomain:code:userInfo:
 addEntriesFromDictionary:
-removeObject:
+removeItemAtURL:error:
 numberWithInteger:
 allValues
-stringWithUTF8String:
-sortedArrayUsingComparator:
-boolValue
+URLByDeletingLastPathComponent
+sharedAccountStore
 lengthOfBytesUsingEncoding:
-removeObjectForKey:
-syncProviderDidRequestStopDownloadingAllMessageElements:
+boolValue
+syncProvider:didRequestSendComposedMessage:
 numberWithLongLong:
 allocWithZone:
-valueForProperty:
+timeIntervalSince1970
 bundleForClass:
+removeLastObject
 initFileURLWithPath:isDirectory:
-valueWithCGSize:
 code
-subarrayWithRange:
-sortedArrayUsingSelector:
+URLByAppendingPathComponent:isDirectory:
+syncProvider:didRequestStopDownloadingMessageElementsForMessageWithId:
+timeIntervalSinceNow
 numberWithUnsignedInt:
+sharedSession
+removeObject:
 isCloudConnected
-URLByAppendingPathComponent:
-bytes
-removeObjectsAtIndexes:
-setLength:
-valueWithPointer:
-colorWithHue:saturation:brightness:alpha:
-numberWithUnsignedInteger:
-localizedDescription
-removeObserver:
-isConnected
-initForReadingFromData:error:
-setPath:
 absoluteString
+bytes
+removeObjectForKey:
+colorWithHue:saturation:brightness:alpha:
+sendResourceAtURL:metadata:toDestinations:priority:options:identifier:error:
+isConnected
+localizedDescription
+numberWithUnsignedInteger:
+initForReadingFromData:error:
 addIndex:
-subdataWithRange:
 appendAttributedString:
-syncRestriction
 colorWithRed:green:blue:alpha:
-sessionIdentifier
+timeIntervalSinceReferenceDate
 objectAtIndex:
 appendBytes:length:
-removeObserver:name:object:
-subscribeToSectionID:withNotificationAckForwardHandler:
-objectAtIndexedSubscript:
+removeObjectsAtIndexes:
+stringValue
+syncProvider:didUpdateMessagesStatus:
+removeObserver:
 isDefaultPairedDevice
-substringFromIndex:
-URLByAppendingPathComponent:isDirectory:
-initWithBase64EncodedString:options:
+objectAtIndexedSubscript:
 appendData:
+stringWithContentsOfFile:encoding:error:
 longLongValue
+initWithBase64EncodedString:options:
+removeObserver:name:object:
+shouldArchiveByDefault
 appendFormat:
 lowercaseString
-unarchivedObjectOfClass:fromData:error:
+getActivePairedDevice
 initWithCapacity:
-substringToIndex:
+stringWithFormat:
+userInfo
 objectEnumerator
-getBytes:range:
-unarchivedObjectOfClasses:fromData:error:
+syncProviderDidRequestAccounts:
 objectForKey:
-substringWithRange:
-getDevices
+setLength:
+sortedArrayUsingComparator:
+getBytes:range:
 initWithContentsOfURL:
-UUIDString
+stringWithString:
+syncProviderDidRequestFetch:forConversationId:mailbox:
 objectForKeyedSubscript:
+sessionIdentifier
 appendString:
-standardUserDefaults
 initWithData:
+setPath:
+stringWithUTF8String:
+sortedArrayUsingSelector:
 getWillNanoPresentNotificationForSectionID:subsectionIDs:completion:
-uniqueID
-unlock
+syncProviderDidRequestStopDownloadingAllMessageElements:
+valueForProperty:
+accountPropertyForKey:
 initWithData:encoding:
+valueWithCGSize:
+subarrayWithRange:
 isEqualToSet:
 compare:
 fetchesSyncServiceClient:didFailSendingProtobufWithIDSIdentifier:errorCode:
 isEqualToString:
-accountPropertyForKey:
-supportsArchiving
+URLWithString:
 dataDetectorWithTypes:error:
-syncSessionType
+valueWithPointer:
 fetchesSyncServiceClient:didNotifyFetchRequestCompleted:
 compare:options:
-supportsCapability:
-dataTaskWithRequest:completionHandler:
+subdataWithRange:
 archivedDataWithRootObject:requiringSecureCoding:error:
+JSONObjectWithData:options:error:
+accountTypeIdentifier
+dataTaskWithRequest:completionHandler:
 initWithDictionary:
-whitespaceAndNewlineCharacterSet
-fetchesSyncServiceClient:didNotifyOldMessagesAvailable:
+syncRestriction
+accountWithUniqueId:
 devices
+fetchesSyncServiceClient:didNotifyOldMessagesAvailable:
 isFilteredByType
 components:fromDate:
 mailboxIds
 dataUsingEncoding:
 array
-accountTypeIdentifier
-whitespaceCharacterSet
 dictionary
+subscribeToSectionID:withNotificationAckForwardHandler:
 fetchesSyncServiceClient:didReportComposedMessageSendingProgress:
 componentsJoinedByString:
 arrayWithCapacity:
-resetStandardUserDefaults
 dataWithContentsOfFile:
 characterAtIndex:
+substringFromIndex:
+setAccountProperty:forKey:
 fetchesSyncServiceClient:didRequestPrepareForFullSync:
-initWithFormat:
 componentsSeparatedByCharactersInSet:
-mailboxType
-unsignedIntValue
 dataWithContentsOfURL:options:error:
+mailboxType
+unarchivedObjectOfClass:fromData:error:
+initWithFormat:
+substringToIndex:
+arrayWithObjects:count:
 dictionaryWithCapacity:
 characterIsMember:
 initWithFormat:arguments:
-arrayWithObjects:count:
 componentsSeparatedByString:
 fetchesSyncServiceClient:didSendProtobufSuccessfullyWithIDSIdentifier:
-statusCode
+CGSizeValue
+unarchivedObjectOfClasses:fromData:error:
+standardUserDefaults
+substringWithRange:
 dataWithData:
 characterSetWithCharactersInString:
 dictionaryWithDictionary:
-initWithLength:
+resetStandardUserDefaults
 fetchesSyncServiceClient:didWarnErrorDownloadingContentForMessage:
-writeToFile:options:error:
+initWithLength:
 outgoingResponseIdentifier
 dataWithJSONObject:options:error:
-unsignedIntegerValue
 dictionaryWithObject:forKey:
-resourceSpecifier
+uniqueID
 accountsSyncServiceClient:didAddOrUpdateAccount:
 moveItemAtURL:toURL:error:
-syncCoordinatorWithServiceName:
+unlock
 dataWithLength:
-UTF8String
-resultFromCoreResult:
-accountsSyncServiceClient:didDeleteAccount:
 dictionaryWithObjects:forKeys:count:
-setQueryItems:
+accountsSyncServiceClient:didDeleteAccount:
 mutableBytes
-syncDidComplete
-resultType
-CGSizeValue
-mutableCopy
+syncSessionType
+supportsArchiving
+resourceSpecifier
+supportsCapability:
 accountsSyncServiceClient:didFailSendingProtobufWithIDSIdentifier:errorCode:
+mutableCopy
 date
-resume
-string
-syncDidCompleteSending
+resultFromCoreResult:
 initWithName:value:
+whitespaceAndNewlineCharacterSet
 accountsSyncServiceClient:didReceiveStandaloneAccountIdentity:
-syncDidFailWithError:
+UTF8String
 addObject:
-stringByAppendingFormat:
+UUIDString
+resultType
 dateFromComponents:
+whitespaceCharacterSet
 accountsSyncServiceClient:didReceiveVIPList:
-stringByAppendingPathComponent:
-hasPrefix:
-attributedSubstringFromRange:
 isNearby
-displayNameUsingSpecialNames
+attributedSubstringFromRange:
+hasPrefix:
+resume
 accountsSyncServiceClient:didRequestAccountAuthenticationStatus:
-addObjectsFromArray:
+displayNameUsingSpecialNames
 containsObject:
 isNotesMailboxUid
-base64EncodedStringWithOptions:
-stringByAppendingString:
-punctuationCharacterSet
-URLByDeletingLastPathComponent
+statusCode
+unsignedIntValue
+addObjectsFromArray:
 accountsSyncServiceClient:didSendProtobufSuccessfullyWithIDSIdentifier:
-containsString:
-initWithProtobufData:type:isResponse:
-addObserver:selector:name:object:
-stringByDeletingLastPathComponent
-domain
-rangeAtIndex:
-accountsSyncServiceClient:didSyncInitialAccounts:
-setHTTPBody:
-stringByPaddingToLength:withString:startingAtIndex:
-setHTTPMethod:
-rangeOfCharacterFromSet:options:range:
-dateWithTimeInterval:sinceDate:
-hasSuffix:
-stringByTrimmingCharactersInSet:
-initWithService:
-dateWithTimeIntervalSince1970:
-rangeOfString:
-content
-ea_uncommentedAddress
-scanHexInt:
-setHost:
-dateWithTimeIntervalSinceNow:
-initWithString:
-rangeOfString:options:range:
-setHour:
-scannerWithString:
-nextObject
-syncProvider:didRequestContentForMessageWithId:highPriority:
-reportProgress:
-initWithString:attributes:
-UUID
-dd_replaceResultAttributesWithSimpleLinksForTypes:context:
-scheme
-initWithUUIDString:
-JSONObjectWithData:options:error:
-emailAddressesAndAliasesList
-fileExistsAtPath:
-request
-activeAccountsWithError:
-decodeIntegerForKey:
-host
-syncProvider:didRequestFirstMessages:mailboxes:
-messagesSyncServiceClient:didAddMessages:
-fileExistsAtPath:isDirectory:
-decodeObjectOfClass:forKey:
-messagesSyncServiceClient:didDeleteMessages:
-setScheme:
-setMinute:
-activeSyncSession
-syncProvider:didRequestMessagesToSendAsFetchResponseForMessageIds:
-addValue:forHTTPHeaderField:
-setValue:forHTTPHeaderField:
-matchesInString:options:range:
-syncProvider:didRequestMessagesWithContext:
-decodeObjectOfClasses:forKey:
-stringForKey:
-messagesSyncServiceClient:didFailSendingProtobufWithIDSIdentifier:errorCode:
-requestWithURL:
-synchronize
-pathForResource:ofType:
-contentsOfDirectoryAtPath:error:
-messagesSyncServiceClient:didFetchMoreMessages:
-setWithArray:
-syncProvider:didRequestResendAccountWithId:
-messagesSyncServiceClient:didFetchMoreMessagesForConversation:
-defaultCenter
-setSecond:
-encodeInteger:forKey:
-copy
-syncProvider:didRequestResendMessagesWithIds:
-encodeObject:forKey:
-regularExpressionWithPattern:options:error:
-setWithCapacity:
-messagesSyncServiceClient:didReceivedCoalescedBatchedFetchResult:
-setObject:atIndexedSubscript:
-defaultManager
-syncProvider:didRequestSendComposedMessage:
-removeAllObjects
-messagesSyncServiceClient:didSendInitialMessagesSync:
-setWithObject:
-addAttribute:value:range:
-lastObject
-timeIntervalSince1970
-setObject:forKey:
-setWithObjects:
-syncProvider:didRequestStopDownloadingMessageElementsForMessageWithId:
-messagesSyncServiceClient:didSendProtobufSuccessfullyWithIDSIdentifier:
-finishDecoding
-removeCharactersInString:
-timeIntervalSinceNow
-countByEnumeratingWithState:objects:count:
-sendProtobuf:toDestinations:priority:options:identifier:error:
-setObject:forKeyedSubscript:
-lastPathComponent
-messagesSyncServiceClient:didUpdateMailboxSelection:
-allKeys
-sharedSession
-null
-removeDelegate:
-persistentAccount
-enumerateKeysAndObjectsUsingBlock:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-messagesSyncServiceClient:didUpdateMessagesStatus:
-pointerValue
-timeIntervalSinceReferenceDate
-addCharactersInString:
-numberWithBool:
-messageContentSyncServiceClient:didNotifyInitialContentSyncCompleted:
-firstObject
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-increaseLengthBy:
-syncProvider:didUpdateMessagesStatus:
-stringValue
-insertObject:atIndex:
-removeItemAtPath:error:
-messagesSyncServiceClientConnectivityDidChange:
-addDelegate:queue:
-numberWithDouble:
 sharedInstance
 _reportingEnabled
 reportFetch:inMode:accountType:
@@ -5926,6 +5985,7 @@ reportAppBackgroundRefreshed
 reportNotificationReceivedInMode:accountType:
 reportNotificationReceivedInMode:isPCC:accountType:
 reportRenderedNotificationUsingLocalContent:mailboxSynced:messageSynced:contentDownloaded:
+reportSubscribedToNotificationForAccountType:isPCC:
 reportFullSyncRequestedFromDevice:corruptionDetected:migrationRelated:idsFailureRelated:fullSyncVersionMatchRelated:
 reportHaltSyncRequestedFromSource:
 reportContentDisplayedForMessageWithId:hasMainAlternative:hasTextAlternative:
@@ -5935,9 +5995,10 @@ reportMailboxSelectionChanged:source:
 reportAction:source:
 reportCellRighSwipeActionChanged:
 reportWebKitLinkTapped
-reportMessageSentFromApp:mailto:sendingType:sizeInBytes:
+reportMessageSentFrom:sendingType:attachmentCount:sizeInBytes:
 reportMessageDeliveryFailedInMode:
 reportMessageDeliveryDurationWithStartDate:inMode:
+reportCannedReplyUsed:sendingType:
 reportCredentialsExpired
 NNMKSendEventLazyWithKey:metadataBuilder:
 _delayInMSFromDate:
@@ -5951,6 +6012,7 @@ stringForDeviceMode:
 stringForFetchType:
 stringForMessageType:
 stringForAttachmentType:
+stringForCompositionSource:
 description
 copyWithZone:
 setFullSyncVersion:
@@ -6190,17 +6252,22 @@ setHasStandaloneState:
 hasStandaloneState
 hasSubsectionId
 hasEmailAddressToken
+hasPccEmailAddress
 standaloneState
 subsectionId
 setSubsectionId:
 emailAddressToken
 setEmailAddressToken:
+pccEmailAddress
+setPccEmailAddress:
 _emailAddressToken
+_pccEmailAddress
 _standaloneState
 _subsectionId
 TI,N,V_standaloneState
 T@"NSString",&,N,V_subsectionId
 T@"NSString",&,N,V_emailAddressToken
+T@"NSString",&,N,V_pccEmailAddress
 mailNotificationURL
 requestWithType:baseURLString:path:body:token:needsBAA:errorParser:completion:
 postRequestWithBaseURLString:path:body:token:completion:
@@ -6988,6 +7055,7 @@ state
 setState:
 _state
 TQ,N,V_state
+saveLocalAccountProperties:withCompletion:
 _initializeServiceTransport
 resetRepeatPreventionHistory
 readResourceAtURL:metadata:
@@ -7666,6 +7734,7 @@ standaloneReferenceMessageId
 setStandaloneReferenceMessageId:
 _standaloneReferenceMessageId
 TQ,N,V_sendingType
+Tq,N,V_progress
 T@"NSArray",&,N,V_to
 T@"NSArray",&,N,V_cc
 T@"NSString",&,N,V_standaloneReferenceMessageId
@@ -7830,7 +7899,7 @@ _accountsStatus
 T@"NSMutableArray",&,N,V_accountsStatus
 idsFromMailboxes:
 messageStateForMailboxFilterType:
-generateMailboxIdWithAccountId:mailboxName:
+generateLegacyMailboxIdWithAccountId:mailboxName:
 syncedTypeFromMailbox:
 syncedTypeFromFilterType:
 defaultFilterTypes
@@ -8177,15 +8246,17 @@ v16@0:8
 v32@0:8Q16@24
 v36@0:8Q16B24@28
 v32@0:8B16B20B24B28
+v28@0:8@16B24
 v40@0:8Q16B24B28B32B36
 v32@0:8@16B24B28
 v28@0:8Q16B24
 v32@0:8@16Q24
 v24@0:8@16
-v40@0:8B16B20Q24Q32
+v48@0:8q16Q24Q32Q40
 v32@0:8@16@?24
 q24@0:8@16
 @24@0:8Q16
+@24@0:8q16
 @24@0:8^{_NSZone=}16
 v20@0:8I16
 v20@0:8B16
@@ -8249,7 +8320,6 @@ v24@0:8^{_xmlParserCtxt=^{_xmlSAXHandler}^v^{_xmlDoc}ii**ii^{_xmlParserInput}ii^
 @"NSMutableData"
 {_xmlSAXHandler="internalSubset"^?"isStandalone"^?"hasInternalSubset"^?"hasExternalSubset"^?"resolveEntity"^?"getEntity"^?"entityDecl"^?"notationDecl"^?"attributeDecl"^?"elementDecl"^?"unparsedEntityDecl"^?"setDocumentLocator"^?"startDocument"^?"endDocument"^?"startElement"^?"endElement"^?"reference"^?"characters"^?"ignorableWhitespace"^?"processingInstruction"^?"comment"^?"warning"^?"error"^?"fatalError"^?"getParameterEntity"^?"cdataBlock"^?"externalSubset"^?"initialized"I"_private"^v"startElementNs"^?"endElementNs"^?"serror"^?}
 @32@0:8q16@24
-@24@0:8q16
 @"NNMKProtoMessage"
 {?="fullSyncVersion"b1"mainAlternativeValid"b1"partiallyLoaded"b1}
 @32@0:8@16B24B28
@@ -8268,7 +8338,6 @@ v24@0:8^{_xmlParserCtxt=^{_xmlSAXHandler}^v^{_xmlDoc}ii**ii^{_xmlParserInput}ii^
 {?="fullSyncVersion"b1"mailboxSyncVersion"b1"syncedMailboxType"b1"organizedByThread"b1}
 {?="fullSyncVersion"b1"sourceType"b1}
 {?="filterType"b1"type"b1"syncEnabled"b1"syncRequested"b1}
-v28@0:8@16B24
 @32@0:8@16@?24
 @24@0:8^{sqlite3_stmt=}16
 v32@0:8q16@24

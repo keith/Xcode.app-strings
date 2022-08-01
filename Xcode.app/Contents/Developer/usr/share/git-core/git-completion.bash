@@ -34,6 +34,9 @@
 #     When set to "1", do not include "DWIM" suggestions in git-checkout
 #     and git-switch completion (e.g., completing "foo" when "origin/foo"
 #     exists).
+#   GIT_COMPLETION_SHOW_ALL_COMMANDS
+#     When set to "1" suggest all commands, including plumbing commands
+#     which are hidden by default (e.g. "cat-file" on "git ca<TAB>").
 #   GIT_COMPLETION_SHOW_ALL
 #     When set to "1" suggest all options, including options which are
 #     typically hidden (e.g. '--allow-empty' for 'git commit').
@@ -252,7 +255,6 @@ __gitcompappend "$@"
 __gitcomp ()
 local cur_="${3-$cur}"
 case "$cur_" in
---*=)
 --no-*)
 local c i=0 IFS=$' \t\n'
 for c in $1; do
@@ -300,7 +302,7 @@ __gitcomp_builtin ()
 local cmd="$1"
 local incl="${2-}"
 local excl="${3-}"
-local var=__gitcomp_builtin_"${cmd/-/_}"
+local var=__gitcomp_builtin_"${cmd//-/_}"
 local options
 eval "options=\${$var-}"
 if [ -z "$options" ]; then
@@ -370,7 +372,7 @@ true
 # committed.  It return paths relative to the directory specified in the first
 # argument, and using the options specified in the second argument.
 __git_ls_files_helper ()
-if [ "$2" == "--committable" ]; then
+if [ "$2" = "--committable" ]; then
 __git -C "$1" -c core.quotePath=false diff-index \
 --name-only --relative HEAD -- "${3//\\/\\\\}*"
 else
@@ -1148,7 +1150,7 @@ return
 esac
 case "$cur" in
 --conflict=*)
-__gitcomp "diff3 merge" "" "${cur##--conflict=}"
+__gitcomp "diff3 merge zdiff3" "" "${cur##--conflict=}"
 --*)
 __gitcomp_builtin checkout
 # At this point, we've already handled special completion for
@@ -1262,6 +1264,7 @@ __git_diff_common_options="--stat --numstat --shortstat --summary
 --indent-heuristic --no-indent-heuristic
 --textconv --no-textconv
 --patch --no-patch
+--anchored=
 __git_diff_difftool_options="--cached --staged --pickaxe-all --pickaxe-regex
 --base --ours --theirs --no-index --relative --merge-base
 $__git_diff_common_options"
@@ -1452,7 +1455,7 @@ __git_log_shortlog_options="
 --author= --committer= --grep=
 --all-match --invert-grep
 __git_log_pretty_formats="oneline short medium full fuller reference email raw format: tformat: mboxrd"
-__git_log_date_formats="relative iso8601 iso8601-strict rfc2822 short local default raw unix format:"
+__git_log_date_formats="relative iso8601 iso8601-strict rfc2822 short local default human raw unix auto: format:"
 _git_log ()
 __git_has_doubledash && return
 __git_find_repo_path
@@ -1701,16 +1704,7 @@ return
 __gitcomp "$(__git send-email --dump-aliases)" "" "${cur#--*=}"
 return
 --*)
-__gitcomp_builtin send-email "--annotate --bcc --cc --cc-cmd --chain-reply-to
---compose --confirm= --dry-run --envelope-sender
---from --identity
---in-reply-to --no-chain-reply-to --no-signed-off-by-cc
---no-suppress-from --no-thread --quiet --reply-to
---signed-off-by-cc --smtp-pass --smtp-server
---smtp-server-port --smtp-encryption= --smtp-user
---subject --suppress-cc= --suppress-from --thread --to
---validate --no-validate
-$__git_format_patch_extra_options"
+__gitcomp_builtin send-email "$__git_format_patch_extra_options"
 return
 esac
 __git_complete_revlist
@@ -1760,7 +1754,7 @@ return
 esac
 case "$cur" in
 --conflict=*)
-__gitcomp "diff3 merge" "" "${cur##--conflict=}"
+__gitcomp "diff3 merge zdiff3" "" "${cur##--conflict=}"
 --*)
 __gitcomp_builtin switch
 # Unlike in git checkout, git switch --orphan does not take
@@ -1800,7 +1794,11 @@ __git config $config_file --name-only --list
 __git_config_vars=
 __git_compute_config_vars ()
 test -n "$__git_config_vars" ||
-__git_config_vars="$(git help --config-for-completion | sort -u)"
+__git_config_vars="$(git help --config-for-completion)"
+__git_config_sections=
+__git_compute_config_sections ()
+test -n "$__git_config_sections" ||
+__git_config_sections="$(git help --config-sections-for-completion)"
 # Completes possible values of various configuration variables.
 # Usage: __git_complete_config_variable_value [<option>]...
 # --varname=<word>: The name of the configuration variable whose value is
@@ -1832,7 +1830,7 @@ branch.*.merge)
 __git_complete_refs --cur="$cur_"
 return
 branch.*.rebase)
-__gitcomp "false true merges preserve interactive" "" "$cur_"
+__gitcomp "false true merges interactive" "" "$cur_"
 return
 remote.pushdefault)
 __gitcomp_nl "$(__git_remotes)" "" "$cur_"
@@ -1917,10 +1915,10 @@ cur_="${cur_##*.}"
 __gitcomp "remote pushRemote merge mergeOptions rebase" "$pfx" "$cur_" "$sfx"
 return
 branch.*)
-local pfx="${cur%.*}."
-cur_="${cur#*.}"
+local pfx="${cur_%.*}."
+cur_="${cur_#*.}"
 __gitcomp_direct "$(__git_heads "$pfx" "$cur_" ".")"
-__gitcomp_nl_append $'autoSetupMerge\nautoSetupRebase\n' "$pfx" "$cur_" "$sfx"
+__gitcomp_nl_append $'autoSetupMerge\nautoSetupRebase\n' "$pfx" "$cur_" "${sfx- }"
 return
 guitool.*.*)
 local pfx="${cur_%.*}."
@@ -1949,7 +1947,7 @@ pager.*)
 local pfx="${cur_%.*}."
 cur_="${cur_#*.}"
 __git_compute_all_commands
-__gitcomp_nl "$__git_all_commands" "$pfx" "$cur_" "$sfx"
+__gitcomp_nl "$__git_all_commands" "$pfx" "$cur_" "${sfx- }"
 return
 remote.*.*)
 local pfx="${cur_%.*}."
@@ -1963,7 +1961,7 @@ remote.*)
 local pfx="${cur_%.*}."
 cur_="${cur_#*.}"
 __gitcomp_nl "$(__git_remotes)" "$pfx" "$cur_" "."
-__gitcomp_nl_append "pushDefault" "$pfx" "$cur_" "$sfx"
+__gitcomp_nl_append "pushDefault" "$pfx" "$cur_" "${sfx- }"
 return
 url.*.*)
 local pfx="${cur_%.*}."
@@ -1973,14 +1971,8 @@ return
 *.*)
 __git_compute_config_vars
 __gitcomp "$__git_config_vars" "" "$cur_" "$sfx"
-__git_compute_config_vars
-__gitcomp "$(echo "$__git_config_vars" |
-awk -F . '{
-sections[$1] = 1
-END {
-for (s in sections)
-print s "."
-')" "" "$cur_"
+__git_compute_config_sections
+__gitcomp "$__git_config_sections" "" "$cur_" "."
 esac
 # Completes '='-separated configuration sections/variable names and values
 # for 'git -c section.name=value'.
@@ -2083,11 +2075,13 @@ return
 esac
 case "$cur" in
 --conflict=*)
-__gitcomp "diff3 merge" "" "${cur##--conflict=}"
+__gitcomp "diff3 merge zdiff3" "" "${cur##--conflict=}"
 --source=*)
 __git_complete_refs --cur="${cur##--source=}"
 --*)
 __gitcomp_builtin restore
+if __git rev-parse --verify --quiet HEAD >/dev/null; then
+__git_complete_index_file "--modified"
 esac
 __git_revert_inprogress_options=$__git_sequencer_inprogress_options
 _git_revert ()
@@ -2155,17 +2149,39 @@ __gitcomp_builtin show-branch
 return
 esac
 __git_complete_revlist
+__gitcomp_directories ()
+local _tmp_dir _tmp_completions _found=0
+# Get the directory of the current token; this differs from dirname
+# in that it keeps up to the final trailing slash.  If no slash found
+# that's fine too.
+[[ "$cur" =~ .*/ ]]
+_tmp_dir=$BASH_REMATCH
+# Find possible directory completions, adding trailing '/' characters,
+# de-quoting, and handling unusual characters.
+while IFS= read -r -d $'\0' c ; do
+# If there are directory completions, find ones that start
+# with "$cur", the current token, and put those in COMPREPLY
+if [[ $c == "$cur"* ]]; then
+COMPREPLY+=("$c/")
+_found=1
+done < <(git ls-tree -z -d --name-only HEAD $_tmp_dir)
+if [[ $_found == 0 ]] && [[ "$cur" =~ /$ ]]; then
+# No possible further completions any deeper, so assume we're at
+# a leaf directory and just consider it complete
+__gitcomp_direct_append "$cur "
 _git_sparse_checkout ()
-local subcommands="list init set disable"
+local subcommands="list init set disable add reapply"
 local subcommand="$(__git_find_on_cmdline "$subcommands")"
 if [ -z "$subcommand" ]; then
 __gitcomp "$subcommands"
 return
 case "$subcommand,$cur" in
-init,--*)
-__gitcomp "--cone"
-set,--*)
-__gitcomp "--stdin"
+*,--*)
+__gitcomp_builtin sparse-checkout_$subcommand "" "--"
+set,*|add,*)
+if [ "$(__git config core.sparseCheckoutCone)" == "true" ] ||
+[ -n "$(__git_find_on_cmdline --cone)" ]; then
+__gitcomp_directories
 esac
 _git_stash ()
 local subcommands='push list show apply clear drop pop create branch'
@@ -2476,7 +2492,11 @@ if test -n "${GIT_TESTING_PORCELAIN_COMMAND_LIST-}"
 then
 __gitcomp "$GIT_TESTING_PORCELAIN_COMMAND_LIST"
 else
-__gitcomp "$(__git --list-cmds=list-mainporcelain,others,nohelpers,alias,list-complete,config)"
+local list_cmds=list-mainporcelain,others,nohelpers,alias,list-complete,config
+if test "${GIT_COMPLETION_SHOW_ALL_COMMANDS-}" = "1"
+then
+list_cmds=builtins,$list_cmds
+__gitcomp "$(__git --list-cmds=$list_cmds)"
 esac
 return
 __git_complete_command "$command" && return
@@ -2505,6 +2525,7 @@ echo "ERROR: this script is obsolete, please see git-completion.zsh" 1>&2
 return
 __git_func_wrap ()
 local cur words cword prev
+local __git_cmd_idx=0
 _get_comp_words_by_ref -n =: cur words cword prev
 ___git_complete ()
 local wrapper="__git_wrap${2}"

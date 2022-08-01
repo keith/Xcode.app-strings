@@ -1,4 +1,4 @@
-@(#)PROGRAM:iCloudDriveCore  PROJECT:CloudDocs-1177.0.65.0.8
+@(#)PROGRAM:iCloudDriveCore  PROJECT:CloudDocs-1177.0.93.0.6
 dflwx
 MbP?
  A(knN
@@ -435,10 +435,14 @@ v16@?0@"NSMutableArray"8
 SyncHealthReport:
 v16@?0@"NSString"8
 SELECT COUNT(1) FROM telemetry_events
+SELECT rowid, payload FROM telemetry_events WHERE priority = 1 ORDER BY rowid LIMIT %u
+DELETE FROM telemetry_events WHERE priority = 1 AND rowid <= %llu
 SELECT rowid, payload FROM telemetry_events ORDER BY rowid ASC LIMIT %llu
 DELETE FROM telemetry_events WHERE rowid <= %llu
-INSERT INTO telemetry_events (payload) VALUES (%@)
-DELETE FROM telemetry_events ORDER BY rowid ASC LIMIT %u
+CICONIA
+INSERT INTO telemetry_events (payload, priority) VALUES (%@, %d)
+DELETE FROM telemetry_events ORDER BY priority ASC, rowid ASC LIMIT %u
+lastForceTelemetrySyncDate
 DELETE FROM telemetry_failure_counts AS tf WHERE NOT EXISTS (SELECT 1 FROM server_items AS si WHERE si.item_id = tf.item_id AND si.zone_rowid = tf.zone_rowid) AND NOT item_id_is_root(tf.item_id)
 v24@?0@"NSNumber"8@"NSError"16
 com.apple.idms.config.privacy.icloud.data
@@ -503,6 +507,67 @@ v32@?0@"NSNumber"8@"NSNumber"16^B24
 iCloudDriveSyncConsistency
 telemetry-db
 com.apple.CloudDocsDaemon.telemetry-disk-checker
+UNKNOWN
+_UNUSED_SYNC_UP_BACKOFF_RATIO
+FOLDER_SHARING_ITEM_COUNT_MISMATCH
+MISSING_PUSH
+PERMANENTLY_INCONSISTENT
+DROPPED_EVENTS
+TEST_METRIC
+SHARE_ALIAS_IN_SHARED_FOLDER
+MALIGNANT_ZONE_RESET
+BENIGN_ZONE_RESET
+DB_RESET
+APPLY_SCHEDULER_MISSING_JOBS
+SYNC_UP_MISSING_JOBS
+READER_MISSING_JOBS
+UPLOADER_MISSING_JOBS
+DOWNLOADER_MISSING_JOBS
+_UNUSED_SYNC_UP_BACKOFF_DELAY
+FOLDER_SHARING_PCS_CHAINING
+NEW_SHARE_ACCEPTATION
+FS_EVENT_TO_SYNC_UP
+USER_DOWNLOAD
+CORRUPT_PACKAGE_DOWNLOAD
+DIRECTORY_MISSING_CHAINPCS
+SYNC_BOOSTING_PROBLEM_COUNT
+DEEP_SCAN
+OPERATION_TIMED_OUT
+MISSING_SHARE_ALIAS
+ASSET_CONTENT_NOT_FOUND
+QBS_DIR_FAULT_COUNT
+FILE_BOUNCED_MANY_TIMES
+SYNC_UP_BACKOFF_RATIO_SUMMARY
+SYNC_UP_BACKOFF_DELAY_SUMMARY
+QBS_PERFORMANCE
+FULLY_CONSISTENT
+FILE_CHECKSUM_MISMATCH
+PACKAGE_CHECKSUM_MISMATCH
+CHILD_COUNT_MISMATCH
+RECURSIVE_ITEM_COUNT_MISMATCH
+SHARE_ALIAS_COUNT_MISMATCH
+SHARE_COUNT_MISMATCH
+CONSISTENCY_CHECKER_FAILED
+FILE_READ_ERROR
+CA_TOTAL_ERROR_COUNT
+CA_UPLOAD_ERROR_COUNT
+CA_DOWNLOAD_ERROR_COUNT
+CA_SYNC_UP_ITEM_ERROR_COUNT
+CA_SYNC_UP_ZONE_ERROR_COUNT
+CA_SYNC_DOWN_ERROR_COUNT
+CA_UPLOAD_ERROR
+CA_DOWNLOAD_ERROR
+CA_SYNC_UP_ITEM_ERROR
+CA_SYNC_UP_ZONE_ERROR
+CA_SYNC_DOWN_ERROR
+CICONIA_STARTED_MIGRATION
+CICONIA_MISMATCHING_ITEM_DB_DISK
+CICONIA_CLEANUP_FAILURE
+CICONIA_MIGRATION_FINISHED
+CICONIA_QUEUEING_FAILED
+CICONIA_STATUS_REPORT
+CICONIA_OVER_BOUNCE
+(unknown: %i)
 minimumOSName
 recordId
 zone-health-check
@@ -669,7 +734,6 @@ DIRECTORY
 FILE
 SYMLINK
 TOMBSTONE
-(unknown: %i)
 streamUUID
 event
 streamUUID:%@ event:%llu root:%llu
@@ -1248,9 +1312,6 @@ B24@?0@"BRCItemGlobalID"8@"NSNumber"16
 iCloudDrive
 smartFolders
 remove
-com.apple.metadata:kMDItemCollaborationIdentifier#N
-Succeeded
-Failed
 NEEDS_OS_UPGRADE_ERROR
 NEEDS_OS_UPGRADE_ERROR_NO_OS_NAME_IOS
 Deleted from DB
@@ -1258,7 +1319,6 @@ Inserted into DB
 Ignored
 Saved into DB
 SELECT item_user_visible, item_scope, item_filename FROM client_items WHERE item_id = %@ AND zone_rowid = %@
-UNKNOWN
 v16@?0@"NSData"8
 SELECT item_sharing_options FROM client_items WHERE item_id = %@ AND zone_rowid = %@
 SELECT 1 FROM client_items WHERE item_parent_id = %@ AND item_parent_zone_rowid = %@ AND item_state = 0
@@ -2173,9 +2233,12 @@ DROP INDEX IF EXISTS "server_items/item_xattr_signature"
 DROP INDEX IF EXISTS "server_items/version_xattr_signature"
 CREATE INDEX "server_items/item_xattr_signature" ON server_items(item_xattr_signature)
 CREATE INDEX "server_items/version_xattr_signature" ON server_items(version_xattr_signature)
+ALTER TABLE telemetry_events ADD COLUMN priority integer not null default 0
+CREATE INDEX "telemetry_events/priority" ON telemetry_events (priority) WHERE priority = 1
 DELETE FROM client_items AS ci WHERE ci.item_stat_ckinfo IS NULL AND ci.zone_rowid IN (SELECT rowid FROM client_zones AS cz WHERE cz.zone_owner = "__defaultOwner__") AND item_type NOT IN (0, 4, 9, 10) LIMIT %llu
-INSERT OR IGNORE INTO ciconia_migration_info values (%@, %lld)
-INSERT OR IGNORE INTO ciconia_migration_info values (%@, %d)
+SELECT 1 FROM sqlite_master where type = 'table' AND name = 'ciconia_migration_info'
+INSERT OR REPLACE INTO ciconia_migration_info values (%@, %lld)
+INSERT OR REPLACE INTO ciconia_migration_info values (%@, %d)
 DELETE FROM client_items WHERE item_type = 3 LIMIT %llu
 DELETE FROM client_downloads WHERE download_kind = 1
 DROP INDEX IF EXISTS "client_items/item_tmpbounceno"
@@ -2188,13 +2251,14 @@ DROP INDEX IF EXISTS "client_downloads/zone_rowid__throttle_state"
 DROP INDEX IF EXISTS "client_uploads/zone_rowid__throttle_state"
 DROP INDEX IF EXISTS "client_uploads/group_by"
 DROP INDEX IF EXISTS "client_downloads/group_by"
-DROP INDEX "client_items/working_set_index"
+DROP INDEX IF EXISTS "client_items/working_set_index"
 UPDATE client_items SET item_localsyncupstate = call_block(%p, item_localsyncupstate) WHERE item_state IN (0, -1) AND item_type NOT IN (2, 7)
 UPDATE client_items SET desired_version = NULL, item_localname = NULL, item_tmpbounceno = NULL, item_thumb_greedy = NULL, item_thumb_live_signature = NULL
 UPDATE client_items SET item_scope = 2 WHERE item_scope = 1 AND call_block(%p, item_id)
 UPDATE client_downloads SET download_error = NULL
 UPDATE client_items SET item_type = 1 WHERE item_type = 2 LIMIT %llu
 UPDATE client_items SET item_type = 6 WHERE item_type = 7 LIMIT %llu
+UPDATE client_items SET item_state = 0,     item_scope = (        WITH RECURSIVE item_parents_scopes (item_scope, item_id, zone_rowid) AS (            SELECT ci.item_scope, ci.item_parent_id, ci.item_parent_zone_rowid            FROM client_items AS ci            WHERE ci.item_id = client_items.item_parent_id                AND ci.zone_rowid = client_items.item_parent_zone_rowid            UNION ALL            SELECT li.item_scope, li.item_parent_id, li.item_parent_zone_rowid            FROM client_items as li                 INNER JOIN item_parents_scopes AS p USING (item_id, zone_rowid)        )        SELECT item_scope        FROM item_parents_scopes        WHERE item_scope > 0        LIMIT 1    )WHERE item_state IN (-1, -2) AND item_scope = 0 LIMIT %llu
 UPDATE client_items SET item_state = 0 WHERE item_state IN (-1, -2) LIMIT %llu
 UPDATE client_items SET item_state = 1 WHERE item_state = -3 LIMIT %llu
 UPDATE client_items SET item_processing_stamp = NULL WHERE item_type NOT IN (0, 4, 9, 10) AND item_processing_stamp IS NOT NULL
@@ -2262,12 +2326,14 @@ SELECT rowid, zone_rowid, item_id, item_creator_id, item_sharing_options, item_s
 SELECT rowid, zone_rowid, item_id, item_creator_id, item_sharing_options, item_side_car_ckinfo, item_parent_zone_rowid, item_localsyncupstate, item_local_diffs, item_notifs_rank, app_library_rowid, item_min_supported_os_rowid, item_user_visible, item_stat_ckinfo, item_state, item_type, item_mode, item_birthtime, item_lastusedtime, item_favoriterank,item_parent_id, item_filename, item_hidden_ext, item_finder_tags, item_xattr_signature, item_trash_put_back_path, item_trash_put_back_parent_id, item_alias_target, item_creator, item_processing_stamp, item_staged_file_id, item_staged_generation, item_bouncedname, item_scope, item_local_change_count, item_old_version_identifier, version_name, version_ckinfo, version_mtime, version_size, version_thumb_size, version_thumb_signature, version_content_signature, version_xattr_signature, version_edited_since_shared, version_device, version_conflict_loser_etags, version_quarantine_info, version_uploaded_assets, version_upload_error, version_old_zone_item_id, version_old_zone_rowid, version_local_change_count, version_old_version_identifier, desired_version, item_live_conflict_loser_etags, item_file_id, item_generation, version_block_sync_until_bundle_id, version_block_sync_until_timestamp FROM client_items  WHERE item_file_id = %lld    AND item_state = 0
 -[BRCFSImporter capabilityToMoveItem:toNewParentItem:error:]
 label
+BouncingCountOnSameType
+BouncingCountFrom%@To%@
+UPDATE ciconia_migration_info SET value = value + 1 WHERE key = %@
 -[BRCFSImporter _findCollidingItemWithTemplateItem:parentItem:logicalName:error:]
 -[BRCFSImporter _handleCollisionIfNecessaryWithTemplateItem:parentItem:logicalName:fileURL:options:error:]
 -[BRCFSImporter _locateMatchingItemForTemplateItem:parentItem:logicalName:options:fileURL:fields:shouldReject:additionalAttrs:error:]
 -[BRCFSImporter _createAndInsertNewItemWithImportObject:parentItem:fields:templateItem:fileURL:options:additionalAttrs:error:]_block_invoke
 -[BRCFSImporter _createAndInsertNewItemWithImportObject:parentItem:fields:templateItem:fileURL:options:additionalAttrs:error:]
-UPDATE ciconia_migration_info SET value = value + 1 WHERE key = '%@'
 symlink-target
 -[BRCFSImporter importNewItemAtURL:logicalName:parentItem:templateItem:fields:options:additionalItemAttributes:error:]
 -[BRCFSImporter _getOrCreateTrashItemInAppLibrary:error:]
@@ -3494,6 +3560,7 @@ com.apple.internal.fileprovider.in-place-collaboration
 -[BRCXPCRegularIPCsClient signalStartOfSilentTelemetry:uuid:manual:version:reply:]
 -[BRCXPCRegularIPCsClient reportItemMismatchDuringSilentMigration:information:uuid:reply:]
 -[BRCXPCRegularIPCsClient reportCleanupFailureDuringSilentMigration:operationType:uuid:reply:]
+-[BRCXPCRegularIPCsClient reportOverBounceDuringSilentMigration:total:uuid:reply:]
 -[BRCXPCRegularIPCsClient reportFinishedMigration:uuid:reply:]
 %llu
 Ciconia
@@ -4076,6 +4143,7 @@ disk-space-reclaimer.max-graveyard-time.low-urgency
 disk-space-reclaimer.max-graveyard-time.med-urgency
 disk-space-reclaimer.xattr-age-time
 fetch-quota-interval
+fetch-force-telemetry-sync-interval
 disk-reclaimer.purge-pacer-interval
 disk-reclaimer.db-reclaimable-space-threshold
 disk-reclaimer.cache-delete-recompute-interval
@@ -4263,6 +4331,7 @@ sync.subresources.fetch-loop-cache-size
 sync.fetch-full-contents
 telemetry.allow-force-dequeue
 telemetry.force-dequeue-percentage
+telemetry.high-priority-event-percentage
 disk-space-reclaimer.download-stage-age-time-fpfs
 create-log-section
 databaseBasePath
@@ -4927,7 +4996,9 @@ BRCAutoCancelOperation/? (subclass activity missing)
 [DEBUG] There are more telemetry events to dequeue
 [WARNING] Not submitting event which is disabled %u
 [DEBUG] Inserting telemetry event %u
+[CRIT] Assertion failed: priority <= 1
 [DEBUG] Dropping telemtry events due to queue overflow
+[DEBUG] Force Telemetry Deque passed the minimum interval
 [CRIT] Assertion failed: self->_telemetryEventCount == 0
 [NOTICE] Telemetry dequeue already queued
 [NOTICE] Forcing telemetry events dequeue
@@ -5660,11 +5731,6 @@ server: %@
 [DEBUG] Queueing notification %@ for rank: %lld
 [ERROR] Failed to %s the spotlight attribute at %@ %{errno}d
 [DEBUG] %s the spotlight attribute at %@
-[DEBUG] Existing collaborationIdentifier on the item is %@
-[DEBUG] %@ to set the collaborationIdentifier attribute at %@
-[DEBUG] CollaborationIdentifier already set on %@
-[DEBUG] %@ to remove the collaborationIdentifier attribute at %@
-[ERROR] Collaborative item needs attribute but we can't compute it for %@
 [CRIT] Assertion failed: self.appLibrary
 [DEBUG] 
 %llx Saving item %@
@@ -6411,7 +6477,8 @@ sync-up
 [CRIT] Assertion failed: argc == 3
 [CRIT] UNREACHABLE: Couldn't save xattr blob for signature %@.  Continuing anyway - %@
 [DEBUG] Deleted %llu items from client truth which haven't been synced to the server
-[INFO] Failed inserting into ciconia_migration_info. Ignoring
+[DEBUG] Found table ciconia_migration_info, trying to fill it up
+[INFO] Failed inserting into ciconia_migration_info. Error = %@. Ignoring
 [DEBUG] Deleted %llu br aliases from client truth
 [DEBUG] We have items to migrate to fpfs
 [ERROR] Failed determining if we have items - %@
@@ -6427,6 +6494,7 @@ sync-up
 [WARNING] Trying to move shared top item %@ into trash at parent %@
 [WARNING] Trying to move shared top item %@ into another shared item %@
 [WARNING] Moving an unshared directory %@ into a shared parent %@ where the source item has shared subitems
+[WARNING] Failed updating ciconia_migration_info for key %@: %@
 [DEBUG] Trashed item has bookmark data for import
 [DEBUG] Shared item has bookmark data for import
 [WARNING] Can't find zone for trash putback %@, falling back to clouddocs zone
@@ -6444,6 +6512,7 @@ sync-up
 [WARNING] Mismatching type for the found item (%@), ignoring!
 [DEBUG] Found existing item by fileID %@
 [INFO] found item that seems to match template: %@
+[INFO] Bouncing item %@ because of %@
 [WARNING] We have a collision with %@ but it's invalid
 [CRIT] Assertion failed: options & NSFileProviderCreateItemMayAlreadyExist
 [WARNING] Can't find file id for %@.  Updating from server item because we have no way to get its content
@@ -6456,7 +6525,6 @@ sync-up
 [DEBUG] Marking user invisible item as from initial scan %@ to avoid bounce
 [DEBUG] Importing an existing app library %@ with mangledID %@
 [WARNING] Importing unknown item: %@ - that's unexpected!
-[WARNING] Failed updating ciconia_migration_info: %@
 [CRIT] UNREACHABLE: Received item with unexpected type and no content %@
 [CRIT] Assertion failed: appLibrary.db.isBatchSuspended
 [CRIT] Assertion failed: _session.clientDB.isInTransaction
@@ -10646,17 +10714,22 @@ telemetryToken
 setTelemetryToken:
 dequeueSyncTelemetryEvents
 telemetryEventReportBatchSize
+highPriorityTelemetryEventsPercentage
 addEvents:
 setToken:
 eventsCount
 _fetchTelemetryEventCountOrAdd:
 token
+initWithArray:
+containsString:
 telemetryEventQueueSize
 telemetryEventDisabledMessages
+_getPriorityOfEvent:
 telemetryEventQueueReductionAmount
 newDroppedEventWithCount:
 newAppTelemetryMetricEvent:
 forceTelemetryDequeuePercentage
+minForceTelemetrySyncInterval
 forceTelemetryDequeue
 allowForceTelemetryDequeue
 br_quotaUpdateTelemetry
@@ -11615,7 +11688,6 @@ __flush
 notificationPipe:didObserveAppLibrary:
 documentsItemIDWithAppLibraryRowID:
 fetchRecursiveDirectoryContentsIfNecessary:isUserWaiting:rescheduleApply:
-initWithArray:
 notifyClient:whenFaultingIsDone:
 intersectsSet:
 _stopWatchingItems
@@ -11676,7 +11748,7 @@ brc_sharedRootDisplayName
 hasSuffix:
 substringToIndex:
 brc_fixDocumentExtensionIfNeededForShareURL:
-localizedStringFromPersonNameComponents:style:options:
+br_formattedNameWithNonBreakingSpaces
 ownerIdentity
 isFolderShare
 brc_applicationName
@@ -11686,6 +11758,7 @@ _localizationKey:forOSAndTypeOfShare:
 publicPermission
 _displayDialogWithType:dict:userReplyBlock:
 fetchFullNameAndFormattedUsernameOfAccountWithCompletionHandler:
+localizedStringFromPersonNameComponents:style:options:
 moveToFront
 showJoinDialogForShareMetadata:session:reply:
 showErrorSignInToiCloudForShareMetadata:reply:
@@ -12511,7 +12584,6 @@ _sendNotificationIfNeededWithDiffs:regather:
 isDocumentBeingCopiedToNewZone
 nameComponentsAcceptUnknownUser:
 _setOrRemoveSmartFolderSpotlightAttributeAt:
-_setOrRemoveGelatoSpotlightAttributeAt:
 osNameRequiredToSync
 osNameNeededToSyncUp
 isDeadOrMissingInServerTruth
@@ -13666,6 +13738,8 @@ updateWithContentModificationDate:
 fileSystemFlags
 updateWithFileSystemFlags:
 updateWithXattrs:
+br_isDirectoryType
+conformsToType:
 _extractBookmarkDataFromTemplateItem:isTrashBookmark:
 _getOrCreateTrashItemInAppLibrary:error:
 documentSize
@@ -13680,6 +13754,7 @@ _findCollidingItemWithTemplateItem:parentItem:logicalName:error:
 br_isDocumentType
 _isDesktopOrDocumentsItem:
 markBouncedToNextAvailableBounceNumber
+_updateCiconiaDatabaseForBouncing:existingItem:
 brc_errorCollisionWithItem:
 _parseIdentityXattrsOnTemplateItemIfNecessary:options:fileURL:fields:
 _shouldRejectItemWithName:templateItem:isDatalessDocument:existingItem:
@@ -13692,7 +13767,6 @@ _changeBasicFieldsOnItem:fields:template:
 _trashItem:error:
 moveFromURLToLiveStage:fileObjectID:error:
 _locateMatchingItemForTemplateItem:parentItem:logicalName:options:fileURL:fields:shouldReject:additionalAttrs:error:
-conformsToType:
 symlinkTargetPath
 _createAndInsertNewItemWithImportObject:parentItem:fields:templateItem:fileURL:options:additionalAttrs:error:
 createAndImportNewDirectoryWithLogicalName:parentItem:error:
@@ -13717,7 +13791,6 @@ _cleanItemBatchAfterMigrationToFPFSIfNecessary
 _childPropagationSource
 _currentPropagationObject
 _currentPropagationMinRowID
-br_isDirectoryType
 modifyRecordsCountMultiplicativeDecrease
 modifyRecordsCountAdditiveIncreaseFraction
 serverStitchingThrottleParams
@@ -15161,7 +15234,6 @@ _validatePersona
 forcePurgeWithCompletionBlock:
 _mutexZonesLock
 isEnterprisePersona
-containsString:
 __registerServerZone:clientZone:appLibrary:isShared:
 _shouldPrivateAppLibraryBeCZMMoved:
 __getOrCreateServerZone:
@@ -15489,7 +15561,6 @@ Ti,R,N,V_state
 T@"NSNumber",&,N,V_pendingRequestID
 TB,N,V_needsSyncUp
 initWithServerZoneHealthState:
-br_physicalURL
 stringWithCString:encoding:
 brc_fileURLWithFileDescriptor:
 ignoredQuarantineMask
@@ -15975,6 +16046,27 @@ resumeSyncForFileAtURL:dropLocalChanges:reply:
 fetchLatestVersionForFileAtURL:reply:
 _sendPausedFileListBatchToUpdater:fromRowID:batchSize:completion:
 iWorkFetchPausedFilesBatchSize
+BouncingCountOnSameType
+BouncingCountFromDirToLnk
+BouncingCountFromDirToAls
+BouncingCountFromDirToPkg
+BouncingCountFromDirToDoc
+BouncingCountFromLnkToDir
+BouncingCountFromLnkToAls
+BouncingCountFromLnkToPkg
+BouncingCountFromLnkToDoc
+BouncingCountFromAlsToDir
+BouncingCountFromAlsToLnk
+BouncingCountFromAlsToPkg
+BouncingCountFromAlsToDoc
+BouncingCountFromPkgToDir
+BouncingCountFromPkgToLnk
+BouncingCountFromPkgToAls
+BouncingCountFromPkgToDoc
+BouncingCountFromDocToDir
+BouncingCountFromDocToLnk
+BouncingCountFromDocToAls
+BouncingCountFromDocToPkg
 floatValue
 errorOriginatorId
 sideFaultsBelowThreshold
@@ -15988,6 +16080,7 @@ materialisedCountOnFPFS
 cloningDuration
 importDuration
 manuallyTriggered
+bouncedItems
 _isErrorAnExpectedError:originatorId:
 handleCloudKitShareMetadata:completionHandler:
 willAcceptShareAtURL:
@@ -16085,6 +16178,7 @@ queryLastCiconiaVersion:
 signalStartOfSilentTelemetry:uuid:manual:version:reply:
 reportItemMismatchDuringSilentMigration:information:uuid:reply:
 reportCleanupFailureDuringSilentMigration:operationType:uuid:reply:
+reportOverBounceDuringSilentMigration:total:uuid:reply:
 reportFinishedMigration:uuid:reply:
 queryTelemetryEnablement:
 corruptDatabase:
@@ -16906,6 +17000,7 @@ v28@0:8@16i24
 v28@0:8Q16I24
 v36@0:8Q16I24@?28
 v32@0:8@16B24B28
+i24@0:8@16
 @"BRCMetricEndpoint"
 @"BRCSyncHealthReport"
 @"NSNumber"
@@ -16934,7 +17029,6 @@ v20@0:8c16
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 @20@0:8B16
-i24@0:8@16
 {?="mtime"b1"xattrIndex"b1"isExecutable"b1"isWritable"b1}
 @40@0:8Q16@24Q32
 @24@0:8@"BRCAccountSession"16
@@ -17529,6 +17623,7 @@ v44@0:8C16Q20Q28@?36
 v40@0:8@16B24B28@?32
 v48@0:8@16d24q32@?40
 v52@0:8@16@24B32Q36@?44
+v48@0:8@16Q24@32@?40
 v32@0:8@"NSDictionary"16@?<v@?B@"NSError">24
 v32@0:8@"NSSet"16@?<v@?@"NSError">24
 v52@0:8@"NSFileHandle"16@"NSString"24@"NSString"32B40@?<v@?B@"NSError">44
@@ -17602,6 +17697,7 @@ v32@0:8@"BRGetPausedFileListUpdater"16@?<v@?@"NSError">24
 v32@0:8@"BRFileObjectID"16@?<v@?@"NSString"@"NSError">24
 v52@0:8@"NSDate"16@"NSUUID"24B32Q36@?<v@?@"NSError">44
 v48@0:8@"NSError"16@"NSString"24@"NSUUID"32@?<v@?@"NSError">40
+v48@0:8@"BRCBouncingReport"16Q24@"NSUUID"32@?<v@?@"NSError">40
 v40@0:8@"BRCMigrationReport"16@"NSUUID"24@?<v@?@"NSError">32
 B56@0:8@16Q24@32@40@?48
 v56@0:8@16@24Q32Q40@?48
@@ -17672,11 +17768,9 @@ B48@0:8{?=[8I]}16
 {?=[8I]}16@0:8
 {?="size"b1}
 B32@0:8@16^B24
-@8:/
- J:/
 MbP?V
 333333
-@(#)PROGRAM:iCloudDriveCore  PROJECT:CloudDocs-1177.0.65.0.8
+@(#)PROGRAM:iCloudDriveCore  PROJECT:CloudDocs-1177.0.93.0.6
 #BHN
  9CM
 <<+<
@@ -18120,10 +18214,14 @@ v16@?0@"NSMutableArray"8
 SyncHealthReport:
 v16@?0@"NSString"8
 SELECT COUNT(1) FROM telemetry_events
+SELECT rowid, payload FROM telemetry_events WHERE priority = 1 ORDER BY rowid LIMIT %u
+DELETE FROM telemetry_events WHERE priority = 1 AND rowid <= %llu
 SELECT rowid, payload FROM telemetry_events ORDER BY rowid ASC LIMIT %llu
 DELETE FROM telemetry_events WHERE rowid <= %llu
-INSERT INTO telemetry_events (payload) VALUES (%@)
-DELETE FROM telemetry_events ORDER BY rowid ASC LIMIT %u
+CICONIA
+INSERT INTO telemetry_events (payload, priority) VALUES (%@, %d)
+DELETE FROM telemetry_events ORDER BY priority ASC, rowid ASC LIMIT %u
+lastForceTelemetrySyncDate
 DELETE FROM telemetry_failure_counts AS tf WHERE NOT EXISTS (SELECT 1 FROM server_items AS si WHERE si.item_id = tf.item_id AND si.zone_rowid = tf.zone_rowid) AND NOT item_id_is_root(tf.item_id)
 v24@?0@"NSNumber"8@"NSError"16
 com.apple.idms.config.privacy.icloud.data
@@ -18188,6 +18286,67 @@ v32@?0@"NSNumber"8@"NSNumber"16^B24
 iCloudDriveSyncConsistency
 telemetry-db
 com.apple.CloudDocsDaemon.telemetry-disk-checker
+UNKNOWN
+_UNUSED_SYNC_UP_BACKOFF_RATIO
+FOLDER_SHARING_ITEM_COUNT_MISMATCH
+MISSING_PUSH
+PERMANENTLY_INCONSISTENT
+DROPPED_EVENTS
+TEST_METRIC
+SHARE_ALIAS_IN_SHARED_FOLDER
+MALIGNANT_ZONE_RESET
+BENIGN_ZONE_RESET
+DB_RESET
+APPLY_SCHEDULER_MISSING_JOBS
+SYNC_UP_MISSING_JOBS
+READER_MISSING_JOBS
+UPLOADER_MISSING_JOBS
+DOWNLOADER_MISSING_JOBS
+_UNUSED_SYNC_UP_BACKOFF_DELAY
+FOLDER_SHARING_PCS_CHAINING
+NEW_SHARE_ACCEPTATION
+FS_EVENT_TO_SYNC_UP
+USER_DOWNLOAD
+CORRUPT_PACKAGE_DOWNLOAD
+DIRECTORY_MISSING_CHAINPCS
+SYNC_BOOSTING_PROBLEM_COUNT
+DEEP_SCAN
+OPERATION_TIMED_OUT
+MISSING_SHARE_ALIAS
+ASSET_CONTENT_NOT_FOUND
+QBS_DIR_FAULT_COUNT
+FILE_BOUNCED_MANY_TIMES
+SYNC_UP_BACKOFF_RATIO_SUMMARY
+SYNC_UP_BACKOFF_DELAY_SUMMARY
+QBS_PERFORMANCE
+FULLY_CONSISTENT
+FILE_CHECKSUM_MISMATCH
+PACKAGE_CHECKSUM_MISMATCH
+CHILD_COUNT_MISMATCH
+RECURSIVE_ITEM_COUNT_MISMATCH
+SHARE_ALIAS_COUNT_MISMATCH
+SHARE_COUNT_MISMATCH
+CONSISTENCY_CHECKER_FAILED
+FILE_READ_ERROR
+CA_TOTAL_ERROR_COUNT
+CA_UPLOAD_ERROR_COUNT
+CA_DOWNLOAD_ERROR_COUNT
+CA_SYNC_UP_ITEM_ERROR_COUNT
+CA_SYNC_UP_ZONE_ERROR_COUNT
+CA_SYNC_DOWN_ERROR_COUNT
+CA_UPLOAD_ERROR
+CA_DOWNLOAD_ERROR
+CA_SYNC_UP_ITEM_ERROR
+CA_SYNC_UP_ZONE_ERROR
+CA_SYNC_DOWN_ERROR
+CICONIA_STARTED_MIGRATION
+CICONIA_MISMATCHING_ITEM_DB_DISK
+CICONIA_CLEANUP_FAILURE
+CICONIA_MIGRATION_FINISHED
+CICONIA_QUEUEING_FAILED
+CICONIA_STATUS_REPORT
+CICONIA_OVER_BOUNCE
+(unknown: %i)
 minimumOSName
 recordId
 zone-health-check
@@ -18354,7 +18513,6 @@ DIRECTORY
 FILE
 SYMLINK
 TOMBSTONE
-(unknown: %i)
 streamUUID
 event
 streamUUID:%@ event:%llu root:%llu
@@ -18933,9 +19091,6 @@ B24@?0@"BRCItemGlobalID"8@"NSNumber"16
 iCloudDrive
 smartFolders
 remove
-com.apple.metadata:kMDItemCollaborationIdentifier#N
-Succeeded
-Failed
 NEEDS_OS_UPGRADE_ERROR
 NEEDS_OS_UPGRADE_ERROR_NO_OS_NAME_IOS
 Deleted from DB
@@ -18943,7 +19098,6 @@ Inserted into DB
 Ignored
 Saved into DB
 SELECT item_user_visible, item_scope, item_filename FROM client_items WHERE item_id = %@ AND zone_rowid = %@
-UNKNOWN
 v16@?0@"NSData"8
 SELECT item_sharing_options FROM client_items WHERE item_id = %@ AND zone_rowid = %@
 SELECT 1 FROM client_items WHERE item_parent_id = %@ AND item_parent_zone_rowid = %@ AND item_state = 0
@@ -19858,9 +20012,12 @@ DROP INDEX IF EXISTS "server_items/item_xattr_signature"
 DROP INDEX IF EXISTS "server_items/version_xattr_signature"
 CREATE INDEX "server_items/item_xattr_signature" ON server_items(item_xattr_signature)
 CREATE INDEX "server_items/version_xattr_signature" ON server_items(version_xattr_signature)
+ALTER TABLE telemetry_events ADD COLUMN priority integer not null default 0
+CREATE INDEX "telemetry_events/priority" ON telemetry_events (priority) WHERE priority = 1
 DELETE FROM client_items AS ci WHERE ci.item_stat_ckinfo IS NULL AND ci.zone_rowid IN (SELECT rowid FROM client_zones AS cz WHERE cz.zone_owner = "__defaultOwner__") AND item_type NOT IN (0, 4, 9, 10) LIMIT %llu
-INSERT OR IGNORE INTO ciconia_migration_info values (%@, %lld)
-INSERT OR IGNORE INTO ciconia_migration_info values (%@, %d)
+SELECT 1 FROM sqlite_master where type = 'table' AND name = 'ciconia_migration_info'
+INSERT OR REPLACE INTO ciconia_migration_info values (%@, %lld)
+INSERT OR REPLACE INTO ciconia_migration_info values (%@, %d)
 DELETE FROM client_items WHERE item_type = 3 LIMIT %llu
 DELETE FROM client_downloads WHERE download_kind = 1
 DROP INDEX IF EXISTS "client_items/item_tmpbounceno"
@@ -19873,13 +20030,14 @@ DROP INDEX IF EXISTS "client_downloads/zone_rowid__throttle_state"
 DROP INDEX IF EXISTS "client_uploads/zone_rowid__throttle_state"
 DROP INDEX IF EXISTS "client_uploads/group_by"
 DROP INDEX IF EXISTS "client_downloads/group_by"
-DROP INDEX "client_items/working_set_index"
+DROP INDEX IF EXISTS "client_items/working_set_index"
 UPDATE client_items SET item_localsyncupstate = call_block(%p, item_localsyncupstate) WHERE item_state IN (0, -1) AND item_type NOT IN (2, 7)
 UPDATE client_items SET desired_version = NULL, item_localname = NULL, item_tmpbounceno = NULL, item_thumb_greedy = NULL, item_thumb_live_signature = NULL
 UPDATE client_items SET item_scope = 2 WHERE item_scope = 1 AND call_block(%p, item_id)
 UPDATE client_downloads SET download_error = NULL
 UPDATE client_items SET item_type = 1 WHERE item_type = 2 LIMIT %llu
 UPDATE client_items SET item_type = 6 WHERE item_type = 7 LIMIT %llu
+UPDATE client_items SET item_state = 0,     item_scope = (        WITH RECURSIVE item_parents_scopes (item_scope, item_id, zone_rowid) AS (            SELECT ci.item_scope, ci.item_parent_id, ci.item_parent_zone_rowid            FROM client_items AS ci            WHERE ci.item_id = client_items.item_parent_id                AND ci.zone_rowid = client_items.item_parent_zone_rowid            UNION ALL            SELECT li.item_scope, li.item_parent_id, li.item_parent_zone_rowid            FROM client_items as li                 INNER JOIN item_parents_scopes AS p USING (item_id, zone_rowid)        )        SELECT item_scope        FROM item_parents_scopes        WHERE item_scope > 0        LIMIT 1    )WHERE item_state IN (-1, -2) AND item_scope = 0 LIMIT %llu
 UPDATE client_items SET item_state = 0 WHERE item_state IN (-1, -2) LIMIT %llu
 UPDATE client_items SET item_state = 1 WHERE item_state = -3 LIMIT %llu
 UPDATE client_items SET item_processing_stamp = NULL WHERE item_type NOT IN (0, 4, 9, 10) AND item_processing_stamp IS NOT NULL
@@ -19947,12 +20105,14 @@ SELECT rowid, zone_rowid, item_id, item_creator_id, item_sharing_options, item_s
 SELECT rowid, zone_rowid, item_id, item_creator_id, item_sharing_options, item_side_car_ckinfo, item_parent_zone_rowid, item_localsyncupstate, item_local_diffs, item_notifs_rank, app_library_rowid, item_min_supported_os_rowid, item_user_visible, item_stat_ckinfo, item_state, item_type, item_mode, item_birthtime, item_lastusedtime, item_favoriterank,item_parent_id, item_filename, item_hidden_ext, item_finder_tags, item_xattr_signature, item_trash_put_back_path, item_trash_put_back_parent_id, item_alias_target, item_creator, item_processing_stamp, item_staged_file_id, item_staged_generation, item_bouncedname, item_scope, item_local_change_count, item_old_version_identifier, version_name, version_ckinfo, version_mtime, version_size, version_thumb_size, version_thumb_signature, version_content_signature, version_xattr_signature, version_edited_since_shared, version_device, version_conflict_loser_etags, version_quarantine_info, version_uploaded_assets, version_upload_error, version_old_zone_item_id, version_old_zone_rowid, version_local_change_count, version_old_version_identifier, desired_version, item_live_conflict_loser_etags, item_file_id, item_generation, version_block_sync_until_bundle_id, version_block_sync_until_timestamp FROM client_items  WHERE item_file_id = %lld    AND item_state = 0
 -[BRCFSImporter capabilityToMoveItem:toNewParentItem:error:]
 label
+BouncingCountOnSameType
+BouncingCountFrom%@To%@
+UPDATE ciconia_migration_info SET value = value + 1 WHERE key = %@
 -[BRCFSImporter _findCollidingItemWithTemplateItem:parentItem:logicalName:error:]
 -[BRCFSImporter _handleCollisionIfNecessaryWithTemplateItem:parentItem:logicalName:fileURL:options:error:]
 -[BRCFSImporter _locateMatchingItemForTemplateItem:parentItem:logicalName:options:fileURL:fields:shouldReject:additionalAttrs:error:]
 -[BRCFSImporter _createAndInsertNewItemWithImportObject:parentItem:fields:templateItem:fileURL:options:additionalAttrs:error:]_block_invoke
 -[BRCFSImporter _createAndInsertNewItemWithImportObject:parentItem:fields:templateItem:fileURL:options:additionalAttrs:error:]
-UPDATE ciconia_migration_info SET value = value + 1 WHERE key = '%@'
 symlink-target
 -[BRCFSImporter importNewItemAtURL:logicalName:parentItem:templateItem:fields:options:additionalItemAttributes:error:]
 -[BRCFSImporter _getOrCreateTrashItemInAppLibrary:error:]
@@ -21179,6 +21339,7 @@ com.apple.internal.fileprovider.in-place-collaboration
 -[BRCXPCRegularIPCsClient signalStartOfSilentTelemetry:uuid:manual:version:reply:]
 -[BRCXPCRegularIPCsClient reportItemMismatchDuringSilentMigration:information:uuid:reply:]
 -[BRCXPCRegularIPCsClient reportCleanupFailureDuringSilentMigration:operationType:uuid:reply:]
+-[BRCXPCRegularIPCsClient reportOverBounceDuringSilentMigration:total:uuid:reply:]
 -[BRCXPCRegularIPCsClient reportFinishedMigration:uuid:reply:]
 %llu
 Ciconia
@@ -21761,6 +21922,7 @@ disk-space-reclaimer.max-graveyard-time.low-urgency
 disk-space-reclaimer.max-graveyard-time.med-urgency
 disk-space-reclaimer.xattr-age-time
 fetch-quota-interval
+fetch-force-telemetry-sync-interval
 disk-reclaimer.purge-pacer-interval
 disk-reclaimer.db-reclaimable-space-threshold
 disk-reclaimer.cache-delete-recompute-interval
@@ -21948,6 +22110,7 @@ sync.subresources.fetch-loop-cache-size
 sync.fetch-full-contents
 telemetry.allow-force-dequeue
 telemetry.force-dequeue-percentage
+telemetry.high-priority-event-percentage
 disk-space-reclaimer.download-stage-age-time-fpfs
 create-log-section
 databaseBasePath
@@ -22613,7 +22776,9 @@ BRCAutoCancelOperation/? (subclass activity missing)
 [DEBUG] There are more telemetry events to dequeue
 [WARNING] Not submitting event which is disabled %u
 [DEBUG] Inserting telemetry event %u
+[CRIT] Assertion failed: priority <= 1
 [DEBUG] Dropping telemtry events due to queue overflow
+[DEBUG] Force Telemetry Deque passed the minimum interval
 [CRIT] Assertion failed: self->_telemetryEventCount == 0
 [NOTICE] Telemetry dequeue already queued
 [NOTICE] Forcing telemetry events dequeue
@@ -23346,11 +23511,6 @@ server: %@
 [DEBUG] Queueing notification %@ for rank: %lld
 [ERROR] Failed to %s the spotlight attribute at %@ %{errno}d
 [DEBUG] %s the spotlight attribute at %@
-[DEBUG] Existing collaborationIdentifier on the item is %@
-[DEBUG] %@ to set the collaborationIdentifier attribute at %@
-[DEBUG] CollaborationIdentifier already set on %@
-[DEBUG] %@ to remove the collaborationIdentifier attribute at %@
-[ERROR] Collaborative item needs attribute but we can't compute it for %@
 [CRIT] Assertion failed: self.appLibrary
 [DEBUG] 
 %llx Saving item %@
@@ -24096,7 +24256,8 @@ sync-up
 [CRIT] Assertion failed: argc == 3
 [CRIT] UNREACHABLE: Couldn't save xattr blob for signature %@.  Continuing anyway - %@
 [DEBUG] Deleted %llu items from client truth which haven't been synced to the server
-[INFO] Failed inserting into ciconia_migration_info. Ignoring
+[DEBUG] Found table ciconia_migration_info, trying to fill it up
+[INFO] Failed inserting into ciconia_migration_info. Error = %@. Ignoring
 [DEBUG] Deleted %llu br aliases from client truth
 [DEBUG] We have items to migrate to fpfs
 [ERROR] Failed determining if we have items - %@
@@ -24112,6 +24273,7 @@ sync-up
 [WARNING] Trying to move shared top item %@ into trash at parent %@
 [WARNING] Trying to move shared top item %@ into another shared item %@
 [WARNING] Moving an unshared directory %@ into a shared parent %@ where the source item has shared subitems
+[WARNING] Failed updating ciconia_migration_info for key %@: %@
 [DEBUG] Trashed item has bookmark data for import
 [DEBUG] Shared item has bookmark data for import
 [WARNING] Can't find zone for trash putback %@, falling back to clouddocs zone
@@ -24129,6 +24291,7 @@ sync-up
 [WARNING] Mismatching type for the found item (%@), ignoring!
 [DEBUG] Found existing item by fileID %@
 [INFO] found item that seems to match template: %@
+[INFO] Bouncing item %@ because of %@
 [WARNING] We have a collision with %@ but it's invalid
 [CRIT] Assertion failed: options & NSFileProviderCreateItemMayAlreadyExist
 [WARNING] Can't find file id for %@.  Updating from server item because we have no way to get its content
@@ -24141,7 +24304,6 @@ sync-up
 [DEBUG] Marking user invisible item as from initial scan %@ to avoid bounce
 [DEBUG] Importing an existing app library %@ with mangledID %@
 [WARNING] Importing unknown item: %@ - that's unexpected!
-[WARNING] Failed updating ciconia_migration_info: %@
 [CRIT] UNREACHABLE: Received item with unexpected type and no content %@
 [CRIT] Assertion failed: appLibrary.db.isBatchSuspended
 [CRIT] Assertion failed: _session.clientDB.isInTransaction
@@ -26729,970 +26891,992 @@ BRCContainerMetadataSyncUpOperation
 BRCItemDBRowIDJobIdentifier
 BRCIntAndZoneJobIdentifier
 BRCItemDBRowIDAndZoneJobIdentifier
-setItemTypeHint:
+enumerateObjectsOfClass:
+null
+itemsThatAreNotMigrated
+waitUntilAllOperationsAreFinished
+initWithRecordZoneID:
+brc_errorDocumentIsNotSharedAtURL:
+dictionaryWithContentsOfFile:
+charAtIndex:
+removeDomain:completionHandler:
+enumerateObjectsUsingBlock:
+numberAtIndex:
+waitUntilFinished
+pluginFields
+initWithRecordZoneIDs:
+brc_errorDocumentWithFilename:size:isTooLargeToUpload:
+createFileAtPath:contents:attributes:
+initWithRecordZoneIDs:configurationsByRecordZoneID:
+characterAtIndex:
+numberFromString:
+dictionaryWithContentsOfURL:
+_unpublish
+setQueuePriority:
+initWithRecordZoneIDs:optionsByRecordZoneID:
+brc_errorDriveDisabledOrAppLibraryDisabled
+dictionaryWithDictionary:
+dictionaryWithObjects:forKeys:count:
+pointerValue
+brc_errorFolderHasSharedSubitemsWithSharedByMeURLs:sharedToMeURLs:
+setupPragmas
+numberWithBool:
+initWithRecordZonesToSave:recordZoneIDsToDelete:
+initWithRecordsToSave:recordIDsToDelete:
+brc_errorFolderHierarchyTooDeep
+setQuotaUsed:
+setFragment:
+bouncedItems
+removeIndex:
+stringValue
+numberWithChar:
+metadataVersion
+removeIndexes:
+brc_errorForRejectedDeletionOfItem:
+br_accountForCurrentPersona
+share
+isEqualToMangledID:
+brc_errorInvalidParameter:value:
+numberWithDouble:
+additionWithName:inNameSpace:error:
+removeItemAtPath:error:
+isEqualToNumber:
+stringWithCString:encoding:
+numberWithFloat:
+methodForSelector:
+incrementalVacuum:
+didChangeValueForKey:
+keyEnumerator
+stringWithCapacity:
+br_accountForPersona:
+removeItemAtURL:error:
+numberWithInt:
+brc_errorItemAlreadyPartOfAShare
+br_addPhysicalProperty
+brc_errorItemAlreadyPausedFromSyncByBundleID:
+stringWithContentsOfFile:encoding:error:
+setGivenName:
+additionalRequestHTTPHeaders
+removeLastObject
+numberWithInteger:
+isEqualToString:
+formatInjection:
+stringWithContentsOfURL:encoding:error:
+turnObjectIntoZombie:
+brc_errorItemChanged
+indexOfObject:
+numberWithLong:
+stringWithFormat:
+postContainerListUpdateNotification
+fp_isFileProviderError:
+brc_errorItemInTrash
+checkResourceIsReachableAndReturnError:
+br_allEligibleAppleAccounts
+setHTTPCookieStorage:
+numberWithLongLong:
+fp_obfuscatedFilename
+br_appleAccountWithPersonID:
+setRecordAccessCompletionBlock:
+postContainerStatusChangeNotificationWithID:key:value:
+typeOfMigrated
+brc_errorItemIneligibleFromSyncForInode:
+setHandler:
+fp_obfuscatedPath
+setRecordAccessGrantedBlock:
+stringWithUTF8String:
+postNotificationName:object:
+typeOfNotMigrated
+brc_errorItemNotFound:
+setRecordChangedBlock:
+removeObjectAtIndex:
+numberWithUnsignedInt:
+creationDate
+brc_errorItemNotPausedFromSync
+removeObjectForKey:
+setRecordFetchedBlock:
+postNotificationName:object:userInfo:
+enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
+ingestFromCacheItemWithIdentifier:requestedFields:completionHandler:
+fractionCompleted
+childCount
+numberWithUnsignedInteger:
+strongToStrongObjectsMapTable
+initWithRootRecord:shareID:
+br_corruptedDBInfoPath
+enumeratorForAdditionsInNameSpace:withOptions:withoutOptions:ordering:
+initWithRowID:type:
+brc_errorItemNotShareable
+weakObjectsHashTable
+br_currentHomeDir
+removeObjectsForKeys:
+creatorUserRecordID
+fragment
+numberWithUnsignedLong:
+brc_errorLoggedOut
+unarchivedObjectOfClass:atIndex:
+removeObjectsInArray:
+numberWithUnsignedLongLong:
+weakToStrongObjectsMapTable
+brc_errorMethodNotImplemented:
+sharedAliasRecursiveCount
+removeObjectsInRange:
+unarchivedObjectOfClass:fromData:error:
+powerLevelChanged:
+errorOriginatorId
+numberWithUnsignedShort:
+predicateWithFormat:
+weakToWeakObjectsMapTable
+aliasTargetContainerString
+unarchivedObjectOfClasses:atIndex:
+currentCalendar
+brc_errorNoAppLibraryForBundle:
+setRecordIDsToDelete:
+br_currentPersonaID
+willChangeValueForKey:
+currentDevice
+brc_errorNoDocument:underlyingPOSIXError:
+errorWithCode:format:
+object
+isFileURL
+errorWithDomain:code:userInfo:
+removeObserver:forKeyPath:
+br_currentPersonaIDWithIsDataSeparated:
+unarchivedObjectOfClasses:fromData:error:
+object:
+sharedByMeRecursiveCount
+removeObserver:name:object:
+errorWithSqliteCode:andMessage:
+currentLocale
+prepareAdditionCreationWithItemAtURL:byMoving:creationInfo:error:
+currentOperationDuration
+brc_errorNoSuitableClientApp
+objectAtIndex:
+setRecordIDsToShareReadWrite:
+br_currentSupportDir
+brc_errorNotInCloud:
+objectAtIndexedSubscript:
+currentPersona
+setRecordIDsToVersionETags:
+removeParticipant:
+brc_errorNotOnDisk:
+sharedCloudDatabase
+didReceiveMemoryWarning
+br_decodeIndexStringToIndexSet
+sharedConnection
+classOfNextMessage
+objectEnumerator
+br_displayFilenameWithExtensionHidden:
+brc_errorNotSupportedInFPFS
+underlyingQueue
+allKeys
+setRecordMatchedBlock:
+evaluateWithObject:
+BouncingCountFromDirToDoc
+wrapperWithURL:readonly:error:
+currentRequest
+isFolderOrAliasID
+lastInsertedRowID
+initFileURLWithPath:isDirectory:
+unionSet:
+serverPreferredPushEnvironmentWithError:
+brc_errorOperationCancelled
+setRecordSharedBlock:
+allLoggedInAccountDescriptors
+initWithServiceName:
+currentServerChangeToken
+writeBookmarkData:toURL:options:error:
+brc_errorPathOutsideAnyCloudDocsAppLibraryAtURL:
+setRecordUnsharedBlock:
+sharedDatabaseMangledID
+lastModifiedUserRecordID
+brc_errorPermissionError:
+setRecordWithIDWasDeletedBlock:
+allObjects
+objectOfClass:atIndex:
+minusSet:
+writeData:forTag:
+br_downloadStatus
+brc_errorSyncBlocked
+lastObject
+_br_markResolvedWithError:
+BouncingCountFromAlsToPkg
+setRecordZoneChangeTokensUpdatedBlock:
+mobileDocumentsURL
+subarrayWithRange:
+currentUserParticipant
+lastPathComponent
+setInterruptionHandler:
+gcPackagesInDirectory:dbInUseBlock:
+setRecordZoneFetchCompletionBlock:
+initForReadingFromData:error:
+sharedItemHierarchyIDs
+brc_errorUnknownKey:
+setInvalidationHandler:
+allValues
+setRecordZoneWithIDChangedBlock:
+writeMessage:
+setRecordZoneWithIDWasDeletedBlock:
+allocWithZone:
+modificationDate
+generateAndRestorePersonaContextWithPersonaUniqueString:
+br_dsid
+writeToFile:atomically:
+substringFromIndex:
+lastUsedDate
+replaceOccurrencesOfString:withString:options:range:
+sharedReachabilityMonitor
+writeToFile:atomically:encoding:error:
+setIsCloudSyncTCCDisabled:
+substringToIndex:
+br_emptyFilenameAlternativeName
+initRequiringSecureCoding:
+modifiedByDevice
 brc_fileURLWithFileDescriptor:
 data
 br_errorFromErrno
+writeToURL:atomically:
+substringWithRange:
 dataAtIndex:
 br_errorWithDomain:code:description:
+writeToURL:atomically:encoding:error:
+setRecursiveChildCount:
 dataByFinishingSignature
-serviceListener
-privateCloudDatabase
+writeToURL:options:error:
 br_errorWithDomain:code:userInfo:description:
 br_errorWithPOSIXCode:
 dataUsingEncoding:
-setKind:
-initWithShareIDs:
-br_errorWithPOSIXCode:description:
-isInInitialState
-dataWithBytes:length:
-openApplicationWithBundleID:
-CKClientSuitableError
-setLabel:
-diffs
-dataWithCapacity:
-dataWithContentsOfFile:
-sessionWithConfiguration:delegate:delegateQueue:
-initWithShareMetadatas:
-setShare:
-isInTransaction
-getBytes:length:
-dataWithContentsOfURL:
-initWithAccount:
-moveItemAtURL:toURL:error:
-dataWithContentsOfURL:options:error:
-length
-updateInterestedBundleIDs:
-getCString:maxLength:encoding:
-openSensitiveURL:withOptions:
-isIndeterminate
-br_fileSystemRepresentation
-initWithAccountID:
-initWithSourceZoneIDs:targetZone:
-dataWithPropertyList:format:options:error:
-processDequeueCallbacks
-openSensitiveURL:withOptions:error:
-initWithSqliteRepresentation:
-setAcceptSharesCompletionBlock:
-clearURLCache
-isIndexingAvailable
-setShareParticipantFetchedBlock:
-openURL:withOptions:
-br_firstName
-processIdentifier
-getDomainsWithCompletionHandler:
-updateMetadataWithExtractorProperties:iconPaths:bundleID:
-openWithError:
-mutableBytes
-isInstalled
-setLastError:
-setShareParticipantKeyCompletionBlock:
-setAccountOverrideInfo:
-mutableCopy
-br_forceMoveItemAtURL:toURL:error:
-updateMetadataWithRecordData:iconPaths:
-br_formattedName
-setShareParticipantKeyFetchedBlock:
-getFileIDFromXattr:docID:genCount:
-anonymousListener
-setSharedAliasRecursiveCount:
-mutableEncryptedPublicSharingKeyData
-date
-setAdditionalRequestHTTPHeaders:
-initWithStream:
-clientChangeToken
-getNewWebSharingIdentityDataWithCompletionHandler:
-initWithAliasTargetContainerString:
-anyObject
-setSharedByMeRecursiveCount:
-setAggregateZonePCSCompletionBlock:
-initWithSubscriptionID:
-dateFormatFromTemplate:options:locale:
-dateFromString:
-expectedAmountOfItemsMigrated
-initWithSubscriptionsToSave:subscriptionIDsToDelete:
-setAllowsCellularAccess:
-dateWithTimeIntervalSince1970:
-clientPackageDatabaseDirectory
-initWithAppLibraryName:
-operationQueue
-setShouldFetchAssetContent:
-dateWithTimeIntervalSinceNow:
-initWithArray:
-br_getTagNames:error:
-isKnownToServer
-setShouldFetchAssetContents:
-nameWithPrefix:suffix:
-br_isAbsolutePath
-nameWithString:
-setArchiverInfo:error:
-shutdown
-br_isCloudDocsErrorCode:
-setLocale:
-operationToOpenResource:usingApplication:uniqueDocumentIdentifier:isContentManaged:sourceAuditToken:userInfo:options:delegate:
-setShouldOnlySaveAssetContent:
-initWithAssetReference:
-br_isCloudDocsMigrated
-discretionaryNetworkBehavior
-br_isCloudDocsMigrationComplete
-sideCarMangledID
-setShouldReportAllPerItemFailures:
-setShouldSendContentAvailable:
-propertiesForDataclass:
-initWithBundleIDs:states:
-br_isCocoaErrorCode:
-setLockedHandler:
-initWithBytes:length:
-propertyListWithData:options:format:error:
-updateWithBytes:length:
-initWithBytes:length:encoding:
-setAssetPublishedBlock:
-protectionData
-setAtomic:
-orderedSet
-CKAssignToContainerWithID:
-br_isDocumentTooLargeForUpload:maxUploadDocumentSize:
-providerDomainWithID:error:
-initWithBytesNoCopy:length:freeWhenDone:
-isNetworkReachableForFlags:
-setAttribute:forKey:
-dbHandle
-getResourceValue:forKey:error:
-publicPermission
-setSourceApplicationBundleIdentifier:
-setAutoRollbackHandler:
-br_isEnabledForCloudDocs
-publicSharingIdentity
-appLibraryOrZoneName
-getUserVisibleURLForItemIdentifier:completionHandler:
-setAutomaticallyRetryNetworkFailures:
-displayedHostname
-cloningDuration
-distantFuture
-setSourceApplicationSecondaryIdentifier:
-br_isEnabledForDesktopSync
-publicToken
-originalRequest
-br_isEqualToStringForHFS:isCaseSensitive:
-setBaseToken:
-distantPast
-sideFaultsBelowThreshold
-close:
-initWithCapacity:
-br_isExcludedButPreservedAtLogOutWithFilenames:extensions:
-setBaseTokensByShareID:
-signalEnumeratorForContainerItemIdentifier:completionHandler:
-br_isExcludedWithMaximumDepth:
-outputStreamWithURL:append:
-br_isExternalDocumentReference
-setBoolResult:error:
-setMarkZonesAsUserPurged:
-resourceValuesForKeys:error:
-initWithURL:resolvingAgainstBaseURL:
-br_isInPackage
-aa_altDSID
-localeWithLocaleIdentifier:
-resourceValuesForKeys:fromBookmarkData:
-isPaused
-appState
-br_isInTrash
-aa_primaryAppleAccount
-setByAddingObjectsFromSet:
-initWithUUIDBytes:
-responseHTTPHeaders
-ownerIdentity
-setMaxConcurrentOperationCount:
-initWithContainerID:options:
-br_isManagedAppleID
-aa_useCellularForDataclass:
-br_isPOSIXErrorCode:
-appendBytes:length:
-localizedName
-appendFormat:
-signatureWithFileDescriptor:error:
-cloudDocsAppSupportURL
-initWithContainerIdentifier:environment:
-setCallbackQueue:
-groupInBatch:
-br_isPackageRoot
-result
-isPrivate
-documentSize
-appendString:
-localizedStringForKey:value:table:
-groupInTransaction:
-absoluteString
-initWithCursor:
-setCancellable:
-localizedStringFromPersonNameComponents:style:options:
-br_isParentOfURL:
-setCaptureResponseHTTPHeaders:
-br_isSideFaultName
-initWithUserIdentityLookupInfos:
-fetchAllChanges
-acceptanceStatus
-br_lastName
-br_libnotifyPerUserNotificationName
-decodeBoolForKey:
-fetchAllRecordZonesOperation
-setChildCount:
-cloudDocsMangledID
-initWithData:
-applicationInfoForPID:completion:
-packageWithError:
-qualityOfService
-applicationProxyForIdentifier:
-decodeBytesForKey:returnedLength:
-initWithData:encoding:
-packageWithPackage:error:
-setStatementCacheMaxCount:
-setChildRecordIDsByShareID:
-fetchCurrentUserRecordOperation
-isReady
-setModifyRecordZonesCompletionBlock:
-decodeDoubleForKey:
-sortUsingComparator:
-setModifyRecordsCompletionBlock:
-applicationProxyForIdentifier:placeholder:
-query
-decodeInt32ForKey:
-setModifySubscriptionsCompletionBlock:
-code
-sortedArrayUsingComparator:
-decodeInt64ForKey:
-isRereferencedAssetUpload
-parent
-initWithXPCObject:
-br_mightBeBRAlias
-documentsURL
-br_nameIsRepresentableOnHFS
-decodeIntForKey:
-brc_issueSandboxExtensionOfClass:error:
-setMutableEncryptedPublicSharingKeyData:
-initWithDeviceID:fileID:generationID:
-fetchFullNameAndFormattedUsernameOfAccountWithCompletionHandler:
-synchronize
-decodeIntegerForKey:
-setClassOfNextMessage:
-domain
-synchronousRemoteObjectProxyWithErrorHandler:
-setClasses:forSelector:argumentIndex:ofReply:
-br_pathExtension
-decodeObjectOfClass:forKey:
-fetchFullNameAndPrimaryEmailOnAccountWithCompletionHandler:
-queuePriority
-initWithDocID:
-decodeObjectOfClasses:forKey:
-br_pathOfPackageRoot
-setClientChangeTokenData:
-initWithDocIDNumber:
-reverseObjectEnumerator
-compare:
-initWithZoneID:
-isRootContainerItem
-br_pathRelativeToDirectory:
-longAtIndex:
-accountDescription
-sqliteRepresentation
-doubleAtIndex:
-compare:options:
-initWithZoneID:subscriptionID:
-br_pathRelativeToPackageRoot
-longLongAtIndex:
-initWithZoneName:ownerName:
-role
-br_pathRelativeToPath:
-defaultCenter
-longLongValue
-tagData
-setSynchronousMode:
-longValue
-br_pathWithDeviceID:fileID:
-doubleValue
-quotaUsed
-br_pathWithFileSystemRepresentation:
-uploadReceiptExpiration
-raise:format:
-completionBlock
-defaultExcludedExtensionsWorthPreserving
-initWithDocumentAtURL:
-archivedDataWithRootObject:requiringSecureCoding:error:
-setCompletionBlock:
-br_personaGroupDir
-rootDatabasePath
-array
-defaultExcludedFilenamesWorthPreserving
-inputStreamWithFileAtPath:
-br_personaID
-components:fromDate:toDate:options:
-initWithDomain:code:userInfo:
-componentsJoinedByString:
-defaultExcludedFilenamesWorthWarningAtLogout
-arrayByAddingObject:
-defaultManager
-br_personaIdentifier
-inputStreamWithURL:
-initWithEnvironmentName:namedDelegatePort:queue:
-rangeOfFirstMatchInString:options:range:
-componentsSeparatedByString:
-insertObject:atIndex:
-arrayByAddingObjectsFromArray:
-setConfiguration:
-br_physicalURL
-rangeOfString:
-arrayWithCapacity:
-br_preCacheBookmarkData:versionEtag:
-accountID
-setNotificationInfo:
-componentsWithURL:resolvingAgainstBaseURL:
-brc_representableHFSFileNameWithSuffix:addedExtension:makeDotFile:
-setTimeStyle:
-rangeOfUnit:inUnit:forDate:
-parentItemIdentifier
-accountOverrideInfo
-arrayWithContentsOfFile:
-setNumberStyle:
-setTimeZone:
-defaultStore
-initWithEventName:atTime:
-lowercaseString
-arrayWithObject:
-setContainer:
-accountStatusWithCompletionHandler:
-intAtIndex:
-arrayWithObjects:
-setObject:atIndexedSubscript:
-hasChainPCS
-rootRecordID
-arrayWithObjects:count:
-initWithExistingRecordID:databaseScope:fieldName:fileSignature:
-uppercaseString
-accountWithIdentifier:
-fetchRootItemForProviderDomain:completionHandler:
-routingKey
-intValue
-rowNumber
-defaultWorkspace
-standardUserDefaults
-rawID
-integerAtIndex:
-br_realpath
-setCookieStorage:
-hasDaemonicParts
-rawInjection:length:
-mainBundle
-startAccessingSecurityScopedResource
-integerValue
-setTraced:
-useBatchingOnTargetQueue:withPolicyHandler:
-downloadTaskWithURL:
-asFileProviderItem
-br_representableDirectoryName
-setCountLimit:
-initWithFileID:
-setTrackChanges:
-useBatchingWithDelay:changeCount:
-setCrashIfUsedAfterClose:
-br_representableHFSFileNameWithBase:suffix:extension:makeDotFile:
-mainQueue
-isSqliteErrorCode:
-interfaceWithProtocol:
-br_representableHFSFileNameWithNumber:addedExtension:makeDotFile:
-participantPermission
-configuration
-isSubsetOfSet:
-br_roundedLongLongValue
-fetchUserRecordIDWithCompletionHandler:
-participantRole
-configurationInfoWithIdentifiers:forAltDSID:completion:
-brc_stringByDeletingPathExtension
-initWithFileURL:
-br_setCloudDocsMigrated:
-useSerialQueue
-participantStatus
-makeNextFlushFullSync
-useSerialQueueWithTarget:
-startOfDayForDate:
-intersectSet:
-participants
-br_setCloudDocsMigrationComplete:
-downloadURL
-initWithFormat:
-downloadURLExpiration
-intersectsSet:
-setDateFormat:
-initWithFormat:arguments:
-setDateStyle:
-pathComponents
-initWithIdentifier:displayName:
-receiveProgressUpdates:reply:
-userIdentity
-fileCreationDate
-receiveUpdates:logicalExtensions:physicalExtensions:reply:
-JSONObjectWithData:options:error:
-fileDescriptor
-invalidateAccountForPersonaCache
-conformsToType:
-setURLCache:
-_processIdentifierForID:
-fileExistsAtPath:
-asString
-setURLCredentialStorage:
-br_sideFaultName
-mangledIDString
-userInfo
-deleteAllSearchableItemsWithCompletionHandler:
-initWithIndex:
-deleteCharactersInRange:
-fileExistsAtPath:isDirectory:
-setURLOptions:
-br_stringByBackslashEscapingCharactersInString:
-hasIconWithName:
-manuallyTriggered
-setDesiredKeys:
-br_stringByDeletingPathBounceNo:
-setUnderlyingQueue:
-setPackageIndex:
-container
-br_stringByDeletingPathBounceNo:andPathExtension:
-pathWithComponents:
-setDesiredPackageFileIndices:
-bundleForClass:
-isValidSignature:
-setParent:
-userPersonaUniqueString
-fileObjectIDWithString:
-bundleIdentifier
-userRecordID
-containerForMangledID:
-thumbnailImagesDictionary
-deleteSearchableItemsWithDomainIdentifiers:completionHandler:
-bundleIdentifiers
-setDiscretionary:
-userVersion
-isAppLibraryRoot
-containerID
-setDiscretionaryNetworkBehavior:
-filePosixPermissions
-stopAccessingSecurityScopedResource
-recordChangeTag
-saveVerifiedAccount:withCompletionHandler:
-bundleInfoValueForKey:PID:
-fileProviderErrorForNonExistentItemWithIdentifier:
-_initWithProviderIdentifier:
-fileSystemFlags
-containerItemForContainer:withRepresentativeItem:
-bundleProxyForIdentifier:
-associateThumbnailImagesDictionary:serializedQuickLookMetadata:withDocumentAtURL:error:
-setDisplayedHostname:
-_initWithProviderIdentifier:domain:
-fileSystemRepresentation
-bundleURL
-associateThumbnailImagesDictionary:serializedQuickLookMetadata:withImmutableDocument:atURL:error:
-setUserInfo:
-timeIntervalSince1970
-isBatchSuspended
-uuidAtIndex:
-timeIntervalSinceDate:
-setUserVersion:
-setPerRecordChangeCompletionBlock:
-validateContainerID:
-fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
-bytes
-timeIntervalSinceNow
-isBidirectionalDataTransferAllowedWithBundleID:
-setPerRecordCompletionBlock:
-fileURLWithPath:
-containerMetadataMangledID
-initWithLength:
-cStringUsingEncoding:
-streamError
-setPerRecordProgressBlock:
-fileURLWithPath:isDirectory:
-itemAtIndex:
-addDomain:completionHandler:
-timeIntervalSinceReferenceDate
-recordName
-addDomain:forProviderIdentifier:completionHandler:
-setPerShareCompletionBlock:
-_publish
-validateMangledIDString:
-setEnabledTopics:ignoredTopics:opportunisticTopics:
-fileURLWithPathComponents:
-timeZoneForSecondsFromGMT:
-next
-string
-setWantsChainPCS:
-initWithMachServiceName:
-setPluginFields:
-hasPrefix:
-stringAtIndex:
-dependencies
-recordZoneChangesStatusByZoneID
-dequeue:block:
-setWantsPublicSharingKey:
-stringByAppendingFormat:
-setPostFlushHook:
-topic
-containerURLForSecurityApplicationGroupIdentifier:
-nextMessage
-earliestUploadReceiptExpiration
-stringByAppendingPathComponent:
-valueForEntitlement:
-setPreFlushHook:
-stringByAppendingPathExtension:
-valueForKey:
-containerWithIdentifier:
-attributesOfFileSystemForPath:error:
-containersRepositoryURL
-stringByAppendingString:
-valueForKeyPath:
-isCloudDocsMangledID
-initWithMangledString:
-isCloudDocsRoot
-valueWithPointer:
-stringByDeletingLastPathComponent
-attributesOfItemAtPath:error:
-canMostRecentClientsGenerateThumbnailsForUTI:
-URLByAppendingPathComponent:
-setWebShareRecordsCompletionBlock:
-values
-stringByRemovingPercentEncoding
-setWithArray:
-containsIndex:
-isCloudSyncAllowed:
-URLByAppendingPathComponent:isDirectory:
-stringByReplacingOccurrencesOfString:withString:
-setPreviousServerChangeToken:
-initWithName:protectionClass:
-setWithCapacity:
-isCloudSyncTCCDisabled
-URLByDeletingLastPathComponent
-setWithObject:
-URLWithString:
-encodeBool:forKey:
-isCurrentUser
-setWithObjects:
-versionNumberForBundleIdentifier:
-addIndex:
-recursiveChildCount
-autoRollbackHandler
-setWithSet:
-encodeBytes:length:forKey:
-hasSuffix:
-setExportedInterface:
-containsString:
-encodeDouble:forKey:
-UUID
-setExportedObject:
-encodeInt32:forKey:
-firstIndex
-autovacuumableSpaceInBytes
-isDataSeparatedAccount
-contentModificationDate
-UUIDString
-encodeInt64:forKey:
-setPublicPermission:
-isDataSeparatedPersona
-cancelAllOperations
-setFamilyName:
-initWithObjects:
-setPublicSharingIdentity:
-itemCountWithError:
-encodeInt:forKey:
-stringFromDate:
-__coordinateReadingItemAtURL:options:purposeID:byAccessor:
-encodeInteger:forKey:
-contentType
-initWithOutputStream:
-setFetchAllChanges:
-setPublishAssetCompletionBlock:
-nonSideFaultsCompletelyMigrated
-__coordinateWritingItemAtURL:options:purposeID:byAccessor:
-encodeObject:forKey:
-contentVersion
-setFetchAllResults:
-__coordinateWritingItemAtURL:options:writingItemAtURL:options:purposeID:byAccessor:
-registerFunction:nArgs:handler:
-encodedData
-setZoneID:
-setFetchDatabaseChangesCompletionBlock:
-floatValue
-setQualityOfService:
-backgroundSessionConfigurationWithIdentifier:
-isDesktopMangledID
-setFetchRecordZoneChangesCompletionBlock:
-flush
-contentsOfDirectoryAtPath:error:
-waitUntilAllOperationsAreFinished
-setFetchRecordZonesCompletionBlock:
-backupToURL:progress:
-setQuery:
-setFetchRecordsCompletionBlock:
-waitUntilFinished
-addObjectsFromArray:
-setQueryCompletionBlock:
-base64EncodedStringWithOptions:
-encryptedPublicSharingKey
-setQueryCursorFetchedBlock:
-encryptedValuesByKey
-setFetchShareParticipantsCompletionBlock:
-addObserver:forKeyPath:options:context:
-setFetchUserQuotaCompletionBlock:
-initWithPattern:options:error:
-copy
-setupPragmas
-__itemAtURL:didChangeWithPurposeID:
-itemIdentifier
-addObserver:selector:name:object:
-setFetchWebAuthTokenCompletionBlock:
-folderID
-stringValue
-reimportItemsBelowItemWithIdentifier:completionHandler:
-materialisedCountOnFPFS
-copyCurrentPersonaContextWithError:
-__itemAtURL:didDisconnectWithPurposeID:
-share
-addObserverForName:object:queue:usingBlock:
-performRequestWithHandler:
-setQueuePriority:
-initWithPreviousServerChangeToken:
-stringWithCString:encoding:
-setFileNamesByAssetFieldNames:
-__itemAtURL:didMoveToURL:purposeID:
-baseToken
-copyDataRepresentation
-stringWithCapacity:
-materialisedCountOnICD
-isDocumentID
-__itemAtURL:didReconnectWithPurposeID:
-stringWithContentsOfFile:encoding:error:
-copyItemAtURL:toURL:error:
-performTransactionBlock:
-setQuotaUsed:
-turnObjectIntoZombie:
-isDocumentScopePublicWithProperties:mangledID:
-performWithFlags:action:
-stringWithContentsOfURL:encoding:error:
-initWithQuery:
-destroyClientPackageWithDatabaseBasePath:UUID:
-serialQueue
-stringWithFormat:
-performWithFlags:action:whenFlushed:
-entitlements
-typeOfMigrated
-host
-capitalizedString
-forceBatchStart
-typeOfNotMigrated
-stringWithUTF8String:
-remoteObjectProxy
-addOperationWithBlock:
-isDocumentsMangledID
-permanentStorageForItemAtURL:allocateIfNone:error:
-remoteObjectProxyWithErrorHandler:
-setFragment:
-strongToStrongObjectsMapTable
-permission
-iWorkShareableExtensions
-initWithRecordID:action:
-removeAdditionsOnURL:error:
-weakObjectsHashTable
-setRecordAccessCompletionBlock:
-enumerateBundlesOfType:block:
-unarchivedObjectOfClass:atIndex:
-removeAllAdditionsForNamespaces:completionHandler:
-personaAttributesForPersonaType:
-brc_errorAcceptAlreadyInProgressForURL:
-_removeFileProvider:
-weakToStrongObjectsMapTable
-sharedAliasRecursiveCount
-setRecordAccessGrantedBlock:
-brc_errorAccountMismatch
-iconURLs
-setRecordChangedBlock:
-unarchivedObjectOfClass:fromData:error:
-isEnabledForDataclass:
-weakToWeakObjectsMapTable
-setGivenName:
-unarchivedObjectOfClasses:atIndex:
-createAdditionStagedAtURL:creationInfo:completionHandler:
-setRecordFetchedBlock:
-brc_errorAppLibraryNotFound:
-initWithRecordIDs:
-willChangeValueForKey:
-brc_errorClientZoneNotFound:
-isEnterprisePersona
-unarchivedObjectOfClasses:fromData:error:
-initWithRecordIDsToGrantAccess:recordIDsToRevokeAccess:
-sharedByMeRecursiveCount
-brc_errorCollisionWithItem:
-initWithRecordIDsToWebShare:recordIDsToUnshare:
-_removeSubscriber:
-setHTTPCookieStorage:
-bookmarkDataWithContentsOfURL:error:
-brc_errorCompatibilityIssue
-initWithRecordName:zoneID:
-removeDB
-_addFileProvider:
-setHandler:
-serializedQuickLookMetadataDictionary
-brc_errorCorruptedDB
-importDuration
-sharedCloudDatabase
-enumerateIndexesUsingBlock:
-sharedConnection
-initWithRecordType:
-isEqualToData:
-setRecordIDsToDelete:
-underlyingQueue
-removeDependency:
-initWithRecordType:predicate:
-brc_errorDaemonShouldBeLoggedOut
-null
-wrapperWithURL:readonly:error:
-brc_errorDocumentEvicted
-unionSet:
-enumerateKeysAndObjectsUsingBlock:
-initWithRecordType:recordID:
-member:
-numberAtIndex:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-dictionaryForKey:
-removeDomain:completionHandler:
-pluginFields
-setRecordIDsToShareReadWrite:
-initWithRecordZoneID:
-enumerateObjects:
-brc_errorDocumentIsNoLongerSharedAtURL:
-setRecordIDsToVersionETags:
-numberFromString:
-isEqualToFileObjectID:
-itemsThatAreNotMigrated
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-bookmarkDataWithOptions:includingResourceValuesForKeys:relativeToURL:error:
-writeBookmarkData:toURL:options:error:
-dictionaryWithCapacity:
-brc_errorDocumentIsNotShared
-enumerateObjectsOfClass:
-sharedDatabaseMangledID
-writeData:forTag:
-pointerValue
-initWithRecordZoneIDs:
-brc_errorDocumentIsNotSharedAtURL:
-initWithRecordZoneIDs:configurationsByRecordZoneID:
-setRecordMatchedBlock:
-dictionaryWithContentsOfFile:
-charAtIndex:
-subarrayWithRange:
-numberWithBool:
-boolAtIndex:
-enumerateObjectsUsingBlock:
-createFileAtPath:contents:attributes:
-brc_errorDocumentWithFilename:size:isTooLargeToUpload:
-characterAtIndex:
-sharedItemHierarchyIDs
-initWithRecordZoneIDs:optionsByRecordZoneID:
-dictionaryWithContentsOfURL:
-writeMessage:
-removeIndex:
-numberWithChar:
-setRecordSharedBlock:
-removeIndexes:
-initWithRecordZonesToSave:recordZoneIDsToDelete:
-brc_errorDriveDisabledOrAppLibraryDisabled
-setRecordUnsharedBlock:
-dictionaryWithDictionary:
-numberWithDouble:
-dictionaryWithObjects:forKeys:count:
-setRecordWithIDWasDeletedBlock:
-initWithRecordsToSave:recordIDsToDelete:
-brc_errorFolderHasSharedSubitemsWithSharedByMeURLs:sharedToMeURLs:
-removeItemAtPath:error:
-writeToFile:atomically:
-numberWithFloat:
-substringFromIndex:
-brc_errorFolderHierarchyTooDeep
-setRecordZoneChangeTokensUpdatedBlock:
-removeItemAtURL:error:
-metadataVersion
-sharedReachabilityMonitor
-numberWithInt:
-writeToFile:atomically:encoding:error:
-isEqualToMangledID:
-_unpublish
-substringToIndex:
-setRecordZoneFetchCompletionBlock:
-removeLastObject
-brc_errorForRejectedDeletionOfItem:
-numberWithInteger:
-isEqualToNumber:
-br_accountForCurrentPersona
-methodForSelector:
-brc_errorInvalidParameter:value:
-incrementalVacuum:
-keyEnumerator
-writeToURL:atomically:
-substringWithRange:
-setRecordZoneWithIDChangedBlock:
-numberWithLong:
-writeToURL:atomically:encoding:error:
-didChangeValueForKey:
-postContainerListUpdateNotification
-setRecordZoneWithIDWasDeletedBlock:
-brc_errorItemAlreadyPartOfAShare
-br_accountForPersona:
-isEqualToString:
-numberWithLongLong:
-postContainerStatusChangeNotificationWithID:key:value:
-brc_errorItemAlreadyPausedFromSyncByBundleID:
-br_addPhysicalProperty
-indexOfObject:
-writeToURL:options:error:
-formatInjection:
-brc_errorItemChanged
-postNotificationName:object:
-additionWithName:inNameSpace:error:
-removeObjectAtIndex:
+setRemoteObjectInterface:
 shortToken
-numberWithUnsignedInt:
-setInterruptionHandler:
+br_errorWithPOSIXCode:description:
+dataWithBytes:length:
 unsignedCharValue
 shortValue
-postNotificationName:object:userInfo:
-fp_isFileProviderError:
-removeObjectForKey:
-additionalRequestHTTPHeaders
-unsignedIntAtIndex:
-br_allEligibleAppleAccounts
-brc_errorItemInTrash
-checkResourceIsReachableAndReturnError:
-fp_obfuscatedFilename
-br_appleAccountWithPersonID:
-numberWithUnsignedInteger:
-setInvalidationHandler:
-brc_errorItemIneligibleFromSyncForInode:
-setRecursiveChildCount:
-writingIntentWithURL:options:
-fp_obfuscatedPath
-removeObjectsForKeys:
-numberWithUnsignedLong:
-brc_errorItemNotFound:
-removeObjectsInArray:
-ingestFromCacheItemWithIdentifier:requestedFields:completionHandler:
-numberWithUnsignedLongLong:
-initWithRootRecord:shareID:
-creationDate
-brc_errorItemNotPausedFromSync
-unsignedIntValue
-setRemoteObjectInterface:
-removeObjectsInRange:
-enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
-initWithRowID:type:
-powerLevelChanged:
-fractionCompleted
-numberWithUnsignedShort:
-childCount
-setIsCloudSyncTCCDisabled:
-predicateWithFormat:
-br_corruptedDBInfoPath
-setRemoteOperationProxy:userInfo:
-brc_errorItemNotShareable
-enumeratorForAdditionsInNameSpace:withOptions:withoutOptions:ordering:
-br_currentHomeDir
-unsignedIntegerAtIndex:
-object
-creatorUserRecordID
-symlinkTargetPath
-unsignedIntegerValue
-fragment
-brc_errorLoggedOut
-setReplicated:
-removeObserver:forKeyPath:
-object:
-brc_errorMethodNotImplemented:
-setRequestCompletedBlock:
-unsignedLongAtIndex:
-prepareAdditionCreationWithItemAtURL:byMoving:creationInfo:error:
-removeObserver:name:object:
-objectAtIndex:
-isFileURL
-errorOriginatorId
-unsignedLongLongAtIndex:
-currentCalendar
-brc_errorNoAppLibraryForBundle:
-removeParticipant:
-objectAtIndexedSubscript:
-br_currentPersonaID
-errorWithCode:format:
-setRequestedTTL:
-currentDevice
-brc_errorNoDocument:underlyingPOSIXError:
-errorWithDomain:code:userInfo:
-br_currentPersonaIDWithIsDataSeparated:
-objectEnumerator
 setIsInCloudDocsZone:
-aliasTargetContainerString
-unsignedLongLongValue
-setResourceValue:forKey:error:
-errorWithSqliteCode:andMessage:
-brc_errorNoSuitableClientApp
-currentLocale
-currentOperationDuration
-br_currentSupportDir
-brc_errorNotInCloud:
+setRemoteOperationProxy:userInfo:
+unsignedIntAtIndex:
+isInInitialState
+serviceListener
+initWithShareIDs:
+diffs
 setIsInInitialState:
-serverPreferredPushEnvironmentWithError:
+dataWithCapacity:
+privateCloudDatabase
+setReplicated:
+writingIntentWithURL:options:
+setRequestCompletedBlock:
+dataWithContentsOfFile:
+getBytes:length:
+dataWithContentsOfURL:
+unsignedIntValue
+initWithShareMetadatas:
+openApplicationWithBundleID:
+isInTransaction
+initWithAccount:
+setRequestedTTL:
+dataWithContentsOfURL:options:error:
+unsignedIntegerAtIndex:
+getCString:maxLength:encoding:
+br_fileSystemRepresentation
+length
+dataWithPropertyList:format:options:error:
+symlinkTargetPath
+setResourceValue:forKey:error:
+unsignedIntegerValue
+initWithAccountID:
+sessionWithConfiguration:delegate:delegateQueue:
+moveItemAtURL:toURL:error:
+isIndeterminate
+initWithSourceZoneIDs:targetZone:
+clearURLCache
+unsignedLongAtIndex:
+anonymousListener
 setResourceValues:error:
-currentPersona
-unsignedLongValue
-brc_errorNotOnDisk:
+br_firstName
+initWithSqliteRepresentation:
+getDomainsWithCompletionHandler:
+isIndexingAvailable
+openSensitiveURL:withOptions:
 setResultsLimit:
-br_decodeIndexStringToIndexSet
-classOfNextMessage
-br_displayFilenameWithExtensionHidden:
-didReceiveMemoryWarning
-isFolderOrAliasID
-brc_errorNotSupportedInFPFS
-lastInsertedRowID
-initFileURLWithPath:isDirectory:
-evaluateWithObject:
-currentRequest
-objectOfClass:atIndex:
-brc_errorOperationCancelled
-initWithServiceName:
-minusSet:
-lastModifiedUserRecordID
-allKeys
-currentServerChangeToken
-brc_errorPathOutsideAnyCloudDocsAppLibraryAtURL:
-mobileDocumentsURL
-lastObject
-brc_errorPermissionError:
-br_downloadStatus
-allLoggedInAccountDescriptors
-zoneHealthMangledID
-lastPathComponent
-brc_errorSyncBlocked
-currentUserParticipant
+unsignedLongLongAtIndex:
+anyObject
+br_forceMoveItemAtURL:toURL:error:
+br_formattedName
+getFileIDFromXattr:docID:genCount:
+processDequeueCallbacks
+openSensitiveURL:withOptions:error:
+isInstalled
+mutableBytes
+date
+setAcceptSharesCompletionBlock:
+clientChangeToken
+br_formattedNameWithNonBreakingSpaces
+getNewWebSharingIdentityDataWithCompletionHandler:
+mutableCopy
+unsignedLongLongValue
+openURL:withOptions:
+processIdentifier
+initWithStream:
+openWithError:
+initWithAliasTargetContainerString:
+dateFormatFromTemplate:options:locale:
+setAccountOverrideInfo:
+mutableEncryptedPublicSharingKeyData
+dateFromString:
+unsignedLongValue
+expectedAmountOfItemsMigrated
+initWithSubscriptionID:
+dateWithTimeIntervalSince1970:
+setAdditionalRequestHTTPHeaders:
+clientPackageDatabaseDirectory
+setItemTypeHint:
+initWithSubscriptionsToSave:subscriptionIDsToDelete:
 setRoutingKey:
-initForReadingFromData:error:
-allObjects
-replaceOccurrencesOfString:withString:options:range:
-brc_errorUnknownKey:
-gcPackagesInDirectory:dbInUseBlock:
+dateWithTimeIntervalSinceNow:
+initWithAppLibraryName:
+setAggregateZonePCSCompletionBlock:
 setSavePolicy:
-modificationDate
-_br_markResolvedWithError:
+br_getTagNames:error:
+isKnownToServer
+initWithArray:
+br_isAbsolutePath
 setScheme:
-modifiedByDevice
-lastUsedDate
-generateAndRestorePersonaContextWithPersonaUniqueString:
-br_dsid
-initRequiringSecureCoding:
-allValues
-br_emptyFilenameAlternativeName
-allocWithZone:
+operationQueue
+nameWithPrefix:suffix:
+discretionaryNetworkBehavior
+zoneHealthMangledID
+br_isCloudDocsErrorCode:
+setKind:
+initWithAssetReference:
+nameWithString:
+br_isCloudDocsMigrated
+br_isCloudDocsMigrationComplete
+operationToOpenResource:usingApplication:uniqueDocumentIdentifier:isContentManaged:sourceAuditToken:userInfo:options:delegate:
+setLabel:
+setAllowsCellularAccess:
+initWithBundleIDs:states:
+br_isCocoaErrorCode:
+initWithBytes:length:
+initWithBytes:length:encoding:
+appLibraryOrZoneName
+dbHandle
+propertiesForDataclass:
+getResourceValue:forKey:error:
+br_isDocumentTooLargeForUpload:maxUploadDocumentSize:
+propertyListWithData:options:format:error:
+setArchiverInfo:error:
+initWithBytesNoCopy:length:freeWhenDone:
+isNetworkReachableForFlags:
+getUserVisibleURLForItemIdentifier:completionHandler:
+protectionData
+br_isEnabledForCloudDocs
+displayedHostname
+distantFuture
+cloningDuration
+orderedSet
+providerDomainWithID:error:
+br_isEnabledForDesktopSync
+distantPast
+publicPermission
+close:
+setLastError:
+setShare:
+br_isEqualToStringForHFS:isCaseSensitive:
+publicSharingIdentity
+initWithCapacity:
+aa_altDSID
+br_isExcludedButPreservedAtLogOutWithFilenames:extensions:
+setAssetPublishedBlock:
+publicToken
+originalRequest
+appState
+br_isExcludedWithMaximumDepth:
+aa_primaryAppleAccount
+setAtomic:
+setAttribute:forKey:
+setShareParticipantFetchedBlock:
+br_isExternalDocumentReference
+appendBytes:length:
+aa_useCellularForDataclass:
+setAutoRollbackHandler:
+initWithURL:resolvingAgainstBaseURL:
+br_isInPackage
+setShareParticipantKeyCompletionBlock:
+localeWithLocaleIdentifier:
+appendFormat:
+setAutomaticallyRetryNetworkFailures:
+isPaused
+setShareParticipantKeyFetchedBlock:
+br_isInTrash
+outputStreamWithURL:append:
+updateInterestedBundleIDs:
+initWithUUIDBytes:
+appendString:
+absoluteString
+resourceValuesForKeys:error:
+setBaseToken:
+setSharedAliasRecursiveCount:
+br_isManagedAppleID
+cloudDocsAppSupportURL
+resourceValuesForKeys:fromBookmarkData:
+setSharedByMeRecursiveCount:
+groupInBatch:
+br_isPOSIXErrorCode:
+initWithContainerID:options:
+setLocale:
+documentSize
+responseHTTPHeaders
+setBaseTokensByShareID:
+localizedName
+groupInTransaction:
+initWithContainerIdentifier:environment:
+updateMetadataWithExtractorProperties:iconPaths:bundleID:
+br_isPackageRoot
+ownerIdentity
+isPrivate
+acceptanceStatus
+localizedStringForKey:value:table:
+updateMetadataWithRecordData:iconPaths:
+br_isParentOfURL:
+initWithCursor:
+applicationInfoForPID:completion:
+setBoolResult:error:
+localizedStringFromPersonNameComponents:style:options:
+setShouldFetchAssetContent:
+BouncingCountFromDirToLnk
+result
+br_isSideFaultName
+applicationProxyForIdentifier:
+setLockedHandler:
+fetchAllChanges
+setShouldFetchAssetContents:
+fetchAllRecordZonesOperation
+decodeBoolForKey:
+cloudDocsMangledID
+initWithUserIdentityLookupInfos:
+applicationProxyForIdentifier:placeholder:
+br_lastName
+br_libnotifyPerUserNotificationName
+decodeBytesForKey:returnedLength:
+initWithData:
+setShouldOnlySaveAssetContent:
+decodeDoubleForKey:
+fetchCurrentUserRecordOperation
+initWithData:encoding:
+setByAddingObjectsFromSet:
+isReady
+decodeInt32ForKey:
+packageWithError:
+qualityOfService
+setShouldReportAllPerItemFailures:
+code
+setShouldSendContentAvailable:
+decodeInt64ForKey:
+packageWithPackage:error:
+documentsURL
+setCallbackQueue:
+shutdown
+isRereferencedAssetUpload
+decodeIntForKey:
+brc_issueSandboxExtensionOfClass:error:
+initWithXPCObject:
+br_mightBeBRAlias
+query
+fetchFullNameAndFormattedUsernameOfAccountWithCompletionHandler:
+decodeIntegerForKey:
+br_nameIsRepresentableOnHFS
+setCancellable:
+domain
+initWithDeviceID:fileID:generationID:
+setCaptureResponseHTTPHeaders:
+decodeObjectOfClass:forKey:
+sideCarMangledID
+parent
+accountDescription
+fetchFullNameAndPrimaryEmailOnAccountWithCompletionHandler:
+setSourceApplicationBundleIdentifier:
+br_pathExtension
+decodeObjectOfClasses:forKey:
+initWithDocID:
+updateWithBytes:length:
+setMarkZonesAsUserPurged:
+compare:
+br_pathOfPackageRoot
+doubleAtIndex:
+setSourceApplicationSecondaryIdentifier:
+initWithDocIDNumber:
+setChildCount:
+compare:options:
+isRootContainerItem
+queuePriority
+longAtIndex:
+initWithZoneID:
+br_pathRelativeToDirectory:
+setChildRecordIDsByShareID:
+br_pathRelativeToPackageRoot
+initWithZoneID:subscriptionID:
+defaultCenter
+longLongAtIndex:
+reverseObjectEnumerator
+setMaxConcurrentOperationCount:
+initWithZoneName:ownerName:
+br_pathRelativeToPath:
+archivedDataWithRootObject:requiringSecureCoding:error:
+longLongValue
+BouncingCountFromAlsToLnk
+doubleValue
+array
+br_pathWithDeviceID:fileID:
+longValue
+defaultExcludedExtensionsWorthPreserving
+completionBlock
+role
+arrayByAddingObject:
+br_pathWithFileSystemRepresentation:
+sideFaultsBelowThreshold
+defaultExcludedFilenamesWorthPreserving
+initWithDocumentAtURL:
+arrayByAddingObjectsFromArray:
+br_personaGroupDir
+components:fromDate:toDate:options:
+setClassOfNextMessage:
+quotaUsed
+componentsJoinedByString:
+defaultExcludedFilenamesWorthWarningAtLogout
+arrayWithCapacity:
+accountID
+defaultManager
+setClasses:forSelector:argumentIndex:ofReply:
+signalEnumeratorForContainerItemIdentifier:completionHandler:
+inputStreamWithFileAtPath:
+raise:format:
+initWithDomain:code:userInfo:
+br_personaID
+componentsSeparatedByString:
+accountOverrideInfo
+inputStreamWithURL:
+br_personaIdentifier
+arrayWithContentsOfFile:
+setClientChangeTokenData:
+initWithEnvironmentName:namedDelegatePort:queue:
+rootDatabasePath
+insertObject:atIndex:
+br_preCacheBookmarkData:versionEtag:
+arrayWithObject:
+componentsWithURL:resolvingAgainstBaseURL:
+accountStatusWithCompletionHandler:
+brc_representableHFSFileNameWithSuffix:addedExtension:makeDotFile:
+arrayWithObjects:
+setModifyRecordZonesCompletionBlock:
+setModifyRecordsCompletionBlock:
+arrayWithObjects:count:
+rangeOfFirstMatchInString:options:range:
+defaultStore
+setModifySubscriptionsCompletionBlock:
+rangeOfString:
+accountWithIdentifier:
+BouncingCountFromAlsToDoc
+initWithEventName:atTime:
+lowercaseString
+BouncingCountFromDirToPkg
+hasChainPCS
+signatureWithFileDescriptor:error:
+intAtIndex:
+rangeOfUnit:inUnit:forDate:
+parentItemIdentifier
+setMutableEncryptedPublicSharingKeyData:
+initWithExistingRecordID:databaseScope:fieldName:fileSignature:
+fetchRootItemForProviderDomain:completionHandler:
+setCompletionBlock:
+setStatementCacheMaxCount:
+defaultWorkspace
+asFileProviderItem
+rootRecordID
+intValue
+br_realpath
+hasDaemonicParts
+integerAtIndex:
+routingKey
+setConfiguration:
+br_representableDirectoryName
+downloadTaskWithURL:
+mainBundle
+integerValue
+rowNumber
+br_representableHFSFileNameWithBase:suffix:extension:makeDotFile:
+initWithFileID:
+rawID
+mainQueue
+isSqliteErrorCode:
+rawInjection:length:
+br_representableHFSFileNameWithNumber:addedExtension:makeDotFile:
+configuration
+sortUsingComparator:
+interfaceWithProtocol:
+fetchUserRecordIDWithCompletionHandler:
+br_roundedLongLongValue
+setContainer:
+sortedArrayUsingComparator:
+configurationInfoWithIdentifiers:forAltDSID:completion:
+brc_stringByDeletingPathExtension
+br_setCloudDocsMigrated:
+isSubsetOfSet:
+initWithFileURL:
+br_setCloudDocsMigrationComplete:
+downloadURL
+BouncingCountFromDocToAls
+makeNextFlushFullSync
+synchronize
+intersectSet:
+participantPermission
+downloadURLExpiration
+initWithFormat:
+synchronousRemoteObjectProxyWithErrorHandler:
+participantRole
+intersectsSet:
+_processIdentifierForID:
+initWithFormat:arguments:
+asString
+participantStatus
+participants
+setCookieStorage:
+fileCreationDate
+initWithIdentifier:displayName:
+fileDescriptor
+conformsToType:
+setCountLimit:
+sqliteRepresentation
+invalidateAccountForPersonaCache
+fileExistsAtPath:
+setCrashIfUsedAfterClose:
+pathComponents
+setNotificationInfo:
+receiveProgressUpdates:reply:
+br_sideFaultName
+deleteAllSearchableItemsWithCompletionHandler:
+deleteCharactersInRange:
+br_stringByBackslashEscapingCharactersInString:
+hasIconWithName:
+setNumberStyle:
+mangledIDString
+fileExistsAtPath:isDirectory:
+receiveUpdates:logicalExtensions:physicalExtensions:reply:
+tagData
+setSynchronousMode:
+initWithIndex:
+br_stringByDeletingPathBounceNo:
+container
+setObject:atIndexedSubscript:
+manuallyTriggered
+uploadReceiptExpiration
+br_stringByDeletingPathBounceNo:andPathExtension:
+bundleForClass:
+BouncingCountFromDocToDir
+fileObjectIDWithString:
+setDateFormat:
+isValidSignature:
+bundleIdentifier
+BouncingCountFromDocToLnk
+containerForMangledID:
+setDateStyle:
+pathWithComponents:
+BouncingCountFromDocToPkg
+bundleIdentifiers
+deleteSearchableItemsWithDomainIdentifiers:completionHandler:
+_initWithProviderIdentifier:
+associateThumbnailImagesDictionary:serializedQuickLookMetadata:withDocumentAtURL:error:
+containerID
+filePosixPermissions
+BouncingCountFromLnkToAls
+_initWithProviderIdentifier:domain:
+isAppLibraryRoot
+fileProviderErrorForNonExistentItemWithIdentifier:
+bundleInfoValueForKey:PID:
+associateThumbnailImagesDictionary:serializedQuickLookMetadata:withImmutableDocument:atURL:error:
+BouncingCountFromLnkToDir
+setTimeStyle:
+containerItemForContainer:withRepresentativeItem:
+fileSystemFlags
+bundleProxyForIdentifier:
+BouncingCountFromLnkToDoc
+fileSystemRepresentation
+setTimeZone:
+bundleURL
+BouncingCountFromLnkToPkg
+saveVerifiedAccount:withCompletionHandler:
+recordChangeTag
+setDesiredKeys:
+BouncingCountFromPkgToAls
+isBatchSuspended
+uppercaseString
+addDomain:completionHandler:
+fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
+setDesiredPackageFileIndices:
+bytes
+addDomain:forProviderIdentifier:completionHandler:
+BouncingCountFromPkgToDir
+fileURLWithPath:
+_publish
+containerMetadataMangledID
+cStringUsingEncoding:
+isBidirectionalDataTransferAllowedWithBundleID:
+BouncingCountFromPkgToDoc
+fileURLWithPath:isDirectory:
+initWithLength:
+itemAtIndex:
+BouncingCountFromPkgToLnk
+standardUserDefaults
+fileURLWithPathComponents:
+startAccessingSecurityScopedResource
+BouncingCountOnSameType
+setDiscretionary:
+setTraced:
+useBatchingOnTargetQueue:withPolicyHandler:
+setDiscretionaryNetworkBehavior:
+CKAssignToContainerWithID:
+setTrackChanges:
+hasPrefix:
+dependencies
+useBatchingWithDelay:changeCount:
+recordName
+initWithMachServiceName:
+CKClientSuitableError
+dequeue:block:
+setDisplayedHostname:
+JSONObjectWithData:options:error:
+earliestUploadReceiptExpiration
+next
+attributesOfFileSystemForPath:error:
+containerURLForSecurityApplicationGroupIdentifier:
+recordZoneChangesStatusByZoneID
+containerWithIdentifier:
+attributesOfItemAtPath:error:
+useSerialQueue
+startOfDayForDate:
+setPackageIndex:
+URLByAppendingPathComponent:
+useSerialQueueWithTarget:
+containersRepositoryURL
+URLByAppendingPathComponent:isDirectory:
+isCloudDocsMangledID
+canMostRecentClientsGenerateThumbnailsForUTI:
+nextMessage
+initWithMangledString:
+isCloudDocsRoot
+URLByDeletingLastPathComponent
+containsIndex:
+userIdentity
+URLWithString:
+setEnabledTopics:ignoredTopics:opportunisticTopics:
+isCloudSyncAllowed:
+addIndex:
+setURLCache:
+initWithName:protectionClass:
+autoRollbackHandler
+isCloudSyncTCCDisabled
+encodeBool:forKey:
+setParent:
+setURLCredentialStorage:
+UUID
+userInfo
+setURLOptions:
+encodeBytes:length:forKey:
+autovacuumableSpaceInBytes
+UUIDString
+isCurrentUser
+containsString:
+hasSuffix:
+setUnderlyingQueue:
+encodeDouble:forKey:
+firstIndex
+encodeInt32:forKey:
+BouncingCountFromAlsToDir
+__coordinateReadingItemAtURL:options:purposeID:byAccessor:
+contentModificationDate
+encodeInt64:forKey:
+recursiveChildCount
+userPersonaUniqueString
+isDataSeparatedAccount
+__coordinateWritingItemAtURL:options:purposeID:byAccessor:
+cancelAllOperations
+encodeInt:forKey:
+isDataSeparatedPersona
+userRecordID
+thumbnailImagesDictionary
+__coordinateWritingItemAtURL:options:writingItemAtURL:options:purposeID:byAccessor:
+itemCountWithError:
+initWithObjects:
+encodeInteger:forKey:
+userVersion
+contentType
+stopAccessingSecurityScopedResource
+encodeObject:forKey:
+backgroundSessionConfigurationWithIdentifier:
+contentVersion
+initWithOutputStream:
+setPerRecordChangeCompletionBlock:
+setPerRecordCompletionBlock:
+encodedData
+setPerRecordProgressBlock:
+floatValue
+backupToURL:progress:
+addObjectsFromArray:
+setPerShareCompletionBlock:
+setUserInfo:
+timeIntervalSince1970
+nonSideFaultsCompletelyMigrated
+flush
+base64EncodedStringWithOptions:
+uuidAtIndex:
+contentsOfDirectoryAtPath:error:
+setExportedInterface:
+isDesktopMangledID
+timeIntervalSinceDate:
+registerFunction:nArgs:handler:
+setUserVersion:
+__itemAtURL:didChangeWithPurposeID:
+setExportedObject:
+validateContainerID:
+timeIntervalSinceNow
+setPluginFields:
+addObserver:forKeyPath:options:context:
+encryptedPublicSharingKey
+addObserver:selector:name:object:
+encryptedValuesByKey
+streamError
+__itemAtURL:didDisconnectWithPurposeID:
+timeIntervalSinceReferenceDate
+setFamilyName:
+setPostFlushHook:
+copy
+__itemAtURL:didMoveToURL:purposeID:
+addObserverForName:object:queue:usingBlock:
+validateMangledIDString:
+setPreFlushHook:
+timeZoneForSecondsFromGMT:
+folderID
+initWithPattern:options:error:
+__itemAtURL:didReconnectWithPurposeID:
+setWantsChainPCS:
+setFetchAllChanges:
+string
+baseToken
+itemIdentifier
+copyCurrentPersonaContextWithError:
+stringAtIndex:
+setFetchAllResults:
+materialisedCountOnFPFS
+copyDataRepresentation
+setFetchDatabaseChangesCompletionBlock:
+stringByAppendingFormat:
+initWithPreviousServerChangeToken:
+topic
+setWantsPublicSharingKey:
+reimportItemsBelowItemWithIdentifier:completionHandler:
+materialisedCountOnICD
+copyItemAtURL:toURL:error:
+setFetchRecordZoneChangesCompletionBlock:
+stringByAppendingPathComponent:
+valueForEntitlement:
+isDocumentID
+valueForKey:
+performRequestWithHandler:
+stringByAppendingPathExtension:
+setFetchRecordZonesCompletionBlock:
+setPreviousServerChangeToken:
+destroyClientPackageWithDatabaseBasePath:UUID:
+isDocumentScopePublicWithProperties:mangledID:
+stringByAppendingString:
+valueForKeyPath:
+setFetchRecordsCompletionBlock:
+initWithQuery:
+addOperationWithBlock:
+entitlements
+stringByDeletingLastPathComponent
+valueWithPointer:
+performTransactionBlock:
+setFetchShareParticipantsCompletionBlock:
+forceBatchStart
+performWithFlags:action:
+capitalizedString
+setFetchUserQuotaCompletionBlock:
+setWebShareRecordsCompletionBlock:
+host
+values
+serialQueue
+setWithArray:
+stringByRemovingPercentEncoding
+performWithFlags:action:whenFlushed:
+stringByReplacingOccurrencesOfString:withString:
+setFetchWebAuthTokenCompletionBlock:
+_removeFileProvider:
+setWithCapacity:
+BouncingCountFromDirToAls
+isDocumentsMangledID
+enumerateBundlesOfType:block:
+setWithObject:
+iWorkShareableExtensions
+initWithRecordID:action:
+brc_errorAcceptAlreadyInProgressForURL:
+remoteObjectProxy
+setFileNamesByAssetFieldNames:
+setPublicPermission:
+setWithObjects:
+brc_errorAccountMismatch
+permanentStorageForItemAtURL:allocateIfNone:error:
+remoteObjectProxyWithErrorHandler:
+versionNumberForBundleIdentifier:
+setPublicSharingIdentity:
+setWithSet:
+createAdditionStagedAtURL:creationInfo:completionHandler:
+permission
+iconURLs
+brc_errorAppLibraryNotFound:
+removeAdditionsOnURL:error:
+_addFileProvider:
+isEnabledForDataclass:
+setPublishAssetCompletionBlock:
+_removeSubscriber:
+bookmarkDataWithContentsOfURL:error:
+brc_errorClientZoneNotFound:
+initWithRecordIDs:
+personaAttributesForPersonaType:
+removeAllAdditionsForNamespaces:completionHandler:
+isEnterprisePersona
+brc_errorCollisionWithItem:
+initWithRecordIDsToGrantAccess:recordIDsToRevokeAccess:
+brc_errorCompatibilityIssue
+setQualityOfService:
+stringFromDate:
+initWithRecordIDsToWebShare:recordIDsToUnshare:
+brc_errorCorruptedDB
+enumerateIndexesUsingBlock:
+initWithRecordName:zoneID:
+brc_errorDaemonShouldBeLoggedOut
+initWithRecordType:
+importDuration
+setQuery:
+bookmarkDataWithOptions:includingResourceValuesForKeys:relativeToURL:error:
+isEqualToData:
+brc_errorDocumentEvicted
+enumerateKeysAndObjectsUsingBlock:
+setQueryCompletionBlock:
+initWithRecordType:predicate:
+setZoneID:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+dictionaryForKey:
+removeDB
+initWithRecordType:recordID:
+serializedQuickLookMetadataDictionary
+enumerateObjects:
+setQueryCursorFetchedBlock:
+brc_errorDocumentIsNoLongerSharedAtURL:
+member:
+boolAtIndex:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+dictionaryWithCapacity:
+brc_errorDocumentIsNotShared
+removeDependency:
+isEqualToFileObjectID:
 description
 copyWithZone:
 setServerTruthDirCount:
@@ -28552,6 +28736,7 @@ currentTelemetryToken
 updateCurrentTelemetryToken:
 syncTelemetryEventsToSend
 dequeueSyncTelemetryEvents
+_getPriorityOfEvent:
 submitSyncTelemetryEvent:
 dropAllSyncTelemetryEvents
 deleteMissingErrorThrottles
@@ -30103,7 +30288,6 @@ _sendNotificationIfNeededWithDiffs:regather:
 triggerNotificationIfNeeded
 markForceNotify
 _setOrRemoveSmartFolderSpotlightAttributeAt:
-_setOrRemoveGelatoSpotlightAttributeAt:
 setOrRemoveSpotlightAttributeAt:
 syncUpError
 fromReadOnlyDB
@@ -30961,6 +31145,7 @@ _shouldRejectItemWithName:templateItem:isDatalessDocument:existingItem:
 _isDesktopOrDocumentsItem:
 capabilityToMoveItem:toNewParentItem:error:
 _changeBasicFieldsOnItem:fields:template:
+_updateCiconiaDatabaseForBouncing:existingItem:
 _extractBookmarkDataFromTemplateItem:isTrashBookmark:
 _parseBookmarkXattrsOnTemplateItemIfNecessary:fileURL:
 _locateTemplateItemFromFPFSImport:fields:
@@ -33376,6 +33561,7 @@ queryLastCiconiaVersion:
 signalStartOfSilentTelemetry:uuid:manual:version:reply:
 reportItemMismatchDuringSilentMigration:information:uuid:reply:
 reportCleanupFailureDuringSilentMigration:operationType:uuid:reply:
+reportOverBounceDuringSilentMigration:total:uuid:reply:
 reportFinishedMigration:uuid:reply:
 queryTelemetryEnablement:
 corruptDatabase:
@@ -33788,6 +33974,7 @@ graveyardAgeDeltaInLowUrgency
 graveyardAgeDeltaInMedUrgency
 xattrAgeDelta
 minFetchQuotaInterval
+minForceTelemetrySyncInterval
 purgePacerInterval
 dbReclaimableSpaceThreshold
 cacheDeleteRecomputeInterval
@@ -33958,6 +34145,7 @@ subResourceFetchLoopCacheSize
 fetchFullAppLibraryContents
 allowForceTelemetryDequeue
 forceTelemetryDequeuePercentage
+highPriorityTelemetryEventsPercentage
 downloadStageAgeDelta
 _globalUserDefault
 _serverContainerConfigurationDict
@@ -34591,6 +34779,7 @@ v28@0:8@16i24
 v28@0:8Q16I24
 v36@0:8Q16I24@?28
 v32@0:8@16B24B28
+i24@0:8@16
 @"BRCMetricEndpoint"
 @"BRCSyncHealthReport"
 @"NSNumber"
@@ -34619,7 +34808,6 @@ v20@0:8c16
 v24@0:8@"NSCoder"16
 @24@0:8@"NSCoder"16
 @20@0:8B16
-i24@0:8@16
 {?="mtime"b1"xattrIndex"b1"isExecutable"b1"isWritable"b1}
 @40@0:8Q16@24Q32
 @24@0:8@"BRCAccountSession"16
@@ -35214,6 +35402,7 @@ v44@0:8C16Q20Q28@?36
 v40@0:8@16B24B28@?32
 v48@0:8@16d24q32@?40
 v52@0:8@16@24B32Q36@?44
+v48@0:8@16Q24@32@?40
 v32@0:8@"NSDictionary"16@?<v@?B@"NSError">24
 v32@0:8@"NSSet"16@?<v@?@"NSError">24
 v52@0:8@"NSFileHandle"16@"NSString"24@"NSString"32B40@?<v@?B@"NSError">44
@@ -35287,6 +35476,7 @@ v32@0:8@"BRGetPausedFileListUpdater"16@?<v@?@"NSError">24
 v32@0:8@"BRFileObjectID"16@?<v@?@"NSString"@"NSError">24
 v52@0:8@"NSDate"16@"NSUUID"24B32Q36@?<v@?@"NSError">44
 v48@0:8@"NSError"16@"NSString"24@"NSUUID"32@?<v@?@"NSError">40
+v48@0:8@"BRCBouncingReport"16Q24@"NSUUID"32@?<v@?@"NSError">40
 v40@0:8@"BRCMigrationReport"16@"NSUUID"24@?<v@?@"NSError">32
 B56@0:8@16Q24@32@40@?48
 v56@0:8@16@24Q32Q40@?48

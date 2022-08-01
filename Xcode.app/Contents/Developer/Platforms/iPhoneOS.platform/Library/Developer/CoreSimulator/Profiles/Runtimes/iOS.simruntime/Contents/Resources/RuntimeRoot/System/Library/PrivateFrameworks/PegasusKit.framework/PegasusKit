@@ -1,11 +1,10 @@
-@(#)PROGRAM:PegasusKit  PROJECT:CoreParsec-3200.75.1
+@(#)PROGRAM:PegasusKit  PROJECT:CoreParsec-3200.84.1
 @__C
 _opaque_pthread_cond_t
 _opaque_pthread_mutex_t
 os_unfair_lock_s
 z_stream_s
-parsecd
-pegasuskQ
+pegasusk
 ClientType
 Client
 ResourceAccessProvider
@@ -44,6 +43,8 @@ Error
 ContextVendor
 Error
 Activity
+CancellableStore
+CancellableStoreKey
 LifetimeTrackable
 LifetimeSpanPrototype
 LifetimeTrackingActivity
@@ -134,7 +135,9 @@ _TtC10PegasusKit18ResourceAccessSpan
 outcome
 networkSpan
 excludeOutcomeForAnalytics
+engagementCachePerformQuery
 contextFetchAMSTreatments
+installedAppWhitelist
 pegasusKitEngagementSearch
 pegasusKitSpotlightZKW
 pegasusKitLookup
@@ -179,10 +182,12 @@ with data: %@
 @"NSDictionary"8@?0
 LEAKED SPAN: {{{
 Name: %s, Category: %s, Subsystem: %s
+Some objects remain retained at the moment when all activities must be finalized. This could indicate deadlock, memory leak or not cancelled asynchronous procedures, such as networking or XPC calls.
 Leaked cancellables: %s
 Analytics: %@
 Format string: %s
 Arguments: %@
+ActivityMonitor is deallocated before ActivitySpan's end() method is invoked. Activity's bookkeeping could be inaccurate.
 value
 _TtC10PegasusKit17ParsecdConnection
 connectionIdleTimeoutSeconds
@@ -194,7 +199,6 @@ com.apple.pegasuskit
 parsecdConnection
 com.apple.parsecd
 creating ParsecdConnection
-v8@?0
 tearing down parsecd XPC connection after inactivity
 v24@?0q8@"NSError"16
 fetchIsDeviceSetupCompleteFromDaemon failed: %s
@@ -227,6 +231,8 @@ lifetimeSpan
 useragent
 defaults
 cachedConfig
+cancellableLock
+cancellables
 enabledState
 _TtCC10PegasusKit16BasePegasusProxy12EnabledState
 subject
@@ -274,39 +280,48 @@ _kCFNTimingDataResponseEnd
 _TtC10PegasusKit10GRPCClient
 baseURLString
 gatewayURLString
-session
 contextVendor
 verboseDebugEnabled
 jsonEncodingOptions
 defaultGrpcTimeout
-warmupInterval
+defaultMTUSizeInBytes
 compressionEnabled
-_lastWarmupNetworkRequestDate
+warmupInterval
+warmupSpans
+warmupQueue
 debugParameters
 feedbackEventStream
+sharedSession
 Protocol
 grpc-message-type
  -H 'Content-Type: application/json'
 Device hasn't completed setup, skipping warmup
 Could construct warmup url
 Kicked off connection warmup
-warmup not required, connection still warm: %f
+Warming up session %s
+additional warmup not required %s warmed %f seconds ago
+client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s
+client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s, identifier=%{signpost.description:attribute,public}llu
+warmup complete for session %s
+com.apple.pegasuskit.warmup
 PARDebugParameters
+RPC Client Shared Session
+v8@?0
 apple.parsec.multimodal.v1.MultimodalSearch
 v1/multimodalsearch
 _TtC10PegasusKit21PegasusProxyForLookup
 metadata
 Multimodal Lookup Search is disabled, bailing
 MultimodalSearch
-client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s
-client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s, identifier=%{signpost.description:attribute,public}llu
 X-Apple-RequestId
 application/grpc+proto
+Using session %s for request
 Querying %s with request (requestId: %s) : (headers: %s) %{sensitive}s
 Couldn't construct valid debug curl: missing gateway
 Debug curl: %s
 Querying %s with request (requestId: %s) : (headers: %s) %{public}s
 grpc-accept-encoding
+Request payload size less than MTU, skipping request compression
 Request payload deflated in size from %ld to %ld
 Grpc-Metadata-X-Apple-Debug
 Found Debug Parameters to use in request: %s
@@ -317,6 +332,7 @@ Unmarshalled Response data: %s
 Response inflated in size from %ld to %ld
 Response indicates compressed payload, attempting to inflate
 RPC error: %s: %s
+RPC request did not reuse connection
 out-of-bounds-read
 _TtC10PegasusKit13ContextVendor
 activityMonitor
@@ -391,6 +407,7 @@ Down-casted Array element failed to match the target type
 Expected 
 NSArray element failed to match the Swift Array Element type
 Expected 
+ResourceAccessSpan
 _A55At
 _A39At
 SvSgAA_
@@ -412,6 +429,7 @@ SDySSSo8NSObjectCGSg
 _pGSg
 So17OS_os_transaction_pSg
 SDySSSo8NSObjectCG
+_pSg
 $s10PegasusKit12PGSDaemonXPCP
 ySo15NSXPCConnectionCGSg
 ypSg
@@ -422,7 +440,13 @@ ySo15NSXPCConnectionCGSgXw
 _pSgIegyg_
 _pSgIeggg_
 GAEG
+SgXw
+SgXwz_Xx
+So17OS_dispatch_queueC
+Iegn_Sg
+XDXMT
 SDyS2SG
+GSo17OS_dispatch_queueCG
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
 yAHGG
@@ -443,10 +467,14 @@ yXlSg
 SSSg
 So14NSUserDefaultsC
 20PegasusConfiguration6Config_pSg
+3key_
+5valuet
 GAEG
 SaySSG
 GAByACy
 _pGAGGG
+SgXw
+SgXwz_Xx
 XDXMT
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
@@ -457,8 +485,8 @@ So14OS_nw_activity_pSg
 ySS_So8NSObjectCtG
 So14OS_nw_activity_p
 So13NSURLResponseCSg
-So12NSURLSessionC
 So14NSUserDefaultsCSg
+So12NSURLSessionC
 yS2SG
 yS2SG
 ySo17NSHTTPURLResponseC_
@@ -469,11 +497,12 @@ yytGG
 ySo17NSHTTPURLResponseC_
 yytG
 SgXw
-SgXwz_Xx
 SiSg6status_SSSg7messaget
 GAEG
 GAByACy
 _pGAGGG
+SgXw
+SgXwz_Xx
 XDXMT
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
@@ -502,6 +531,7 @@ So17OS_dispatch_groupC
 yAAy
 GIegn_
 yAAy
+$s10PegasusKit16CancellableStoreP
 $s10PegasusKit17LifetimeTrackableP
 yxGG
 $s10PegasusKit19ActivityDescriptionP
@@ -534,6 +564,7 @@ _pSgXw
 SDySS
 _pSgXw
 ySSSo8NSObjectCG
+yyXlG
 So8NSObjectC
 ySSG
 _os_unfair_lock_opaque
@@ -565,6 +596,7 @@ cachehit
 networkCallSucceed
 xpcCallSucceed
 finished
+canceled
 configFetchSynchronized
 configFetchThrottled
 configFetchInBackground
@@ -572,6 +604,7 @@ skipSearch
 pretendSearch
 warmNotRequired
 connectionStillWarm
+badRequest
 badResponse
 badResponseStatus
 emptyDataInResponse
@@ -589,6 +622,7 @@ configFetchCompletedCacheReadFailed
 invalidConfig
 otherConfigError
 featureDisabled
+deviceSetupIncomplete
 ensureBagFailed
 noUserAgent
 noBag
@@ -603,6 +637,9 @@ contextFetchFailed
 contextFetchSuccessUnchanged
 contextFetchSuccessUpdated
 contextFetchSuccessUpdatedStale
+sqlError
+v1Finished
+v2Finished
 urlErrorCancelled
 urlErrorBadURL
 urlErrorTimedOut
@@ -614,6 +651,10 @@ urlErrorHTTPTooManyRedirects
 urlErrorResourceUnavailable
 urlErrorNotConnectedToInternet
 urlErrorRedirectToNonExistentLocation
+appWhitelistImmediateUpdateTransactionMissing
+appWhitelistDeferredUpdateBegan
+appwhitelistDeferredUpdateTransactionMissing
+appWhitelistDeferredUpdateSuperseded
 configuration
 parsecdSearch
 parsecdZeroKeyWord
@@ -632,6 +673,8 @@ pegasusKitContextFetchXPC
 pegasusKitLookup
 pegasusKitSpotlightZKW
 pegasusKitEngagementSearch
+engagementCachePerformQuery
+installedAppWhitelist
 contextFetchAMSTreatments
 RawValue
 timer
@@ -679,6 +722,8 @@ useragent
 client
 defaults
 cachedConfig
+cancellableLock
+cancellables
 enabledState
 unknown
 notConfigured
@@ -700,17 +745,19 @@ networkActivity
 activityMonitor
 baseURLString
 gatewayURLString
-session
 defaults
 contextVendor
 verboseDebugEnabled
 jsonEncodingOptions
 defaultGrpcTimeout
-warmupInterval
+defaultMTUSizeInBytes
 compressionEnabled
-_lastWarmupNetworkRequestDate
+warmupInterval
+warmupSpans
+warmupQueue
 debugParameters
 feedbackEventStream
+sharedSession
 Activity
 RawValue
 badURLError
@@ -824,12 +871,6 @@ invalidate
 initWithMachServiceName:options:
 loadWithData:userAgent:userDefaults:
 standardUserDefaults
-ephemeralSessionConfiguration
-setAllowsCellularAccess:
-setWaitsForConnectivity:
-set_expiredDNSBehavior:
-sessionWithConfiguration:
-set_tlsTrustPinningPolicyName:
 initWithSuiteName:
 initWithInteger:
 initWithDouble:
@@ -838,9 +879,17 @@ statusCode
 response
 _timingData
 set_preconnect:
+sessionDescription
+set_nw_activity:
 stringForKey:
 boolForKey:
-set_nw_activity:
+ephemeralSessionConfiguration
+setAllowsCellularAccess:
+setWaitsForConnectivity:
+set_expiredDNSBehavior:
+sessionWithConfiguration:
+setSessionDescription:
+set_tlsTrustPinningPolicyName:
 valueForHTTPHeaderField:
 initWithDomain:code:userInfo:
 processInfo
@@ -888,20 +937,21 @@ mapssuggestions
 mail
 photopicker
 photos
-@(#)PROGRAM:PegasusKit  PROJECT:CoreParsec-3200.75.1
+@(#)PROGRAM:PegasusKit  PROJECT:CoreParsec-3200.84.1
 @__C
 _opaque_pthread_cond_t
 _opaque_pthread_mutex_t
 os_unfair_lock_s
 z_stream_s
-parsecd
 pegasusk
 ClientType
 Client
-)+-/13579;=?ACEG##################################IKMOQSU
-OQSUWY[]_aC
-!%)-148<@
-!#%'
+lnpr
+79;=?ACEGIKMOQSUWY+++++++++++++++++++++++++++++++++[]_aceg
+acegikmoqs
+nprJ
+!%)-037;?CG
+ "$&(*
 PegasusKit
 ResourceAccessProvider
 ResourceAccessSpan
@@ -939,6 +989,8 @@ Error
 ContextVendor
 Error
 Activity
+CancellableStore
+CancellableStoreKey
 LifetimeTrackable
 LifetimeSpanPrototype
 LifetimeTrackingActivity
@@ -1030,7 +1082,9 @@ _TtC10PegasusKit18ResourceAccessSpan
 outcome
 networkSpan
 excludeOutcomeForAnalytics
+engagementCachePerformQuery
 contextFetchAMSTreatments
+installedAppWhitelist
 pegasusKitEngagementSearch
 pegasusKitSpotlightZKW
 pegasusKitLookup
@@ -1075,10 +1129,12 @@ with data: %@
 @"NSDictionary"8@?0
 LEAKED SPAN: {{{
 Name: %s, Category: %s, Subsystem: %s
+Some objects remain retained at the moment when all activities must be finalized. This could indicate deadlock, memory leak or not cancelled asynchronous procedures, such as networking or XPC calls.
 Leaked cancellables: %s
 Analytics: %@
 Format string: %s
 Arguments: %@
+ActivityMonitor is deallocated before ActivitySpan's end() method is invoked. Activity's bookkeeping could be inaccurate.
 value
 _TtC10PegasusKit17ParsecdConnection
 connectionIdleTimeoutSeconds
@@ -1090,7 +1146,6 @@ com.apple.pegasuskit
 parsecdConnection
 com.apple.parsecd
 creating ParsecdConnection
-v8@?0
 tearing down parsecd XPC connection after inactivity
 v24@?0q8@"NSError"16
 fetchIsDeviceSetupCompleteFromDaemon failed: %s
@@ -1123,6 +1178,8 @@ lifetimeSpan
 useragent
 defaults
 cachedConfig
+cancellableLock
+cancellables
 enabledState
 _TtCC10PegasusKit16BasePegasusProxy12EnabledState
 subject
@@ -1170,39 +1227,48 @@ _kCFNTimingDataResponseEnd
 _TtC10PegasusKit10GRPCClient
 baseURLString
 gatewayURLString
-session
 contextVendor
 verboseDebugEnabled
 jsonEncodingOptions
 defaultGrpcTimeout
-warmupInterval
+defaultMTUSizeInBytes
 compressionEnabled
-_lastWarmupNetworkRequestDate
+warmupInterval
+warmupSpans
+warmupQueue
 debugParameters
 feedbackEventStream
+sharedSession
 Protocol
 grpc-message-type
  -H 'Content-Type: application/json'
 Device hasn't completed setup, skipping warmup
 Could construct warmup url
 Kicked off connection warmup
-warmup not required, connection still warm: %f
+Warming up session %s
+additional warmup not required %s warmed %f seconds ago
+client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s
+client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s, identifier=%{signpost.description:attribute,public}llu
+warmup complete for session %s
+com.apple.pegasuskit.warmup
 PARDebugParameters
+RPC Client Shared Session
+v8@?0
 apple.parsec.multimodal.v1.MultimodalSearch
 v1/multimodalsearch
 _TtC10PegasusKit21PegasusProxyForLookup
 metadata
 Multimodal Lookup Search is disabled, bailing
 MultimodalSearch
-client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s
-client=%{signpost.description:attribute,public}s, version=%{signpost.description:attribute,public}s, identifier=%{signpost.description:attribute,public}llu
 X-Apple-RequestId
 application/grpc+proto
+Using session %s for request
 Querying %s with request (requestId: %s) : (headers: %s) %{sensitive}s
 Couldn't construct valid debug curl: missing gateway
 Debug curl: %s
 Querying %s with request (requestId: %s) : (headers: %s) %{public}s
 grpc-accept-encoding
+Request payload size less than MTU, skipping request compression
 Request payload deflated in size from %ld to %ld
 Grpc-Metadata-X-Apple-Debug
 Found Debug Parameters to use in request: %s
@@ -1213,6 +1279,7 @@ Unmarshalled Response data: %s
 Response inflated in size from %ld to %ld
 Response indicates compressed payload, attempting to inflate
 RPC error: %s: %s
+RPC request did not reuse connection
 out-of-bounds-read
 _TtC10PegasusKit13ContextVendor
 activityMonitor
@@ -1287,6 +1354,7 @@ Down-casted Array element failed to match the target type
 Expected 
 NSArray element failed to match the Swift Array Element type
 Expected 
+ResourceAccessSpan
 _A55At
 _A39At
 SvSgAA_
@@ -1308,6 +1376,7 @@ SDySSSo8NSObjectCGSg
 _pGSg
 So17OS_os_transaction_pSg
 SDySSSo8NSObjectCG
+_pSg
 $s10PegasusKit12PGSDaemonXPCP
 ySo15NSXPCConnectionCGSg
 ypSg
@@ -1318,7 +1387,13 @@ ySo15NSXPCConnectionCGSgXw
 _pSgIegyg_
 _pSgIeggg_
 GAEG
+SgXw
+SgXwz_Xx
+So17OS_dispatch_queueC
+Iegn_Sg
+XDXMT
 SDyS2SG
+GSo17OS_dispatch_queueCG
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
 yAHGG
@@ -1339,10 +1414,14 @@ yXlSg
 SSSg
 So14NSUserDefaultsC
 20PegasusConfiguration6Config_pSg
+3key_
+5valuet
 GAEG
 SaySSG
 GAByACy
 _pGAGGG
+SgXw
+SgXwz_Xx
 XDXMT
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
@@ -1353,8 +1432,8 @@ So14OS_nw_activity_pSg
 ySS_So8NSObjectCtG
 So14OS_nw_activity_p
 So13NSURLResponseCSg
-So12NSURLSessionC
 So14NSUserDefaultsCSg
+So12NSURLSessionC
 yS2SG
 yS2SG
 ySo17NSHTTPURLResponseC_
@@ -1365,11 +1444,12 @@ yytGG
 ySo17NSHTTPURLResponseC_
 yytG
 SgXw
-SgXwz_Xx
 SiSg6status_SSSg7messaget
 GAEG
 GAByACy
 _pGAGGG
+SgXw
+SgXwz_Xx
 XDXMT
 _pGACyAeJ_pGG
 _pGADyAfK_pGG
@@ -1398,6 +1478,7 @@ So17OS_dispatch_groupC
 yAAy
 GIegn_
 yAAy
+$s10PegasusKit16CancellableStoreP
 $s10PegasusKit17LifetimeTrackableP
 yxGG
 $s10PegasusKit19ActivityDescriptionP
@@ -1430,6 +1511,7 @@ _pSgXw
 SDySS
 _pSgXw
 ySSSo8NSObjectCG
+yyXlG
 So8NSObjectC
 ySSG
 _os_unfair_lock_opaque
@@ -1461,6 +1543,7 @@ cachehit
 networkCallSucceed
 xpcCallSucceed
 finished
+canceled
 configFetchSynchronized
 configFetchThrottled
 configFetchInBackground
@@ -1468,6 +1551,7 @@ skipSearch
 pretendSearch
 warmNotRequired
 connectionStillWarm
+badRequest
 badResponse
 badResponseStatus
 emptyDataInResponse
@@ -1485,6 +1569,7 @@ configFetchCompletedCacheReadFailed
 invalidConfig
 otherConfigError
 featureDisabled
+deviceSetupIncomplete
 ensureBagFailed
 noUserAgent
 noBag
@@ -1499,6 +1584,9 @@ contextFetchFailed
 contextFetchSuccessUnchanged
 contextFetchSuccessUpdated
 contextFetchSuccessUpdatedStale
+sqlError
+v1Finished
+v2Finished
 urlErrorCancelled
 urlErrorBadURL
 urlErrorTimedOut
@@ -1510,6 +1598,10 @@ urlErrorHTTPTooManyRedirects
 urlErrorResourceUnavailable
 urlErrorNotConnectedToInternet
 urlErrorRedirectToNonExistentLocation
+appWhitelistImmediateUpdateTransactionMissing
+appWhitelistDeferredUpdateBegan
+appwhitelistDeferredUpdateTransactionMissing
+appWhitelistDeferredUpdateSuperseded
 configuration
 parsecdSearch
 parsecdZeroKeyWord
@@ -1528,6 +1620,8 @@ pegasusKitContextFetchXPC
 pegasusKitLookup
 pegasusKitSpotlightZKW
 pegasusKitEngagementSearch
+engagementCachePerformQuery
+installedAppWhitelist
 contextFetchAMSTreatments
 RawValue
 timer
@@ -1575,6 +1669,8 @@ useragent
 client
 defaults
 cachedConfig
+cancellableLock
+cancellables
 enabledState
 unknown
 notConfigured
@@ -1596,17 +1692,19 @@ networkActivity
 activityMonitor
 baseURLString
 gatewayURLString
-session
 defaults
 contextVendor
 verboseDebugEnabled
 jsonEncodingOptions
 defaultGrpcTimeout
-warmupInterval
+defaultMTUSizeInBytes
 compressionEnabled
-_lastWarmupNetworkRequestDate
+warmupInterval
+warmupSpans
+warmupQueue
 debugParameters
 feedbackEventStream
+sharedSession
 Activity
 RawValue
 badURLError
@@ -1720,12 +1818,6 @@ invalidate
 initWithMachServiceName:options:
 loadWithData:userAgent:userDefaults:
 standardUserDefaults
-ephemeralSessionConfiguration
-setAllowsCellularAccess:
-setWaitsForConnectivity:
-set_expiredDNSBehavior:
-sessionWithConfiguration:
-set_tlsTrustPinningPolicyName:
 initWithSuiteName:
 initWithInteger:
 initWithDouble:
@@ -1734,9 +1826,17 @@ statusCode
 response
 _timingData
 set_preconnect:
+sessionDescription
+set_nw_activity:
 stringForKey:
 boolForKey:
-set_nw_activity:
+ephemeralSessionConfiguration
+setAllowsCellularAccess:
+setWaitsForConnectivity:
+set_expiredDNSBehavior:
+sessionWithConfiguration:
+setSessionDescription:
+set_tlsTrustPinningPolicyName:
 valueForHTTPHeaderField:
 initWithDomain:code:userInfo:
 processInfo

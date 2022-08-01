@@ -88,6 +88,7 @@ Current and past visits are not far enough to be considered for UT
 %{private}@
 #TATrackingAvoidanceService significant time elapsed, performing classification now
 {"msg%{public}.0s":"#TAAnalyticsManager nil device or service in conversion"}
+{"msg%{public}.0s":"#TAAnalyticsManager nil device or service in conversion for home detection"}
 {"msg%{public}.0s":"#TAAnalyticsManager Submitting analytics event", "eventName":"%{private}@", "content":"%{private}@"}
 {"msg%{public}.0s":"#TAAnalyticsManager Analytics submission not enabled", "eventName":"%{private}@", "content":"%{private}@"}
 #TASingleDeviceRecord staging detection:%{private}@
@@ -201,6 +202,8 @@ Updating %{private}s to snapshot
 #TADeviceRecord purging records
 #TADeviceRecord expiring %@ from record
 #TADeviceRecord updateDeviceRecordOnSessionChange called
+{"msg%{public}.0s":"#TADeviceRecord skip reprompting since we have issued an alert upon arrival", "address":"%{private}@"}
+{"msg%{public}.0s":"#TADeviceRecord skip reprompting since we have issued an alert upon departure", "address":"%{private}@"}
 #TADeviceRecord resetting %@ status to reprompt
 #TADeviceRecord status for %{private}@:%{private}@
 #TADeviceRecord record not found when clearing staged detections
@@ -229,7 +232,9 @@ Updating %{private}s to snapshot
 {"msg%{public}.0s":"#TAInterVisitMetricsSnapshot snapshot full, not adding metrics for address", "address":"%{private}@"}
 #TAInterVisitMetricsSnapshot observing out-of-order advertisements; use the observation interval in the summary
 {"msg%{public}.0s":"#TAInterVisitMetricsSnapshot segment speed exceeds limit", "address":"%{private}@"}
-#TAInterVisitMetricsSnapshot missing advertisements in metrics
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot got invalid visit in visitEntryDelayCorrection"}
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot missing latest advertisement for address in accumulatedDeviceMetrics"}
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot visitEntryDelayCorrection evaluating metric", "address":"%{private}@", "updatedAfterVisitEntry":%{public}hhd, "hasAdvertisementAfterVisitEntry":%{public}hhd, "durationCorrection":"%{public}f", "motionStatesCorrection":"%{public}@"}
 #TAInterVisitMetricsSnapshot latestest advertisements out of order
 #TAInterVisitMetricsSnapshot latestest current location and earliest next location out of order
 #TAVisitSnapshot not setting representative visit because snapshot already closed
@@ -321,6 +326,7 @@ VResidualDistance
 VNSigma
 SVInterVisitMetrics
 SVLOI
+SVPreviousVisitType
 MType
 MVisitMetrics
 MGeneralMetrics
@@ -352,6 +358,7 @@ NumOfSampledObservationLocations
 LatestAdvertisement
 SampledObservedLocations
 Settings
+DurationPerMotionState
 CurrentInterVisitMetric
 TotalInterVisitMetric
 q24@?0@8@16
@@ -386,6 +393,7 @@ TADeviceRecordAssumedKeyRollHour
 TADeviceRecordScanInterval
 TADeviceRecordSurfaceImmediatelyBetweenBackstopAndKeyroll
 TADeviceRecordMaxExpectedHELEWildInterval
+TADeviceRecordMaxExpectedDurianWildInterval
 TADeviceRecordShouldAlertHELEImmediatelyForImmediateTypes
 TADeviceRecordMinimumHELEStagingInterval
 TADeviceRecordStagingHELEBackstopHour
@@ -540,6 +548,18 @@ lastAttemptMinutes
 soundCount
 soundMinutes
 success
+com.apple.clx.ta.arrivalHomeVisit
+distanceTraveled
+duration
+deviceType
+staticRatio
+pedestrianRatio
+vehicularRatio
+cyclingRatio
+unknownRatio
+lastVisitType
+Home
+Non-Home
 @"NSDictionary"8@?0
 write
 read
@@ -640,7 +660,6 @@ PendingStart
 Running
 RunningNoScanning
 UnknownState
-Home
 Work
 PeopleDensityState
 ObservationInterval
@@ -687,6 +706,7 @@ KeyRollHour
 ScanInterval
 SurfaceImmediatelyBetweenBackstopAndKeyroll
 MaxExpectedHELEWildInterval
+MaxExpectedDurianWildInterval
 HELEImmediate
 MinHELEStagingInterval
 HELEBackstopHour
@@ -930,9 +950,10 @@ segmentSpeedExceedsLimit
 loiType
 numberWithDouble:
 numberWithUnsignedInteger:
+getObjectAtIndex:
 getLeavingLOIDetectionTypeForLOIType:
 getLeavingLOINotificationImmediacyTypeForLOIType:leavingLOISettings:
-initWithInterVisitMetrics:loiType:
+initWithInterVisitMetrics:loiType:previousVisitType:
 initWithDetectionType:visitDetectionMetrics:generalDetectionMetrics:singleVisitDetectionMetrics:latestAdvertisement:
 sampledObservedLocations
 initWithLatestAdv:detectionSummary:date:locHistory:detectionMetrics:detectionType:immediacyType:
@@ -1017,7 +1038,7 @@ intersectsDateInterval:
 intersectionWithDateInterval:
 objectForKeyedSubscript:
 setObject:forKeyedSubscript:
-_getCumulativeUserActivityTimeInDateInterval:store:
+getCumulativeUserActivityTimeInDateInterval:store:
 integerValue
 getDominantUserActivityInfoInDateInterval:store:
 boolValue
@@ -1247,8 +1268,11 @@ _nSigmaBetweenVisits
 Td,R,N,V_distanceToPreviousVisit
 Td,R,N,V_residualDistanceToPreviousVisit
 TQ,R,N,V_nSigmaBetweenVisits
+previousVisitType
 _loiType
+_previousVisitType
 TQ,R,N,V_loiType
+TQ,R,N,V_previousVisitType
 visitDetectionMetrics
 generalDetectionMetrics
 singleVisitDetectionMetrics
@@ -1271,6 +1295,8 @@ TQ,N,V_sampledObservationLocationsBufferSize
 initWithSettings:
 numOfAssociatedLocs
 setSegmentSpeedExceedsLimit:
+durationPerMotionState
+accumulateDurationPerMotionState:
 arrayByAddingObjectsFromArray:
 sortedArrayUsingComparator:
 settings
@@ -1280,6 +1306,7 @@ _segmentSpeedExceedsLimit
 _numOfAssociatedLocs
 _duration
 _distance
+_durationPerMotionState
 _settings
 _sampledObservedLocations
 T@"TAInterVisitMetricPerDeviceSettings",&,N,V_settings
@@ -1288,6 +1315,7 @@ TB,N,V_segmentSpeedExceedsLimit
 TQ,R,N,V_numOfAssociatedLocs
 Td,R,N,V_duration
 Td,R,N,V_distance
+T@"NSDictionary",R,N,V_durationPerMotionState
 isEqualToData:
 currentInterVisitMetric
 totalInterVisitMetric
@@ -1298,7 +1326,7 @@ T@"TAInterVisitMetricPerDevice",R,N,V_totalInterVisitMetric
 convertEnabledLoiTypesValueContentToNSNumberType:
 initWithBufferCapacityOrDefault:bufferTimeIntervalOfRetentionOrDefault:
 initWithVisitSnapshotCapacityOrDefault:visitDisplayBufferCapacityOrDefault:interVisitMetricSnapshotCapacityOrDefault:interVisitSnapshotUpdateIntervalOrDefault:thresholdOfLocationRelevanceOrDefault:snapshotBufferTimeIntervalOfRetentionOrDefault:loiBufferPerTypeCapacityOrDefault:loiBufferTimeIntervalOfRetentionOrDefault:maxNSigmaBetweenLastLocationAndVisitOrDefault:qualitySnapshotDwellDurationOrDefault:qualitySnapshotDisplayOnDurationOrDefault:uniqueUTObservationCapPerVisitOrDefault:sensitiveLOITypesOrDefault:
-initWithExpiryTimeIntervalOrDefault:purgeTimeIntervalOrDefault:keepAliveIntervalOrDefault:minimumStagingIntervalOrDefault:stagingBackstopHourOrDefault:assumedKeyRollHourOrDefault:scanIntervalOrDefault:surfaceImmediatelyBetweenBackstopAndKeyrollOrDefault:maxExpectedHELEWildIntervalOrDefault:shouldAlertHELEImmediatelyForImmediateTypesOrDefault:minimumHELEStagingIntervalOrDefault:stagingHELEBackstopHourOrDefault:surfaceHELEImmediatelyBetweenBackstopAndKeyrollOrDefault:
+initWithExpiryTimeIntervalOrDefault:purgeTimeIntervalOrDefault:keepAliveIntervalOrDefault:minimumStagingIntervalOrDefault:stagingBackstopHourOrDefault:assumedKeyRollHourOrDefault:scanIntervalOrDefault:surfaceImmediatelyBetweenBackstopAndKeyrollOrDefault:maxExpectedHELEWildIntervalOrDefault:maxExpectedDurianWildIntervalOrDefault:shouldAlertHELEImmediatelyForImmediateTypesOrDefault:minimumHELEStagingIntervalOrDefault:stagingHELEBackstopHourOrDefault:surfaceHELEImmediatelyBetweenBackstopAndKeyrollOrDefault:
 initWithMinVisitEntryDisplayOnDurationOrDefault:minInterVisitDisplayOnDurationOrDefault:interVisitScanDelayOrDefault:maxInterVisitScanRequestsOrDefault:
 initWithEnableTAFilterGeneralOrDefault:enableTAFilterVisitsOrDefault:enableTAFilterSingleVisitOrDefault:enableTAFilterLeavingLOIOrDefault:classificationTimeIntervalOrDefault:
 initWithEnableSubmissionOrDefault:andSettingsVersion:
@@ -1331,6 +1359,7 @@ assumedKeyRollHour
 scanInterval
 surfaceImmediatelyBetweenBackstopAndKeyroll
 maxExpectedHELEWildInterval
+maxExpectedDurianWildInterval
 shouldAlertHELEImmediatelyForImmediateTypes
 minimumHELEStagingInterval
 stagingHELEBackstopHour
@@ -1632,8 +1661,10 @@ playSoundFailureCount
 playSoundSuccessCount
 numBeepOnMove
 firstBeepOnMoveDate
+_getMotionDuration:motionDistribution:
 _convertDetection:service:
 _submitEvent:content:
+_convertHomeDetection:service:
 _convertScanRequest:service:
 _convertRecord:service:
 _convertBOMObservation:
@@ -2064,7 +2095,7 @@ notifyObserversOfMetricsHint:
 openVisitSnapshotWithStore:visit:andAppendOutgoingRequestsTo:
 labelLoiTypeForLastVisitSnapshot:
 issueVisitEntryScanRequestIfNecessaryWithOpenSnapshot:clock:andAppendOutgoingRequestsTo:
-closeLatestInterVisitSnapshotWithStore:date:
+closeLatestInterVisitSnapshotWithStore:arrivalVisit:
 openInterVisitBackupSnapshotWithArrivalVisit:
 shouldCreateNewVisitSnapshotFromUnknownState:
 initWithTACLVisit:uniqueUTBufferCap:displayEventBufferSizeCap:maxNSigmaBetweenLastLocationAndVisit:
@@ -2079,12 +2110,13 @@ updateLoiType:
 evaluateVisitEntry:clock:
 evaluateInterVisitAfterVisitExit:displayEvents:advertisements:deviceRecord:clock:
 initWithTime:maxUniqueAddresses:
-updateInterVisitMetric:withUpdatedTime:andCloseSnapshot:
+updateInterVisitMetric:store:withUpdatedTime:andCloseSnapshot:
 lastUpdateTime
 laterDate:
+visitEntryDelayCorrection:store:
 updateInterVisitSnapshot:store:
 evaluateSnapshotQualityWithMinDwellDuration:minDisplayOnDuration:
-updateWithInterVisitMetricsSnapshot:
+updateWithInterVisitMetricsSnapshot:store:
 removeLastObject
 resetInterVisitBackupSnapshot
 getAllTAEventsOf:andEventSubtype:between:
@@ -2097,9 +2129,11 @@ isInSensitiveVisit
 ingestTAEvent:store:appendOutgoingRequestsTo:
 purgeWithClock:
 recoverInterVisitSnapshotWithArrivalVisit:store:
+lastStateTransition
 setNextPredictedLOIs:
 setScanRequest:
 setInterVisitMetricsSnapshotBackup:
+_lastStateTransition
 _visitSnapshotBuffer
 _interVisitMetricSnapshotBuffer
 _importantLois
@@ -2110,12 +2144,13 @@ T@"TAVisitStateSettings",&,N,V_settings
 T@"TAScanRequest",&,N,V_scanRequest
 T@"TAInterVisitMetricsSnapshot",&,N,V_interVisitMetricsSnapshotBackup
 T@"NSMutableArray",&,N,V_nextPredictedLOIs
+TQ,R,N,V_lastStateTransition
 T@"TACircularBuffer",R,N,V_visitSnapshotBuffer
 T@"TACircularBuffer",R,N,V_interVisitMetricSnapshotBuffer
 T@"NSMutableDictionary",R,N,V_importantLois
 hasHawkeyeAdvertisementPolicy
 hasHawkeyeLowEnergyAdvertisementPolicy
-initWithExpiryTimeInterval:purgeTimeInterval:keepAliveInterval:minimumStagingInterval:stagingBackstopHour:assumedKeyRollHour:scanInterval:surfaceImmediatelyBetweenBackstopAndKeyroll:maxExpectedHELEWildInterval:shouldAlertHELEImmediatelyForImmediateTypes:minimumHELEStagingInterval:stagingHELEBackstopHour:surfaceHELEImmediatelyBetweenBackstopAndKeyroll:
+initWithExpiryTimeInterval:purgeTimeInterval:keepAliveInterval:minimumStagingInterval:stagingBackstopHour:assumedKeyRollHour:scanInterval:surfaceImmediatelyBetweenBackstopAndKeyroll:maxExpectedHELEWildInterval:maxExpectedDurianWildInterval:shouldAlertHELEImmediatelyForImmediateTypes:minimumHELEStagingInterval:stagingHELEBackstopHour:surfaceHELEImmediatelyBetweenBackstopAndKeyroll:
 setExpiryTimeInterval:
 setPurgeTimeInterval:
 _surfaceImmediatelyBetweenBackstopAndKeyroll
@@ -2128,6 +2163,7 @@ _stagingBackstopHour
 _assumedKeyRollHour
 _scanInterval
 _maxExpectedHELEWildInterval
+_maxExpectedDurianWildInterval
 _minimumHELEStagingInterval
 _stagingHELEBackstopHour
 Td,N,V_expiryTimeInterval
@@ -2139,6 +2175,7 @@ Tq,R,N,V_assumedKeyRollHour
 Td,R,N,V_scanInterval
 TB,R,N,V_surfaceImmediatelyBetweenBackstopAndKeyroll
 Td,R,N,V_maxExpectedHELEWildInterval
+Td,R,N,V_maxExpectedDurianWildInterval
 TB,R,N,V_shouldAlertHELEImmediatelyForImmediateTypes
 Td,R,N,V_minimumHELEStagingInterval
 Tq,R,N,V_stagingHELEBackstopHour
@@ -2166,7 +2203,7 @@ lastScanAttemptDate
 getLatestAdvertisement:
 checkForScanRequestsWithClock:andAppendOutgoingRequestsTo:
 purgeWithClock:andAppendOutgoingRequestsTo:
-updateDeviceRecordOnSessionChangeWithCurrentDate:
+updateDeviceRecordOnSessionChange:WithCurrentDate:
 forceStagedDetectionsToSurfaceImmediatelyWithAdvertisement:
 setLastPurgeDate:
 setLastScanAttemptDate:
@@ -2407,7 +2444,7 @@ B24@0:8@"Protocol"16
 q16@0:8
 @"TAInterVisitMetricPerDevice"
 @40@0:8d16d24Q32
-@32@0:8@16Q24
+@40@0:8@16Q24Q32
 @56@0:8Q16@24@32@40@48
 @"TAGeneralDetectionMetrics"
 @"TAVisitDetectionMetrics"
@@ -2463,7 +2500,9 @@ B56@0:8@"OSActivityStream"16@"NSString"24@"OSLogDevice"32q40@"NSError"48
 @68@0:8@16@24C32@36q44@52@60
 C16@0:8
 @"NSUUID"
+@32@0:8@16Q24
 q24@0:8@16
+d32@0:8Q16@24
 v32@0:8@"TATrackingAvoidanceService"16@"NSArray"24
 v24@0:8@"TATrackingAvoidanceService"16
 v32@0:8@"NSURL"16Q24
@@ -2509,7 +2548,8 @@ v48@0:8Q16@24@32@40
 @"TACircularBuffer"
 @"TAScanRequest"
 @"TAInterVisitMetricsSnapshot"
-@108@0:8d16d24d32d40Q48Q56d64B72d76B84d88Q96B104
+@116@0:8d16d24d32d40Q48Q56d64B72d76d84B92d96Q104B112
+@128@0:8@16@24@32@40@48@56@64@72@80@88@96@104@112@120
 v40@0:8@16Q24@32
 @32@0:8@?16Q24
 @"TAEventBuffer"
@@ -2518,7 +2558,7 @@ d40@0:8@16@24@32
 @32@0:8Q16d24
 @32@0:8#16@24
 @40@0:8#16Q24@32
-v36@0:8@16@24B32
+v44@0:8@16@24@32B40
 @48@0:8@16Q24Q32Q40
 v28@0:8d16B24
 @24@0:8d16
@@ -2619,6 +2659,7 @@ Current and past visits are not far enough to be considered for UT
 %{private}@
 #TATrackingAvoidanceService significant time elapsed, performing classification now
 {"msg%{public}.0s":"#TAAnalyticsManager nil device or service in conversion"}
+{"msg%{public}.0s":"#TAAnalyticsManager nil device or service in conversion for home detection"}
 {"msg%{public}.0s":"#TAAnalyticsManager Submitting analytics event", "eventName":"%{private}@", "content":"%{private}@"}
 {"msg%{public}.0s":"#TAAnalyticsManager Analytics submission not enabled", "eventName":"%{private}@", "content":"%{private}@"}
 #TASingleDeviceRecord staging detection:%{private}@
@@ -2732,6 +2773,8 @@ Updating %{private}s to snapshot
 #TADeviceRecord purging records
 #TADeviceRecord expiring %@ from record
 #TADeviceRecord updateDeviceRecordOnSessionChange called
+{"msg%{public}.0s":"#TADeviceRecord skip reprompting since we have issued an alert upon arrival", "address":"%{private}@"}
+{"msg%{public}.0s":"#TADeviceRecord skip reprompting since we have issued an alert upon departure", "address":"%{private}@"}
 #TADeviceRecord resetting %@ status to reprompt
 #TADeviceRecord status for %{private}@:%{private}@
 #TADeviceRecord record not found when clearing staged detections
@@ -2760,7 +2803,9 @@ Updating %{private}s to snapshot
 {"msg%{public}.0s":"#TAInterVisitMetricsSnapshot snapshot full, not adding metrics for address", "address":"%{private}@"}
 #TAInterVisitMetricsSnapshot observing out-of-order advertisements; use the observation interval in the summary
 {"msg%{public}.0s":"#TAInterVisitMetricsSnapshot segment speed exceeds limit", "address":"%{private}@"}
-#TAInterVisitMetricsSnapshot missing advertisements in metrics
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot got invalid visit in visitEntryDelayCorrection"}
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot missing latest advertisement for address in accumulatedDeviceMetrics"}
+{"msg%{public}.0s":"#TAInterVisitMetricsSnapshot visitEntryDelayCorrection evaluating metric", "address":"%{private}@", "updatedAfterVisitEntry":%{public}hhd, "hasAdvertisementAfterVisitEntry":%{public}hhd, "durationCorrection":"%{public}f", "motionStatesCorrection":"%{public}@"}
 #TAInterVisitMetricsSnapshot latestest advertisements out of order
 #TAInterVisitMetricsSnapshot latestest current location and earliest next location out of order
 #TAVisitSnapshot not setting representative visit because snapshot already closed
@@ -2852,6 +2897,7 @@ VResidualDistance
 VNSigma
 SVInterVisitMetrics
 SVLOI
+SVPreviousVisitType
 MType
 MVisitMetrics
 MGeneralMetrics
@@ -2883,6 +2929,7 @@ NumOfSampledObservationLocations
 LatestAdvertisement
 SampledObservedLocations
 Settings
+DurationPerMotionState
 CurrentInterVisitMetric
 TotalInterVisitMetric
 q24@?0@8@16
@@ -2917,6 +2964,7 @@ TADeviceRecordAssumedKeyRollHour
 TADeviceRecordScanInterval
 TADeviceRecordSurfaceImmediatelyBetweenBackstopAndKeyroll
 TADeviceRecordMaxExpectedHELEWildInterval
+TADeviceRecordMaxExpectedDurianWildInterval
 TADeviceRecordShouldAlertHELEImmediatelyForImmediateTypes
 TADeviceRecordMinimumHELEStagingInterval
 TADeviceRecordStagingHELEBackstopHour
@@ -3071,6 +3119,18 @@ lastAttemptMinutes
 soundCount
 soundMinutes
 success
+com.apple.clx.ta.arrivalHomeVisit
+distanceTraveled
+duration
+deviceType
+staticRatio
+pedestrianRatio
+vehicularRatio
+cyclingRatio
+unknownRatio
+lastVisitType
+Home
+Non-Home
 @"NSDictionary"8@?0
 write
 read
@@ -3171,7 +3231,6 @@ PendingStart
 Running
 RunningNoScanning
 UnknownState
-Home
 Work
 PeopleDensityState
 ObservationInterval
@@ -3218,6 +3277,7 @@ KeyRollHour
 ScanInterval
 SurfaceImmediatelyBetweenBackstopAndKeyroll
 MaxExpectedHELEWildInterval
+MaxExpectedDurianWildInterval
 HELEImmediate
 MinHELEStagingInterval
 HELEBackstopHour
@@ -3366,183 +3426,183 @@ TAVisitSnapshot
 TAScanRequestSettings
 TAScanRequest
 TACoreAnalyticMetricManager
-allocWithZone:
-setLogArchive:
-writeData:
-distantFuture
-isValidJSONObject:
-exit
-decodeInt32ForKey:
-setNumberStyle:
-getBytes:length:
-writeToURL:options:error:
-distantPast
-compare:
-decodeIntegerForKey:
-setObject:forKey:
-reverseObjectEnumerator
-mainBundle
-setObject:forKeyedSubscript:
-initWithTimeInterval:sinceDate:
-numberFromString:
-decodeObjectForKey:
-doubleValue
-processIdentifier
-unsignedCharValue
-components:fromDate:
-decodeObjectOfClass:forKey:
-numberWithBool:
-setOptions:
-andPredicateWithSubpredicates:
-processInfo
-componentsJoinedByString:
-unsignedIntValue
-initWithDouble:
-numberWithDouble:
-decodeObjectOfClasses:forKey:
-setPredicate:
-appendBytes:length:
-start
-UUIDString
-unsignedIntegerValue
-fetchFromStartDate:toEndDate:
-numberWithInt:
-startDate
-archivedDataWithRootObject:requiringSecureCoding:error:
-fetchNextPredictedLocationsOfInterestFromLocation:startDate:timeInterval:withHandler:
-numberWithInteger:
-defaultManager
-array
-startOfDayForDate:
-fetchStoredVisitsWithOptions:handler:
-numberWithUnsignedChar:
-arrayByAddingObject:
-fileExistsAtPath:
-numberWithUnsignedInteger:
-earlierDate:
-arrayByAddingObjectsFromArray:
-fileHandleForWritingToURL:error:
-numberWithUnsignedLong:
-arrayWithObject:
-fileURLWithPath:
-objectAtIndex:
-arrayWithObjects:count:
-containsDate:
-fileURLWithPath:isDirectory:
-initWithUnsignedInteger:
-objectAtIndexedSubscript:
-setTimeZone:
-absoluteString
-stop
-containsObject:
-fileURLWithPath:relativeToURL:
-objectEnumerator
 objectForKey:
 string
-hashTableWithOptions:
-objectForKeyedSubscript:
-descriptionWithLocale:
-stringByAppendingString:
-setValue:forKey:
-UTF8String
-stringByReplacingOccurrencesOfString:withString:
-laterDate:
-setWithArray:
-stringFromDate:
-seekToEndOfFile
-setWithObjects:
-stringWithFormat:
-copy
-horizontalUncertainty
-insertObject:atIndex:
-setWithSet:
-hour
 encodeBool:forKey:
-integerValue
-encodeDouble:forKey:
+laterDate:
 countByEnumeratingWithState:objects:count:
-initWithObjects:
+encodeDouble:forKey:
+setValue:forKey:
+stringByAppendingString:
+horizontalUncertainty
 filterUsingPredicate:
+insertObject:atIndex:
 encodeInt32:forKey:
-mutableCopy
-encodeInteger:forKey:
 boolValue
+stringByReplacingOccurrencesOfString:withString:
+hour
+setWithArray:
+integerValue
+encodeInteger:forKey:
+stringFromDate:
+initWithObjects:
 filteredArrayUsingPredicate:
-encodeObject:forKey:
-removeAllObjects
-indexOfObject:inSortedRange:options:usingComparator:
+seekToEndOfFile
 createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 addObject:
-endDate
-indexOfObjectPassingTest:
-nextDateAfterDate:matchingHour:minute:second:options:
+setWithObjects:
+encodeObject:forKey:
+stringWithFormat:
 addObjectsFromArray:
-path
+setWithSet:
+absoluteString
+endDate
 entry
-indexOfObjectWithOptions:passingTest:
-indexesOfObjectsPassingTest:
-UUID
-timeIntervalSinceDate:
-length
-removeItemAtURL:error:
+indexOfObject:inSortedRange:options:usingComparator:
+mutableCopy
+indexOfObjectPassingTest:
 currentCalendar
 dictionary
-intersectSet:
-enumerateIndexesUsingBlock:
+indexOfObjectWithOptions:passingTest:
 dictionaryWithObjects:forKeys:count:
-intersectionWithDateInterval:
-initWithStartDate:duration:
-localTimeZone
-enumerateKeysAndObjectsUsingBlock:
-setDelegate:
+removeAllObjects
+enumerateIndexesUsingBlock:
+nextDateAfterDate:matchingHour:minute:second:options:
 currentLocale
+indexesOfObjectsPassingTest:
+path
+bytes
+dataUsingEncoding:
+enumerateKeysAndObjectsUsingBlock:
+intersectSet:
+enumerateObjectsUsingBlock:
+length
+dataWithBytesNoCopy:length:freeWhenDone:
+initWithStartDate:duration:
+intersectionWithDateInterval:
+errorWithDomain:code:userInfo:
+dataWithContentsOfURL:
 initWithStartDate:endDate:
 intersectsDateInterval:
-bytes
-localizedStringForKey:value:table:
-enumerateObjectsUsingBlock:
-dataUsingEncoding:
-errorWithDomain:code:userInfo:
-removeObject:
-location
-dataWithBytesNoCopy:length:freeWhenDone:
-setDevice:
-removeObjectAtIndex:
-setDeviceDelegate:
-dataWithContentsOfURL:
-isEqualToData:
-removeObjectForKey:
-initWithAscending:confidence:dateInterval:labelVisit:limit:
+timeIntervalSinceDate:
+localTimeZone
+removeItemAtURL:error:
 dataWithContentsOfURL:options:error:
-sleepForTimeInterval:
-isEqualToDate:
-locationOfInterest
-removeObjectsAtIndexes:
-isEqualToString:
+localizedStringForKey:value:table:
 characterAtIndex:
+location
 dataWithJSONObject:options:error:
-setFormatOptions:
-sortUsingComparator:
-initWithBytesNoCopy:length:encoding:freeWhenDone:
-sortedArrayUsingComparator:
-evaluateWithObject:
+setDelegate:
+isEqualToData:
+initWithAscending:confidence:dateInterval:labelVisit:limit:
+isEqualToDate:
+removeObject:
+setDevice:
+UUIDString
+isEqualToString:
 dateByAddingTimeInterval:
-initWithCoordinate:altitude:horizontalAccuracy:verticalAccuracy:timestamp:
+locationOfInterest
+evaluateWithObject:
+setDeviceDelegate:
+removeObjectAtIndex:
 allKeys
-predicateWithBlock:
-unarchivedObjectOfClass:fromData:error:
+initWithBytesNoCopy:length:encoding:freeWhenDone:
+removeObjectForKey:
 allObjects
-predicateWithFormat:
-initWithData:encoding:
+sleepForTimeInterval:
 closeFile
-unarchivedObjectOfClasses:fromData:error:
+removeObjectsAtIndexes:
 dateWithTimeInterval:sinceDate:
-null
 allValues
-eventMessage
-unionSet:
+initWithCoordinate:altitude:horizontalAccuracy:verticalAccuracy:timestamp:
+setFormatOptions:
 decodeBoolForKey:
+allocWithZone:
+sortUsingComparator:
+eventMessage
 decodeDoubleForKey:
+distantFuture
+sortedArrayUsingComparator:
+initWithData:encoding:
+decodeInt32ForKey:
+predicateWithBlock:
+distantPast
+compare:
+exit
+decodeIntegerForKey:
+getBytes:length:
+predicateWithFormat:
+unarchivedObjectOfClass:fromData:error:
+null
+doubleValue
+isValidJSONObject:
+decodeObjectForKey:
+unarchivedObjectOfClasses:fromData:error:
+components:fromDate:
+decodeObjectOfClass:forKey:
+andPredicateWithSubpredicates:
+componentsJoinedByString:
+unionSet:
+decodeObjectOfClasses:forKey:
+appendBytes:length:
+initWithTimeInterval:sinceDate:
+setLogArchive:
+UTF8String
+archivedDataWithRootObject:requiringSecureCoding:error:
+mainBundle
+fetchFromStartDate:toEndDate:
+setNumberStyle:
+writeData:
+defaultManager
+array
+initWithDouble:
+fetchNextPredictedLocationsOfInterestFromLocation:startDate:timeInterval:withHandler:
+setObject:forKey:
+numberFromString:
+writeToURL:options:error:
+arrayByAddingObject:
+reverseObjectEnumerator
+UUID
+fetchStoredVisitsWithOptions:handler:
+setObject:forKeyedSubscript:
+numberWithBool:
+arrayByAddingObjectsFromArray:
+processIdentifier
+unsignedCharValue
+fileExistsAtPath:
+numberWithDouble:
+setOptions:
+earlierDate:
+processInfo
+arrayWithObject:
+unsignedIntValue
+fileHandleForWritingToURL:error:
+setPredicate:
+numberWithInt:
+arrayWithObjects:count:
+start
+unsignedIntegerValue
+containsDate:
+fileURLWithPath:
+numberWithInteger:
+startDate
+containsObject:
+fileURLWithPath:isDirectory:
+numberWithUnsignedChar:
+startOfDayForDate:
+fileURLWithPath:relativeToURL:
+numberWithUnsignedInteger:
+initWithUnsignedInteger:
+descriptionWithLocale:
+numberWithUnsignedLong:
+objectAtIndex:
+objectAtIndexedSubscript:
+hashTableWithOptions:
+setTimeZone:
+objectEnumerator
+stop
+copy
+objectForKeyedSubscript:
 removeKnownSuspiciousDevices:deviceRecord:
 removeDuplicateSuspiciousDevices:
 removeIssuedDevices:deviceRecord:
@@ -3633,7 +3693,7 @@ _deviceRecord
 _visitState
 T@"TADeviceRecord",&,N,V_deviceRecord
 T@"TAVisitState",&,N,V_visitState
-_getCumulativeUserActivityTimeInDateInterval:store:
+getCumulativeUserActivityTimeInDateInterval:store:
 getDominantUserActivityInfoInDateInterval:store:
 initWithDurationOfConsideration:thresholdOfLocationRelevance:thresholdOfSignificantDuration:thresholdOfSignificantDistance:capOfReasonableWalkingSpeed:allowNavGeoHintAsPrivateVehicleHint:vehicularImmediacyType:beepOnMoveVehicularImmediacyType:beepOnMovePedestrianImmediacyType:nextPLOIVehicularImmediacyType:nextPLOIPedestrianImmediacyType:
 initWithDurationOfConsiderationOrDefault:thresholdOfLocationRelevanceOrDefault:thresholdOfSignificantDurationOrDefault:thresholdOfSignificantDistanceOrDefault:capOfReasonableWalkingSpeedOrDefault:allowNavGeoHintAsPrivateVehicleHintOrDefault:vehicularImmediacyTypeOrDefault:beepOnMoveVehicularImmediacyTypeOrDefault:beepOnMovePedestrianImmediacyTypeOrDefault:nextPLOIVehicularImmediacyTypeOrDefault:nextPLOIPedestrianImmediacyTypeOrDefault:
@@ -3813,10 +3873,13 @@ _nSigmaBetweenVisits
 Td,R,N,V_distanceToPreviousVisit
 Td,R,N,V_residualDistanceToPreviousVisit
 TQ,R,N,V_nSigmaBetweenVisits
-initWithInterVisitMetrics:loiType:
+initWithInterVisitMetrics:loiType:previousVisitType:
 loiType
+previousVisitType
 _loiType
+_previousVisitType
 TQ,R,N,V_loiType
+TQ,R,N,V_previousVisitType
 convertTADetectionTypeToString:
 initWithDetectionType:visitDetectionMetrics:generalDetectionMetrics:singleVisitDetectionMetrics:latestAdvertisement:
 generalDetectionMetrics
@@ -3844,11 +3907,13 @@ accumulateDuration:
 accumulateDistance:
 accumulateSampledObservedLocations:
 accumulateLatestAdvertisement:
+accumulateDurationPerMotionState:
 numOfAssociatedLocs
 duration
 distance
 segmentSpeedExceedsLimit
 setSegmentSpeedExceedsLimit:
+durationPerMotionState
 settings
 setSettings:
 sampledObservedLocations
@@ -3856,6 +3921,7 @@ _segmentSpeedExceedsLimit
 _numOfAssociatedLocs
 _duration
 _distance
+_durationPerMotionState
 _settings
 _sampledObservedLocations
 T@"TAInterVisitMetricPerDeviceSettings",&,N,V_settings
@@ -3864,6 +3930,7 @@ TB,N,V_segmentSpeedExceedsLimit
 TQ,R,N,V_numOfAssociatedLocs
 Td,R,N,V_duration
 Td,R,N,V_distance
+T@"NSDictionary",R,N,V_durationPerMotionState
 currentInterVisitMetric
 totalInterVisitMetric
 _currentInterVisitMetric
@@ -4085,6 +4152,8 @@ _convertDetection:service:
 _convertRecord:service:
 _convertBOMObservation:
 _convertPlaySoundWithDetection:
+_getMotionDuration:motionDistribution:
+_convertHomeDetection:service:
 trackingAvoidanceService:didFindSuspiciousDevices:
 trackingAvoidanceService:didUpdateSuspiciousDevices:
 didWriteToURL:bytes:
@@ -4525,7 +4594,7 @@ labelLoiTypeForLastVisitSnapshot:
 issueVisitEntryScanRequestIfNecessaryWithOpenSnapshot:clock:andAppendOutgoingRequestsTo:
 issueInterVisitScanRequestIfNecessaryWithClosedSnapshot:store:andAppendOutgoingRequestsTo:
 openInterVisitSnapshotWithStore:departureVisit:
-closeLatestInterVisitSnapshotWithStore:date:
+closeLatestInterVisitSnapshotWithStore:arrivalVisit:
 updateInterVisitSnapshotWithStore:
 openInterVisitBackupSnapshotWithArrivalVisit:
 resetInterVisitBackupSnapshot
@@ -4541,6 +4610,7 @@ getLatestValidVisit
 mergeWithAnotherTAVisitState:
 shouldCreateNewVisitSnapshotFromUnknownState:
 recoverInterVisitSnapshotWithArrivalVisit:store:
+lastStateTransition
 visitSnapshotBuffer
 interVisitMetricSnapshotBuffer
 importantLois
@@ -4550,6 +4620,7 @@ scanRequest
 setScanRequest:
 interVisitMetricsSnapshotBackup
 setInterVisitMetricsSnapshotBackup:
+_lastStateTransition
 _visitSnapshotBuffer
 _interVisitMetricSnapshotBuffer
 _importantLois
@@ -4560,13 +4631,14 @@ T@"TAVisitStateSettings",&,N,V_settings
 T@"TAScanRequest",&,N,V_scanRequest
 T@"TAInterVisitMetricsSnapshot",&,N,V_interVisitMetricsSnapshotBackup
 T@"NSMutableArray",&,N,V_nextPredictedLOIs
+TQ,R,N,V_lastStateTransition
 T@"TACircularBuffer",R,N,V_visitSnapshotBuffer
 T@"TACircularBuffer",R,N,V_interVisitMetricSnapshotBuffer
 T@"NSMutableDictionary",R,N,V_importantLois
 hasHawkeyeAdvertisementPolicy
 hasHawkeyeLowEnergyAdvertisementPolicy
-initWithExpiryTimeInterval:purgeTimeInterval:keepAliveInterval:minimumStagingInterval:stagingBackstopHour:assumedKeyRollHour:scanInterval:surfaceImmediatelyBetweenBackstopAndKeyroll:maxExpectedHELEWildInterval:shouldAlertHELEImmediatelyForImmediateTypes:minimumHELEStagingInterval:stagingHELEBackstopHour:surfaceHELEImmediatelyBetweenBackstopAndKeyroll:
-initWithExpiryTimeIntervalOrDefault:purgeTimeIntervalOrDefault:keepAliveIntervalOrDefault:minimumStagingIntervalOrDefault:stagingBackstopHourOrDefault:assumedKeyRollHourOrDefault:scanIntervalOrDefault:surfaceImmediatelyBetweenBackstopAndKeyrollOrDefault:maxExpectedHELEWildIntervalOrDefault:shouldAlertHELEImmediatelyForImmediateTypesOrDefault:minimumHELEStagingIntervalOrDefault:stagingHELEBackstopHourOrDefault:surfaceHELEImmediatelyBetweenBackstopAndKeyrollOrDefault:
+initWithExpiryTimeInterval:purgeTimeInterval:keepAliveInterval:minimumStagingInterval:stagingBackstopHour:assumedKeyRollHour:scanInterval:surfaceImmediatelyBetweenBackstopAndKeyroll:maxExpectedHELEWildInterval:maxExpectedDurianWildInterval:shouldAlertHELEImmediatelyForImmediateTypes:minimumHELEStagingInterval:stagingHELEBackstopHour:surfaceHELEImmediatelyBetweenBackstopAndKeyroll:
+initWithExpiryTimeIntervalOrDefault:purgeTimeIntervalOrDefault:keepAliveIntervalOrDefault:minimumStagingIntervalOrDefault:stagingBackstopHourOrDefault:assumedKeyRollHourOrDefault:scanIntervalOrDefault:surfaceImmediatelyBetweenBackstopAndKeyrollOrDefault:maxExpectedHELEWildIntervalOrDefault:maxExpectedDurianWildIntervalOrDefault:shouldAlertHELEImmediatelyForImmediateTypesOrDefault:minimumHELEStagingIntervalOrDefault:stagingHELEBackstopHourOrDefault:surfaceHELEImmediatelyBetweenBackstopAndKeyrollOrDefault:
 expiryTimeInterval
 setExpiryTimeInterval:
 purgeTimeInterval
@@ -4577,6 +4649,7 @@ assumedKeyRollHour
 scanInterval
 surfaceImmediatelyBetweenBackstopAndKeyroll
 maxExpectedHELEWildInterval
+maxExpectedDurianWildInterval
 shouldAlertHELEImmediatelyForImmediateTypes
 minimumHELEStagingInterval
 stagingHELEBackstopHour
@@ -4591,6 +4664,7 @@ _stagingBackstopHour
 _assumedKeyRollHour
 _scanInterval
 _maxExpectedHELEWildInterval
+_maxExpectedDurianWildInterval
 _minimumHELEStagingInterval
 _stagingHELEBackstopHour
 Td,N,V_expiryTimeInterval
@@ -4602,6 +4676,7 @@ Tq,R,N,V_assumedKeyRollHour
 Td,R,N,V_scanInterval
 TB,R,N,V_surfaceImmediatelyBetweenBackstopAndKeyroll
 Td,R,N,V_maxExpectedHELEWildInterval
+Td,R,N,V_maxExpectedDurianWildInterval
 TB,R,N,V_shouldAlertHELEImmediatelyForImmediateTypes
 Td,R,N,V_minimumHELEStagingInterval
 Tq,R,N,V_stagingHELEBackstopHour
@@ -4625,7 +4700,7 @@ checkForScanRequestsWithClock:andAppendOutgoingRequestsTo:
 createTAOutgoingRequestWithExpiringTASingleDeviceRecord:withCurrentDate:
 purgeWithClock:andAppendOutgoingRequestsTo:
 isKnownDevice:
-updateDeviceRecordOnSessionChangeWithCurrentDate:
+updateDeviceRecordOnSessionChange:WithCurrentDate:
 stageDevice:withCurrentDate:
 logDeviceRecord
 _clearStagedDetectionsForDevice:
@@ -4667,6 +4742,7 @@ lastObject
 firstObject
 count
 dropOldestElement
+getObjectAtIndex:
 capacity
 buffer
 setBuffer:
@@ -4732,8 +4808,9 @@ getLatestElementOf:andEventSubtype:
 _latestExpiredElements
 _latestElements
 initWithTime:maxUniqueAddresses:
-updateInterVisitMetric:withUpdatedTime:andCloseSnapshot:
-updateWithInterVisitMetricsSnapshot:
+updateInterVisitMetric:store:withUpdatedTime:andCloseSnapshot:
+visitEntryDelayCorrection:store:
+updateWithInterVisitMetricsSnapshot:store:
 isClosed
 initialTime
 lastUpdateTime
@@ -4939,7 +5016,7 @@ B24@0:8@"Protocol"16
 q16@0:8
 @"TAInterVisitMetricPerDevice"
 @40@0:8d16d24Q32
-@32@0:8@16Q24
+@40@0:8@16Q24Q32
 @56@0:8Q16@24@32@40@48
 @"TAGeneralDetectionMetrics"
 @"TAVisitDetectionMetrics"
@@ -4995,7 +5072,9 @@ B56@0:8@"OSActivityStream"16@"NSString"24@"OSLogDevice"32q40@"NSError"48
 @68@0:8@16@24C32@36q44@52@60
 C16@0:8
 @"NSUUID"
+@32@0:8@16Q24
 q24@0:8@16
+d32@0:8Q16@24
 v32@0:8@"TATrackingAvoidanceService"16@"NSArray"24
 v24@0:8@"TATrackingAvoidanceService"16
 v32@0:8@"NSURL"16Q24
@@ -5041,7 +5120,8 @@ v48@0:8Q16@24@32@40
 @"TACircularBuffer"
 @"TAScanRequest"
 @"TAInterVisitMetricsSnapshot"
-@108@0:8d16d24d32d40Q48Q56d64B72d76B84d88Q96B104
+@116@0:8d16d24d32d40Q48Q56d64B72d76d84B92d96Q104B112
+@128@0:8@16@24@32@40@48@56@64@72@80@88@96@104@112@120
 v40@0:8@16Q24@32
 @32@0:8@?16Q24
 @"TAEventBuffer"
@@ -5050,7 +5130,7 @@ d40@0:8@16@24@32
 @32@0:8Q16d24
 @32@0:8#16@24
 @40@0:8#16Q24@32
-v36@0:8@16@24B32
+v44@0:8@16@24@32B40
 @48@0:8@16Q24Q32Q40
 v28@0:8d16B24
 @24@0:8d16

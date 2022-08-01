@@ -95,6 +95,7 @@ SIRI_UNDERSTANDING_NL
 SIRI_UNDERSTANDING_NL_OVERRIDES
 -[CDMAssetsManager initWithLocale:assetDirPath:]
 -[CDMAssetsManager setupWithError:]
+-[CDMAssetsManager refresh]
 -[CDMAssetsManager getAssetPathForService:]
 -[CDMAssetsManager getTrialAssetPathForTrialFactor:assetFolders:]
 -[CDMAssetsManager getAssetPathForTrialFactor:assetFolders:serviceName:]
@@ -104,6 +105,7 @@ SIRI_UNDERSTANDING_NL_OVERRIDES
 -[CDMAssetsManager registerForServices:withAssetsDelegate:]
 -[CDMAssetsManager setAssetsProvisionalForServices:]
 -[CDMAssetsManager promoteAssetsForServices:withFailedServices:]
+-[CDMAssetsManager resetServiceToAssetCache]
 ORCHESTRATOR
 CURARE
 LIGHTHOUSE
@@ -185,6 +187,15 @@ CDMSetupRequestCommand
 +[CDMSetupRequestCommand setupWithLanguageCode:]
 CDMSetupResponseCommand
 CDMNLv4ProtoRequestCommand
+bert_embeddings_requires_subword_embeddings
+bert/embeddings/requires_subword_embeddings
+feature_pooling_mask
+bert_feature_extraction_output
+bert/feature_extraction_output
+bert_sentence_features
+bert/sentence_features
+input_ids
+input_mask
 [insights-snlp-snlc]: 
 [insights-snlp-nlv4]: 
 [insights-snlp-uaap]: 
@@ -197,6 +208,9 @@ bf_files
 general.bf
 array.bf
 confidence_score
+socialConversation
+crisisSupport
+oldAssetsOrNewProductArea
 -[CDMCATIChildService setup:assetVersion:]
 CATI manifest not found or invalid at 
 v32@?0@8Q16@?<v@?@>24
@@ -617,9 +631,9 @@ Unable to get EmbedderOrchestrator
 -[CDMEmbeddingProtoService doEmbedding:]
 CDMServiceCenter
 com.apple.trial.NamespaceUpdate.SIRI_UNDERSTANDING_NL_OVERRIDES
--[CDMServiceCenter setupWithConfig:]
+-[CDMServiceCenter initWithConfig:]
 com.apple.siri.cdm.CDMServiceCenter
--[CDMServiceCenter setupWithConfig:]_block_invoke
+-[CDMServiceCenter initWithConfig:]_block_invoke
 v24@?0@"<CDMCommand>"8@"NSError"16
 v32@?0@"<CDMService>"8Q16^B24
 -[CDMServiceCenter handleCommand:forCallback:]
@@ -791,6 +805,7 @@ v32@?0@8Q16^B24
 v16@?0@8
 CDMMentionDetectorResponseCommand
 CDMPSCRequestCommand
++[CDMMentionResolverServiceUtils includeWhitespaceInIndices:tokenchain:]
 +[CDMMentionResolverServiceUtils logMRRequestToFile:]
 +[CDMMentionResolverServiceUtils logMRResponseToFile:]
 CDMOverridesProtoRequestCommand
@@ -1116,6 +1131,7 @@ CDMEmbeddingProtoRequestCommand
 CDMSpanMatchProtoResponseCommand
 data_detectors
 com.apple.siri.nl.data_detectors
++[CDMDateTimeProtoSpanMatcher buildMatchingSpan:tokenChain:]
 -[CDMSiriVocabularyProtoSpanMatcher initWithSandboxId:]
 -[CDMSiriVocabularyProtoSpanMatcher callSearcher:]
 +[CDMSiriVocabularyProtoSpanMatcher convertCKVMatchingSpans:tokenChain:]
@@ -1466,11 +1482,13 @@ insertUaaPDataToFeatureStore
 %s Mention Detector loaded
 %s Calling Mention Detection
 %s [ERR]: Mention Detection: Either Request and/or Predictor is nil
+%s Skipping MD as there are no salient entities
 %s [insights-cdm-%@]:MENTIONDETECTORRequest: %@
 %s [insights-cdm-%@]:MENTIONDETECTORResponse: %@
 %s Initialize CDMDefaultAssetsManager with locale: %@, asset dir path: %@.
 %s Setup CDMAssetsManager.
 %s [ERR]: Error occurs while setup CDMTuriTrialAssetsManager with locale: %@, asset dir path: %@.
+%s Refresh CDMAssetsManager.
 %s Get asset path for service: %@.
 %s Current service: %@ is disabled. Return NilAsset.
 %s Current service: %@ doesn't have any asset config items. Return NilAsset.
@@ -1497,6 +1515,7 @@ insertUaaPDataToFeatureStore
 %s Try to set assets provisional for services: %@.
 %s Try to promote assets for services: %@.
 %s [WARN]: Failed services: %@.
+%s Reset internal  _serviceToAsset cache dict
 %s Beginning setup of new instance of Overrides (Protobuf) service
 %s Is the Overrides (Protobuf) service enabled? %s
 %s [WARN]: Feature flag prescribes that Overrides (Protobuf) service remain disabled; bailing.
@@ -1564,13 +1583,16 @@ SELFLogSpanMatching
 %s Final post process step
 %s ERROR: Invalid setup: Lang:%@
 %s Setting up child service at this path:%@
+setupChildService (%@)
 %s [WARN]: %@: There are no weight files. CATI will run only on overrides, if available
 %s [WARN]: Not able to find any CATI positive overrides in %@
 %s %@: Error parsing JSON for CATI Weight Matrix named %@: %@
 %s [ERR]: %@: Weight vector doesn't have size %d in file %@
 %s [ERR]: CATI: Error parsing General Bloom Filter: %@
 %s [ERR]: CATI: Error parsing Array Bloom Filter: %@
-Process weight files for multi-turn
+processMultiTurnWeightFiles (%@)
+invokeHandle (%@)
+buildMultiTurnFeatures (%@)
 CATI
 %s [WARN]: Multiturn is disabled
 %s [insights-cdm-%@]:%@: CATI suppressed due to previous non-CATI turn info, return empty hypothesis
@@ -1710,8 +1732,8 @@ ServiceGraphNodeExecution
 %s [ERR]: _pscOrchestrator not initialized
 %s Handling PSC Request
 %s [ERR]: PSC inference failed with error: %@
-%s PSC classified this request as a Pommes request with probability %f
-%s [insights-cdm-%@]:PSC Parser Response: %@
+%s [insights-cdm-%@]:PSC delegated this request to POMMES with probability %.2f
+%s [insights-cdm-%@]:PSC delegated this request to NOT_POMMES with probability %.2f
 %s No non whitespace tokens found. Skipping call to PSC model inference.
 %s Given that PSC model call has been incomplete, returning an empty response.
 %s Prewarm PSC model during setup...
@@ -2086,6 +2108,8 @@ Post-process ASR alternative(s)
 %s Found UaaP override match, returning early
 %s Creating SIRINLUINTERNALUAAP_PARSERUaaPParserRequest for use in CDMUaaPNLProtoService
 %s Creating CDMQRRequestCommand for use in CCQR Service
+%s 1. Constructing previous interactions
+%s 2. Constructing current interactions
 %s [WARN]: Missing previous Siri response! Attempted to access index exceeding number of previous Siri responses.
 %s [WARN]: Missing previous user utterance!
 %s Rewritten Utterance (reference resolution): %@
@@ -2121,6 +2145,7 @@ Add Overrides
 %s Skipping ccqr to reason #2: Previous turn result in a executed task
 %s Skipping ccqr to reason #3: Disable certain domain(s): %@
 %s CCQR initialized with %@ functionality
+%s [ERR]: Error converting MR span indices: %@
 %s [ERR]: Error logging mr request to file: %@
 %s nil mr response, not writing to tmp
 %s [ERR]: Error logging mr response to file: %@
@@ -2283,6 +2308,7 @@ Add Overrides
 %s AutoShortcut deny list content: %@
 %s [ERR]: AutoShortcut deny list is nil, returning empty list
 %s [ERR]: AutoShortcut deny list has invalid content, returning empty list
+%s Forced DateTime span match to align with final token due to invalid DD match range start=<%u>, end=<%u> (exclusive), tokenChain string length=<%u>
 %s [ERR]: Error when loading Sandbox for SiriVocabulary: %@
 %s SiriVocabulary span matcher initialized with sandbox Id %@
 %s SiriVocabulary matching spans with sandbox ID: %@
@@ -2358,17 +2384,7 @@ So20SIRINLUUserDialogAct_p
 So8NSObjectC
 ySSG
 So22SIRINLUSystemDialogAct_p
-ySo22SIRINLUEntityCandidateCG
 yyXlG
-ySo11SIRINLUTaskCG
-ySo20SIRINLUUserDialogAct_pG
-ySo18USOSerializedGraphCG
-ySo22SIRINLUSystemDialogAct_pG
-ySo19SIRINLURRAnnotationCG
-ySo8NSNumberCG
-ySo11SIRINLUSpanCG
-ySo20SIRINLUAsrHypothesisCG
-ySo26SIRINLUAsrTokenInformationCG
 So29SIRINLUEXTERNALCDMNluResponseCm
 So28SIRINLUEXTERNALCDMNluRequestCm
 So44SIRINLUINTERNALUAAP_PARSERUaaPParserResponseCm
@@ -2385,7 +2401,6 @@ So44SIRINLUINTERNALNLV4_PARSERNLv4ParserResponseCm
 So43SIRINLUINTERNALNLV4_PARSERNLv4ParserRequestCm
 So41SIRINLUINTERNALSPANMATCHSpanMatchResponseCm
 So41SIRINLUINTERNALTOKENIZERTokenizerResponseCm
-ySo16SIRINLUTurnInputCG
 So19NSRegularExpressionCSgSg
 Si6offset_
 7elementt
@@ -2404,7 +2419,6 @@ ySnySiGG
 So8NSStringC
 $sSY
 $ss21_ObjectiveCBridgeableP
-ySo24SIRINLUEXTERNALUserParseCG
 ypSg
 So29SIRINLUEXTERNALCDMNluResponseCSg
 _A13At
@@ -2512,6 +2526,10 @@ watchOS
 <array>
 <string>com.apple.triald.namespace-management</string>
 <string>com.apple.mobileasset.autoasset</string>
+</array>
+<key>com.apple.security.iokit-user-client-class</key>
+<array>
+<string>IOSurfaceRootUserClient</string>
 </array>
 <key>com.apple.siri.client_lite</key>
 <true/>
@@ -2918,7 +2936,7 @@ setInputs:
 buildRDRequestWithPrevTurn:curTurn:nluRequestId:resultCandidateId:cdmRequestId:
 initWithQRRequest:
 buildMDRequestWithUtterance:tokenChain:embedding:nluRequestId:resultCandidateId:cdmRequestId:
-initWithMDRequest:
+initWithMDRequest:withCurrTurn:
 nlContext
 buildContextualSpanMatcherRequestWithNLContext:requestId:tokenChain:
 initWithContextualSpanMatcherRequest:
@@ -2947,6 +2965,8 @@ getPredictor:forLocale:status:
 createErrorWithCode:description:
 setCmdError:
 createSetupResponseCommand
+turnInput
+salientEntities
 logMDRequestToFile:
 predictWithInput:forLocale:status:
 initWithResponse:
@@ -2968,6 +2988,8 @@ localeIdentifier
 initForProjectId:withNamespaceNames:
 initWithLocale:withTrialAssetConfigs:
 setupWithError:
+resetServiceToAssetCache
+refreshAllTRIClients
 getAssetConfig
 dictionaryWithObjects:forKeys:count:
 hasAssetConfigItems
@@ -2992,6 +3014,7 @@ registerForFactors:withAssetsDelegate:
 setAssetsProvisionalForFactors:
 promoteAssetsForFactors:withFailedFactors:
 initWithLocale:
+refresh
 getAssetPathsForServices:
 areAssetsAvailableForServices:
 registerForServices:withAssetsDelegate:
@@ -3132,6 +3155,7 @@ createCDMClientSetupEndedLog:
 createCDMClientSetupFailedLog:reason:
 createCDMAllServicesSetupStartedLog:
 createCDMAllServicesSetupEndedLog:
+createCDMAllServicesSetupFailedLog:
 createCDMSingleServiceSetupAttemptStartedLog:serviceType:retryNumber:metadata:
 createCDMSingleServiceSetupAttemptEndedLog:metadata:
 createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
@@ -3249,17 +3273,18 @@ _requestId
 T@"SIRINLUINTERNALNLV4_PARSERNLv4ParserRequest",R,N,V_parserRequest
 T@"SIRINLUEXTERNALRequestID",R,N,V_requestId
 isCATIMultiTurnEnabled
+usoElementId
+getManifestFromPath:
+getProductAreaName
+manifestValid
+stringByAppendingString:
 getEmbeddingConfigs
 embeddingDimension
 integerValue
 defaultManager
 contentsOfDirectoryAtPath:error:
 getPosOverridesDirectoryPath
-getManifestFromPath:
-manifestValid
-stringByAppendingString:
 usoEntity
-usoElementId
 usoVerb
 usoEdge
 confidenceScoreThreshold
@@ -3305,7 +3330,6 @@ hasValue
 value
 entities
 isMultiTurnEnabled
-turnInput
 buildMultiturnFeatures:
 shouldSuppressCATIInvocationDueTo:
 checkExactMatchForUtterances:assetVersion:
@@ -3823,7 +3847,9 @@ serializeNlv4ParserResponseWithResponse:formatType:
 serializeUaaPParserRequestWithRequest:formatType:
 serializeUaaPParserResponseWithResponse:formatType:
 _mdRequest
+_turnInput
 T@"SIRINLUINTERNALMENTION_DETECTORMentionDetectorRequest",R,N,V_mdRequest
+T@"SIRINLUEXTERNALTurnInput",R,N,V_turnInput
 readCustomLogPath
 timeIntervalSince1970
 pathExtension
@@ -4139,7 +4165,6 @@ printableRequest:
 startTimestamp
 activeTasks
 executedTasks
-salientEntities
 setByAddingObjectsFromArray:
 _handleSetActiveGraph:withCallback:
 _handleListGraphs:withCallback:
@@ -4201,7 +4226,6 @@ setupCDMAssetManagerWithError:
 shouldCDMAssetManagerReSetup
 logAssetsInformation
 localeWithLocaleIdentifier:
-setupWithConfig:
 areAssetsAvailable:
 registerWithAssetsDelegate:
 handleOverridesAssetUpdateEvent:
@@ -4249,8 +4273,10 @@ createAsrUuidCharIndexTimingMaps:
 addAsrConfidenceToSpans:tokenChain:asrTimingMap:asrHypothesis:
 postProcessSpans:asrSpansMap:asrHypothesis:asrMaps:topAsrTokenChain:asrMapTopAsr:topAsrSpansFiltered:
 limitNumberOfSpans:
+setAsrHypothesisIndexForTopAsrSpans:
 setMatchingSpans:
 removeObjectsInRange:
+setAsrHypothesisIndex:
 createErrorSetupResponseCommand:
 initWithVocTriePath:useNormalizedValues:
 initWithCachePath:
@@ -4310,6 +4336,8 @@ initTRIClient
 generateNamespaceToTrialAssetConfigMapping:withError:
 generateNamespaceToFactorsMapping:
 convertToFactorToNamespace:withError:
+allValues
+refreshTRIClient
 getTrialClient:
 levelForFactor:withNamespaceName:
 directoryValue
@@ -4328,7 +4356,6 @@ intersectSet:
 filterFactors:forNamespace:
 filterFactors:forNamespaces:
 namespaceName
-refreshTRIClient
 assetsUnavailableForNamespace:
 assetsAvailableForNamespace:forLocale:
 addUpdateHandlerForNamespaceName:usingBlock:
@@ -4362,7 +4389,6 @@ setNluInternalTokens:
 setOriginalUtterances:
 setOriginalInteractions:
 appendFormat:
-setAsrHypothesisIndex:
 setRepetitionType:
 hasCleanValue
 buildNormalizedUtterance:
@@ -4416,6 +4442,7 @@ contextualSpans
 setContextualSpans:
 setEntityCandidates:
 setTurnIndex:
+includeWhitespaceInIndices:tokenchain:
 logMRRequestToFile:
 logMRResponseToFile:
 _request
@@ -4725,7 +4752,6 @@ voiceCommandSpanComparator
 isTrailingSpanAdjacent:secondSpan:tokenChain:
 readAsrAlternativeCount:
 clientWithIdentifier:
-refresh
 trialProjectId
 _trialProjectId
 _trialClient
@@ -4773,8 +4799,9 @@ printableSpanMatchResponse:
 _spanMatchResponse
 T@"SIRINLUINTERNALSPANMATCHSpanMatchResponse",&,N,V_spanMatchResponse
 initLoadFromDataDetectorsDirectoryPath:forLocale:
-matchSpansForUtterance:
 category
+matchSpansForUtterance:
+buildMatchingSpan:tokenChain:
 _upDataDetectors
 loadWithSandboxId:error:
 initWithValue:cleanValue:beginIndex:endIndex:isSignificant:isWhitespace:normalizedValues:
@@ -4846,7 +4873,7 @@ getDefaultCustomLogPath
 dictionaryForKey:
 readUaaPNLSystemConfigPath
 setCustomAssetsRootPath:
-doServiceCenterSetupWithConfig:
+doServiceCenterInitWithConfig:
 createNSError:errorCode:
 numberWithBool:
 doServiceCenterHandleCommand:forCallback:
@@ -5066,6 +5093,7 @@ v40@0:8@16@24@?32
 @"SIRINLUINTERNALCONTEXTUAL_SPAN_MATCHERContextualSpanMatcherResponse"
 @"NSNumber"
 @"SIRINLUINTERNALMENTION_DETECTORMentionDetectorRequest"
+@"SIRINLUEXTERNALTurnInput"
 @32@0:8@16^@24
 B40@0:8@16@24^@32
 B48@0:8@16@24B32B36^@40
@@ -5301,6 +5329,7 @@ SIRI_UNDERSTANDING_NL
 SIRI_UNDERSTANDING_NL_OVERRIDES
 -[CDMAssetsManager initWithLocale:assetDirPath:]
 -[CDMAssetsManager setupWithError:]
+-[CDMAssetsManager refresh]
 -[CDMAssetsManager getAssetPathForService:]
 -[CDMAssetsManager getTrialAssetPathForTrialFactor:assetFolders:]
 -[CDMAssetsManager getAssetPathForTrialFactor:assetFolders:serviceName:]
@@ -5310,6 +5339,7 @@ SIRI_UNDERSTANDING_NL_OVERRIDES
 -[CDMAssetsManager registerForServices:withAssetsDelegate:]
 -[CDMAssetsManager setAssetsProvisionalForServices:]
 -[CDMAssetsManager promoteAssetsForServices:withFailedServices:]
+-[CDMAssetsManager resetServiceToAssetCache]
 ORCHESTRATOR
 CURARE
 LIGHTHOUSE
@@ -5391,6 +5421,15 @@ CDMSetupRequestCommand
 +[CDMSetupRequestCommand setupWithLanguageCode:]
 CDMSetupResponseCommand
 CDMNLv4ProtoRequestCommand
+bert_embeddings_requires_subword_embeddings
+bert/embeddings/requires_subword_embeddings
+feature_pooling_mask
+bert_feature_extraction_output
+bert/feature_extraction_output
+bert_sentence_features
+bert/sentence_features
+input_ids
+input_mask
 [insights-snlp-snlc]: 
 [insights-snlp-nlv4]: 
 [insights-snlp-uaap]: 
@@ -5403,6 +5442,9 @@ bf_files
 general.bf
 array.bf
 confidence_score
+socialConversation
+crisisSupport
+oldAssetsOrNewProductArea
 -[CDMCATIChildService setup:assetVersion:]
 CATI manifest not found or invalid at 
 v32@?0@8Q16@?<v@?@>24
@@ -5823,9 +5865,9 @@ Unable to get EmbedderOrchestrator
 -[CDMEmbeddingProtoService doEmbedding:]
 CDMServiceCenter
 com.apple.trial.NamespaceUpdate.SIRI_UNDERSTANDING_NL_OVERRIDES
--[CDMServiceCenter setupWithConfig:]
+-[CDMServiceCenter initWithConfig:]
 com.apple.siri.cdm.CDMServiceCenter
--[CDMServiceCenter setupWithConfig:]_block_invoke
+-[CDMServiceCenter initWithConfig:]_block_invoke
 v24@?0@"<CDMCommand>"8@"NSError"16
 v32@?0@"<CDMService>"8Q16^B24
 -[CDMServiceCenter handleCommand:forCallback:]
@@ -5998,6 +6040,7 @@ v32@?0@8Q16^B24
 v16@?0@8
 CDMMentionDetectorResponseCommand
 CDMPSCRequestCommand
++[CDMMentionResolverServiceUtils includeWhitespaceInIndices:tokenchain:]
 +[CDMMentionResolverServiceUtils logMRRequestToFile:]
 +[CDMMentionResolverServiceUtils logMRResponseToFile:]
 CDMOverridesProtoRequestCommand
@@ -6323,6 +6366,7 @@ CDMEmbeddingProtoRequestCommand
 CDMSpanMatchProtoResponseCommand
 data_detectors
 com.apple.siri.nl.data_detectors
++[CDMDateTimeProtoSpanMatcher buildMatchingSpan:tokenChain:]
 -[CDMSiriVocabularyProtoSpanMatcher initWithSandboxId:]
 -[CDMSiriVocabularyProtoSpanMatcher callSearcher:]
 +[CDMSiriVocabularyProtoSpanMatcher convertCKVMatchingSpans:tokenChain:]
@@ -6674,11 +6718,13 @@ insertUaaPDataToFeatureStore
 %s Mention Detector loaded
 %s Calling Mention Detection
 %s [ERR]: Mention Detection: Either Request and/or Predictor is nil
+%s Skipping MD as there are no salient entities
 %s [insights-cdm-%@]:MENTIONDETECTORRequest: %@
 %s [insights-cdm-%@]:MENTIONDETECTORResponse: %@
 %s Initialize CDMDefaultAssetsManager with locale: %@, asset dir path: %@.
 %s Setup CDMAssetsManager.
 %s [ERR]: Error occurs while setup CDMTuriTrialAssetsManager with locale: %@, asset dir path: %@.
+%s Refresh CDMAssetsManager.
 %s Get asset path for service: %@.
 %s Current service: %@ is disabled. Return NilAsset.
 %s Current service: %@ doesn't have any asset config items. Return NilAsset.
@@ -6705,6 +6751,7 @@ insertUaaPDataToFeatureStore
 %s Try to set assets provisional for services: %@.
 %s Try to promote assets for services: %@.
 %s [WARN]: Failed services: %@.
+%s Reset internal  _serviceToAsset cache dict
 %s Beginning setup of new instance of Overrides (Protobuf) service
 %s Is the Overrides (Protobuf) service enabled? %s
 %s [WARN]: Feature flag prescribes that Overrides (Protobuf) service remain disabled; bailing.
@@ -6774,14 +6821,17 @@ SpanMatcher
 %s Final post process step
 %s ERROR: Invalid setup: Lang:%@
 %s Setting up child service at this path:%@
+setupChildService (%@)
 %s [WARN]: %@: There are no weight files. CATI will run only on overrides, if available
 %s [WARN]: Not able to find any CATI positive overrides in %@
+CATI
 %s %@: Error parsing JSON for CATI Weight Matrix named %@: %@
 %s [ERR]: %@: Weight vector doesn't have size %d in file %@
 %s [ERR]: CATI: Error parsing General Bloom Filter: %@
 %s [ERR]: CATI: Error parsing Array Bloom Filter: %@
-Process weight files for multi-turn
-CATI
+processMultiTurnWeightFiles (%@)
+invokeHandle (%@)
+buildMultiTurnFeatures (%@)
 %s [WARN]: Multiturn is disabled
 %s [insights-cdm-%@]:%@: CATI suppressed due to previous non-CATI turn info, return empty hypothesis
 %s [WARN]: %@: There were no override matches and no weights to run inference on so we are returning an empty response.
@@ -6919,8 +6969,8 @@ ServiceGraphNodeExecution
 %s [ERR]: _pscOrchestrator not initialized
 %s Handling PSC Request
 %s [ERR]: PSC inference failed with error: %@
-%s PSC classified this request as a Pommes request with probability %f
-%s [insights-cdm-%@]:PSC Parser Response: %@
+%s [insights-cdm-%@]:PSC delegated this request to POMMES with probability %.2f
+%s [insights-cdm-%@]:PSC delegated this request to NOT_POMMES with probability %.2f
 %s No non whitespace tokens found. Skipping call to PSC model inference.
 %s Given that PSC model call has been incomplete, returning an empty response.
 %s Prewarm PSC model during setup...
@@ -7294,6 +7344,8 @@ Post-process ASR alternative(s)
 %s Found UaaP override match, returning early
 %s Creating SIRINLUINTERNALUAAP_PARSERUaaPParserRequest for use in CDMUaaPNLProtoService
 %s Creating CDMQRRequestCommand for use in CCQR Service
+%s 1. Constructing previous interactions
+%s 2. Constructing current interactions
 %s [WARN]: Missing previous Siri response! Attempted to access index exceeding number of previous Siri responses.
 %s [WARN]: Missing previous user utterance!
 %s Rewritten Utterance (reference resolution): %@
@@ -7329,6 +7381,7 @@ Add Overrides
 %s Skipping ccqr to reason #2: Previous turn result in a executed task
 %s Skipping ccqr to reason #3: Disable certain domain(s): %@
 %s CCQR initialized with %@ functionality
+%s [ERR]: Error converting MR span indices: %@
 %s [ERR]: Error logging mr request to file: %@
 %s nil mr response, not writing to tmp
 %s [ERR]: Error logging mr response to file: %@
@@ -7490,6 +7543,7 @@ Add Overrides
 %s AutoShortcut deny list content: %@
 %s [ERR]: AutoShortcut deny list is nil, returning empty list
 %s [ERR]: AutoShortcut deny list has invalid content, returning empty list
+%s Forced DateTime span match to align with final token due to invalid DD match range start=<%u>, end=<%u> (exclusive), tokenChain string length=<%u>
 %s [ERR]: Error when loading Sandbox for SiriVocabulary: %@
 %s SiriVocabulary span matcher initialized with sandbox Id %@
 %s SiriVocabulary matching spans with sandbox ID: %@
@@ -7565,17 +7619,7 @@ So20SIRINLUUserDialogAct_p
 So8NSObjectC
 ySSG
 So22SIRINLUSystemDialogAct_p
-ySo22SIRINLUEntityCandidateCG
 yyXlG
-ySo11SIRINLUTaskCG
-ySo20SIRINLUUserDialogAct_pG
-ySo18USOSerializedGraphCG
-ySo22SIRINLUSystemDialogAct_pG
-ySo19SIRINLURRAnnotationCG
-ySo8NSNumberCG
-ySo11SIRINLUSpanCG
-ySo20SIRINLUAsrHypothesisCG
-ySo26SIRINLUAsrTokenInformationCG
 So29SIRINLUEXTERNALCDMNluResponseCm
 So28SIRINLUEXTERNALCDMNluRequestCm
 So44SIRINLUINTERNALUAAP_PARSERUaaPParserResponseCm
@@ -7592,7 +7636,6 @@ So44SIRINLUINTERNALNLV4_PARSERNLv4ParserResponseCm
 So43SIRINLUINTERNALNLV4_PARSERNLv4ParserRequestCm
 So41SIRINLUINTERNALSPANMATCHSpanMatchResponseCm
 So41SIRINLUINTERNALTOKENIZERTokenizerResponseCm
-ySo16SIRINLUTurnInputCG
 So19NSRegularExpressionCSgSg
 Si6offset_
 7elementt
@@ -7611,7 +7654,6 @@ ySnySiGG
 So8NSStringC
 $sSY
 $ss21_ObjectiveCBridgeableP
-ySo24SIRINLUEXTERNALUserParseCG
 ypSg
 So29SIRINLUEXTERNALCDMNluResponseCSg
 _A13At
@@ -7719,6 +7761,10 @@ watchOS
 <array>
 <string>com.apple.triald.namespace-management</string>
 <string>com.apple.mobileasset.autoasset</string>
+</array>
+<key>com.apple.security.iokit-user-client-class</key>
+<array>
+<string>IOSurfaceRootUserClient</string>
 </array>
 <key>com.apple.siri.client_lite</key>
 <true/>
@@ -7904,593 +7950,593 @@ CDMPlatformUtils
 CDMUserDefaultsUtils
 CATILogisticsRegressionModel
 CDMClient
-stringWithContentsOfFile:encoding:error:
-stringWithCString:encoding:
-postItnText
-setParses:
-hasWantedToPause
-onDemandDownloadForLocale:withProgress:withCompletion:
-hasAcknowledged
-setIdA:
-setHypotheses:
-setBackingAppBundleId:
-setParserId:
-stringValue
-hasAccepted
-removeObserver:forKeyPath:
-setHighInt:
-dataWithContentsOfFile:options:error:
-enumeratorWithOptions:
-tokenisedUtterance
-invalidate
-createCDMSpanMatcherStartedLog:matcherName:metadata:
-mutableCopy
-rangeOfString:options:
-setParser:
-hasValue
-initWithUnsignedInt:
-score
-dataWithContentsOfFile:
-stringPayload
-monitorWithConfiguration:
-objectForKeyedSubscript:
-valueWithNonretainedObject:
-removeObjectsInRange:
-createCDMSpanMatcherEndedLog:metadata:
-hasUsoGraph
-scannerWithString:
-allObjects
-lock
-setSystemDialogActGroup:
-dataWithBytes:length:
-valueForKey:
-objectForKey:
-removeObjectsInArray:
-intersectSet:
-initWithCoreModel:domainModelBundles:
-createCDMSingleServiceSetupAttemptStartedLog:serviceType:retryNumber:metadata:
-base64EncodedDataWithOptions:
-stringFromDate:
-range
-hasUserStatedTask
-generatePlumSpansForRequest:
-contentsOfDirectoryAtPath:error:
-backingAppBundleId
-dataUsingEncoding:
-scanInt:
-tokenChainBuilderForString:locale:
-allKeys
-objectAtIndexedSubscript:
-modelWithLoadedModelConfiguration:error:
-initWithTokens:originalUtterance:normalizedUtterance:
-setSuspended:
-localeWithLocaleIdentifier:
-createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
-interpretationGroup
-alignmentsCount
-initWithTokenizedUtterance:embeddings:matchedSpans:
-hasTurnContext
-removeObjectForKey:
-setOriginalUtterances:
-enumerateSubstringsInRange:options:usingBlock:
-internalSpanData
-hasTokenChain
-objectAtIndex:
-setGroupIndex:
-raise:format:
-setStringPayload:
-setStringValue:
-stringByStandardizingPath
-createCDMSingleServiceSetupAttemptEndedLog:metadata:
-stringByTrimmingCharactersInSet:
-enumerateObjectsUsingBlock:
-containsObject:
-getEmbeddings:
-alignments
-setAsrUtteranceTokens:
-removeObjectAtIndex:
-currentTurnInput
-hasToIndex
-createCDMRequestStartedLog:metadata:
-enumerateKeysAndObjectsUsingBlock:
-loadWithSandboxId:error:
-setOriginalUtterance:
-initWithModelConfiguration:
-numberWithUnsignedLong:
-removeObject:
-setStartTokenIndex:
-setOriginalInteractions:
-numberWithUnsignedLongLong:
-setStartTimestamp:
-sharedStream
-toNSUUID
-setFactorsProvisionalForNamespace:error:
-createCDMRequestFailedLog:metadata:
-stringByReplacingOccurrencesOfString:withString:
-initWithToken:tokenId:charIndicesRange:graphemeClusters:
-removeLastObject
-addValues:
-gaveOptions
-qrHypotheses
-assetsUnavailable
-integerForKey:
-currentTurn
-setAsrOutputs:
-hasSuffix:
-createCDMRequestFailedLog:errorDomainString:errorCode:metadata:
-initWithCapacity:
-stringByDeletingLastPathComponent
-setExternalParserId:
-setAsrId:
-JSONObjectWithData:options:error:
-setObject:forKeyedSubscript:
-numberWithUnsignedInteger:
-setStartMilliSeconds:
-isLocaleEmbedded:
-toIndex
-setStartIndex:
-hasStringPayload
-entityLabel
-createCDMRequestEndedLog:metadata:
-mentions
-addUpdateHandlerForNamespaceName:usingBlock:
-connectionId
-fromIndex
-setAsrHypothesisIndex:
-stringByAppendingString:
-setObject:forKey:
-setObject:atIndexedSubscript:
-isLocaleDownloadSupported:
-numberWithUnsignedInt:
-mentionResolverSpanData
-setAsrConfidence:
-toCppUsoGraph:withError:
-intValue
-setSpans:
-removeAllObjects
-salientEntities
-initWithBytes:length:encoding:
-hasResultCandidateId
-stringByAppendingPathComponent:
-initWithSuiteName:
-addTokens:
-setEntityCandidates:
-numberWithInteger:
-timeIntervalSinceNow
-configurationFromDirectoryUrl:error:
-setNumToken:
-prompted
-entities
-assetsAvailableForLocale:
-createCDMClientSetupStartedLog:
-hasRejected
-phoneSequence
-stringByAppendingFormat:
-rejected
-configurationForDefaultMainDisplayMonitor
-numberWithInt:
-timeIntervalSince1970
-setNumLayer:
-floatValue
-groupIndex
-setAlgorithm:
-initWithLocaleIdentifier:
-createCDMClientSetupFailedLog:reason:
-initWithBytes:length:
-promoteFactorsForNamespace:error:
-hasPrompted
-setSourceComponent:
-hasPreviousDomainName
-initWithBase64EncodedData:options:
-category
-setSiriVocabularySpanData:
-numberWithFloat:
-firstObject
-createCDMClientSetupEndedLog:
-initWithString:
-tier1Events
-EmbeddedLocales
-setNormalizedValues:
-numberWithDouble:
-endTokenIndex
-strictPrompt
-confidenceScore
-setEndTokenIndex:
-numberWithBool:
-createTokenizationEndedLog:tokenizationResponse:tokenizationInputType:metadata:
-endMilliSeconds
-pathForResource:ofType:inDirectory:
-initWithLocale:modelDir:vocabTagsFile:transParamsFile:charIndicesFile:configFile:padCharacter:unkCharacter:
-createCDMAllServicesSetupStartedLog:
-setNormalizedStringPayloads:
-matchesInString:options:range:
-asrTokensCount
-setEndMilliSeconds:
-setEndIndex:
-startTokenIndex
-cancelled
-setNormalisedUtterance:
-getWithStreamId:
-hasPath
-addOperations:waitUntilFinished:
-endIndex
-startTimestamp
-createCDMAllServicesSetupEndedLog:
-initWithAssets:forLocale:status:
-componentsSeparatedByString:
-levelForFactor:withNamespaceName:
-pathForResource:ofType:
-filteredArrayUsingPredicate:
-URLWithString:relativeToURL:
-componentsSeparatedByCharactersInSet:
-addObserver:forKeyPath:options:context:
-asrTokens
-matcherNamesCount
-startMilliSeconds
-setSiriResponses:
-pathExtension
-initWithLocale:filesPath:predictorType:status:
-setNonWhitespaceTokenIndex:
-path
-hasOriginalUtterance
-setWithObjects:
-setSemanticValue:
-isFinished
-setWithCapacity:
-matcherNamesAtIndex:
-setEnd:
-createServiceContextStartedLog:serviceName:metadata:
-getCppGraph
-addObjectsFromArray:
-targetUUID
-processCDMNluRequestErrorCallback:error:
-startIndex
-rewriteType
-matcherNames
-hasOffered
-length
-userStatedTask
-componentsJoinedByString:
-setNluRequestId:
-setScore:
-createServiceContextFailedLog:failureCode:metadata:
-setEmbeddings:
-initWithArray:copyItems:
-processCDMNluRequestCallback:
-comparableProbability
-targetName
-countByEnumeratingWithState:objects:count:
-UUIDString
-target
-setEmbeddingTensor:
-legacyNlContext
-hasNormalisedUtterance
-userInfo
-setSalientEntities:
-asrOutputs
-rewriteHypothesesCount
-callStackSymbols
-numToken
-createServiceContextEndedLog:metadata:
-setWithArray:
-addObject:
-initWithArray:
-setNluInternalTokens:
-setValues:count:
-asrId
-lastPathComponent
-spans
-writeToFile:atomically:encoding:error:
-hasNlId
-initWithLoadedModelConfiguration:parserModel:calibrationModel:
-getContextualSpansWithRequest:
-setRewrittenUtterance:
-rewriteHypothesesAtIndex:
-setEmbeddingResponse:
-refresh
-directoryValue
-tapToEdit
-systemTimeZone
-emitMessage:timestamp:
-copyTo:
-setNlContext:
-initLoadFromDataDetectorsDirectoryPath:forLocale:
-writeToFile:atomically:
-setEmbeddingDim:
-hasNlContext
-bytes
-isExecuting
-matchedSpans
-setEmbedderId:
-hasMentionResolverSpanData
-setRewriteType:
-lastObject
-numLayer
-emitMessage:
-setNamespaceA:
-initFromSourceVocabPath:bertModelPath:bertConfigPath:reformulatorPath:
-clientWithIdentifier:
-setValue:forKey:
-setRewrite:
-rewriteHypotheses
-dictionaryWithValuesForKeys:
-reformedTurnInputBundles
-setDetectedMentions:
-priorInfo
-rewrite
-dictionaryWithObjectsAndKeys:
-parserModel
-hasLegacyNlContext
-bundleURL
-bundleWithPath:
-setDelegated:
-setResultCandidateId:
-isEqualToString:
-setValue:
-hasLabel
-setResponseStatus:
-systemDialogActs
-getBytes:length:
-printableSpanMatchResponse:
-fileURLWithPath:isDirectory:
-setMentionResolverResponse:
-isEqualToNumber:
-dictionaryWithObjects:forKeys:count:
-arrayWithObjects:count:
-setMaxNumParses:
-fileURLWithPath:
-setUtterance:
-matchSpansOfUtterance:
-hasJointScore
-bundlePath
-copy
-jointScore
-dictionaryWithObject:forKey:
-printableResponse:
-clearCache
-setDateFormat:
-arrayWithObjects:
-bundleIdentifier
-convertUsoGraph:
-addMentions:
-unsignedIntegerValue
-matchSpansForUtterance:
-setMaxConcurrentOperationCount:
-initWithLabel:tokenIndicesIndex:
-arrayWithContentsOfFile:
-addMatchingSpans:
-arrayWithObject:
-dictionaryWithDictionary:
-hasInterpretationGroup
-convertUUID:
-fileExistsAtPath:isDirectory:
-dictionaryWithCapacity:
-isEqualToDictionary:
-createNLXRequestLinkWithTarget:andTargetId:metadata:
-printableRequest:
-isEqualToArray:
-setMaxCandidates:
-setRequester:
-addMatcherNames:
-isWhitespace
-initWithJsonStr:interactionId:dataVersion:
-sourceComponent
-hasInput
-setUserStatedTask:
 setMatchingSpans:
-createNLXCurareContext:metadata:
-matchScore
-unsignedIntValue
-setCurrentTurn:
-URLByAppendingPathComponent:
-setRequestId:
-dictionaryForKey:
-initWithInt:
-arrayWithCapacity:
-setMatchScore:
-unlock
-hasInformed
-setContextualSpans:
-resultCandidateId
-sortedArrayUsingSelector:
-setRepetitionType:
-setUserDialogActs:
-normalisedUtterance
-createNLXClientEventMetadataWithNlId:andWithResultCandidateId:andWithRequester:
-setLowInt:
-embeddings
-sortedArrayUsingComparator:
-addIdentifiers:
-previousTurns
-arrayWithArray:
-UUID
-reason
-setRepetitionResults:
-hasIdA
-createMultiHypoTokenizationEndedLog:tokenizationResponses:tokenizationInputType:metadata:
-insert:error:
-sortUsingSelector:
-type
-informed
-nodesCount
-hasGroupIndex
-previousTurnInputs
-responseForRequest:error:
 setConnectionId:
-array
-dictionary
-setRepetitionResult:
+hasInterpretationGroup
+isEqualToArray:
+isWhitespace
+setConfidence:
+dictionaryWithObject:forKey:
+sortUsingSelector:
 setType:
-turnInput
-inferenceResponseForRequest:error:
-addEntriesFromDictionary:
-convertResponse:
+bundlePath
+type
+initWithJsonStr:interactionId:dataVersion:
+EmbeddedLocales
+initWithInt:
+copy
 setRemoveSpaceAfter:
+dictionaryWithDictionary:
+setRepetitionResult:
+clearCache
+matchScore
+UTF8String
+arrayWithObjects:count:
+setLegacyNlContext:
+hasInput
+normalisedUtterance
+bundleIdentifier
+responseForRequest:error:
+createNLXRequestLinkWithTarget:andTargetId:metadata:
+setTurnIndex:
+dictionaryWithCapacity:
+setTurnInput:
+fileExistsAtPath:isDirectory:
+convertUsoGraph:
+setComparableProbability:
+previousTurns
+convertUUID:
+reason
+hasInformed
+setLegacyContext:
+arrayWithObjects:
+sortUsingComparator:
+setCode:
+createNLXCurareContext:metadata:
+turnContext
+insert:error:
+setTurnContext:
+setReformedTurnInputBundles:
+informed
+dictionaryForKey:
+previousTurnInputs
+arrayWithObject:
+nodesCount
+arrayWithContentsOfFile:
+whitespaceCharacterSet
+setTransitionHandler:
+resourcePath
+hasIdA
+resolveMentionsInUtterance:status:
+inferenceResponseForRequest:error:
+addMentions:
+createNLXClientEventMetadataWithNlId:andWithResultCandidateId:andWithRequester:
+setQualityOfService:
+embeddings
 inputs
 isUIApplicationElement
-setConfidence:
-dictationPrompt
-factorLevelsWithNamespaceName:
-hasGaveOptions
-sortUsingComparator:
-setLegacyNlContext:
-convertNLv4ParserRequestToCpp:
-nodes
+whitespaceAndNewlineCharacterSet
+URLByAppendingPathComponent:
+substringToIndex:
+hasGroupIndex
+addMatchingSpans:
 previousDomainName
-setTurnInput:
-turnContext
-setTurnIndex:
+nodes
+setLabel:
+createMultiHypoTokenizationEndedLog:tokenizationResponses:tokenizationInputType:metadata:
+weakObjectsHashTable
 inferenceResponseForRequest:
-convertFromUsoGraph:
-factor
 input
-whitespaceCharacterSet
-detectMentionsInUtteranceRequest:status:
-resourcePath
-setComparableProbability:
-setCode:
+arrayWithCapacity:
+hasGaveOptions
+substringFromIndex:
+dictionary
+setTokens:
+addMatcherNames:
+setCleanValues:
+setQrHypotheses:
+wantedToRepeat
+arrayWithArray:
+factorLevelsWithNamespaceName:
+setIsWhitespace:
+dictationPrompt
 hasEventMetadata
 identifiersCount
-setTurnContext:
-resolveMentionsInUtterance:status:
-createMatchingSpanEndedLog:spanMatchResponse:metadata:
-elements
-setLegacyContext:
-setReformedTurnInputBundles:
-substringToIndex:
-whitespaceAndNewlineCharacterSet
-applicationProxyForIdentifier:
-classifierWithPathURL:error:
-getAssetPathForLocale:withError:
-setTransitionHandler:
-addContextualSpans:
-setQualityOfService:
-makeSearcherForUserId:
-convertFromUUID:
-identifiers
-substringFromIndex:
-classificationProbability
-getAssetPathForLocale:
-weakObjectsHashTable
-initWithValues:withNumTokens:withNumLayers:withEmbeddingDim:withEmbedderId:
-dependencies
-delegated
-setLabel:
-lowercaseStringWithLocale:
-mainEvent
-classificationLabel
-initWithValue:cleanValue:beginIndex:endIndex:isSignificant:isWhitespace:normalizedValues:
-wantedToRepeat
-hasDelegated
-requester
-appendString:
-originalUtterance
-setTokens:
-wantedToProceed
-edges
-originalInteractions
-setCleanValues:
-setIsWhitespace:
-addAlignments:
-setQrHypotheses:
-hasConfidenceScore
-choices
-hypothesesCount
-isCancelled
-subarrayWithRange:
+setPriorScore:
 setCleanValue:
 setTokenizerResponse:
-nluRequestId
-extractRequestLinkData:
-convertFromNluResponse:
+convertResponse:
+wantedToProceed
 setTokenisedUtterance:
-wantedToPause
-ordinality
-lowercaseString
+makeSearcherForUserId:
 setProbability:
-setPriorScore:
-setClassificationProbability:
-isSuspended
+requester
+array
 setIsSignificant:
-hasCleanValue
-stringWithUTF8String:
-appendFormat:
-predictionFromProtobufQuery:error:
-tokensCount
-hypotheses
-setInternalSpanData:
-setPriorOrdinality:
-waitUntilAllOperationsAreFinished
-appendData:
+factor
+initWithValues:withNumTokens:withNumLayers:withEmbeddingDim:withEmbedderId:
+detectMentionsInUtteranceRequest:status:
+convertNLv4ParserRequestToCpp:
+setClassificationProbability:
+addIdentifiers:
+createMatchingSpanEndedLog:spanMatchResponse:metadata:
+subarrayWithRange:
 setClassificationLabel:
-replaceObjectAtIndex:withObject:
+lowercaseStringWithLocale:
+mainEvent
+wantedToPause
+setInternalSpanData:
+identifiers
+setPriorOrdinality:
+originalUtterance
+getAssetPathForLocale:withError:
+initWithValue:cleanValue:beginIndex:endIndex:isSignificant:isWhitespace:normalizedValues:
 setInterpretationGroup:
-activeTasks
-doubleValue
+elements
 setTokenIndex:
-build
-nlId
-readFrom:
-predictWithInput:status:
-stringWithString:
-hasCancelled
-SupportedLocales
+addEntriesFromDictionary:
+convertFromUsoGraph:
+tokensCount
+classifierWithPathURL:error:
+stringWithUTF8String:
+originalInteractions
 setCdmRequestId:
-orderedSetWithArray:
-appendBytes:length:
+dependencies
+waitUntilAllOperationsAreFinished
 setTimeZone:
-renderedTexts
-nlContext
+isCancelled
+getAssetPathForLocale:
+hasDelegated
+nluRequestId
 setTokenChain:
-hasCalibrationModel
-UTF8String
-initWithUsoGraph:withError:
+convertFromUUID:
+delegated
+lowercaseString
 setPreviousTurns:
-stringWithFormat:
-isAtEnd
-predictNamedEntitiesForRequest:
-tokenizedUtterance
-executedTasks
+hasConfidenceScore
+stringWithString:
 setByAddingObjectsFromSet:
-namespaceName
-newlineCharacterSet
-initWithDictionary:
-doesNotRecognizeSelector:
-hasWantedToRepeat
-beginIndex
-ontologyLabel
-boolValue
-siriResponses
+classificationProbability
+ordinality
+isSuspended
+predictionFromProtobufQuery:error:
+replaceObjectAtIndex:withObject:
+hypothesesCount
+applicationProxyForIdentifier:
+edges
 setPhoneSequence:
-operations
-valuesCount
-initWithObjectsAndKeys:
+stringWithFormat:
 setByAddingObjectsFromArray:
-blockingOnDemandDownloadForLocale:withTimeout:withProgress:
+classificationLabel
+hasCleanValue
+addContextualSpans:
+stringWithContentsOfFile:encoding:error:
 setInputs:
-acknowledged
-eventMetadata
-predicateWithFormat:
+tokenizedUtterance
+extractRequestLinkData:
+renderedTexts
+nlId
 setText:
-namespaceA
+hypotheses
+predictWithInput:status:
 setInput:
-accepted
-hasWantedToProceed
-removeSpaceAfter
-stringWithCharacters:length:
+readFrom:
+valuesCount
+siriResponses
 setTap2edit:
-contextualSpans
+orderedSetWithArray:
+appendString:
+isAtEnd
+choices
 setBegin:
-ontologyGraph
 setTask:
+nlContext
+setParses:
+convertFromNluResponse:
+stringWithCharacters:length:
+valuesAtIndex:
+hasCancelled
+setHypotheses:
+setIdA:
+newlineCharacterSet
+initWithUsoGraph:withError:
+hasCalibrationModel
+predictNamedEntitiesForRequest:
+initWithDictionary:
+setBackingAppBundleId:
+doubleValue
+addAlignments:
+stringWithCString:encoding:
+namespaceName
+removeSpaceAfter
+setParserId:
+operations
+ontologyLabel
+initWithObjectsAndKeys:
+predicateWithFormat:
+setHighInt:
+hasWantedToRepeat
+setParser:
+appendFormat:
+stringValue
+ontologyGraph
+executedTasks
+appendData:
+namespaceA
 initWithObjects:
+tokenisedUtterance
+initWithData:encoding:
+setSystemDialogActGroup:
+removeObserver:forKeyPath:
+doesNotRecognizeSelector:
+hasWantedToProceed
+postItnText
+build
+valueWithNonretainedObject:
+onDemandDownloadForLocale:withProgress:withCompletion:
+score
+activeTasks
+stringPayload
+appendBytes:length:
+eventMetadata
+scannerWithString:
+hasAcknowledged
+URLByAppendingPathComponent:isDirectory:
+hasWantedToPause
+dataWithContentsOfURL:
+valueForKey:
+setSuspended:
+invalidate
 dataWithJSONObject:options:error:
 createContextUpdateEndedLog:contextUpdateResponse:metadata:
-valuesAtIndex:
+removeObjectsInRange:
 errorWithDomain:code:userInfo:
-URLByAppendingPathComponent:isDirectory:
-dataWithContentsOfURL:
-initWithData:encoding:
+mutableCopy
+rangeOfString:options:
+stringFromDate:
+boolValue
+removeObjectsInArray:
+initWithUnsignedInt:
+hasAccepted
+scanInt:
+blockingOnDemandDownloadForLocale:withTimeout:withProgress:
+tokenChainBuilderForString:locale:
+objectForKeyedSubscript:
+setGroupIndex:
+setStringValue:
+monitorWithConfiguration:
+contextualSpans
+setOriginalUtterances:
+lock
+hasValue
+setStringPayload:
+dataWithContentsOfFile:options:error:
+intersectSet:
+beginIndex
+objectForKey:
+setAsrUtteranceTokens:
+initWithCoreModel:domainModelBundles:
+hasUsoGraph
+acknowledged
+enumeratorWithOptions:
+createCDMSpanMatcherStartedLog:matcherName:metadata:
+range
+stringByStandardizingPath
+stringByTrimmingCharactersInSet:
+setOriginalUtterance:
+modelWithLoadedModelConfiguration:error:
+removeObjectForKey:
+setFactorsProvisionalForNamespace:error:
+setStartTokenIndex:
+initWithTokens:originalUtterance:normalizedUtterance:
+dataWithContentsOfFile:
+setStartTimestamp:
+objectAtIndexedSubscript:
+setOriginalInteractions:
+accepted
+localeWithLocaleIdentifier:
+createCDMSpanMatcherEndedLog:metadata:
+interpretationGroup
+dataWithBytes:length:
+setExternalParserId:
+hasUserStatedTask
+initWithTokenizedUtterance:embeddings:matchedSpans:
+URLWithString:relativeToURL:
+sharedStream
+internalSpanData
+objectAtIndex:
+removeObjectAtIndex:
+createCDMSingleServiceSetupAttemptStartedLog:serviceType:retryNumber:metadata:
+toNSUUID
+raise:format:
+setAsrOutputs:
+hasTurnContext
+setObject:forKeyedSubscript:
+stringByReplacingOccurrencesOfString:withString:
+hasTokenChain
+setAsrId:
+removeObject:
+setStartIndex:
+dataUsingEncoding:
+setStartMilliSeconds:
+generatePlumSpansForRequest:
+stringByDeletingLastPathComponent
+createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
+setObject:forKey:
+setObject:atIndexedSubscript:
+enumerateSubstringsInRange:options:usingBlock:
+numberWithUnsignedLong:
+contentsOfDirectoryAtPath:error:
+allValues
+loadWithSandboxId:error:
+initWithModelConfiguration:
+removeLastObject
+numberWithUnsignedLongLong:
+toIndex
+setSpans:
+createCDMSingleServiceSetupAttemptEndedLog:metadata:
+hasToIndex
+base64EncodedDataWithOptions:
+backingAppBundleId
+setAsrHypothesisIndex:
+stringByAppendingString:
+allObjects
+setEntityCandidates:
+enumerateObjectsUsingBlock:
+initWithToken:tokenId:charIndicesRange:graphemeClusters:
+currentTurnInput
+setNumToken:
+toCppUsoGraph:withError:
+integerForKey:
+qrHypotheses
+getEmbeddings:
+createCDMRequestStartedLog:metadata:
+initWithCapacity:
+setAsrConfidence:
+containsObject:
+salientEntities
+isLocaleEmbedded:
+stringByAppendingPathComponent:
+setNumLayer:
+enumerateKeysAndObjectsUsingBlock:
+allKeys
+numberWithUnsignedInteger:
+timeIntervalSinceNow
+hasSuffix:
+removeAllObjects
+createCDMRequestFailedLog:metadata:
+mentions
+stringByAppendingFormat:
+alignmentsCount
+mentionResolverSpanData
+setSourceComponent:
+gaveOptions
+isLocaleDownloadSupported:
+currentTurn
+numberWithUnsignedInt:
+timeIntervalSince1970
+setAlgorithm:
+setSiriVocabularySpanData:
+hasStringPayload
+intValue
+createCDMRequestFailedLog:errorDomainString:errorCode:metadata:
+initWithBytes:length:encoding:
+setNormalizedValues:
+initWithSuiteName:
+setEndTokenIndex:
+rejected
+numberWithInteger:
+prompted
+alignments
+entityLabel
+createCDMRequestEndedLog:metadata:
+tier1Events
+setNormalizedStringPayloads:
+hasResultCandidateId
+fromIndex
+strictPrompt
+setEndMilliSeconds:
+phoneSequence
+numberWithInt:
+assetsUnavailable
+setEndIndex:
+setNormalisedUtterance:
+initWithBytes:length:
+hasRejected
+connectionId
+promoteFactorsForNamespace:error:
+addValues:
+startTokenIndex
+initWithLocaleIdentifier:
+initWithBase64EncodedData:options:
+numberWithDouble:
+setSiriResponses:
+numberWithFloat:
+setSemanticValue:
+groupIndex
+startTimestamp
+entities
+initWithString:
+createCDMClientSetupStartedLog:
+numberWithBool:
+setNonWhitespaceTokenIndex:
+configurationFromDirectoryUrl:error:
+hasPrompted
+setWithObjects:
+hasPreviousDomainName
+setEnd:
+setWithCapacity:
+UUIDString
+floatValue
+matchesInString:options:range:
+createCDMClientSetupFailedLog:reason:
+pathForResource:ofType:inDirectory:
+initWithLocale:modelDir:vocabTagsFile:transParamsFile:charIndicesFile:configFile:padCharacter:unkCharacter:
+configurationForDefaultMainDisplayMonitor
+startMilliSeconds
+addUpdateHandlerForNamespaceName:usingBlock:
+setScore:
+assetsAvailableForLocale:
+setNluRequestId:
+setEmbeddings:
+firstObject
+createCDMClientSetupEndedLog:
+targetUUID
+setSalientEntities:
+startIndex
+initWithAssets:forLocale:status:
+endTokenIndex
+rewriteType
+setEmbeddingTensor:
+setNluInternalTokens:
+pathForResource:ofType:
+category
+getWithStreamId:
+levelForFactor:withNamespaceName:
+matcherNamesCount
+addTokens:
+endMilliSeconds
+hasPath
+userStatedTask
+target
+createTokenizationEndedLog:tokenizationResponse:tokenizationInputType:metadata:
+setWithArray:
+confidenceScore
+targetName
+setValues:count:
+SupportedLocales
+createCDMAllServicesSetupStartedLog:
+pathExtension
+initWithLocale:filesPath:predictorType:status:
+rewriteHypothesesCount
+userInfo
+setRewrittenUtterance:
+isFinished
+path
+matcherNamesAtIndex:
+setEmbeddingDim:
+endIndex
+setEmbeddingResponse:
+filteredArrayUsingPredicate:
+setNlContext:
+processCDMNluRequestErrorCallback:error:
+createCDMAllServicesSetupFailedLog:
+spans
+rewriteHypothesesAtIndex:
+writeToFile:atomically:encoding:error:
+matcherNames
+cancelled
+hasOriginalUtterance
+length
+setRewriteType:
+writeToFile:atomically:
+setEmbedderId:
+processCDMNluRequestCallback:
+initWithArray:copyItems:
+legacyNlContext
+tapToEdit
+asrTokensCount
+createCDMAllServicesSetupEndedLog:
+hasOffered
+systemTimeZone
+componentsSeparatedByString:
+setNamespaceA:
+numToken
+createServiceContextStartedLog:serviceName:metadata:
+setValue:forKey:
+setDetectedMentions:
+setRewrite:
+initWithLoadedModelConfiguration:parserModel:calibrationModel:
+getCppGraph
+initWithArray:
+componentsSeparatedByCharactersInSet:
+lastPathComponent
+hasNormalisedUtterance
+rewriteHypotheses
+setDelegated:
+addOperations:waitUntilFinished:
+setResultCandidateId:
+createServiceContextFailedLog:failureCode:metadata:
+setValue:
+rewrite
+setResponseStatus:
+asrTokens
+initLoadFromDataDetectorsDirectoryPath:forLocale:
+setMentionResolverResponse:
+componentsJoinedByString:
+isExecuting
+matchedSpans
+hasNlId
+addObserver:forKeyPath:options:context:
+setMaxNumParses:
+setUtterance:
+createServiceContextEndedLog:metadata:
+systemDialogActs
+initFromSourceVocabPath:bertModelPath:bertConfigPath:reformulatorPath:
+countByEnumeratingWithState:objects:count:
+comparableProbability
+getContextualSpansWithRequest:
+hasNlContext
+callStackSymbols
+UUID
+lastObject
+setDateFormat:
+directoryValue
+numLayer
+reformedTurnInputBundles
+JSONObjectWithData:options:error:
+emitMessage:timestamp:
+priorInfo
+hasMentionResolverSpanData
+setMaxConcurrentOperationCount:
+asrOutputs
+parserModel
+addObjectsFromArray:
+unsignedIntegerValue
+asrId
+isEqualToString:
+setRequester:
+setMaxCandidates:
+printableSpanMatchResponse:
+emitMessage:
+copyTo:
+hasLegacyNlContext
+isEqualToNumber:
+dictionaryWithValuesForKeys:
+bytes
+setUserStatedTask:
+sortedArrayUsingComparator:
+setCurrentTurn:
+addObject:
+matchSpansOfUtterance:
+jointScore
+setRequestId:
+setMatchScore:
+hasLabel
+clientWithIdentifier:
+dictionaryWithObjectsAndKeys:
+sourceComponent
+setRepetitionType:
+setUserDialogActs:
+initWithLabel:tokenIndicesIndex:
+unsignedIntValue
+printableResponse:
+setContextualSpans:
+matchSpansForUtterance:
+hasJointScore
+getBytes:length:
+fileURLWithPath:isDirectory:
+printableRequest:
+dictionaryWithObjects:forKeys:count:
+resultCandidateId
+sortedArrayUsingSelector:
+unlock
+setLowInt:
+isEqualToDictionary:
+bundleWithPath:
+setRepetitionResults:
+bundleURL
+fileURLWithPath:
 init
 initWithVoiceCommandUserParses:autoShortcutParses:
 commandName
@@ -8569,6 +8615,7 @@ T@"MRRMultimodalMentionDetector",&,N,V_mentionDetector
 initWithLocale:
 initWithLocale:assetDirPath:
 setupWithError:
+refresh
 getAssetPathForService:
 getTrialAssetPathForTrialFactor:assetFolders:
 getAssetPathForTrialFactor:assetFolders:serviceName:
@@ -8579,6 +8626,7 @@ getFactorNamesForNonSkippableServices:
 registerForServices:withAssetsDelegate:
 setAssetsProvisionalForServices:
 promoteAssetsForServices:withFailedServices:
+resetServiceToAssetCache
 locale
 assetDirPath
 _cdmDefaultAssetsManager
@@ -8795,6 +8843,7 @@ T@"SIRINLUINTERNALNLV4_PARSERNLv4ParserRequest",R,N,V_parserRequest
 T@"SIRINLUEXTERNALRequestID",R,N,V_requestId
 initWithAssetBundle:
 isMultiTurnEnabled
+getProductAreaName
 setup:assetVersion:
 constructWeightMatrixForInference:numModels:guids:modelType:
 getBloomFilterAt:
@@ -9239,10 +9288,13 @@ insertNLv4ParserRequestToFeatureStore:interactionId:
 insertNLv4ParserResponseToFeatureStore:interactionId:
 insertUaaPParserRequestToFeatureStore:interactionId:
 insertUaaPParserResponseToFeatureStore:interactionId:
-initWithMDRequest:
+initWithMDRequest:withCurrTurn:
 mdRequest
+turnInput
 _mdRequest
+_turnInput
 T@"SIRINLUINTERNALMENTION_DETECTORMentionDetectorRequest",R,N,V_mdRequest
+T@"SIRINLUEXTERNALTurnInput",R,N,V_turnInput
 getLogBasePath
 writeNlv4RequestToDisk:error:
 writeNlv4ResponseToDisk:error:
@@ -9471,7 +9523,6 @@ doEmbedding:
 getServiceState
 _snlpEmbedder
 setSystemState:
-setupWithConfig:
 cleanup
 handleCommand:forCallback:
 mergeConfig:
@@ -9515,6 +9566,7 @@ processAsrAlternative:topAsrTokenChain:cdmTokenChainAltAsr:asrMapTopAsr:asrMapAl
 prepareSpanMatchers
 _handle:
 limitNumberOfSpans:
+setAsrHypothesisIndexForTopAsrSpans:
 createErrorSetupResponseCommand:
 updateData:
 spanizeAsrs:spanMatchers:asrSpansMap:topAsrSpans:topAsrSpansFiltered:selfMetadata:
@@ -9550,6 +9602,7 @@ __useMemoryForOverrideStore
 generateNamespaceToTrialAssetConfigMapping:withError:
 convertToFactorToNamespace:withError:
 initWithLocale:withTrialAssetConfigs:
+refreshAllTRIClients
 getDirectoryFactorPath:inNamespace:
 isTrialAssetValid:forLocale:
 isTrialAssetValidForSystemLocale:
@@ -9636,6 +9689,7 @@ _values
 T@"NSArray",&,N,V_values
 T@"SIRINLUINTERNALITFMITFMParserRequest",R,N,V_parserRequest
 buildMRRequestWithCurTurn:tokenChain:matchingSpans:mdResponse:contextualSpanMatcherResponse:embedding:utterance:turnIndex:nluRequestId:resultCandidateId:cdmRequestId:
+includeWhitespaceInIndices:tokenchain:
 logMRRequestToFile:
 logMRResponseToFile:
 request
@@ -9934,6 +9988,7 @@ spanMatchResponse
 setSpanMatchResponse:
 _spanMatchResponse
 T@"SIRINLUINTERNALSPANMATCHSpanMatchResponse",&,N,V_spanMatchResponse
+buildMatchingSpan:tokenChain:
 initWithDataDetectorPath:locale:
 _upDataDetectors
 convertCDMTokenToCKVToken:
@@ -9996,7 +10051,7 @@ registerWithAssetsDelegate:forLocale:
 processCDMNluRequest:
 createNSError:errorCode:
 getLocaleIdentifier
-doServiceCenterSetupWithConfig:
+doServiceCenterInitWithConfig:
 doServiceCenterHandleCommand:forCallback:
 successFromSetup
 errorFromSetup
@@ -10273,6 +10328,7 @@ v40@0:8@16@24@?32
 @"SIRINLUINTERNALCONTEXTUAL_SPAN_MATCHERContextualSpanMatcherResponse"
 @"NSNumber"
 @"SIRINLUINTERNALMENTION_DETECTORMentionDetectorRequest"
+@"SIRINLUEXTERNALTurnInput"
 @32@0:8@16^@24
 B40@0:8@16@24^@32
 B48@0:8@16@24B32B36^@40

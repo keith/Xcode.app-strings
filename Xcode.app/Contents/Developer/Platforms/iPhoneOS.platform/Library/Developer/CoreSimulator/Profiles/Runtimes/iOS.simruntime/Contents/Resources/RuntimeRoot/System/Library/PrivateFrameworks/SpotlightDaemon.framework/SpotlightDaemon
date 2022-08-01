@@ -83,6 +83,7 @@ Index
 com.apple.spotlight.locknotification
 kSPCoalescedRanking
 kSPHashedContainers
+kSPGroups
 com.apple.mobilemail.reindexVersion
 MessagesFixupVersion
 DeviceBootTime
@@ -125,6 +126,7 @@ plist
 SpotlightTraceDetailed
 dirty
 index.spotlightV2
+/%@/%@
 com.apple.searchd.indexmaintenance.%@
 com.apple.mobilemail
 v32@?0I8S12^q16I24I28
@@ -134,6 +136,8 @@ _kMDItemQueryPathOIDFlat=%lld
 _kMDItemBundleID="com.apple.searchd"
 (%@="%@" && %@<=$time.absolute(%f))
 ((%@<=$time.absolute(%f)) && (%@!=*)) || (%@<=$time.absolute(%f))
+com.apple.spotlight.category
+%@=%@
 _kMDItemRequiresImport==1 && _kMDItemImportComplete!=* && (_kMDItemImportHasSandboxExtension==0 || _kMDItemImportHasSandboxExtension!=*) && kMDItemFileProviderID!=*
 %@%llu
 SpotlightIndexKeepCorruptFilesEnabled
@@ -147,7 +151,7 @@ dataclass
 indexrebuildcount
 @"NSDictionary"8@?0
 kIndexCheckDupOids
-Default
+AppsFixupVersion
 v16@?0@"NSArray"8
 _kMDClientCheckedIn
 com.apple.mobileslideshow
@@ -179,9 +183,11 @@ v16@?0^{__MDPlistBytes=}8
    AttributeChangeDate = %@
    %@ = %@
 _kMDItemSDBInfo = %@
+   Index suspended
 %F %T
 .log
 activityJournal.1
+v16@?0Q8
 com.apple.CoreSpotlight.ImportExtension
 i24@?0r^v8r^v16
 public.plain-text
@@ -201,6 +207,7 @@ kMDItemRecipients
 kMDItemDisplayName
 kMDItemCollaborationSourceChat
 kMDItemCollaborationSourceMessage
+com.apple.corespotlight.collaborationquery
 _kMDItemBundleID='com.apple.CloudDocs.MobileDocumentsFileProvider' && (FPCollaborationIdentifier='%@' || _kMDItemCollaborationIdentifier='%@') && kMDItemCollaborationSourceChat!=*
 com.apple.CloudDocs.MobileDocumentsFileProvider
 v44@?0i8Q12^{__MDStoreOIDArray=}20^{__MDPlistBytes=}28@"NSString"36
@@ -227,7 +234,6 @@ _kMDItemUserActivityType="*" && _kMDItemUserActivityEligibleForPublicIndexing="*
 deleteAllUserActivities complete
 v40@?0^{__SI=}8@"NSObject<OS_xpc_object>"16^B24@"NSObject<OS_dispatch_group>"32
 com.apple.searchd.strings.cleanup
-%@=%@
 _kMDItemRequiresImport==1 && _kMDItemImportHasSandboxExtension==1
 com.apple.spotlight.contacts
 DeleteAll start
@@ -259,16 +265,10 @@ v16@?0^{_MDPlistContainer=}8
 -[SPCoreSpotlightIndexer initWithDelegate:]
 delegate
 com.apple.searchd.appScoping
+i8@?0
 com.apple.searchd.personaobserver
 com.apple.spotlight.reindexAll
 cancelFlagOffset < 4
-com.apple.searchd.indexExtensionMigration.start
-v16@?0@"NSNotification"8
-com.apple.searchd.indexExtensionMigration.finish
-bundleIDs
-com.apple.searchd.expirations
-com.apple.searchd.defrag
-com.apple.searchd.entitledAttributesScan
 v40@?0@"SDEventMonitor"8@"NSString"16@"NSDictionary"24@"NSError"32
 com.apple.corespotlight.developer.ReindexAllItems
 com.apple.corespotlight.developer.ReindexAllItemsWithIdentifiers
@@ -393,8 +393,11 @@ v24@?0@"NSNumber"8@"NSError"16
 -[SPCoreSpotlightIndexer _migrateIndexExtensionsWithEnumerator:forced:migratedBundleIds:completionHandler:]
 v16@?0@"NSNumber"8
 migration
+com.apple.searchd.indexExtensionMigration.start
 B16@?0@"_MDIndexExtension"8
 com.apple.
+bundleIDs
+com.apple.searchd.indexExtensionMigration.finish
 -[SPCoreSpotlightIndexer runMigration]
 -[SPCoreSpotlightIndexer _reindexAllIdentifiersWithExtension:completionBlock:]
 extension
@@ -709,7 +712,14 @@ fixupMessageAttachments complete
 Closing index, dataclass:%@, suspended:%s
 Closed index, dataclass:%@
 Resuming index, dataclass:%@, suspended:%s
+Resumed index, dataclass:%@
 Opening index, dataclass:%@
+Re-opening index, dataclass:%@
+Try resume index, dataclass:%@, suspended:%s
+Resuming the protected index for dataclass %@ since the device was unlocked
+Maintenance mode, dataclass:%@
+Suspending index, dataclass:%@, suspended:%s
+Releasing assertion %@
 No client state to save for bundleID:%@
 Saving the client state for bundleID:%@, clientState:%@/%ld
 Got text!
@@ -771,12 +781,6 @@ Starting internal query:"%@", index:%p, siQuery:%p, siJob:%p, queryID:%ld, datac
 Shutting down
 Error registering persona list update observer %@
 Suspending "%s" queue
-Received "%@" notification, dataMigrationStage:%lu, (%d:%d)
-Received "%@" notification, dataMigrationStage:%lu, dataMigrationBundleIDs:%@ (%d:%d)
-Finished post-migration merge
-Performing XPC activity:%s
-Marked XPC activity:%s as done
-Registering XPC activity:%s
 Resuming "%s" queue
 resume from delegate
 unlock from delegate
@@ -1583,7 +1587,7 @@ closeIndex
 _cancelIdleTimer
 dirty:
 indexDirectory
-stringByAppendingPathComponent:
+stringByAppendingFormat:
 outstandingMaintenance
 setOutstandingMaintenance:
 indexQueue
@@ -1591,6 +1595,7 @@ _performXPCActivity:name:
 owner
 updateRankingDates
 updateContainersAndScores
+updateGroups
 initWithJobType:
 setProtectionClasses:
 performIndexerTask:completionHandler:
@@ -1603,6 +1608,11 @@ addClients:
 fixupPathTimeouts
 indexSearchableItems:deleteSearchableItemsWithIdentifiers:clientState:clientStateName:forBundleID:options:completionHandler:
 removeExpiredItemsForBundleId:group:
+initWithArray:
+dateWithTimeIntervalSinceNow:
+dateWithTimeInterval:sinceDate:
+earlierDate:
+removeObject:
 requestRequiresImportWithoutSandboxExtension:maxCount:
 _startInternalQueryWithIndex:query:fetchAttributes:forBundleIds:maxCount:resultsHandler:
 stringByDeletingLastPathComponent
@@ -1616,9 +1626,9 @@ compare:
 sortedArrayUsingSelector:
 reverseObjectEnumerator
 doubleValue
+stringByAppendingPathComponent:
 removeItemAtPath:error:
 _expireCorruptIndexFilesWithPath:keepLatest:
-stringByAppendingFormat:
 moveItemAtPath:toPath:error:
 dateWithTimeIntervalSince1970:
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
@@ -1630,6 +1640,7 @@ issueDuplicateOidCheck
 issueMessagesFixup:
 removeSandboxExtensions:
 restartAttachmentImport:maxCount:
+updateApplicationsWithCompletion:
 removeAllObjects
 notifyIndexDelegates
 reindexAllItemsWithIndexers:completionHandler:
@@ -1642,7 +1653,6 @@ dirty
 firstUnlockQueue
 performIndexerTask:withIndexExtensionsAndCompletionHandler:
 keyEnumerator
-initWithArray:
 minusSet:
 jobType
 addCompletedBundleIDs:forIndexerTask:
@@ -1663,6 +1673,7 @@ initWithData:encoding:
 attributesForBundleId:identifier:completion:
 copyItemAtPath:toPath:error:
 openIndex:
+ensureOpenIndexFiles:
 loadExtensions
 setImportData:
 setFileAttributeSets:
@@ -1689,13 +1700,11 @@ _startQueryWithQueryTask:eventHandler:resultsHandler:
 deleteItemsForEnumerator:traceID:bundleID:completionHandler:
 deleteItemsForQuery:bundleID:completionHandler:
 objectEnumerator
-dateWithTimeIntervalSinceNow:
 numberWithBool:
 URLWithString:
 fileExistsAtPath:isDirectory:
 zombifyAllContactItems:
 _backgroundDeleteItems:bundleID:completionHandler:
-removeObject:
 _scheduleStringsCleanupForBundleID:
 _deleteSearchableItemsMatchingQuery:forBundleIds:completionHandler:
 _stateInfoAttributeNameWithClientStateName:
@@ -1748,6 +1757,7 @@ issueDumpReverse:completionHandler:
 issueDumpForward:completionHandler:
 writeDiagnostic:bundleID:identifier:
 resumeIndex
+suspendIndexForDeviceLock:
 preheat
 _setClientState:clientStateName:forBundleID:completionHandler:
 checkAdmission:background:didBeginThrottle:didEndThrottle:live:slow:
@@ -1786,6 +1796,8 @@ setDirtyTransaction:
 finishedDrainingJournal
 _maintenanceOperations
 _cancelPtr
+_suspended
+_softSuspended
 _scheduledStringsCleanup
 _checkedInClients
 _knownClients
@@ -1832,35 +1844,27 @@ setInteractionHandler:
 _reindexAllItemsOnPrefsChanges
 allProtectionClasses
 setConcreteIndexers:
-setMaxConcurrentOperationCount:
-setUnderlyingQueue:
-defaultCenter
-addObserverForName:object:queue:usingBlock:
-userInfo
-setDataMigrationBundleIDs:
-mergeWithProtectionClasses:power:completionHandler:
-revokeExpiredItems:protected:
-issueDuplicateOidCheckWithGroup:protected:
-issueDefrag:group:
 reindexAllItemsSource
 _reindexAllItemsWithExtensionsAndCompletionBlock:
 reindexAllItemsWithIdentifiersSource
 _reindexAllItemsWithExtensionsAndIdentifiersAndCompletionBlock:
 registerHandler:forEventName:
 _registerForPrefsChanges
+concreteIndexers
 setExtensionDelegate:
+defaultCenter
 extensionsChanged:
 addObserver:selector:name:object:
 checkIfExtensionsNeedToBeLoaded
 removeObserver:
 removeObserver:name:object:
-concreteIndexers
 _enumerateIndexersWithProtectionClasses:block:
 disabledBundleSet
 prefsChangeSource
 _reindexAllItemsForBundleIDs:reason:completionHandler:
 allValues
 _enumerateIndexersWithBlock:
+mergeWithProtectionClasses:power:completionHandler:
 _closeIndexWithIndexers:
 protectionClasses
 taskForTopHitQueryWithQueryString:queryContext:eventHandler:resultsHandler:completionHandler:
@@ -1913,6 +1917,7 @@ flush
 issueSplit:
 issueRepair:
 issueCleanup:flags:
+issueDefrag:group:
 issueConsistencyCheck:
 issueDuplicateOidCheck:
 raise:format:
@@ -1937,7 +1942,6 @@ indexRequestsPerformJob:perExtensionCompletionHandler:completionHandler:
 initFileURLWithPath:
 writeToURL:error:
 fetchAllPersonasWithCompletionHandler:
-updateApplicationsWithCompletion:
 setInternal:
 startQueryWithQueryString:queryContext:eventHandler:resultsHandler:completionHandler:
 containerID
@@ -2026,15 +2030,18 @@ commitUpdates
 mergeWithProtectionClasses:power:
 mergeWithProtectionClasses:completionHandler:
 cleanupStringsWithProtectionClasses:completionHandler:
+issueDuplicateOidCheckWithGroup:protected:
 cancelQuery:
 fileProviderExtensionToAppBundleMap
 getDBLogsWithCompletionHandler:
+revokeExpiredItems:protected:
 queryForWord:matchingAttributes:prefixMatch:
 setPrefsChangeSource:
 dataMigrationStartObserver
 setDataMigrationStartObserver:
 dataMigrationFinishObserver
 setDataMigrationFinishObserver:
+setDataMigrationBundleIDs:
 prefsDisabledBundleIDs
 setPrefsDisabledBundleIDs:
 setReindexAllItemsSource:
@@ -2342,6 +2349,7 @@ queueItems:
 searchableItem
 eligibility
 _dispatchActivities:bundleID:
+userInfo
 clientQueue
 xpc_dictionary
 _processIndexDataForBundle:protectionClass:personaID:options:items:itemsText:clientState:clientStateName:deletes:completionHandler:
@@ -2744,6 +2752,7 @@ Index
 com.apple.spotlight.locknotification
 kSPCoalescedRanking
 kSPHashedContainers
+kSPGroups
 com.apple.mobilemail.reindexVersion
 MessagesFixupVersion
 DeviceBootTime
@@ -2786,6 +2795,7 @@ plist
 SpotlightTraceDetailed
 dirty
 index.spotlightV2
+/%@/%@
 com.apple.searchd.indexmaintenance.%@
 com.apple.mobilemail
 v32@?0I8S12^q16I24I28
@@ -2795,6 +2805,8 @@ _kMDItemQueryPathOIDFlat=%lld
 _kMDItemBundleID="com.apple.searchd"
 (%@="%@" && %@<=$time.absolute(%f))
 ((%@<=$time.absolute(%f)) && (%@!=*)) || (%@<=$time.absolute(%f))
+com.apple.spotlight.category
+%@=%@
 _kMDItemRequiresImport==1 && _kMDItemImportComplete!=* && (_kMDItemImportHasSandboxExtension==0 || _kMDItemImportHasSandboxExtension!=*) && kMDItemFileProviderID!=*
 %@%llu
 SpotlightIndexKeepCorruptFilesEnabled
@@ -2808,7 +2820,7 @@ dataclass
 indexrebuildcount
 @"NSDictionary"8@?0
 kIndexCheckDupOids
-Default
+AppsFixupVersion
 v16@?0@"NSArray"8
 _kMDClientCheckedIn
 com.apple.mobileslideshow
@@ -2840,9 +2852,11 @@ v16@?0^{__MDPlistBytes=}8
    AttributeChangeDate = %@
    %@ = %@
 _kMDItemSDBInfo = %@
+   Index suspended
 %F %T
 .log
 activityJournal.1
+v16@?0Q8
 com.apple.CoreSpotlight.ImportExtension
 i24@?0r^v8r^v16
 public.plain-text
@@ -2862,6 +2876,7 @@ kMDItemRecipients
 kMDItemDisplayName
 kMDItemCollaborationSourceChat
 kMDItemCollaborationSourceMessage
+com.apple.corespotlight.collaborationquery
 _kMDItemBundleID='com.apple.CloudDocs.MobileDocumentsFileProvider' && (FPCollaborationIdentifier='%@' || _kMDItemCollaborationIdentifier='%@') && kMDItemCollaborationSourceChat!=*
 com.apple.CloudDocs.MobileDocumentsFileProvider
 v44@?0i8Q12^{__MDStoreOIDArray=}20^{__MDPlistBytes=}28@"NSString"36
@@ -2888,7 +2903,6 @@ _kMDItemUserActivityType="*" && _kMDItemUserActivityEligibleForPublicIndexing="*
 deleteAllUserActivities complete
 v40@?0^{__SI=}8@"NSObject<OS_xpc_object>"16^B24@"NSObject<OS_dispatch_group>"32
 com.apple.searchd.strings.cleanup
-%@=%@
 _kMDItemRequiresImport==1 && _kMDItemImportHasSandboxExtension==1
 com.apple.spotlight.contacts
 DeleteAll start
@@ -2920,16 +2934,10 @@ v16@?0^{_MDPlistContainer=}8
 -[SPCoreSpotlightIndexer initWithDelegate:]
 delegate
 com.apple.searchd.appScoping
+i8@?0
 com.apple.searchd.personaobserver
 com.apple.spotlight.reindexAll
 cancelFlagOffset < 4
-com.apple.searchd.indexExtensionMigration.start
-v16@?0@"NSNotification"8
-com.apple.searchd.indexExtensionMigration.finish
-bundleIDs
-com.apple.searchd.expirations
-com.apple.searchd.defrag
-com.apple.searchd.entitledAttributesScan
 v40@?0@"SDEventMonitor"8@"NSString"16@"NSDictionary"24@"NSError"32
 com.apple.corespotlight.developer.ReindexAllItems
 com.apple.corespotlight.developer.ReindexAllItemsWithIdentifiers
@@ -3054,8 +3062,11 @@ v24@?0@"NSNumber"8@"NSError"16
 -[SPCoreSpotlightIndexer _migrateIndexExtensionsWithEnumerator:forced:migratedBundleIds:completionHandler:]
 v16@?0@"NSNumber"8
 migration
+com.apple.searchd.indexExtensionMigration.start
 B16@?0@"_MDIndexExtension"8
 com.apple.
+bundleIDs
+com.apple.searchd.indexExtensionMigration.finish
 -[SPCoreSpotlightIndexer runMigration]
 -[SPCoreSpotlightIndexer _reindexAllIdentifiersWithExtension:completionBlock:]
 extension
@@ -3370,7 +3381,14 @@ fixupMessageAttachments complete
 Closing index, dataclass:%@, suspended:%s
 Closed index, dataclass:%@
 Resuming index, dataclass:%@, suspended:%s
+Resumed index, dataclass:%@
 Opening index, dataclass:%@
+Re-opening index, dataclass:%@
+Try resume index, dataclass:%@, suspended:%s
+Resuming the protected index for dataclass %@ since the device was unlocked
+Maintenance mode, dataclass:%@
+Suspending index, dataclass:%@, suspended:%s
+Releasing assertion %@
 No client state to save for bundleID:%@
 Saving the client state for bundleID:%@, clientState:%@/%ld
 Got text!
@@ -3432,12 +3450,6 @@ Starting internal query:"%@", index:%p, siQuery:%p, siJob:%p, queryID:%ld, datac
 Shutting down
 Error registering persona list update observer %@
 Suspending "%s" queue
-Received "%@" notification, dataMigrationStage:%lu, (%d:%d)
-Received "%@" notification, dataMigrationStage:%lu, dataMigrationBundleIDs:%@ (%d:%d)
-Finished post-migration merge
-Performing XPC activity:%s
-Marked XPC activity:%s as done
-Registering XPC activity:%s
 Resuming "%s" queue
 resume from delegate
 unlock from delegate
@@ -3661,379 +3673,378 @@ CSSearchableIndexServiceInterface
 SDXPCClientConnection
 SpotlightDaemonServer
 SDSignalHandler
-valueWithPointer:
-URLWithString:
-lowPriority
+shortcutBit
+copyNSStringForKey:fromXPCDictionary:
+encodeObject:withKey:
+queueItems:
+maxCount
+initWithIdleTime:idleTimeLeeway:maximumBatchSize:mode:notifyBlock:
+whitespaceCharacterSet
+backingStore
+encodeObject:
+strongRankingQueryCount
+copyNSStringArrayFromXPCArray:
+fileURLWithPath:isDirectory:
+copyNSDataForKey:fromXPCDictionary:
+variations
+setObject:forKeyedSubscript:
+stringWithUTF8String:
+encodeNSString:
+lowercaseString
+variation
+fileType
+attributeSet
+setObject:forKey:
+encodeInt64:
+copyItemAtPath:toPath:error:
+stringWithString:
+initWithFormat:
+indexAvailableForProtectionClass:newIndex:
+lowRecencyBit
+attributeForKey:
+initWithFileDescriptor:closeOnDealloc:
 fileSystemRepresentation
+setObject:atIndexedSubscript:
+valueWithPointer:
+addEntriesFromDictionary:
+copy
+stringWithFormat:
+lowPriority
+enableBundleIdentifier:
+setNumberStyle:
+stringWithCString:encoding:
+initWithDomain:code:userInfo:
+pathForResource:ofType:
+lowMatchBit
+setNonLaunching:
+attributeDictionary
+eligibility
+includeUserActivities
+longValue
+fileProviderBundleMap
 attribute
 userQuery
-enableBundleIdentifier:
-pathForResource:ofType:
-stringByTrimmingCharactersInSet:
-initWithFileDescriptor:closeOnDealloc:
-setWithArray:
-lowMatchBit
-eligibility
+identifiersToReindex
+initWithData:encoding:
+earlierDate:
+stringFromDate:
+setWithObjects:
+longLongValue
+isUpdate
 userPersonaUniqueString
 arrayWithObjects:count:
-initWithDomain:code:userInfo:
-stringByReplacingOccurrencesOfString:withString:
-longValue
-setMaxCount:
-arrayWithContentsOfURL:
 addAttributesFromDictionary:
-longLongValue
-stringByExpandingTildeInPath
-includeUserActivities
-containsObject:
-HTMLContentData
-setValue:forKey:
-fileProviderBundleMap
-setMaxConcurrentOperationCount:
-arrayWithCapacity:
-dumpTTRDebugFiles
-initWithData:encoding:
-identifiersToReindex
-stringByDeletingLastPathComponent
-containingBundleRecord
+initWithData:
+stringByTrimmingCharactersInSet:
 removeObserver:name:object:
 localizedStrings
-setUniqueIdentifier:
-arrayWithArray:
-userInfo
-isUpdate
-initWithData:
-outputStreamToFileAtPath:append:
-stringByAppendingString:
-containingAppForPlugInWithPid:
-removeObserver:
-setUnderlyingQueue:
-localizedLowercaseString
+setWithArray:
+setMaxCount:
+arrayWithContentsOfURL:
 fileExistsAtPath:isDirectory:
-arrayByAddingObjectsFromArray:
-defaultManager
-containerID
-doubleValue
-stringByAppendingPathComponent:
+dumpTTRDebugFiles
+outputStreamToFileAtPath:append:
 initWithContentsOfFile:usedEncoding:error:
-action
-providerType
+containsObject:
+stringByReplacingOccurrencesOfString:withString:
+removeObserver:
+localizedLowercaseString
 highRecencyBit
-removeObjectsInArray:
-setJournalEnabled:
 fileExistsAtPath:
-defaultCenter
-arrayByAddingObject:
-dontRunDuringMigration
-originalToken
-absoluteString
-stringByAppendingFormat:
+arrayWithCapacity:
+stringByExpandingTildeInPath
 initWithContentsOfFile:
-contacts
+containingBundleRecord
+setValue:forKey:
+providerType
+highMatchBit
+removeObjectsInArray:
+userInfo
+arrayWithArray:
+defaultManager
+originalToken
+action
+containingAppForPlugInWithPid:
+stringByDeletingLastPathComponent
+doubleValue
 loadExtensions
 providerIdentifier
-highMatchBit
+setUniqueIdentifier:
 removeObjectForKey:
-decodeObjectOfClasses:forKey:
-array
-setIsUpdate:
-contactIdentifier
-removeObjectAtIndex:
-decode
-updateApplicationsWithCompletion:
+setJournalEnabled:
+defaultCenter
+arrayByAddingObjectsFromArray:
 isEqualToString:
-appendString:
-_web_createDirectoryAtPathWithIntermediateDirectories:attributes:
-removeObject:
-UTF8String
-length
-decimalNumberWithString:
-appendFormat:
-open
+dontRunDuringMigration
+containerID
+absoluteString
+stringByAppendingString:
+removeObjectAtIndex:
+decodeObjectOfClasses:forKey:
+setIsUpdate:
+arrayByAddingObject:
+stringByAppendingPathComponent:
+contacts
 hasSuffix:
-dateWithTimeIntervalSinceReferenceDate:
-unsignedLongLongValue
-objectForKeyedSubscript:
+removeObject:
+length
+decode
+array
+_web_createDirectoryAtPathWithIntermediateDirectories:attributes:
+open
+stringByAppendingFormat:
+contactIdentifier
 hasPrefix:
-characterSetWithCharactersInString:
+interfaceWithProtocol:
+decimalNumberWithString:
+appendString:
+objectForKeyedSubscript:
+initWithCapacity:
 lastPathComponent
 removeItemAtPath:error:
-interfaceWithProtocol:
+updateApplicationsWithCompletion:
+dateWithTimeIntervalSinceReferenceDate:
+appendFormat:
 setBackingStore:
-unsignedIntegerValue
-setInternal:
-dateWithTimeIntervalSinceNow:
-dominatedRankingQueryCount
 objectForKey:
-initWithCapacity:
-characterAtIndex:
-unsignedIntValue
-protectionClasses
-dateWithTimeIntervalSince1970:
-objectEnumerator
-setAttributeSet:
 initWithBundleIdentifier:error:
-dominantRankingQueryCount
+setInternal:
+protectionClasses
+dateWithTimeIntervalSinceNow:
+objectEnumerator
+dominatedRankingQueryCount
+setAttributeSet:
 removeAllObjects
+characterSetWithCharactersInString:
 setAllowSpotlightEntitledAttributes:
-dateInterval
-domain
-objectAtIndexedSubscript:
-relatedUniqueIdentifier
-date
-propertyListWithStream:options:format:error:
+dateWithTimeIntervalSince1970:
+unsignedLongLongValue
 intent
-componentsSeparatedByString:
+objectAtIndexedSubscript:
 initWithAttributes:
-objectAtIndex:
-keyName
-processNameForPID:
-setAllowPhotosEntitledAttributes:
-uniqueIdentifier
+dominantRankingQueryCount
+relatedUniqueIdentifier
+characterAtIndex:
+unsignedIntegerValue
+propertyListWithStream:options:format:error:
+dateWithTimeInterval:sinceDate:
 integerValue
+domain
 initWithArray:
-componentsSeparatedByCharactersInSet:
-_isFullyFormed
-setSearchContext:
-keyEnumerator
-dataWrapperForKey:sizeKey:fromXPCDictionary:
-unionSet:
-allValues
-initWithAction:item:
-setImportData:
+objectAtIndex:
+processNameForPID:
+keyName
+unsignedIntValue
 intValue
+initWithAction:item:
+dateInterval
 fetchAttributes
-disabledUserActivities
-numberWithUnsignedLongLong:
-componentsJoinedByString:
-journalEnabled
-unarchivedObjectOfClass:fromData:error:
+setAllowPhotosEntitledAttributes:
+keyEnumerator
 insertObject:atIndex:
 fetchAllPersonasWithCompletionHandler:
-dataWithPropertyList:format:options:error:
+date
 initMachServiceListenerWithName:
-setIdentifiersToReindex:
-numberWithUnsignedInteger:
-disabledServices
-completionWeights
-journalDictionary:toFolderPath:forPID:withLabel:andID:
+componentsSeparatedByString:
+numberWithUnsignedLongLong:
+_isFullyFormed
 groupingRules
-inputStreamWithFileAtPath:
+journalEnabled
+setImportData:
 initForReadingFromData:error:
-dataWithBytes:length:
-allObjects
-numberWithUnsignedInt:
-disabledBundleSet
-serviceName
-completionString
-jobType
+inputStreamWithFileAtPath:
+disabledUserActivities
+numberWithUnsignedInteger:
+componentsSeparatedByCharactersInSet:
+setSearchContext:
+dataWrapperForKey:sizeKey:fromXPCDictionary:
 grouped
+journalDictionary:toFolderPath:forPID:withLabel:andID:
 initWithXPCDictionary:
-type
-allKeys
-dataUsingEncoding:
+allValues
+numberWithUnsignedInt:
+uniqueIdentifier
+setIdentifiersToReindex:
 initFileURLWithPath:
-numberWithLongLong:
-startListener
-completionResultCount
-setRewriteContext:
-allExtensionsWithBlock:
+serviceName
+disabledServices
+componentsJoinedByString:
+unionSet:
+jobType
 extensions
-numberWithInteger:
+dataWithPropertyList:format:options:error:
+disabledBundleSet
 initWithVariation:type:confidence:
-privateIndex
-dataSize
-sendMessageAsync:completion:
-startDate
+UTF8String
+numberWithLongLong:
 informationForPlugInWithPid:
-completionOptions
-searchableItem
+completionWeights
+unarchivedObjectOfClass:fromData:error:
 extensionID
 initWithUniqueIdentifier:domainIdentifier:attributeSet:
-tokenRewrites
-numberWithInt:
-disableBundles
+dataWithBytes:length:
+numberWithInteger:
+privateIndex
+allObjects
 indexingEnabled
-regularExpressionWithPattern:options:error:
 generateSuggestions
-numberWithDouble:
-additionalQueries
-dataMigrationCheckComplete
-setFilterQueries:
-disableBlockingOnIndex
-completionAttributes
-standardUserDefaults
-setRemoteObjectInterface:
-registerPersonaListUpdateObserver:withMachService:completionHandler:
+sendMessageAsync:completion:
+completionString
+searchableItem
+allKeys
+dataUsingEncoding:
+numberWithInt:
+completionResultCount
+setRewriteContext:
+regularExpressionWithPattern:options:error:
 fuzzyMatch
-searchQueryContext
+allExtensionsWithBlock:
 initWithSuiteName:
-sourceOptions
-timeIntervalSinceReferenceDate
-additionalBundleIDs
-numberWithBool:
-cStringUsingEncoding:
+type
+dataSize
+numberWithDouble:
+disableBundles
+completionOptions
+startListener
+registerPersonaListUpdateObserver:withMachService:completionHandler:
+setFilterQueries:
 fuzzyMask
-timeIntervalSinceNow
 excludedBundleIDs
-setFileType:
 initWithString:
+searchQueryContext
+numberWithBool:
+startDate
+disableBlockingOnIndex
+dataMigrationCheckComplete
 preferredLanguages
+tokenRewrites
+additionalQueries
+setRemoteObjectInterface:
 null
-sortedArrayUsingSelector:
-xpc_dictionary
-bytes
+completionAttributes
+setFileType:
+additionalBundleIDs
+cStringUsingEncoding:
+standardUserDefaults
+floatValue
+recipients
+initWithServiceName:
+sourceOptions
+postNotificationName:object:userInfo:
 setFileAttributeSets:
-timeIntervalSince1970
+timeIntervalSinceReferenceDate
+xpc_dictionary
+notifyStart
 direction
-sodium
+timeIntervalSinceNow
+item
+bytes
+initWithSearchQueryString:searchQueryContext:score:
+setFetchAttributes:
+didReceiveSignal:
+plistContainer
+errorWithDomain:code:userInfo:
+indexRequestsPerformJob:perExtensionCompletionHandler:completionHandler:
+notifyIndexDelegates
+sortedArrayUsingSelector:
 bundleWithIdentifier:
 xpcData
-recipients
-didReceiveSignal:
-postNotificationName:object:userInfo:
-textContent
-customAttributeDictionary
-setFetchAttributes:
-skipDescendants
-notifyStart
-writeToURL:error:
-floatValue
-item
-bundleIdentifier
-didReceiveMemoryPressureNotification:
-initWithServiceName:
-plistContainer
-currentTime
-notifyIndexDelegates
 playback
-writePropertyList:toStream:format:options:error:
-initWithSearchQueryString:searchQueryContext:score:
-addObserverForName:object:queue:usingBlock:
-indexRequestsPerformJob:perExtensionCompletionHandler:completionHandler:
-currentPersona
-errorWithDomain:code:userInfo:
+didReceiveMemoryPressureNotification:
+customAttributeDictionary
+timeIntervalSince1970
 noIndex
-didFirstUnlockSB
-scopes
-setProviderType:
-reason
-synchronousRemoteObjectProxyWithErrorHandler:
-code
-addObserver:selector:name:object:
 indexRequestsPerformJob:forBundle:completionHandler:
-nextObject
-dictionaryWithObjects:forKeys:count:
-setProviderIdentifiers:
-bundleForClass:
-setExcludedBundleIDs:
+sodium
+scopes
+writeToURL:error:
+reason
+bundleIdentifier
 indexRequestsPerformJob:extensions:perExtensionCompletionHandler:completionHandler:
 initWithRewrittenTokens:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+textContent
 enumeratorAtPath:
-addObjectsFromArray:
-dictionaryWithDictionary:
-setProviderIdentifier:
-newlineCharacterSet
-boolValue
+currentTime
+URLWithString:
+skipDescendants
+nextObject
+didFirstUnlockSB
+writePropertyList:toStream:format:options:error:
 firstObject
-rankingType
-closeFile
-substringWithRange:
+addObserver:selector:name:object:
 enumerateQueryResults:stringCache:usingBlock:
-counting
-addObject:
-dictionaryWithCapacity:
+currentPersona
 indexRequestsPerformDataJob:forBundle:completionHandler:
-mutableCopy
-writeData:
+newlineCharacterSet
+dictionaryWithObjects:forKeys:count:
+setProviderType:
 firstMatchInString:options:range:
-rankingQueries
-boolForKey:
-setProtectionClasses:
-close
-substringToIndex:
+rankingType
+setExcludedBundleIDs:
+dictionaryWithDictionary:
 enumerateObjectsUsingBlock:
-countByEnumeratingWithState:objects:count:
-dictionary:setStringArray:forKey:
-moveItemAtPath:toPath:error:
-blocklistCheck:withOptions:
-rangeOfString:options:range:
+addObjectsFromArray:
+code
+mutableCopy
+setProviderIdentifiers:
+synchronousRemoteObjectProxyWithErrorHandler:
+bundleForClass:
+rankingQueries
 enumerateKeysAndObjectsWithOptions:usingBlock:
 initWithOriginalToken:variations:
-substringFromIndex:
-minusSet:
-dictionary:setPlistContainer:forKey:sizeKey:
-shortcutBit
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+addObject:
+dictionaryWithCapacity:
+moveItemAtPath:toPath:error:
+setProviderIdentifier:
+rangeOfString:options:range:
+boolValue
 initWithMachServiceName:options:
-rangeOfString:
-copyPlistFromXPCObject:
-dictionary:setPlistBytes:forKey:sizeKey:
 enumerateKeysAndObjectsUsingBlock:
-subarrayWithRange:
-sharedManager
+counting
+closeFile
+HTMLContentData
+writeData:
+minusSet:
+dictionary:setStringArray:forKey:
+rangeOfString:
+setProtectionClasses:
+boolForKey:
+substringWithRange:
+initWithKeyOptions:valueOptions:capacity:
+countByEnumeratingWithState:objects:count:
+close
+dictionary:setPlistContainer:forKey:sizeKey:
 rewriteContext
-beginDictionary
+blocklistCheck:withOptions:
 endDictionary
 rangeOfCharacterFromSet:
 performJob:completionBlock:
-initWithKeyOptions:valueOptions:capacity:
-copyNSStringSetFromXPCArray:
-strongToStrongObjectsMapTable
-rangeAtIndex:
-beginArray
-copyNSStringForKey:fromXPCDictionary:
+substringToIndex:
 initWithJobType:jobOptions:
-setDateFormat:
-endArray
-strongRankingQueryCount
-dictionary
+dictionary:setPlistBytes:forKey:sizeKey:
 findExtensionsWithCompletionBlock:
-raise:format:
-whitespaceCharacterSet
-backingStore
-encodeString:
-stringWithUTF8String:
-member:
+copyPlistFromXPCObject:
+rangeAtIndex:
+substringFromIndex:
 initWithJobType:
-copyNSStringArrayFromXPCArray:
+endArray
 reverseObjectEnumerator
-variations
-setObject:forKeyedSubscript:
-copyNSDataForKey:fromXPCDictionary:
+beginDictionary
+strongToStrongObjectsMapTable
+raise:format:
 filterQuery
-encodeObject:withKey:
+encodeString:
+subarrayWithRange:
 initWithItemContentType:
-stringWithString:
-queueItems:
+setDateFormat:
+copyNSStringSetFromXPCArray:
+member:
+dictionary
 indexDirectory
-maxCount
-variation
-attributeSet
-setObject:forKey:
+sharedManager
+beginArray
 filterQueries
-copyItemAtPath:toPath:error:
-encodeObject:
-stringWithFormat:
-attributeForKey:
-setObject:atIndexedSubscript:
-initWithIdleTime:idleTimeLeeway:maximumBatchSize:mode:notifyBlock:
-indexAvailableForProtectionClass:newIndex:
-stringWithCString:encoding:
-encodeNSString:
-copy
-lowercaseString
-fileURLWithPath:isDirectory:
-setNumberStyle:
-encodeInt64:
-addEntriesFromDictionary:
-setNonLaunching:
-lowRecencyBit
-attributeDictionary
-fileType
-stringFromDate:
-setWithObjects:
-initWithFormat:
 init
 dealloc
 initWithSIJob:dataclass:eventHandler:resultsHandler:
@@ -4456,6 +4467,7 @@ setProperty:forKey:sync:
 getPropertyForKey:
 updateRankingDates
 updateContainersAndScores
+updateGroups
 dumpAllRankingDiagnosticInformationForQuery:withCompletionHandler:
 performQueryForCountOfItemsInCategory:completion:
 initWithQueue:protectionClass:cancelPtr:
@@ -4509,6 +4521,8 @@ writeDiagnostic:bundleID:identifier:
 closeIndex
 resumeIndex
 readyIndex:
+ensureOpenIndexFiles:
+suspendIndexForDeviceLock:
 preheat
 _setClientState:clientStateName:forBundleID:completionHandler:
 processImportForBundleID:withURLs:contentTypes:sandboxExtensions:andIdentifiers:inGroup:
@@ -4571,6 +4585,8 @@ finishedDrainingJournal
 setFinishedDrainingJournal:
 _maintenanceOperations
 _cancelPtr
+_suspended
+_softSuspended
 _scheduledStringsCleanup
 _checkedInClients
 _knownClients
