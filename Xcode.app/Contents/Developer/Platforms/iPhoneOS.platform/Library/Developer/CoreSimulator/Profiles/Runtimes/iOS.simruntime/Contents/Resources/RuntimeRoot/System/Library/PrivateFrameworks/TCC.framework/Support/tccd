@@ -379,6 +379,7 @@ value
 bundleID
 <%@: identifier=%@, client_type=%u>
 com.apple.widgetkit-extension
+{pid=%d, pidversion=%d, euid=%d}
 Invalid identity type %@
 Invalid identifier type: identifiers should be strings, got %@: %@
 truncated
@@ -407,7 +408,7 @@ error using asprintf() for db_path in _create_database
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 BEGIN
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 20);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 21);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
@@ -431,7 +432,7 @@ kTCCServicePhotos
 INSERT OR REPLACE INTO admin (key, value) VALUES ('%@', %d)
 DELETE FROM access WHERE client = 'com.apple.Health' AND service = 'kTCCServiceLiverpool'
 DELETE FROM access WHERE client = '/usr/sbin/sshd' AND service = 'kTCCServiceSystemPolicyAllFiles'
-UPDATE admin SET value = 20 WHERE key = 'version'
+UPDATE admin SET value = 21 WHERE key = 'version'
 SELECT value FROM admin WHERE key = '%@'
 DELETE FROM admin WHERE key = '%@'
 main
@@ -1777,6 +1778,9 @@ Tq,R,V_appExtensionType
 SDKDictionary
 objectForKey:ofClass:
 boolValue
+handleForIdentifier:error:
+hostProcess
+isApplication
 numberWithUnsignedInt:
 setServiceObject:
 setIndirectObject:
@@ -2957,8 +2961,10 @@ identityCache: adding: %{public}@ for %{public}@, idx: %lu
 IDENTITY_ATTRIBUTION: Responsible process's path is nil.
 IDENTITY_ATTRIBUTION: starting for: %{public}@
 IDENTITY_ATTRIBUTION: Responsible process (pid=%u) is App Extension: %{public}@, extension point %{public}@, extension type %ld, prompt policy %ld
-IDENTITY_ATTRIBUTION: Refusing App Extension without containing app bundle (%{public}@)
-IDENTITY_ATTRIBUTION: Attributing App Extension at %{public}@ to containing app %{public}@
+IDENTITY_ATTRIBUTION: Invalid containing app bundle for App Extension %{public}@: %{public}@
+IDENTITY_ATTRIBUTION: Invalid hosting app bundle for App Extension %{public}@: %{public}@
+IDENTITY_ATTRIBUTION: Refusing App Extension without attributed app bundle (%{public}@)
+IDENTITY_ATTRIBUTION: Attributing App Extension %{public}@ to %{public}@
 IDENTITY_ATTRIBUTION: Refusing executable path (%{public}@) which is not a bundle
 IDENTITY_ATTRIBUTION: identifier = %{public}@, type %u
 Error: attributionChain.responsibleProcess.responsiblePath is nil
@@ -2975,6 +2981,11 @@ failed to get filesystem representation for %{public}@
 failed to get text offset for %{public}s[%d]: (#%d) %{public}s
 _pluginBundleURL does not identify an accessible bundle directory: %{public}@
 Using default policy for App Extension with unrecognized extension point policy: %d
+Failed to get RBSProcessHandle for App Extension with PID %{public}d: %{public}@
+Rejecting RBSProcessHandle %{public}@ for App Extension because process handle's audit token %{public}@ doesn't match original %{public}@
+Failed to get hosting process from RBSProcessHandle for App Extension with PID %{public}d: %{public}@
+Failed to attribute App Extension to hosting process because the hosting process %{public}@ is not an application
+Failed to get hosting app bundle record for hosting process %{public}@: %{public}@
 Cannot map type string to TCC identity type: %{public}@
 failed to open "%{public}s": (#%d): %{public}s
 failed to read header from %{public}s: %{public}s;  (textoff: %llu, expected size: %lu, got: %zd)
@@ -3505,19 +3516,19 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A5229d</string>
+<string>14A5270i</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.0</string>
 <key>DTSDKBuild</key>
-<string>20A324</string>
+<string>20A336a</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>
 <string>1400</string>
 <key>DTXcodeBuild</key>
-<string>14A5229d</string>
+<string>14A5270i</string>
 <key>MinimumOSVersion</key>
 <string>16.0</string>
 <key>UIDeviceFamily</key>
@@ -3557,6 +3568,8 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <string>com.apple.tccd</string>
 </array>
 <key>com.apple.private.xpc.domain-extension.proxy</key>
+<true/>
+<key>com.apple.runningboard.process-state</key>
 <true/>
 <key>com.apple.springboard.CFUserNotification</key>
 <true/>
@@ -3945,6 +3958,7 @@ value
 bundleID
 <%@: identifier=%@, client_type=%u>
 com.apple.widgetkit-extension
+{pid=%d, pidversion=%d, euid=%d}
 Invalid identity type %@
 Invalid identifier type: identifiers should be strings, got %@: %@
 truncated
@@ -3973,7 +3987,7 @@ error using asprintf() for db_path in _create_database
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 BEGIN
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 20);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 21);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
@@ -3997,7 +4011,7 @@ kTCCServicePhotos
 INSERT OR REPLACE INTO admin (key, value) VALUES ('%@', %d)
 DELETE FROM access WHERE client = 'com.apple.Health' AND service = 'kTCCServiceLiverpool'
 DELETE FROM access WHERE client = '/usr/sbin/sshd' AND service = 'kTCCServiceSystemPolicyAllFiles'
-UPDATE admin SET value = 20 WHERE key = 'version'
+UPDATE admin SET value = 21 WHERE key = 'version'
 SELECT value FROM admin WHERE key = '%@'
 DELETE FROM admin WHERE key = '%@'
 main
@@ -4537,221 +4551,224 @@ Persistent state not set
 com.apple.tccd.AlertManager
 TCCDAlertConfig_SBRemoteAlertServiceName
 TCCDAlertConfig_SBRemoteAlertViewControllerClassName
+isResetSync
+initWithBytes:length:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+setTimeZone:
+fileURLWithPath:
+numberWithUnsignedLongLong:
+UUID
+initWithBytesNoCopy:length:encoding:freeWhenDone:
+setTotalCostLimit:
+objectAtIndexedSubscript:
+initWithCapacity:
+firstObject
+systemTimeZone
+allValues
+longLongValue
+targetIsInProximity
+objectForKey:
+propertyListWithData:options:format:error:
+requestWithIdentifier:content:trigger:
+objectForKey:ofClass:
+stringByAppendingPathComponent:
+objectForKeyedSubscript:
+currentSession
+URLByAppendingPathComponent:
+isApplication
+getActivePairedDevice
+stringByAppendingString:
+bundleRecordForAuditToken:error:
+initWithDomain:code:userInfo:
+currentUser
+UUIDString
+resetStandardUserDefaults
+bundleRecordWithBundleIdentifier:allowPlaceholder:error:
+setNeedsResetSync
+getBytes:length:
+dataWithBytes:length:
+domain
+setUserInfo:
+getBytes:range:
+dataWithContentsOfFile:
+initWithFormat:locale:arguments:
+writeToFile:options:error:
+encodeInt32:forKey:
+getResourceValue:forKey:error:
+stringFromDate:
+dataWithContentsOfFile:options:error:
+encodeInt64:forKey:
+resume:
+setNotificationCategories:
+dataWithPropertyList:format:options:error:
+appState
+encodeObject:forKey:
+setHasChangesAvailable
+stringWithFormat:
+isEqualToNumber:
+handleForIdentifier:error:
+bundleWithPath:
+timeIntervalSince1970
+isEqualToString:
+boolValue
+state
+fileSystemRepresentation
+allObjects
+numberWithUnsignedInt:
+syncSessionType
+counterpartIdentifiers
+localizedStringForKey:value:table:
+setTargetQueue:
+serviceName
+numberWithLong:
+initWithBundleIdentifier:allowPlaceholder:error:
+countByEnumeratingWithState:objects:count:
+standardUserDefaults
+fileExistsAtPath:isDirectory:
+valueForProperty:
+initWithBundleIdentifier:
+numberWithInt:
+count
+fileExistsAtPath:
+localizedName
+numberWithBool:
 setDelegate:queue:
-unsignedLongLongValue
+copy
+sortedArrayUsingSelector:
+invalidate
+localizedDescription
+content
+dictionaryWithObjects:forKeys:count:
+setDelegate:
+UTF8String
+showUserNotification:bundleID:
+setDateFormat:
+dictionaryWithDictionary:
+containsValueForKey:
+syncDidFailWithError:
+localeWithLocaleIdentifier:
+showUserNotification:applicationName:extensionBundleID:
+integerValue
+syncDidComplete
+containsObject:
+dictionary
+userType
+containingBundleRecord
+addObserver:
+intValue
+syncCoordinatorWithServiceName:
+initWithUUIDBytes:
+userInfo
+deviceForPairingID:
+addObjectsFromArray:
+extensionPointType
+initWithUTF8String:
+addObject:
+extensionPointRecord
+setCategoryIdentifier:
+addNotificationRequest:withCompletionHandler:
+notification
+addEntriesFromDictionary:
+newHandleWithDefinition:configurationContext:
+setBody:
+TCCPolicy
+setLocale:
+sendMessage:toDestinations:priority:options:identifier:error:
+addDelegate:queue:
+companionAppBundleID
+request
+length
+initWithTimeIntervalSince1970:
+plugInKitPlugins
+setSound:
+keysSortedByValueUsingComparator:
+sharedManager
+initWithString:
+setActivatingForSiri:
+appendBytes:length:
+stringWithUTF8String:
+setSerializer:
+pathComponents
+appendFormat:
+isInstalled
+setObject:forKey:
+stringWithValidatedFormat:validFormatSpecifiers:error:
+bytes
+absoluteString
+date
+pathExtension
+enumerateInstalledApplicationsOnPairedDevice:withBlock:
+appendString:
+strongToStrongObjectsMapTable
+mainRunLoop
+setObject:forKey:cost:
+numberWithLongLong:
+dateWithTimeIntervalSince1970:
+absoluteURL
+enumerateKeysAndObjectsUsingBlock:
+applicationIsInstalled:
+setObject:forKeyedSubscript:
+unarchivedObjectOfClasses:fromData:error:
 dateWithTimeIntervalSinceNow:
 applicationMode
 enumerateLocallyAvailableApplicationsForPairedDevice:options:withBlock:
-removeAllObjects
-isResetSync
-hasSuffix:
 decodeInt32ForKey:
-persistentDomainForName:
+hasPrefix:
+unsignedIntValue
 enumerateObjectsUsingBlock:
-removeItemAtPath:error:
 applicationProxyForIdentifier:
-setInterruptionLevel:
-setWithArray:
+setWantsNotificationResponsesDelivered
 caseInsensitiveCompare:
+hasSuffix:
+initWithObjects:
 decodeInt64ForKey:
-initWithService:
-setWithObject:
-isSending
+unsignedIntegerValue
 applicationProxyForIdentifier:placeholder:
 categoryWithIdentifier:actions:intentIdentifiers:options:
-removeObject:
-hideUserNotification
 decodeObjectOfClass:forKey:
+unsignedLongLongValue
 applicationType
 errorWithDomain:code:userInfo:
-removeObjectAtIndex:
-setWithObjects:
-setPerMessageTimeout:
-initWithService:priority:asMasterStore:options:
-setShouldBackgroundDefaultAction:
-removeObjectForKey:
-UUIDString
-substringFromIndex:
-setShouldIgnoreDoNotDisturb:
-archivedDataWithRootObject:requiringSecureCoding:error:
-removeObserver:
-suspend
-isValid
-defaultManager
-sharedDeviceConnection
-array
-defaultSound
-initWithServiceName:viewControllerClassName:
-sharedInstance
-mutableCopy
-defaultWorkspace
-actionIdentifier
-sharedManager
-arrayWithObjects:count:
-keysSortedByValueUsingComparator:
-setSound:
-actionWithIdentifier:title:options:
-initWithString:
-hasPrefix:
-applicationIsInstalled:
-enumerateKeysAndObjectsUsingBlock:
-absoluteURL
-dateWithTimeIntervalSince1970:
-unsignedIntegerValue
-enumerateInstalledApplicationsOnPairedDevice:withBlock:
-appendString:
-setWantsNotificationResponsesDelivered
-bytes
-date
-absoluteString
-unsignedIntValue
-UTF8String
-appendFormat:
-unarchivedObjectOfClasses:fromData:error:
-setObject:forKeyedSubscript:
-appendBytes:length:
-bundleWithPath:
-setObject:forKey:cost:
-mainRunLoop
-strongToStrongObjectsMapTable
-numberWithLongLong:
-encodeObject:forKey:
-appState
-pathExtension
-dataWithPropertyList:format:options:error:
-stringWithValidatedFormat:validFormatSpecifiers:error:
-setObject:forKey:
-encodeInt64:forKey:
-isInstalled
-pathComponents
-setSerializer:
-dataWithContentsOfFile:options:error:
-getResourceValue:forKey:error:
-TCCPolicy
-stringWithUTF8String:
-setActivatingForSiri:
-isEqualToString:
-encodeInt32:forKey:
-timeIntervalSince1970
-dataWithContentsOfFile:
-stringWithFormat:
-getBytes:range:
-isEqualToNumber:
-setHasChangesAvailable
-domain
-dataWithBytes:length:
-getBytes:length:
-setNotificationCategories:
-resume:
-initWithFormat:locale:arguments:
-stringFromDate:
-bundleRecordWithBundleIdentifier:allowPlaceholder:error:
-writeToFile:options:error:
-currentUser
-bundleRecordForAuditToken:error:
-getActivePairedDevice
-setUserInfo:
-currentSession
-setNeedsResetSync
-initWithDomain:code:userInfo:
-resetStandardUserDefaults
-stringByAppendingString:
-allValues
-objectForKeyedSubscript:
-firstObject
-stringByAppendingPathComponent:
-objectForKey:ofClass:
-fileURLWithPath:
-requestWithIdentifier:content:trigger:
-propertyListWithData:options:format:error:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-plugInKitPlugins
-activateWithContext:
-length
-request
-code
+removeAllObjects
 activeSyncSession
-initWithTimeIntervalSince1970:
-sendMessage:toDestinations:priority:options:identifier:error:
-setLocale:
-newHandleWithDefinition:configurationContext:
-setBody:
-notification
-setCategoryIdentifier:
+code
+mutableCopy
 SDKDictionary
-companionAppBundleID
+sharedInstance
+activateWithContext:
+sharedDeviceConnection
+initWithServiceName:viewControllerClassName:
+actionWithIdentifier:title:options:
+isValid
+suspend
+setShouldIgnoreDoNotDisturb:
+arrayWithObjects:count:
+removeObserver:
+actionIdentifier
+defaultWorkspace
+substringFromIndex:
+removeObjectForKey:
+defaultSound
+setShouldBackgroundDefaultAction:
+hostProcess
+setPerMessageTimeout:
+setWithObjects:
 URLWithString:
-addDelegate:queue:
-userInfo
-initWithUTF8String:
-UUID
-addEntriesFromDictionary:
-syncCoordinatorWithServiceName:
-userType
-addNotificationRequest:withCompletionHandler:
-initWithUUIDBytes:
-extensionPointRecord
-syncDidComplete
-addObject:
-intValue
-showUserNotification:applicationName:extensionBundleID:
-extensionPointType
-localeWithLocaleIdentifier:
-syncDidFailWithError:
-integerValue
-addObjectsFromArray:
-deviceForPairingID:
-setDateFormat:
-showUserNotification:bundleID:
-addObserver:
-containingBundleRecord
-setDelegate:
-dictionary
-localizedDescription
-sortedArrayUsingSelector:
-containsObject:
-invalidate
-numberWithBool:
-initWithCapacity:
-objectForKey:
-targetIsInProximity
-longLongValue
-boolValue
-fileSystemRepresentation
-allObjects
-systemTimeZone
-initWithBytesNoCopy:length:encoding:freeWhenDone:
-counterpartIdentifiers
-objectAtIndexedSubscript:
-URLByAppendingPathComponent:
-setTotalCostLimit:
-initWithBytes:length:
-numberWithUnsignedLongLong:
-countByEnumeratingWithState:objects:count:
-fileExistsAtPath:isDirectory:
-setTimeZone:
+removeObjectAtIndex:
+array
+initWithService:priority:asMasterStore:options:
+defaultManager
+removeObject:
+isSending
+setWithObject:
+archivedDataWithRootObject:requiringSecureCoding:error:
+setWithArray:
+setInterruptionLevel:
+removeItemAtPath:error:
+persistentDomainForName:
+initWithService:
+hideUserNotification
 numberWithUnsignedInteger:
-count
-fileExistsAtPath:
-state
-numberWithUnsignedInt:
-initWithBundleIdentifier:allowPlaceholder:error:
-syncSessionType
-copy
-localizedStringForKey:value:table:
-setTargetQueue:
-dictionaryWithObjects:forKeys:count:
-numberWithLong:
-initWithBundleIdentifier:
-content
-serviceName
-standardUserDefaults
-dictionaryWithDictionary:
-valueForProperty:
-numberWithInt:
-containsValueForKey:
-localizedName
-initWithObjects:
 init
 _sendSyncSessionDidFinishWithResult:error:
 _syncStatusDescriptionString
@@ -6523,8 +6540,10 @@ identityCache: adding: %{public}@ for %{public}@, idx: %lu
 IDENTITY_ATTRIBUTION: Responsible process's path is nil.
 IDENTITY_ATTRIBUTION: starting for: %{public}@
 IDENTITY_ATTRIBUTION: Responsible process (pid=%u) is App Extension: %{public}@, extension point %{public}@, extension type %ld, prompt policy %ld
-IDENTITY_ATTRIBUTION: Refusing App Extension without containing app bundle (%{public}@)
-IDENTITY_ATTRIBUTION: Attributing App Extension at %{public}@ to containing app %{public}@
+IDENTITY_ATTRIBUTION: Invalid containing app bundle for App Extension %{public}@: %{public}@
+IDENTITY_ATTRIBUTION: Invalid hosting app bundle for App Extension %{public}@: %{public}@
+IDENTITY_ATTRIBUTION: Refusing App Extension without attributed app bundle (%{public}@)
+IDENTITY_ATTRIBUTION: Attributing App Extension %{public}@ to %{public}@
 IDENTITY_ATTRIBUTION: Refusing executable path (%{public}@) which is not a bundle
 IDENTITY_ATTRIBUTION: identifier = %{public}@, type %u
 Error: attributionChain.responsibleProcess.responsiblePath is nil
@@ -6541,6 +6560,11 @@ failed to get filesystem representation for %{public}@
 failed to get text offset for %{public}s[%d]: (#%d) %{public}s
 _pluginBundleURL does not identify an accessible bundle directory: %{public}@
 Using default policy for App Extension with unrecognized extension point policy: %d
+Failed to get RBSProcessHandle for App Extension with PID %{public}d: %{public}@
+Rejecting RBSProcessHandle %{public}@ for App Extension because process handle's audit token %{public}@ doesn't match original %{public}@
+Failed to get hosting process from RBSProcessHandle for App Extension with PID %{public}d: %{public}@
+Failed to attribute App Extension to hosting process because the hosting process %{public}@ is not an application
+Failed to get hosting app bundle record for hosting process %{public}@: %{public}@
 Cannot map type string to TCC identity type: %{public}@
 failed to open "%{public}s": (#%d): %{public}s
 failed to read header from %{public}s: %{public}s;  (textoff: %llu, expected size: %lu, got: %zd)
@@ -7071,19 +7095,19 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A5229d</string>
+<string>14A5270i</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.0</string>
 <key>DTSDKBuild</key>
-<string>20A324</string>
+<string>20A336a</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.0.internal</string>
 <key>DTXcode</key>
 <string>1400</string>
 <key>DTXcodeBuild</key>
-<string>14A5229d</string>
+<string>14A5270i</string>
 <key>MinimumOSVersion</key>
 <string>16.0</string>
 <key>UIDeviceFamily</key>
@@ -7123,6 +7147,8 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <string>com.apple.tccd</string>
 </array>
 <key>com.apple.private.xpc.domain-extension.proxy</key>
+<true/>
+<key>com.apple.runningboard.process-state</key>
 <true/>
 <key>com.apple.springboard.CFUserNotification</key>
 <true/>

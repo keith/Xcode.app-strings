@@ -1,5 +1,5 @@
 ?333333
-@(#)PROGRAM:CoreSuggestionsML  PROJECT:Suggestions-1191
+@(#)PROGRAM:CoreSuggestionsML  PROJECT:Suggestions-1193.0.2
 SGQuickResponsesConfig: Object for key %@ not found in dictionary.
 SGQuickResponsesConfig: Object for key %@ is not a number.
 SGQuickResponsesConfig: Object for key %@ is not a string.
@@ -119,7 +119,7 @@ SGQuickResponses: no available configuration found to support training for langu
 SGQuickResponsesConfig: Training class count exceeds maximum
 SGQuickResponses: no available configuration found to support custom responses for language %@
 [[SGCustomResponsesParameters alloc] initWithDictionary:dict[CUSTOM_RESPONSES_PARAMETERS]]
-[self isValidConfigForWordPiece]
+[self isValidConfigForWordPieceWithLazyVocab:lazyVocab]
 SGQuickResponsesConfig: Strategy PMLHashingVectorizerStrategyWordPiece used but no vocab present
 SGQuickResponsesConfig: final preprocessing step %@ is not %@ or %@
 Error finding model plist path for %@
@@ -170,6 +170,7 @@ Unknown model name: %s
 Failed to locate assets resource %s
 Failed to load model file resource %s, with type:%@, modelEntity:%@, mode:%lu, language:%@
 No transformer instance for model %@ in language %@ and mode %@ at path %@
+Quick Responses: failed to initialize database while warming up store
 SGQuickResponsesStore read error: %@
 SGQuickResponsesStore write error: %@
 SGQuickResponsesStore: Unexpected null value for custom_responses.language
@@ -256,6 +257,8 @@ MAX_PROMPT_LENGTH
 MAX_REPLY_LENGTH
 MAX_PROMPT_WINDOW_SECONDS
 PROMPT_JOINING_STRING
+MODEL_TYPE_NAME
+SUB_MODEL_KEY_STRING
 PERSONALIZATION_IS_DISABLED
 REPLY_TEXT_IS_RANDOMIZED
 RANKING_AND_RESPONSE_COUNT_IS_PER_CATEGORY
@@ -273,8 +276,6 @@ DYNAMIC_LABELS_ENABLED
 FILTER_NONCONFIDENT
 HAS_NEGATIVE_CLASS
 NEGATIVE_CLASS_MAXIMUM_TO_PREDICT
-MODEL_TYPE_NAME
-SUB_MODEL_KEY_STRING
 RESPONSE_CLASSES
 REPLY_TEXT_SELECTED_PSEUDOCOUNTS
 MODEL_SCORE_WEIGHT
@@ -317,10 +318,11 @@ USE_NON_NEGATIVE_CLASSES_ONLY
 %@-%lu-%@-%@
 @"_PASLRUCache"8@?0
 language.length
+com.apple.suggestions.quickResponsesConfigWarmup
+PREDICTION_PARAMETERS
 PREDICTION_REPLIES
 PREDICTION_MODEL_HYPERPARAMETERS
 PREDICTION_PREPROCESSING_METHODS
-PREDICTION_PARAMETERS
 CLASSIFICATION_LABELS
 CLASSIFICATION_MODEL_HYPERPARAMETERS
 CLASSIFICATION_PREPROCESSING_METHODS
@@ -342,16 +344,16 @@ SGModelAsset-notifications
 Assets
 suggestionsmodelassets
 v16@?0@"_PASAsset2"8
+v16@?0@"SGMultiLabelEspressoClassifierWrapper"8
 @sum.self
 d16@?0@8
 METHODS
-SGStringPreprocessingTransformer.m
-methods
 methods.count % 2 == 0
 %s%s%s%s
 size >= 0 && size < TYPES_STRING_BUF_SIZE
 %s%s%s%s%s
 -[SGStringPreprocessingTransformer transform:]
+SGStringPreprocessingTransformer.m
 value.length == 1
 !CFUniCharIsSurrogateHighCharacter(separator) && !CFUniCharIsSurrogateLowCharacter(separator)
 jusqu
@@ -377,6 +379,7 @@ lang.length
 model
 ranking
 personalization != nil || model.config.predictionParams.isPersonalizationDisabled
+storeDirectory.length
 message
 v32@?0@8@16^B24
 v32@?0@"SGQuickResponse"8Q16^B24
@@ -385,14 +388,9 @@ distance
 confident
 v32@?0@"_PASTuple2"8Q16^B24
 v32@?0@"SGQuickResponsesClassScore"8Q16^B24
-firstPartyPhoneUEhPTkUuMXAK
-firstPartyEmailRU1BSUwuMXAK
-firstPartyPostalUE9TVEFMLjFwCg
 thirdPartyPhoneUEhPTkUuM3AK
 thirdPartyEmailRU1BSUwuMXAK
 thirdPartyPostalUE9TVEFMLjFwCg
-firstPartyLocTE9DLjFwCg
-photoSharingUEhPVE8K
 @"NSMutableDictionary"24@?0@"NSDictionary"8@"NSString"16
 [config.replies replyCountForIndex:semanticClassIndex] == 1
 SGNameDetector
@@ -431,10 +429,13 @@ PREDICTION
 EVALUATION
 NSString *modelModeName(SGModelMode)
 Unexpected SGModelMode mode: %lX
+SGQuickResponsesStore.m
+Invalid parameter not satisfying: %@
+store
+v16@?0@"SGLazyInit"8
 @8@?0
 {_PASDBIterAction_=B}16@?0@"NSError"8
 B8@?0
-v16@?0@"SGLazyInit"8
 SELECT * FROM responses WHERE lang_response=$lang_response
 SELECT * FROM responses_totals WHERE language=$language
 $lang_response
@@ -464,7 +465,6 @@ $sent_at
 $recipient
 $row_id
 UPDATE custom_responses SET prompt_embedding = $prompt_embedding,     decayed_times_used = decayed_times_used + 1,     first_seen = MIN($sent_at, first_seen),     last_seen = MAX($sent_at, last_seen) WHERE language = $language AND reply = $reply
-%@%@
 INSERT INTO messages (reply, language, prompt, recipient, sent_at, filtering, filtered) VALUES($reply, $language, $prompt, $recipient, $sent_at, false, false)
 $prompt
 DELETE FROM messages ORDER BY sent_at DESC LIMIT -1 OFFSET $table_limit
@@ -507,7 +507,6 @@ UPDATE custom_responses SET usage_spread = (SELECT CAST(u AS FLOAT)/c FROM    (S
 SELECT COUNT(ROWID) as n FROM cr_per_recipient_counts
 SELECT reply, language, COUNT(ROWID) as n FROM cr_per_recipient_counts GROUP BY reply, language
 second
-SGQuickResponsesStore.m
 DELETE FROM cr_per_recipient_counts WHERE reply=$reply AND language=$language ORDER BY decayed_times_used ASC LIMIT $n_rows 
 $n_rows
 SELECT reply, prompt_embedding, decayed_times_used, usage_spread FROM custom_responses WHERE language = $language   AND decayed_times_used >= $minimum_decayed_count   AND last_seen - first_seen >= $minimum_time_interval
@@ -560,6 +559,10 @@ malloc failed
 @"NSMutableDictionary"16@?0@"<NSFastEnumeration>"8
 @"NSMutableArray"16@?0@"<NSFastEnumeration>"8
 @"NSArray"16@?0@"NSArray"8
+SGPersonalizeEmojisWarmup
+SGStringUtilML.m
+isSingleEmoji == NO
+emojiPreferences != nil
 v40@?0@"EMFEmojiToken"8{_NSRange=QQ}16^B32
 SGQuickResponsesToRobotsConfig.m
 params
@@ -581,19 +584,20 @@ B32@?0@"<SGConversationTurnProtocol>"8Q16^B24
 sender
 q24@?0@"<SGConversationTurnProtocol>"8@"<SGConversationTurnProtocol>"16
 LABEL_MAPPING
-labels
+SGStringLabelingTransformer.m
 duplicate label %@
 mapping
 -[SGStringLabelingTransformer transform:]
-SGStringLabelingTransformer.m
 PREPROCESSOR
 LABELER
+SGTextLabelTransformer.m
+methods
+labels
 preprocessor
 labeler
 @unionOfArrays.self
 SGTextLabelTransformer: Unexpected null value for flattened labels
 -[SGTextLabelTransformer transform:]
-SGTextLabelTransformer.m
 [input isKindOfClass:[NSString class]]
 SGQuickResponsesClassificationModel.m
 SGLanguageDetection.m
@@ -618,6 +622,7 @@ MLQuickResponsesPrediction
 RepliesToRobots
 plist
 SGQuickResponsesToRobots.m
+repliesToRobotsConfig
 INSendMessageIntent
 startDate > %@
 com.apple.MobileSMS
@@ -646,8 +651,12 @@ TRANSFORMER
 INPUTKEY
 SGSelectiveTransformer.m
 Unexpected input: %@. %@ requires dictionary with inputKey: %@.
+firstPartyLocTE9DLjFwCg
+firstPartyPhoneUEhPTkUuMXAK
+firstPartyEmailRU1BSUwuMXAK
+firstPartyPostalUE9TVEFMLjFwCg
+photoSharingUEhPVE8K
 SGQuickResponsesRanking.m
-Invalid parameter not satisfying: %@
 num.unsignedIntegerValue >= headerCount
 v32@?0@"NSNumber"8Q16^B24
 v32@?0@"SGQuickResponsesCategoryScore"8Q16^B24
@@ -686,12 +695,16 @@ SGCustomResponsesParameters
 SGQuickResponsesConfig
 SGModelAsset
 SGNestedArray
+SGMultiLabelEspressoClassifierWrapper
+SGMultiLabelEspressoClassifierCache
+SGMultiLabelEspressoClassifierCached
+PMLMultiLabelClassifierProtocol
+NSObject
 SGQuickResponsesReplyOption
 SGQuickResponsesPersonalization
 SGStringPreprocessingTransformer
 PMLTransformerProtocol
 PMLPlistAndChunksSerializableProtocol
-NSObject
 SGStringPreprocessor
 SGStringSplitter
 SGPipelineTransformer
@@ -807,6 +820,8 @@ TQ,R,N,V_maxPromptLength
 Td,R,N,V_maxPromptWindowSeconds
 T@"NSString",R,N,V_promptJoiningString
 objectForKeyedSubscript:
+_modelTypeNameForDictionary:
+_subModelKeyStringForDictionary:
 initWithDictionary:
 isPersonalizationDisabled
 isReplyTextRandomized
@@ -1046,25 +1061,30 @@ result
 _sharedCache
 removeAllObjects
 registerOnUpdateBlock:
-_cacheKeyForLanguage:mode:plistPath:vocabPath:
-initWithLanguage:mode:plistPath:vocabPath:
-setObject:forKey:
-vocabWithTrieAssetPath:
 dictionaryWithPlistAssetPath:
 quickResponsesPrediction
-quickResponsesPredictionVocab
 quickResponses
-quickResponsesVocab
 _addModelAssetUpdateHandler
-initWithLanguage:mode:dictionary:vocab:
-isValidConfigForWordPiece
+vocabWithTrieAssetPath:
+quickResponsesPredictionVocab
+quickResponsesVocab
+_cacheKeyForLanguage:mode:plistPath:vocabPath:
+predictionParams
+initWithFirst:second:
+_dictionaryForPlistPath:mode:
+_vocabForVocabPath:mode:
+initWithLanguage:mode:dictionary:lazyVocab:
+setObject:forKey:
+initWithLanguage:mode:plistPath:vocabPath:
+isValidConfigForWordPieceWithLazyVocab:
+modelTypeAndSubModelKeyForLanguage:plistPath:vocabPath:warmupBlock:
 configWithLanguage:mode:plistPath:vocabPath:
+initWithLanguage:mode:dictionary:vocab:
 modelHyperparameters
 preprocessingMethods
 labels
 replies
 classificationParams
-predictionParams
 customResponsesParameters
 language
 mode
@@ -1118,6 +1138,46 @@ initWithInteger:
 removeLastObject
 reverseObjectEnumerator
 setObject:atIndexedSubscript:
+espressoModelFile
+setEspressoModelFile:
+classifier
+setClassifier:
+_espressoModelFile
+_classifier
+T@"NSString",&,N,V_espressoModelFile
+T@"_PASLazyPurgeableResult",&,N,V_classifier
+classifierWithEspressoModelFile:
+setCachedEspressoClassifierWithFile:
+predict:
+outputDimension
+sharedInstance
+predict:withFile:
+outputDimensionWithFile:
+_currentClassifier
+initWithEspressoModelFile:
+isEqual:
+class
+self
+performSelector:
+performSelector:withObject:
+performSelector:withObject:withObject:
+isProxy
+isKindOfClass:
+isMemberOfClass:
+conformsToProtocol:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+hash
+superclass
+description
+debugDescription
+TQ,R
+T#,R
+T@"NSString",R,C
 replyRecords
 selected
 displayed
@@ -1143,7 +1203,6 @@ _ucb
 T@"NSNumber",R,N,V_position
 T@"NSNumber",R,N,V_ucb
 initWithStore:withRng:
-sharedInstance
 sortedReplyPositionsForSemanticClass:config:
 shuffledSamplingWithoutReplacementForK:fromN:withRng:
 deduplicatedReplyTextsForReplyPositions:semanticClass:responseCount:config:
@@ -1151,7 +1210,6 @@ recordsForResponsesInternal:language:
 augmentRecords:semanticClass:config:
 shuffleMutableArray:inApproxEqualEpsilon:withValueBlock:withRng:
 numberWithUnsignedInteger:
-initWithFirst:second:
 containsObject:
 addDisplayedToResponses:language:
 addSelectedToResponse:language:
@@ -1176,31 +1234,8 @@ applySelector:preprocesor:string:value:
 initWithCapacity:
 methodForSelector:
 dictionaryWithObjects:forKeys:count:
-isEqual:
 isEqualToStringPreprocessingTransformer:
-hash
 withMethods:
-class
-self
-performSelector:
-performSelector:withObject:
-performSelector:withObject:withObject:
-isProxy
-isKindOfClass:
-isMemberOfClass:
-conformsToProtocol:
-respondsToSelector:
-retain
-release
-autorelease
-retainCount
-zone
-superclass
-description
-debugDescription
-TQ,R
-T#,R
-T@"NSString",R,C
 toPlistWithChunks:
 initWithPlist:chunks:context:
 transform:
@@ -1342,10 +1377,11 @@ TB,R,N,V_isRobotResponse
 T@"NSDictionary",R,N,V_proactiveTrigger
 TB,R,N,V_isConfident
 config
-initWithLanguage:chunkPath:plistPath:espressoBinFilePath:vocabFilePath:storeDirectory:
-modelForLanguage:mode:chunkPath:plistPath:vocabPath:
-initInDirectory:inMemory:withMigration:
+warmup
+modelForLanguage:mode:chunkPath:plistPath:vocabPath:modelTypeAndSubModelKey:
 initWithModel:ranking:personalization:rng:store:
+initInDirectory:inMemory:withMigration:
+modelForLanguage:mode:chunkPath:plistPath:vocabPath:
 detectLanguageFromText:
 languageForLocaleIdentifier:
 getMergedPromptForMessage:conversationTurns:maxPromptLength:maxPromptWindowSeconds:promptJoiningString:
@@ -1354,7 +1390,6 @@ initWithLanguage:chunkPath:plistPath:espressoBinFilePath:vocabFilePath:
 signpostedQuickResponsesForMessage:maximumResponses:conversationHistory:context:time:language:locale:recipients:useContactNames:includeCustomResponses:includeResponsesToRobots:
 quickResponsesForMessage:maximumResponses:conversationHistory:context:time:language:locale:recipients:useContactNames:includeCustomResponses:includeResponsesToRobots:
 featuresOf:
-predict:
 subarrayWithRange:
 numberWithDouble:
 repliesToRobot:language:recipients:
@@ -1402,6 +1437,7 @@ quickResponsesForMessage:conversationTurns:maxResponses:localeIdentifier:recipie
 proactiveTriggerForDynamicLabel:context:language:
 registerDisplayedQuickResponses:plistPath:vocabPath:
 registerResponse:position:isCanned:isUsingQuickResponses:locale:plistPath:vocabPath:
+initWithLanguage:plistPath:espressoBinFilePath:vocabFilePath:storeDirectory:
 customResponsesForMessage:maximumResponses:context:language:locale:recipients:
 _model
 _ranking
@@ -1420,9 +1456,7 @@ labelOf:withLabeler:
 sampler
 shouldSampleForLabel:isDynamicLabel:
 initWithEntity:type:mode:language:class:modelPath:plistPath:vocabPath:
-classifierWithEspressoModelFile:
-filesystemPathForFilename:
-outputDimension
+checkFilesystemPathForFilename:
 _transformerCacheKeyForLanguage:mode:plistPath:
 _sharedInvalidKeysCache
 _sharedTransformerCache
@@ -1467,11 +1501,12 @@ bindNamedParam:toInt64:
 data
 bindNamedParam:toNSData:
 bindNamedParam:toDouble:
+substringToIndex:
+substringFromIndex:
+stringByAppendingString:
 getProfanityLocale
 preferredLanguages
 isProfane:inLocales:
-substringToIndex:
-substringFromIndex:
 timeIntervalSinceReferenceDate
 getInt64ForColumnAlias:
 initWithNumbers:
@@ -1575,13 +1610,14 @@ bucketerWithLabeledBuckets:
 bucketerWithEqualityTest:
 resolveByPairs:
 resolveByScoreBreakTiesArbitrarily:
-_initWithoutConnection
-readEmojiDefaults
+_isSingleEmoji
 stringWithCapacity:
 supportsSkinToneVariants
 lastUsedVariantEmojiForEmoji:
 string
 _enumerateEmojiTokensInRange:block:
+_initWithoutConnection
+readEmojiDefaults
 _baseStringForEmojiString:
 _isCoupleMultiSkinToneEmoji:
 copyWithSkinToneVariantSpecifier:
@@ -1662,7 +1698,6 @@ initWithSessionDescriptor:modelClass:
 featurizerWithMethods:bucketSize:characterNGramRange:tokenNGramRange:idVectorLength:extraIdOptions:vectorizerStrategy:vectorNormalization:vocab:
 initWithSeed:
 newTransformerInstanceForLanguage:withDictionary:withVocab:withSeed:forMode:
-stringByReplacingOccurrencesOfString:withString:
 currentLocale
 dominantLanguageTagFromText:
 defaultLanguage
@@ -1682,11 +1717,13 @@ dominantLanguageForString:
 detectLanguageFromText:withMaxLength:withMaxTags:withMinimumCount:withMinimumAgreement:
 detectLanguageFromLanguageTags:
 detectLanguageFromLanguageTags:withMinimumCount:withMinimumAgreement:
+_filesystemPathForFilename:isFault:
 stringByDeletingPathExtension
 pathExtension
 initWithContentsOfFile:options:error:
 propertyListWithData:options:format:error:
 initWithPath:
+filesystemPathForFilename:
 initWithStringValue:
 predicateForContactsMatchingPhoneNumber:
 predicateForContactsMatchingEmailAddress:
@@ -1728,6 +1765,7 @@ eventQueryWithPredicate:eventStreams:offset:limit:sortDescriptors:
 allDevices
 setDeviceIDs:
 executeQuery:error:
+stringByReplacingOccurrencesOfString:withString:
 isDoneIterating
 startDate
 interaction
@@ -1841,6 +1879,7 @@ Q24@0:8@16
 B24@0:8@16
 @"NSSet"
 @48@0:8@16Q24@32@40
+@48@0:8@16@24@32@?40
 @"SGModelHyperparameters"
 @"SGQuickResponsesReplies"
 @"SGQuickResponsesClassificationParameters"
@@ -1851,6 +1890,19 @@ B24@0:8@16
 v24@0:8@?16
 @32@0:8@16@?24
 v40@0:8@16@?24@?32
+v24@0:8@16
+@"_PASLazyPurgeableResult"
+#16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B24@0:8#16
+B24@0:8:16
+Vv16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
+@"NSArray"24@0:8@"PMLSparseVector"16
 d40@0:8d16d24d32
 d56@0:8d16d24d32d40d48
 d72@0:8d16d24d32d40d48d56d64
@@ -1865,16 +1917,6 @@ q24@0:8@16
 v32@0:8@16@24
 @"SGQuickResponsesStore"
 @"_PASRng"
-#16@0:8
-@24@0:8:16
-@32@0:8:16@24
-@40@0:8:16@24@32
-B24@0:8#16
-B24@0:8:16
-Vv16@0:8
-^{_NSZone=}16@0:8
-B24@0:8@"Protocol"16
-@"NSString"16@0:8
 @40@0:8@16@24@32
 @24@0:8@"NSMutableArray"16
 @40@0:8@16@"NSArray"24@"NSDictionary"32
@@ -1884,7 +1926,6 @@ v48@0:8:16@24@32@40
 ^S24@0:8Q16
 v40@0:8@16^S24Q32
 v40@0:8@16@24@32
-v24@0:8@16
 @"NSMutableData"
 @84@0:8@16@24Q32Q40Q48Q56Q64B72B76B80
 @28@0:8@16B24
@@ -1896,7 +1937,6 @@ v20@0:8B16
 @44@0:8@16@24@32B40
 v64@0:8@16@24B32B36@40@48@56
 @56@0:8@16@24@32@40@48
-@64@0:8@16@24@32@40@48@56
 @92@0:8@16Q24@32@40@48@56@64@72B80B84B88
 @36@0:8@16B24@28
 @72@0:8@16@24@32@40@48Q56@64
@@ -1989,7 +2029,7 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 $$$$$$$$!$$$$
 $$$$$$$$$$$$$$$$$$$
 $$$$$$$$$$
-@(#)PROGRAM:CoreSuggestionsML  PROJECT:Suggestions-1191
+@(#)PROGRAM:CoreSuggestionsML  PROJECT:Suggestions-1193.0.2
 SGQuickResponsesConfig: Object for key %@ not found in dictionary.
 SGQuickResponsesConfig: Object for key %@ is not a number.
 SGQuickResponsesConfig: Object for key %@ is not a string.
@@ -2109,7 +2149,7 @@ SGQuickResponses: no available configuration found to support training for langu
 SGQuickResponsesConfig: Training class count exceeds maximum
 SGQuickResponses: no available configuration found to support custom responses for language %@
 [[SGCustomResponsesParameters alloc] initWithDictionary:dict[CUSTOM_RESPONSES_PARAMETERS]]
-[self isValidConfigForWordPiece]
+[self isValidConfigForWordPieceWithLazyVocab:lazyVocab]
 SGQuickResponsesConfig: Strategy PMLHashingVectorizerStrategyWordPiece used but no vocab present
 SGQuickResponsesConfig: final preprocessing step %@ is not %@ or %@
 Error finding model plist path for %@
@@ -2160,6 +2200,7 @@ Unknown model name: %s
 Failed to locate assets resource %s
 Failed to load model file resource %s, with type:%@, modelEntity:%@, mode:%lu, language:%@
 No transformer instance for model %@ in language %@ and mode %@ at path %@
+Quick Responses: failed to initialize database while warming up store
 SGQuickResponsesStore read error: %@
 SGQuickResponsesStore write error: %@
 SGQuickResponsesStore: Unexpected null value for custom_responses.language
@@ -2247,6 +2288,8 @@ MAX_PROMPT_LENGTH
 MAX_REPLY_LENGTH
 MAX_PROMPT_WINDOW_SECONDS
 PROMPT_JOINING_STRING
+MODEL_TYPE_NAME
+SUB_MODEL_KEY_STRING
 PERSONALIZATION_IS_DISABLED
 REPLY_TEXT_IS_RANDOMIZED
 RANKING_AND_RESPONSE_COUNT_IS_PER_CATEGORY
@@ -2264,8 +2307,6 @@ DYNAMIC_LABELS_ENABLED
 FILTER_NONCONFIDENT
 HAS_NEGATIVE_CLASS
 NEGATIVE_CLASS_MAXIMUM_TO_PREDICT
-MODEL_TYPE_NAME
-SUB_MODEL_KEY_STRING
 RESPONSE_CLASSES
 REPLY_TEXT_SELECTED_PSEUDOCOUNTS
 MODEL_SCORE_WEIGHT
@@ -2308,10 +2349,11 @@ USE_NON_NEGATIVE_CLASSES_ONLY
 %@-%lu-%@-%@
 @"_PASLRUCache"8@?0
 language.length
+com.apple.suggestions.quickResponsesConfigWarmup
+PREDICTION_PARAMETERS
 PREDICTION_REPLIES
 PREDICTION_MODEL_HYPERPARAMETERS
 PREDICTION_PREPROCESSING_METHODS
-PREDICTION_PARAMETERS
 CLASSIFICATION_LABELS
 CLASSIFICATION_MODEL_HYPERPARAMETERS
 CLASSIFICATION_PREPROCESSING_METHODS
@@ -2333,6 +2375,7 @@ SGModelAsset-notifications
 Assets
 suggestionsmodelassets
 v16@?0@"_PASAsset2"8
+v16@?0@"SGMultiLabelEspressoClassifierWrapper"8
 @sum.self
 d16@?0@8
 METHODS
@@ -2369,6 +2412,7 @@ lang.length
 model
 ranking
 personalization != nil || model.config.predictionParams.isPersonalizationDisabled
+storeDirectory.length
 message
 v32@?0@8@16^B24
 v32@?0@"SGQuickResponse"8Q16^B24
@@ -2422,10 +2466,12 @@ PREDICTION
 EVALUATION
 NSString *modelModeName(SGModelMode)
 Unexpected SGModelMode mode: %lX
+SGQuickResponsesStore.m
+store
+v16@?0@"SGLazyInit"8
 @8@?0
 {_PASDBIterAction_=B}16@?0@"NSError"8
 B8@?0
-v16@?0@"SGLazyInit"8
 SELECT * FROM responses WHERE lang_response=$lang_response
 SELECT * FROM responses_totals WHERE language=$language
 $lang_response
@@ -2455,7 +2501,6 @@ $sent_at
 $recipient
 $row_id
 UPDATE custom_responses SET prompt_embedding = $prompt_embedding,     decayed_times_used = decayed_times_used + 1,     first_seen = MIN($sent_at, first_seen),     last_seen = MAX($sent_at, last_seen) WHERE language = $language AND reply = $reply
-%@%@
 INSERT INTO messages (reply, language, prompt, recipient, sent_at, filtering, filtered) VALUES($reply, $language, $prompt, $recipient, $sent_at, false, false)
 $prompt
 DELETE FROM messages ORDER BY sent_at DESC LIMIT -1 OFFSET $table_limit
@@ -2498,7 +2543,6 @@ UPDATE custom_responses SET usage_spread = (SELECT CAST(u AS FLOAT)/c FROM    (S
 SELECT COUNT(ROWID) as n FROM cr_per_recipient_counts
 SELECT reply, language, COUNT(ROWID) as n FROM cr_per_recipient_counts GROUP BY reply, language
 second
-SGQuickResponsesStore.m
 DELETE FROM cr_per_recipient_counts WHERE reply=$reply AND language=$language ORDER BY decayed_times_used ASC LIMIT $n_rows 
 $n_rows
 SELECT reply, prompt_embedding, decayed_times_used, usage_spread FROM custom_responses WHERE language = $language   AND decayed_times_used >= $minimum_decayed_count   AND last_seen - first_seen >= $minimum_time_interval
@@ -2551,6 +2595,10 @@ malloc failed
 @"NSMutableDictionary"16@?0@"<NSFastEnumeration>"8
 @"NSMutableArray"16@?0@"<NSFastEnumeration>"8
 @"NSArray"16@?0@"NSArray"8
+SGPersonalizeEmojisWarmup
+SGStringUtilML.m
+isSingleEmoji == NO
+emojiPreferences != nil
 v40@?0@"EMFEmojiToken"8{_NSRange=QQ}16^B32
 SGQuickResponsesToRobotsConfig.m
 params
@@ -2609,6 +2657,7 @@ MLQuickResponsesPrediction
 RepliesToRobots
 plist
 SGQuickResponsesToRobots.m
+repliesToRobotsConfig
 INSendMessageIntent
 startDate > %@
 com.apple.MobileSMS
@@ -2676,12 +2725,16 @@ SGCustomResponsesParameters
 SGQuickResponsesConfig
 SGModelAsset
 SGNestedArray
+SGMultiLabelEspressoClassifierWrapper
+SGMultiLabelEspressoClassifierCache
+SGMultiLabelEspressoClassifierCached
+PMLMultiLabelClassifierProtocol
+NSObject
 SGQuickResponsesReplyOption
 SGQuickResponsesPersonalization
 SGStringPreprocessingTransformer
 PMLTransformerProtocol
 PMLPlistAndChunksSerializableProtocol
-NSObject
 SGStringPreprocessor
 SGStringSplitter
 SGPipelineTransformer
@@ -2725,240 +2778,240 @@ SGQuickResponsesClassScore
 SGQuickResponsesCategoryScore
 SGQuickResponsesDatabase
 _PASDatabaseMigrationProtocol
-propertyListWithData:options:format:error:
-bindNamedParam:toNSData:
-initWithCharactersNoCopy:length:freeWhenDone:
-localizedDescription
-punctuationCharacterSet
-localizedLowercaseString
-classifierWithEspressoModelFile:
-scaleInPlaceWithFactor:
-sortUsingDescriptors:
-intentClass
-bindNamedParam:toNSString:
-countForObject:
-initWithClassNameKey:
+fileExistsAtPath:isDirectory:
 boolValue
-lock
-setDeviceIDs:
-scaleInPlaceWithInversedFactor:
-sortUsingSelector:
+writeToPlistWithObject:andChunks:
+reverseObjectEnumerator
+initWithCharactersNoCopy:length:freeWhenDone:
+supportsSkinToneVariants
+intent
+symbolCharacterSet
+initWithClassNameKey:
+localizedDescription
+countForObject:
+localizedLowercaseString
+intentClass
 detectNames:algorithm:
+_pas_componentsJoinedByString:
 first
-removeAllObjects
-_isCoupleMultiSkinToneEmoji:
-null
-intentsSourceID
-_baseStringForEmojiString:
+pathExtension
+stringByAppendingPathComponent:
+valueForKeyPath:
+_pas_mappedArrayWithTransform:
+senderID
+stringByAppendingString:
 closePermanently
-initWithLanguage:
-handleFailureInFunction:file:lineNumber:description:
-interaction
+tagAtIndex:unit:scheme:tokenRange:
+lock
+pathForResource:ofType:
+allDevices
+bundleForClass:
 currentHandler
 firstObject
-sortedArrayWithOptions:usingComparator:
-mutableBytes
-invertedSet
-unifiedContactsMatchingPredicate:keysToFetch:error:
-encodeInt32:forKey:
-handleFailureInMethod:object:file:lineNumber:description:
-unlock
-initWithContentsOfFile:options:error:
-lowercaseString
-setObject:atIndexedSubscript:
-mutableCopy
-second
-dictionary
-initWithCountLimit:
-subarrayWithRange:
-currentLocale
-dictionaryWithObjects:forKeys:count:
-allDevices
-encodeObject:forKey:
-bundleForClass:
 allObjects
-unsignedIntValue
-setObject:forKey:
-numberWithDouble:
-initWithStringValue:
-whitespaceAndNewlineCharacterSet
-componentsSeparatedByString:
-enumerateKeysAndObjectsUsingBlock:
-unsignedIntegerValue
-floatValue
-initWithData:
-initWithTagSchemes:options:
-setObject:forKeyedSubscript:
-predicateForContactsMatchingEmailAddress:
-_pas_componentsJoinedByString:
-data
-_pas_mappedArrayWithTransform:
-enumerateObjectsUsingBlock:
-numberWithFloat:
-allValues
-knowledgeStore
-substringFromIndex:
-withBucketSize:characterNGramRange:tokenNGramRange:shouldNormalizeTokens:shouldNormalizeCharacters:localeForNonwordTokens:tokenizeNewlines:idVectorLength:extraIdOptions:vectorizerStrategy:vectorNormalization:vocab:
-numberWithInt:
-uppercaseLetterCharacterSet
-predicateForContactsMatchingPhoneNumber:
-date
-substringToIndex:
-removeItemAtPath:error:
-uppercaseString
-removeLastObject
-setString:
-enumerateTagsInRange:unit:scheme:options:usingBlock:
-numberWithLong:
-predicateForEventsWithSourceID:bundleID:
-dateWithTimeIntervalSince1970:
-substringWithRange:
-direction
-andPredicateWithSubpredicates:
-initWithText:senderID:timestamp:
-predicateForObjectsWithMetadataKey:inValues:
-numberWithLongLong:
-sqliteDatabaseInMemoryWithError:errorHandler:
-appIntentsStream
-range
-increaseLengthBy:
-_enumerateEmojiTokensInRange:block:
-initWithMigrationObjects:
-isEqualToConversationTurn:
-numberWithUnsignedInteger:
-predicateWithFormat:
-appendString:
-decimalDigitCharacterSet
-suggestionsDirectory
-isEqualToNumber:
-containsObject:
-sqliteDatabaseWithFilename:contentProtection:errorHandler:error:
-methodForSelector:
-sumInPlaceWithVector:
-rangeOfCharacterFromSet:
-getCharacters:range:
-dominantLanguageForString:
-eventQueryWithPredicate:eventStreams:offset:limit:sortDescriptors:
-initWithDouble:
-startDate
-decodeInt32ForKey:
-writeToPlistWithObject:andChunks:
-removeObjectAtIndex:
-rangeOfCharacterFromSet:options:range:
-initWithUnsignedInteger:
-numberWithUnsignedLong:
-exceptionWithName:reason:userInfo:
-userInfo
-indexOfObjectWithOptions:passingTest:
-removeObjectsAtIndexes:
-content
-rangeOfString:
-migrateDatabases
-initWithNumbers:
-getDoubleForColumnAlias:
-characterAtIndex:
-decodeObjectOfClasses:forKey:
-supportsSkinToneVariants
-conversationIdentifier
-preferredLanguages
-initWithObjects:
-exchangeObjectAtIndex:withObjectAtIndex:
-string
-initWithFirst:second:
-rangeOfString:options:range:
-arrayByAddingObjectsFromArray:
-symbolCharacterSet
-next
-getInt64ForColumn:
-characterIsMember:
-objectAtIndex:
-prepAndRunQuery:onPrep:onRow:onError:
-executeQuery:error:
-UTF8String
-objectAtIndexedSubscript:
-replaceCharactersInRange:withString:
-arrayWithObject:
-readEmojiDefaults
-initWithFormat:
-copy
-initializeDatabase:withContentProtection:newDatabaseCreated:errorHandler:
-getInt64ForColumnAlias:
-nextFloat
-result
-valueForKeyPath:
-initWithPath:
-tagAtIndex:unit:scheme:tokenRange:
-lastObject
-objectForKey:
-arrayWithObjects:count:
-initWithGuardedData:
-isEqualToString:
-stringByAppendingPathComponent:
-nonBaseCharacterSet
-readObjectWithPlist:chunks:context:
-getInt64ForColumnName:table:
-doubleValue
-insertString:atIndex:
-objectForKeyedSubscript:
-copyWithSkinToneVariant:
-getIntegerForColumnAlias:
+intentsSourceID
+handleFailureInFunction:file:lineNumber:description:
+initWithLanguage:
+runWithLockAcquired:
+encodeInt32:forKey:
+signatureWithObjCTypes:
+handleFailureInMethod:object:file:lineNumber:description:
 stringByDeletingPathExtension
-lastUsedVariantEmojiForEmoji:
-initWithGuardedData:serialQueue:
-copyWithSkinToneVariantSpecifier:
-reverseObjectEnumerator
-characterSetWithCharactersInString:
+initWithContentsOfFile:options:error:
+interaction
+registerUpdateHandler:
+allValues
+initWithCountLimit:
+invertedSet
+dictionary
 timeIntervalSince1970
 stringByFoldingWithOptions:locale:
-signatureWithObjCTypes:
-outputDimension
-addIndex:
-defaultManager
-initWithAssetTypeDescriptorPath:defaultBundlePath:matchingKeysAndValues:notificationQueue:logHandle:enableAssetUpdates:
-characterSetWithRange:
+dictionaryWithObjects:forKeys:count:
+currentLocale
+encodeObject:forKey:
+UTF8String
+null
+lowercaseString
+propertyListWithData:options:format:error:
+punctuationCharacterSet
+componentsSeparatedByString:
+enumerateKeysAndObjectsUsingBlock:
+floatValue
 truncateDatabaseAtPath:
 timeIntervalSinceDate:
-stringByReplacingOccurrencesOfString:withString:
-length
-corruptionMarkerPathForPath:
-initWithInteger:
+scaleInPlaceWithFactor:
+initWithData:
 tupleWithFirst:second:
 timeIntervalSinceReferenceDate
-cosineDistanceFrom:
-stringByTrimmingCharactersInSet:
-senderID
-vectorWithConstantColumn
-initWithBlock:
-bindNamedParam:toDouble:
-getNSDataForColumnAlias:
-lengthOfBytesUsingEncoding:
-count
-addObject:
+data
 skinTone
-initWithKey:ascending:
-pathExtension
-isInMemory
-initWithBlock:idleTimeout:
-integerValue
+stringByReplacingOccurrencesOfString:withString:
+enumerateObjectsUsingBlock:
+initWithStringValue:
+stringByTrimmingCharactersInSet:
+andPredicateWithSubpredicates:
+mutableBytes
+removeAllObjects
+vectorWithConstantColumn
+initWithTagSchemes:options:
+scaleInPlaceWithInversedFactor:
+date
+sortDescriptorWithKey:ascending:
 timestamp
 stringWithCapacity:
-runWithLockAcquired:
-fileExistsAtPath:isDirectory:
-descriptorForName:version:locale:
-pathForResource:ofType:
-letterCharacterSet
-countByEnumeratingWithState:objects:count:
-addObjectsFromArray:
-registerUpdateHandler:
-getNSStringForColumnAlias:
-filesystemPathForAssetDataRelativePath:
-bindNamedParam:toInt64:
-initWithCapacity:
-sortDescriptorWithKey:ascending:
-_initWithoutConnection
-stringWithUTF8String:
+mutableCopy
+appIntentsStream
+knowledgeStore
+enumerateTagsInRange:unit:scheme:options:usingBlock:
 sortUsingComparator:
-intent
+appendString:
+numberWithDouble:
+dateWithTimeIntervalSince1970:
+direction
+stringWithUTF8String:
+setDeviceIDs:
+sortUsingDescriptors:
+second
+numberWithFloat:
+sortUsingSelector:
+increaseLengthBy:
+initWithText:senderID:timestamp:
+numberWithInt:
+predicateForContactsMatchingEmailAddress:
+decimalDigitCharacterSet
+containsObject:
+_enumerateEmojiTokensInRange:block:
+characterAtIndex:
+initWithMigrationObjects:
+sortedArrayWithOptions:usingComparator:
+getCharacters:range:
+dominantLanguageForString:
+arrayByAddingObjectsFromArray:
+predicateForContactsMatchingPhoneNumber:
+initWithDouble:
+isEqualToNumber:
+_baseStringForEmojiString:
+numberWithLong:
+methodForSelector:
+isEqualToConversationTurn:
+characterIsMember:
+decodeInt32ForKey:
+indexOfObjectWithOptions:passingTest:
+setObject:atIndexedSubscript:
+eventQueryWithPredicate:eventStreams:offset:limit:sortDescriptors:
+arrayWithObject:
+unifiedContactsMatchingPredicate:keysToFetch:error:
+content
+getDoubleForColumnAlias:
+predicateForEventsWithSourceID:bundleID:
+decodeObjectOfClasses:forKey:
+numberWithLongLong:
+initWithUnsignedInteger:
+unlock
+exceptionWithName:reason:userInfo:
+removeItemAtPath:error:
+setObject:forKey:
+removeLastObject
+numberWithUnsignedInteger:
+conversationIdentifier
+predicateForObjectsWithMetadataKey:inValues:
+arrayWithObjects:count:
+migrateDatabases
+subarrayWithRange:
+initWithNumbers:
+getInt64ForColumn:
+initWithObjects:
+exchangeObjectAtIndex:withObjectAtIndex:
+unsignedIntValue
+setObject:forKeyedSubscript:
+initWithFirst:second:
+predicateWithFormat:
+copy
+getInt64ForColumnAlias:
+range
+unsignedIntegerValue
+characterSetWithCharactersInString:
+numberWithUnsignedLong:
+executeQuery:error:
+_initWithoutConnection
+whitespaceAndNewlineCharacterSet
+initWithFormat:
+getInt64ForColumnName:table:
+addIndex:
+initializeDatabase:withContentProtection:newDatabaseCreated:errorHandler:
+substringFromIndex:
+doubleValue
+initWithPath:
+copyWithSkinToneVariant:
+characterSetWithRange:
+lastObject
+rangeOfCharacterFromSet:
+setString:
+getIntegerForColumnAlias:
+isEqualToString:
+initWithGuardedData:
+uppercaseLetterCharacterSet
+removeObjectAtIndex:
+objectAtIndex:
+next
+insertString:atIndex:
+substringToIndex:
+rangeOfCharacterFromSet:options:range:
+objectAtIndexedSubscript:
+copyWithSkinToneVariantSpecifier:
+_isCoupleMultiSkinToneEmoji:
+removeObjectsAtIndexes:
+bindNamedParam:toDouble:
+uppercaseString
+withBucketSize:characterNGramRange:tokenNGramRange:shouldNormalizeTokens:shouldNormalizeCharacters:localeForNonwordTokens:tokenizeNewlines:idVectorLength:extraIdOptions:vectorizerStrategy:vectorNormalization:vocab:
+lastUsedVariantEmojiForEmoji:
+substringWithRange:
+addObject:
+rangeOfString:
+sqliteDatabaseInMemoryWithError:errorHandler:
+nextFloat
+_isSingleEmoji
+initWithAssetTypeDescriptorPath:defaultBundlePath:matchingKeysAndValues:notificationQueue:logHandle:enableAssetUpdates:
+defaultManager
+initWithGuardedData:serialQueue:
+preferredLanguages
+objectForKey:
+corruptionMarkerPathForPath:
+addObjectsFromArray:
+bindNamedParam:toInt64:
+sqliteDatabaseWithFilename:contentProtection:errorHandler:error:
+rangeOfString:options:range:
+initWithBlock:
+nonBaseCharacterSet
+prepAndRunQuery:onPrep:onRow:onError:
+objectForKeyedSubscript:
+length
+cosineDistanceFrom:
+replaceCharactersInRange:withString:
+startDate
+count
+initWithInteger:
+getNSDataForColumnAlias:
+suggestionsDirectory
+sumInPlaceWithVector:
+bindNamedParam:toNSData:
+readEmojiDefaults
+result
+initWithBlock:idleTimeout:
+descriptorForName:version:locale:
+bindNamedParam:toNSString:
+countByEnumeratingWithState:objects:count:
+readObjectWithPlist:chunks:context:
+getNSStringForColumnAlias:
+initWithKey:ascending:
+initWithCapacity:
+integerValue
+lengthOfBytesUsingEncoding:
+isInMemory
+userInfo
+string
+letterCharacterSet
+filesystemPathForAssetDataRelativePath:
 objectAssertedForKey:
 numberAssertedForKey:
 stringAssertedForKey:
@@ -3018,6 +3071,8 @@ TQ,R,N,V_maxReplyLength
 TQ,R,N,V_maxPromptLength
 Td,R,N,V_maxPromptWindowSeconds
 T@"NSString",R,N,V_promptJoiningString
+_modelTypeNameForDictionary:
+_subModelKeyStringForDictionary:
 initWithDictionary:
 isPersonalizationDisabled
 isReplyTextRandomized
@@ -3233,10 +3288,14 @@ TB,R,N,V_useNonNegativeClassesOnly
 _cacheKeyForLanguage:mode:plistPath:vocabPath:
 _sharedCache
 _addModelAssetUpdateHandler
+_dictionaryForPlistPath:mode:
+_vocabForVocabPath:mode:
+modelTypeAndSubModelKeyForLanguage:plistPath:vocabPath:warmupBlock:
 configWithLanguage:mode:plistPath:vocabPath:
 initWithLanguage:mode:plistPath:vocabPath:
 initWithLanguage:mode:dictionary:vocab:
-isValidConfigForWordPiece
+initWithLanguage:mode:dictionary:lazyVocab:
+isValidConfigForWordPieceWithLazyVocab:
 modelHyperparameters
 preprocessingMethods
 labels
@@ -3286,6 +3345,46 @@ dictionaryWithPlistFilename:
 vocabWithTrieFilename:
 asset
 traversalWithNestedArray:depthCallback:itemCallback:
+espressoModelFile
+setEspressoModelFile:
+classifier
+setClassifier:
+_espressoModelFile
+_classifier
+T@"NSString",&,N,V_espressoModelFile
+T@"_PASLazyPurgeableResult",&,N,V_classifier
+sharedInstance
+setCachedEspressoClassifierWithFile:
+predict:withFile:
+outputDimensionWithFile:
+_currentClassifier
+classifierWithEspressoModelFile:
+isEqual:
+class
+self
+performSelector:
+performSelector:withObject:
+performSelector:withObject:withObject:
+isProxy
+isKindOfClass:
+isMemberOfClass:
+conformsToProtocol:
+respondsToSelector:
+retain
+release
+autorelease
+retainCount
+zone
+hash
+superclass
+description
+debugDescription
+TQ,R
+T#,R
+T@"NSString",R,C
+outputDimension
+predict:
+initWithEspressoModelFile:
 compare:
 ucbTunedVarianceForMean:displayed:totalDisplayed:
 ucbWithMean:varianceOfMean:explorationFactor:
@@ -3311,29 +3410,6 @@ registerWrittenResponse:config:
 _store
 _rng
 withMethods:
-isEqual:
-class
-self
-performSelector:
-performSelector:withObject:
-performSelector:withObject:withObject:
-isProxy
-isKindOfClass:
-isMemberOfClass:
-conformsToProtocol:
-respondsToSelector:
-retain
-release
-autorelease
-retainCount
-zone
-hash
-superclass
-description
-debugDescription
-TQ,R
-T#,R
-T@"NSString",R,C
 toPlistWithChunks:
 initWithPlist:chunks:context:
 transform:
@@ -3461,7 +3537,7 @@ registerDisplayedQuickResponses:plistPath:vocabPath:
 registerResponse:position:isCanned:isUsingQuickResponses:locale:plistPath:vocabPath:
 initWithModel:ranking:personalization:rng:store:
 initWithLanguage:chunkPath:plistPath:espressoBinFilePath:vocabFilePath:
-initWithLanguage:chunkPath:plistPath:espressoBinFilePath:vocabFilePath:storeDirectory:
+initWithLanguage:plistPath:espressoBinFilePath:vocabFilePath:storeDirectory:
 _getMergedPromptForMessage:conversationTurns:
 signpostedQuickResponsesForMessage:maximumResponses:conversationHistory:context:time:language:locale:recipients:useContactNames:includeCustomResponses:includeResponsesToRobots:
 scoresAndIsConfidentForMessage:language:locale:
@@ -3481,6 +3557,7 @@ labelOf:withLabeler:
 labelOf:inLanguage:
 shouldSampleForLabel:inLanguage:isDynamicLabel:
 modelForLanguage:mode:chunkPath:plistPath:vocabPath:
+modelForLanguage:mode:chunkPath:plistPath:vocabPath:modelTypeAndSubModelKey:
 transformerInstanceForLanguage:mode:
 transformerInstanceForLanguage:mode:plistPath:vocabPath:
 _transformerCacheKeyForLanguage:mode:plistPath:
@@ -3489,7 +3566,6 @@ _sharedInvalidKeysCache
 newTransformerInstanceForLanguage:mode:plistPath:vocabPath:
 setGlobalTransformerForTesting:
 config
-predict:
 featuresOf:
 labelOf:
 shouldSampleForLabel:isDynamicLabel:
@@ -3516,7 +3592,7 @@ T@"SGModelSource",R,N,V_source
 T@"<PMLTransformerProtocol>",R,N,V_labeler
 T@"SGModelSampler",R,N,V_sampler
 areModelsAvailableInLanguage:
-sharedInstance
+warmup
 instanceInMemory
 isProfane:inLocales:
 keyWithLanguage:andResponse:
@@ -3696,6 +3772,8 @@ languageTagsFromText:withMaxLength:withMaxTags:
 tokenRangeForText:maxTruncatedLength:tagger:taggerOptions:prevTextTokenMaxRange:originalLengthShortfall:lowercaseText:lowercaseRange:
 logMatchingForRange:lowercaseRange:text:lowercaseText:
 filesystemPathForFilename:
+checkFilesystemPathForFilename:
+_filesystemPathForFilename:isFault:
 quickResponsesPrediction
 quickResponsesPredictionVocab
 responseToRobotParams
@@ -3830,6 +3908,7 @@ Q24@0:8@16
 B24@0:8@16
 @"NSSet"
 @48@0:8@16Q24@32@40
+@48@0:8@16@24@32@?40
 @"SGModelHyperparameters"
 @"SGQuickResponsesReplies"
 @"SGQuickResponsesClassificationParameters"
@@ -3840,6 +3919,19 @@ B24@0:8@16
 v24@0:8@?16
 @32@0:8@16@?24
 v40@0:8@16@?24@?32
+v24@0:8@16
+@"_PASLazyPurgeableResult"
+#16@0:8
+@24@0:8:16
+@32@0:8:16@24
+@40@0:8:16@24@32
+B24@0:8#16
+B24@0:8:16
+Vv16@0:8
+^{_NSZone=}16@0:8
+B24@0:8@"Protocol"16
+@"NSString"16@0:8
+@"NSArray"24@0:8@"PMLSparseVector"16
 d40@0:8d16d24d32
 d56@0:8d16d24d32d40d48
 d72@0:8d16d24d32d40d48d56d64
@@ -3854,16 +3946,6 @@ q24@0:8@16
 v32@0:8@16@24
 @"SGQuickResponsesStore"
 @"_PASRng"
-#16@0:8
-@24@0:8:16
-@32@0:8:16@24
-@40@0:8:16@24@32
-B24@0:8#16
-B24@0:8:16
-Vv16@0:8
-^{_NSZone=}16@0:8
-B24@0:8@"Protocol"16
-@"NSString"16@0:8
 @40@0:8@16@24@32
 @24@0:8@"NSMutableArray"16
 @40@0:8@16@"NSArray"24@"NSDictionary"32
@@ -3873,7 +3955,6 @@ v48@0:8:16@24@32@40
 ^S24@0:8Q16
 v40@0:8@16^S24Q32
 v40@0:8@16@24@32
-v24@0:8@16
 @"NSMutableData"
 @84@0:8@16@24Q32Q40Q48Q56Q64B72B76B80
 @28@0:8@16B24
@@ -3885,7 +3966,6 @@ v20@0:8B16
 @44@0:8@16@24@32B40
 v64@0:8@16@24B32B36@40@48@56
 @56@0:8@16@24@32@40@48
-@64@0:8@16@24@32@40@48@56
 @92@0:8@16Q24@32@40@48@56@64@72B80B84B88
 @36@0:8@16B24@28
 @72@0:8@16@24@32@40@48Q56@64

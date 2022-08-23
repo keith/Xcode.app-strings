@@ -1,4 +1,4 @@
-@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-98.0.2
+@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-100
 SEGB
 %@ %@
 segmentName
@@ -68,10 +68,16 @@ BMFrameStateEOF
 BMFrameStateUnknown
 BMFrameStateUnknown(%lu)
 BiomeStorageError
+BiomeStreamHealth
+streamHealth failed: %@ for segment: %@, bytesUsed: %d, frameStoreSize:%zu
+streamHealth failed: %@ for segment: %@, offset: %d frameStoreSize: %zu
+streamHealth failed: %@ for segment: %@, offset: %d frameSize: %u, bytesUsedByFrames: %d
+streamHealth failed: %@ for segment: %@, calculated crc: %d frame crc: %d
+streamHealth failed: %@ for segment: %@, frame state:%d
+v32@?0@"BMFrameStore"8@"NSString"16^B24
 B16@?0@"BMStoreEvent"8
 B24@?0@"BMStoreEvent"8^B16
 v24@?0@"BMFrame"8^B16
-v32@?0@"BMFrameStore"8@"NSString"16^B24
 v24@?0@"BMStoreEvent"8@"BMFrameStore"16
 BMStreamDatastoreBase.m
 start <= end
@@ -80,6 +86,11 @@ callback
 /remote
 /lock
 /metadata
+BMStreamHealthErrorLengthBeyondFrameSize
+BMStreamHealthErrorLengthBeyondBytesUsed
+BMStreamHealthErrorCheckSumMismatch
+BMStreamHealthErrorBytesUsedBeyondFrameStoreSize
+BMStreamHealthErrorUnrecognizedState
 Invalid path
 Create failed
 Open failed
@@ -197,11 +208,16 @@ frameWithOffset: offset (%lu) is beyond frame size (%lu)
 frameWithOffset: current offset (%lu) leaves insufficient space in the segment size (%lu) for a BMFrameHeader
 enumerateWithOptions: offset (%lu) is not 8-byte aligned
 enumerateWithOptions: offset (%lu) beyond segment size (%lu) segment:%@
+enumerateWithOptions: offset (%lu) beyond the bytesUsed (%u) segment:%@
 Use of reverse enumeration is only supported for reading.
 Reverse enumeration offset not found %zu.
 Found frame with state: BMFrameStateUnknown
+After skipping bad frames, found a recognized state.
 Unrecognized frame state:%d in segment: %{public}@
 Unrecognized frame state: %d, segment:%{public}@ frame offset:%td frame size:%zu reverse:%d, frameCount=%d, prevFrameState:%{public}@, prevFrameValid:%{public}@ prevLastSize/offset:%zu prevStateSize:%zu
+After unrecognized frame, skipping ahead to find valid frames
+After isValidFrame returned a %d error for a frame at offset %td, skipping ahead to find valid frames
+After a corrupted frame found a valid frame in %@ at offset: %td
 Frame store: %@, bytesUsed: %llu
 No space left to write to the mapped region
 Unable to update creationTimestamp. We expect to see %llu, but instead are seeing %llu. The write status is %d
@@ -328,6 +344,7 @@ Unable to open framestore with error: %@
 Filed to get size of file error=%{public}@
 Failed to create new framestore with nil filename
 Failed to get contents of directory: %{public}@, error: %{error}@
+Failed to determine size of segment: %{public}@, error: %{public}@
 Attempting to create new frame store
 Assertion Failed: [_path hasPrefix:_config.datastorePath]
 Attempting to acquire lockfile: %@
@@ -664,7 +681,7 @@ bytes
 code
 enumerateWithOptions:fromOffset:usingBlock:
 size
-isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:
+isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:errorCode:
 initWithHeader:storePath:data:framePtr:offset:nextOffset:
 unsignedLongValue
 updateFrameStoreIndex
@@ -673,6 +690,7 @@ distantPast
 getReverseOffsetIndex:
 objectAtIndexedSubscript:
 integerValue
+frameStoreSize
 used
 atomicUpdateOffset:withValue:shouldReplace:
 atomicWriteBytes:toOffset:expected:
@@ -696,7 +714,6 @@ pruneOnAccess
 setPruneOnAccess:
 maxAge
 setMaxAge:
-frameStoreSize
 _datastoreVersion
 _backingFile
 _frames
@@ -708,6 +725,8 @@ _framePointers
 _filterByAgeOnRead
 _pruneOnAccess
 _maxAge
+_start
+T^v,R,V_start
 T@"NSString",R,N
 TB,N,V_filterByAgeOnRead
 TB,N,V_pruneOnAccess
@@ -746,6 +765,7 @@ isTombstone
 eventBodyClass
 updateMetadata:
 writeEventData:dataVersion:timestamp:outBookmark:
+enumerateSegmentsFrom:to:withBlock:
 fetchEventsFrom:to:options:
 enumerateEventsFrom:to:options:usingBlock:
 removeEventsFrom:to:reason:pruneFutureEvents:shouldDeleteUsingBlock:
@@ -755,7 +775,6 @@ refreshSegmentsList
 timestampFromSegmentName:
 lastSegmentName
 didMarkFrameAsRemovedWithSegmentName:frame:reason:outTombstoneBookmark:
-enumerateSegmentsFrom:to:withBlock:
 removeSegmentNamed:
 eventsFrom:to:reason:shouldDeleteUsingBlock:
 newEnumeratorFromStartTime:options:
@@ -784,6 +803,7 @@ cachingOptionsForMemoryMappingWithAttributes:
 initWithStream:permission:config:
 writeEventWithEventBody:
 writeEventWithEventBody:timestamp:
+verifyStreamHealthFrom:to:error:
 fetchEventsFrom:to:
 removeEventsFrom:to:pruneFutureEvents:shouldDeleteUsingBlock:
 removeEventsFrom:to:pruneFutureEvents:usingBlock:
@@ -900,7 +920,6 @@ currentPosition
 _advice
 _sharedMemory
 _currentWriteOffset
-_start
 _size
 _mappedAddress
 _pageAlignedSize
@@ -1196,7 +1215,7 @@ B24@0:8Q16
 B28@0:8Q16B24
 {?=QdI[32c][4c]}36@0:8@16I24^Q28
 B24@0:8d16
-B56@0:8^v16I24^@28{?=II}36B44Q48
+B64@0:8^v16I24^@28{?=II}36B44Q48^i56
 v32@0:8Q16@?24
 @28@0:8Q16I24
 q24@0:8Q16
@@ -1205,6 +1224,7 @@ C32@0:8^{?=(?={?=II}Q){?=ddII}}16^Q24
 C44@0:8r^v16Q24I32d36
 C52@0:8r^v16Q24I32d36^Q44
 v24@0:8d16
+^v16@0:8
 @"BMFileHandle"
 @"BMMemoryMapping"
 @"NSMutableOrderedSet"
@@ -1214,6 +1234,7 @@ q24@0:8@"BMFileAttributes"16
 @48@0:8@16@24Q32@40
 B32@0:8@16d24
 B40@0:8@16d24^@32
+B40@0:8d16d24^@32
 @32@0:8d16d24
 @40@0:8d16d24Q32
 v44@0:8d16d24B32@?36
@@ -1263,7 +1284,6 @@ C40@0:8Q16Q24^Q32
 C32@0:8Q16^(?=Qd)24
 B40@0:8Q16(?=Qd)24@?32
 v40@0:8r^v16Q24Q32
-^v16@0:8
 *16@0:8
 q16@0:8
 @"BMSharedMemory"
@@ -1320,7 +1340,7 @@ v32@0:8@16@24
 {?=(?={?=II}Q){?=ddII}}16@0:8
 {?=""(?="frameStatus"{?="size"I"state"I}"frameStatusData"Q)"otherInfo"{?="creationTimestamp"d"modifiedTimestamp"d"checksum"I"dataVersion"I}}
 @40@0:8^v16Q24@32
-@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-98.0.2
+@(#)PROGRAM:BiomeStorage  PROJECT:BiomeStorage-100
 u"AI
 SEGB
 %@ %@
@@ -1391,10 +1411,16 @@ BMFrameStateEOF
 BMFrameStateUnknown
 BMFrameStateUnknown(%lu)
 BiomeStorageError
+BiomeStreamHealth
+streamHealth failed: %@ for segment: %@, bytesUsed: %d, frameStoreSize:%zu
+streamHealth failed: %@ for segment: %@, offset: %d frameStoreSize: %zu
+streamHealth failed: %@ for segment: %@, offset: %d frameSize: %u, bytesUsedByFrames: %d
+streamHealth failed: %@ for segment: %@, calculated crc: %d frame crc: %d
+streamHealth failed: %@ for segment: %@, frame state:%d
+v32@?0@"BMFrameStore"8@"NSString"16^B24
 B16@?0@"BMStoreEvent"8
 B24@?0@"BMStoreEvent"8^B16
 v24@?0@"BMFrame"8^B16
-v32@?0@"BMFrameStore"8@"NSString"16^B24
 v24@?0@"BMStoreEvent"8@"BMFrameStore"16
 BMStreamDatastoreBase.m
 start <= end
@@ -1403,6 +1429,11 @@ callback
 /remote
 /lock
 /metadata
+BMStreamHealthErrorLengthBeyondFrameSize
+BMStreamHealthErrorLengthBeyondBytesUsed
+BMStreamHealthErrorCheckSumMismatch
+BMStreamHealthErrorBytesUsedBeyondFrameStoreSize
+BMStreamHealthErrorUnrecognizedState
 Invalid path
 Create failed
 Open failed
@@ -1521,11 +1552,16 @@ frameWithOffset: offset (%lu) is beyond frame size (%lu)
 frameWithOffset: current offset (%lu) leaves insufficient space in the segment size (%lu) for a BMFrameHeader
 enumerateWithOptions: offset (%lu) is not 8-byte aligned
 enumerateWithOptions: offset (%lu) beyond segment size (%lu) segment:%@
+enumerateWithOptions: offset (%lu) beyond the bytesUsed (%u) segment:%@
 Use of reverse enumeration is only supported for reading.
 Reverse enumeration offset not found %zu.
 Found frame with state: BMFrameStateUnknown
+After skipping bad frames, found a recognized state.
 Unrecognized frame state:%d in segment: %{public}@
 Unrecognized frame state: %d, segment:%{public}@ frame offset:%td frame size:%zu reverse:%d, frameCount=%d, prevFrameState:%{public}@, prevFrameValid:%{public}@ prevLastSize/offset:%zu prevStateSize:%zu
+After unrecognized frame, skipping ahead to find valid frames
+After isValidFrame returned a %d error for a frame at offset %td, skipping ahead to find valid frames
+After a corrupted frame found a valid frame in %@ at offset: %td
 Frame store: %@, bytesUsed: %llu
 No space left to write to the mapped region
 Unable to update creationTimestamp. We expect to see %llu, but instead are seeing %llu. The write status is %d
@@ -1652,6 +1688,7 @@ Unable to open framestore with error: %@
 Filed to get size of file error=%{public}@
 Failed to create new framestore with nil filename
 Failed to get contents of directory: %{public}@, error: %{error}@
+Failed to determine size of segment: %{public}@, error: %{public}@
 Attempting to create new frame store
 Assertion Failed: [_path hasPrefix:_config.datastorePath]
 Attempting to acquire lockfile: %@
@@ -1719,153 +1756,153 @@ BMSegmentManagerProtectedState
 BMSegmentManager
 BMFrame
 BMSharedMemory
-initWithFileDescriptor:closeOnDealloc:
-stringByDeletingLastPathComponent
-numberWithBool:
-handleFailureInFunction:file:lineNumber:description:
-truncateAtOffset:error:
-decodeXPCObjectOfType:forKey:
-stringByAppendingString:
-decodeObjectOfClasses:forKey:
-pathIsManaged:domain:
-mutableCopy
-tombstones
-addObject:
-initWithDomain:code:userInfo:
-readDataToEndOfFileAndReturnError:
-stringByAppendingPathComponent:
-copy
-activate
-pathForStreamType:domain:
-decodeObjectOfClass:forKey:
-rangeOfString:options:range:
-streams
-pathForStreamIdentifier:streamType:
-decodeDoubleForKey:
-rangeOfString:
-minusOrderedSet:
-bytes
-removeObjectsForKeys:
-containsValueForKey:
-setRemoteObjectInterface:
-isUnlocked
-boolValue
-public
-encodeXPCObject:forKey:
-writeData:error:
-containsString:
-removeObjectForKey:
-failWithError:
-timeIntervalSinceReferenceDate
-biomeTemporaryDirectoryForDomain:
-encodeObject:forKey:
-removeObject:
-streamIdentifiers
-containsObject:
-dataWithBytesNoCopy:length:freeWhenDone:
-getServiceDomain:subpath:forPath:
-timeIntervalSince1970
-initWithData:
-removeLastObject
-executableName
-orderedSetWithArray:
-streamIdentifierForStream:
-dataWithBytes:length:
-UTF8String
-initWithBytes:length:encoding:
-isEqualToString:
-doubleValue
-streamForStreamIdentifier:
-componentsSeparatedByString:
-synchronousRemoteObjectProxyWithErrorHandler:
-domainForStream:
-initWithBytes:length:
-componentsJoinedByString:
-setObject:forKeyedSubscript:
-compare:
-isClassCLocked
-objectForKeyedSubscript:
-distantPast
-arrayWithObjects:count:
-setObject:forKey:
-initWithMachServiceName:options:
-code
-substringWithRange:
-objectForKey:
-currentHandler
-array
-distantFuture
-initWithListenerEndpoint:
-invalidate
-substringToIndex:
-objectAtIndexedSubscript:
-firstObject
-seekToOffset:error:
-longLongValue
-processWithXPCConnection:
-archivedDataWithRootObject:requiringSecureCoding:error:
-sortUsingComparator:
-currentConnection
-interfaceWithProtocol:
-substringFromIndex:
-indexOfObject:inSortedRange:options:usingComparator:
-numberWithUnsignedLong:
-lock
-unsignedLongValue
-initWithGuardedData:
-characterAtIndex:
-runWithLockAcquired:
-current
-integerValue
-allowsConnectionToAccessService
-strongToWeakObjectsMapTable
-numberWithUnsignedInteger:
-processInfo
-localDevice
-indexOfObject:
 dictionaryWithObjects:forKeys:count:
-unsignedIntegerValue
-errorWithDomain:code:userInfo:
-fileSystemRepresentation
-numberWithUnsignedInt:
-allowsAccessToStream:withMode:
-strongToStrongObjectsMapTable
+allowsConnectionToAccessService
 private
-unsignedIntValue
-canPerformGlobalMachLookup:report:
+errorWithDomain:code:userInfo:
 remoteDevices
-resume
+fileSystemRepresentation
 unregisterForLockStateChangeNotifications:
 numberWithUnsignedChar:
-allowsAccessToClientCompute:
+resume
+allowsAccessToStream:withMode:
 privacyPathname:
-dictionary
-reliesOnLegacyDirectAccess
+canPerformGlobalMachLookup:report:
 numberWithLongLong:
+reliesOnLegacyDirectAccess
 restricted
+allowsAccessToClientCompute:
 setExportedObject:
-countByEnumeratingWithState:objects:count:
 policyForProcess:
-hasSuffix:
-allocWithZone:
 registerForLockStateChangeNotifications:
+hasSuffix:
+dictionary
 setWithObjects:
-initWithFormat:
 numberWithInt:
+initWithFormat:
 stringWithUTF8String:
-allKeys
-count
 setExportedInterface:
+countByEnumeratingWithState:objects:count:
 hasPrefix:
 underlyingErrors
+allocWithZone:
 lastPathComponent
 setWithArray:
 requestBiomeEndpoint:reply:
+allKeys
+count
 numberWithDouble:
 stringWithFormat:
 unarchivedObjectOfClass:fromData:error:
 lastObject
 handleFailureInMethod:object:file:lineNumber:description:
+initWithFileDescriptor:closeOnDealloc:
+numberWithBool:
+stringByDeletingLastPathComponent
+handleFailureInFunction:file:lineNumber:description:
+truncateAtOffset:error:
+stringByAppendingString:
+pathIsManaged:domain:
+mutableCopy
+tombstones
+decodeXPCObjectOfType:forKey:
+initWithDomain:code:userInfo:
+readDataToEndOfFileAndReturnError:
+stringByAppendingPathComponent:
+decodeObjectOfClasses:forKey:
+pathForStreamType:domain:
+addObject:
+rangeOfString:options:range:
+streams
+activate
+copy
+pathForStreamIdentifier:streamType:
+rangeOfString:
+decodeObjectOfClass:forKey:
+minusOrderedSet:
+removeObjectsForKeys:
+UTF8String
+decodeDoubleForKey:
+setRemoteObjectInterface:
+isUnlocked
+public
+bytes
+writeData:error:
+removeObjectForKey:
+containsValueForKey:
+timeIntervalSinceReferenceDate
+boolValue
+encodeXPCObject:forKey:
+removeObject:
+containsString:
+failWithError:
+streamIdentifiers
+timeIntervalSince1970
+getServiceDomain:subpath:forPath:
+biomeTemporaryDirectoryForDomain:
+initWithData:
+encodeObject:forKey:
+removeLastObject
+streamIdentifierForStream:
+containsObject:
+orderedSetWithArray:
+dataWithBytesNoCopy:length:freeWhenDone:
+executableName
+dataWithBytes:length:
+isEqualToString:
+initWithBytes:length:encoding:
+streamForStreamIdentifier:
+synchronousRemoteObjectProxyWithErrorHandler:
+initWithBytes:length:
+doubleValue
+componentsSeparatedByString:
+setObject:forKeyedSubscript:
+domainForStream:
+componentsJoinedByString:
+objectForKeyedSubscript:
+isClassCLocked
+setObject:forKey:
+compare:
+initWithMachServiceName:options:
+substringWithRange:
+objectForKey:
+distantPast
+arrayWithObjects:count:
+initWithListenerEndpoint:
+code
+invalidate
+substringToIndex:
+objectAtIndexedSubscript:
+seekToOffset:error:
+currentHandler
+array
+longLongValue
+processWithXPCConnection:
+distantFuture
+sortUsingComparator:
+interfaceWithProtocol:
+substringFromIndex:
+indexOfObject:inSortedRange:options:usingComparator:
+firstObject
+numberWithUnsignedLong:
+lock
+archivedDataWithRootObject:requiringSecureCoding:error:
+unsignedLongValue
+initWithGuardedData:
+runWithLockAcquired:
+currentConnection
+integerValue
+strongToWeakObjectsMapTable
+numberWithUnsignedInteger:
+localDevice
+indexOfObject:
+unsignedIntegerValue
+processInfo
+characterAtIndex:
+current
+unsignedIntValue
+strongToStrongObjectsMapTable
+numberWithUnsignedInt:
 description
 copyWithZone:
 hasSegmentName
@@ -2065,7 +2102,7 @@ initWithFileHandle:maxSize:permission:datastoreVersion:
 segmentPath
 _printablePath
 resizeBackingFileTo:
-isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:
+isValidFrame:expectedState:copyOfData:frameStatus:validations:enumerationOptions:errorCode:
 enumerateFromOffset:withCallback:
 frameWithOffset:expectedState:
 updateFrameStoreIndex
@@ -2084,6 +2121,7 @@ setPruneOnAccess:
 maxAge
 setMaxAge:
 frameStoreSize
+start
 _datastoreVersion
 _backingFile
 _frames
@@ -2095,6 +2133,8 @@ _framePointers
 _filterByAgeOnRead
 _pruneOnAccess
 _maxAge
+_start
+T^v,R,V_start
 T@"NSString",R,N
 TB,N,V_filterByAgeOnRead
 TB,N,V_pruneOnAccess
@@ -2113,6 +2153,7 @@ eventBodyClass
 writeEventWithEventBody:
 writeEventWithEventBody:timestamp:
 writeEventWithEventBody:timestamp:outBookmark:
+verifyStreamHealthFrom:to:error:
 fetchEventsFrom:to:
 fetchEventsFrom:to:options:
 removeEventsFrom:to:pruneFutureEvents:shouldDeleteUsingBlock:
@@ -2245,12 +2286,10 @@ updateToMaxOfCurrentWriteOffsetAnd:
 freeSpace
 used
 currentPosition
-start
 size
 _advice
 _sharedMemory
 _currentWriteOffset
-_start
 _size
 _mappedAddress
 _pageAlignedSize
@@ -2520,7 +2559,7 @@ B24@0:8Q16
 B28@0:8Q16B24
 {?=QdI[32c][4c]}36@0:8@16I24^Q28
 B24@0:8d16
-B56@0:8^v16I24^@28{?=II}36B44Q48
+B64@0:8^v16I24^@28{?=II}36B44Q48^i56
 v32@0:8Q16@?24
 @28@0:8Q16I24
 q24@0:8Q16
@@ -2529,6 +2568,7 @@ C32@0:8^{?=(?={?=II}Q){?=ddII}}16^Q24
 C44@0:8r^v16Q24I32d36
 C52@0:8r^v16Q24I32d36^Q44
 v24@0:8d16
+^v16@0:8
 @"BMFileHandle"
 @"BMMemoryMapping"
 @"NSMutableOrderedSet"
@@ -2538,6 +2578,7 @@ q24@0:8@"BMFileAttributes"16
 @48@0:8@16@24Q32@40
 B32@0:8@16d24
 B40@0:8@16d24^@32
+B40@0:8d16d24^@32
 @32@0:8d16d24
 @40@0:8d16d24Q32
 v44@0:8d16d24B32@?36
@@ -2587,7 +2628,6 @@ C40@0:8Q16Q24^Q32
 C32@0:8Q16^(?=Qd)24
 B40@0:8Q16(?=Qd)24@?32
 v40@0:8r^v16Q24Q32
-^v16@0:8
 *16@0:8
 q16@0:8
 @"BMSharedMemory"

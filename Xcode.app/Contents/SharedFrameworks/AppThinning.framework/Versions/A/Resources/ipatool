@@ -1150,19 +1150,17 @@ class FSMachOFileNode < FSFileNode
     _,isUniversal = lipo_archs(path)
     return isUniversal
   end
-  # Given #arch, pick the best image to link against. Returns nil if we can't link any image in this MachO against #arch.
-  def linkableImageForArch(arch)
-    # Find the best Mach-O image to use, which matches the earliest linkable architecture.
-    return CPUArchitecture.get(arch).linkable_architectures.map { |li|
+  # Given #arch, pick the best image to run. Returns nil if none.
+  def runnableImageForArch(arch)
+    return CPUArchitecture.get(arch).runnable_architectures.map { |li|
       machoImages.find { |mi| mi.arch == li }
     }.compact.first
   end
-  def linkableImageForArchOrError(arch)
-    machoImage = self.linkableImageForArch(arch)
-    unless machoImage
-      EmitFatalIPAPayloadValidationError("couldn't find suitable architecture for linking #{arch} in Mach-O file #{path.to_s.shellescape}")
-    end
-    return machoImage
+  # Given #arch, pick the best image to link. Returns nil if none.
+  def linkableImageForArch(arch)
+    return CPUArchitecture.get(arch).linkable_architectures.map { |li|
+      machoImages.find { |mi| mi.arch == li }
+    }.compact.first
   end
   def shouldThin
     return self.enclosingBundle.shouldThin
@@ -1191,9 +1189,9 @@ class FSMachOFileNode < FSFileNode
       src.copyToPath(dstPath, subThinningContext, level)
       return
     end
-    if thinArch
+    machoImage = if thinArch then self.linkableImageForArch(thinArch) || self.runnableImageForArch(thinArch) else nil end
+    if machoImage
       log { "#{"  "*level}thin #{name.shellescape}" }
-      machoImage = self.linkableImageForArchOrError(thinArch)
       # Ask the Mach-O image to emit a thin binary to the destination path.
       machoImage.thinToPath(dstPath, level)
       machoImage.copySymbolsToIPA(thinningContext.bitcodeContext.symbolsStore, thinningContext.outputIPAPath)
