@@ -3,6 +3,8 @@
 ?333333
 @333333
 %p created %{public}@
+%p -[CAFlipBook renderForTime:options:userInfo:error:] took %.5fs. Likely dupe of rdar://78634442
+%p -[CAFlipBook cancel] took %.5fs. Likely dupe of rdar://78634442
 %p culling (%lu) frames
 failure in %{public}@ of <%{public}@:%p> (%{public}@:%i) : %{public}@
 %p deviceSupportsAlwaysOnOverride set to %{BOOL}u - use 'login -f mobile defaults delete com.apple.BacklightServices deviceSupportsAlwaysOnOverride' to remove
@@ -10,7 +12,11 @@ failure in %{public}@ of <%{public}@:%p> (%{public}@:%i) : %{public}@
 %p flipbook transparent, will not blank
 %p set ca blanked:%{BOOL}u
 %p set ca flipbook enabled:%{BOOL}u
+%p set ca flipbook suppressed:%{BOOL}u
+%p (platformProvider) useAlwaysOnBrightnessCurve:%{BOOL}u withDuration:%fs
 %p SetBacklightFactor:%f WithFadeDuration:%fs
+%p unsupported call to switchToFlipbookState:%u
+%p suppression event error - event:%{public}@ error:%{public}@ reason:%{public}@
 %p got didCompleteTransitionToDisplayMode:%ld error:%@
 %p flipbook set transparent, will unblank
 %p flipbook no longer transparent, will blank
@@ -347,8 +353,13 @@ TSM:%p waiting for operation to complete: %{public}@
 TSM:%p operation has none type: %{public}@
 TSM:%p waiting for prewarmed event:%p toState:%{public}@ {/n%{public}@
 TSM:%p waiting for prewarmed event:%p toState:%{public}@
+TSM:%p waiting for display ramp operation: %{public}@
 TSM:%p postponing display operation (waiting for system activity acquisition) : %{public}@ safeToUnblank:%{BOOL}u
 TSM:%p: operation is nil (finalEvent:%{public}@). _pendingEventToPerform=%@, _pendingUpdatePresentation=%@, _pendingUpdateToSpecifier=%@, _pendingUpdateDisplayMode=%@, _queuedEventToPerform=%@
+TSM:%p nothing do here since rampOperation has already started:%{public}@
+TSM:%p waiting to perform brightness ramp with duration:%.2lfs using operation:%{public}@
+TSM:%p performing brightness ramp with duration:%.2lfs using operation:%{public}@
+TSM:%p not performing brightness ramp with duration:%.2lfs using operation:%{public}@ because display operation has changed to operation:%{public}@
 TSM:%p didBeginUpdateToState:%{public}@ matchesPendingEvent:%{BOOL}u pendingEvent:%{public}@
 TSM:%p environmentStateMachine didCompleteUpdateToState:%{public}@ matchesPendingEvent:%{BOOL}u pendingEvent:%{public}@
 TSM:%p didUpdateToPresentation:%{public}@ matchesPendingUpdate:%{BOOL}u targetDisplayMode:%{public}@ pending:%{public}@
@@ -397,12 +408,30 @@ error starting up attention awareness client %@
 error resuming attention awareness client %@
 could not reset user idle provider error=%@
 error invalidating attention awareness client %@
+DSM:%p setDisplayMode:%{public}@ duration:%lf
+DSM:%p setDisplayMode:%{public}@ duration:%lf interrupting previous setDisplayMode:%{public}@ duration:%lf with started at:%{public}@
 DSM:%p still waiting 35ms to update CA
 DSM:%p preWarmingToMode:%{public}@ fromMode:%{public}@
+DSM:%p waiting for CB callback to cbFlipbookState:%u->%u
 DSM:%p waiting for CB callback to cbDisplayMode:%u->%u
 DSM:%p (no prewarm) will start turning on display
+DSM:%p waiting to complete transition to cbDisplayMode:%u
 DSM:%p did wait 35ms to update CA
+DSM:%p didUpdateToMode:%{public}@ complete
+DSM:%p didUpdateToMode:%{public}@ but has new transition to:%{public}@
+DSM:%p reversing pending ramp to displayMode:%u withDuration:%fs fullDuration:%fs started at %{public}@ (%fs elapsed 
+ %f%%) with ramp to displayMode:%u withDuration:%fs fullDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p replacing pending ramp to displayMode:%u withDuration:%fs fullDuration:%fs started at %{public}@ with ramp to displayMode:%u withDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p ramp to displayMode:%u withDuration:%fs fullDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p replacing pending switch to flipbookState:%u with switch to flipbookState:%u
 DSM:%p core brightness failed to switch to display mode:%u error(%ld):%{public}@ reason:%{public}@
+DSM:%p core brightness completed switch to display mode:%u
+DSM:%p (likely initialization) core brightness completed switch to display mode:%u
+DSM:%p core brightness completed switch to matching display mode:%u, but operation is not started
+DSM:%p core brightness completed switch to wrong display mode:%u, waiting for display mode:%u phase:%u
+DSM:%p core brightness failed to switch to flipbook state:%u error(%ld):%{public}@ reason:%{public}@
+DSM:%p core brightness completed switch to flipbook state:%u
+DSM:%p core brightness completed switch to wrong flipbook state:%u, waiting for display mode:%u
 %p:createRBSAssertion, creating new RBS assertion for %{public}@
 + aggregateForProcessIdentity:shouldCreate: was passed a nil processIdentity
 %p (already invalidated) did not acquire rb assertion:%{public}@ for process:%{public}@
@@ -435,13 +464,15 @@ BLSH Critical Assert did fail at %{public}@ on build %{public}@: %{public}@
 %p handler:%{public}@ will cancel assertion:%{public}@ due to invalidated scene:%{public}@
 respondToActions: action: %@
 respondToActions: matched action: %@
+presentationTime
+frameId
+specifier
+memoryUsage
+dimming
 B32@?0@"<BLSHRenderedFlipbookFrame>"8Q16^B24
 Invalid condition not satisfying: %@
 [[self activeFrames] count] == 0
 BLSHPseudoFlipbook.m
-presentationTime
-frameId
-specifier
 displayMode
 transitioningToDisplayMode
 lastSteadyStateDisplayMode
@@ -469,12 +500,15 @@ j8/Omm6s1lsmTDFsXjsBfA
 com.apple.BacklightServices
 deviceSupportsAlwaysOnOverride
 backlightServices.setCBDisplayMode
+disableSuppression
 handler != nil
 BLSHBacklightOSInterfaceProvider.m
+cannot change cb display mode to %u, flipbook state:%u is transitioning
 v16@?0@"BSContinuousMachTimer"8
 v16@?0@"NSNotification"8
 observeSignificantTimeChange
 v16@?0@"BSSimpleAssertion"8
+v24@?0@"CMSuppressionEvent"8@"NSError"16
 [BLSHBacklightIdleProvider createSharedProviderWithLocalAssertionService:] should not be called twice
 BLSHBacklightIdleProvider.m
 [BLSHBacklightIdleProvider sharedProvider] should not be called before createSharedProviderWithLocalAssertionService:
@@ -577,7 +611,6 @@ not flipbook
  not
 render minimal frames
 renderSession != nil
-memoryUsage
 v16@?0@8
 AlwaysOnPresentationEngine-waking
 AlwaysOnPresentationEngine
@@ -889,6 +922,7 @@ _session != nil
 environmentStateMachine != nil
 v16@?0d8
 BLSBacklightStateIsActive([triggerEvent previousState]) && BLSBacklightStateIsActive([triggerEvent state])
+rampOperation != nil
 session:%@ exists but no environment state machine
 we only support one calculation in-flight at a time
 BLSHLocalHostSceneEnvironmentUpdater.m
@@ -903,6 +937,12 @@ Unexpected nil environmentStateMachine doPerformEvent=NO backlightSceneUpdate:%@
 %p (localHostSceneEnvironmentUpdater) didUpdateToSpecifier: specifier %@ userObject %@ isn't a BLSBacklightSceneUpdate
 session:%@ does not match _session:%@
 subhosted: %@
+softMemoryLimit
+frameCapacity
+minGap
+coaelscingEpsilon
+minimumPrepareInterval
+maximumRenderInterval
 Serious Bug
 Sometimes
 BacklightServices
@@ -961,11 +1001,14 @@ waitingForCBDisplayMode
 pendingCBDisplayMode
 completedWaitForCBDisplayMode
 completedCBDisplayMode
+pendingCBFlipbookState
 isFlipbookSuppressed
 cbDisplayMode
+cbFlipbookState
 %p transition to displayMode:%@ duration:%lf
-DSM:%p did not have transition, but watchdog timer is non-nil: %@
+flipbook state is transitioning, yet cbFlipbookState=%u is not %u (targetIsFlipbook:%u, needToBeginTransitionToFlipbookOn:%u needToBeginTransitionToFlipbookOff:%u)
 BLSHBacklightDisplayStateMachine.m
+DSM:%p did not have transition, but watchdog timer is non-nil: %@
 DSM:%p did not have transition, but lastSteadyStateDisplayMode(%@) != targetDisplayMode(%@)
 BLSHAggregatedProcessAssertion.m
 explanation
@@ -1019,12 +1062,13 @@ BLSHAssertionService.m
 created BLSHPendingUpdatePresentation with nil presentation
 BLSHPendingUpdatePresentation.m
 BLSHFlipbook
-BLSHPseudoFlipbook
 BSInvalidatable
 NSObject
-BLSHPseudoFlipbookFrame
+BacklightServicesHost
 BLSHRenderedFlipbookFrame
 BLSRenderedFlipbookFrame
+BLSHPseudoFlipbook
+BLSHPseudoFlipbookFrame
 BLSHBacklightDisplayStateMachineAbortContext
 BLSHWatchdogAbortContext
 BLSHBacklightTransitionStateMachineAbortContext
@@ -1116,7 +1160,6 @@ BSCancellable
 BLSHInvalidationTimer
 BLSHWarningTimer
 BLSHTimeoutTimer
-BacklightServicesHost
 BLSHBacklightStateMachine
 BLSHBacklightPlatformProviderObserver
 BLSHDisableAlwaysOnProvider
@@ -1204,25 +1247,30 @@ BLSHBacklightSceneEnvironmentHosting
 BLSHDisableCommitOnWakeMeasurementAttributeHandler
 BLSHAssertionService
 BLSHPendingUpdatePresentation
+initWithPlatformProvider:
 init
-array
-countByEnumeratingWithState:objects:count:
-presentationTime
+mainDisplay
+flipBookWithOptions:
+setWantsTransform:
+setInverted:
+setMaximumMemoryUsageForDiagnostics:
+frameAtTime:
 activeFrames
-lastObject
-copy
 memoryUsage
-indexOfObjectWithOptions:passingTest:
-removeObjectsInRange:
+flipbookContext
+caContext
+contextId
+setContextId:
+wantsTransform
+isInverted
 presentationDate
 bls_machContinuousTime
-initWithPresentationTime:frameId:specifier:memoryUsage:
-addObject:
-objectAtIndex:
-removeAllObjects
-count
-stringWithFormat:
-UTF8String
+renderForTime:options:userInfo:error:
+cancel
+collect
+purge
+cancelAllFrames
+createWithPlatformProvider:
 isEqual:
 class
 self
@@ -1248,34 +1296,52 @@ T#,R
 T@"NSString",R,C
 invalidate
 renderFrameForPresentation:dateSpecifier:completion:
-cancelAllFrames
-collect
-purge
 frameOnGlass
 lastRenderedFrame
 T@"<BLSHRenderedFlipbookFrame>",R,N
 T@"NSArray",R,N
 TQ,R,N
 .cxx_destruct
-_lock
-_activeFrames
-_nextframeID
-bls_loggingString
+_flipbook
+_wantsTransform
+_inverted
+userInfo
 builderWithObject:
+presentationTime
 appendString:withName:
 frameId
 appendUInt64:withName:
 bls_specifier
+bls_loggingString
 appendObject:withName:
+sharedFormatter
+stringFromByteCount:
+appendFloat:withName:decimalPrecision:
+aplDimming
 build
 bls_shortLoggingString
 releaseSurface
-aplDimming
 surface
 Tf,R,N
 T@"<BLSPresentationDateSpecifying>",R,N
 T^{__IOSurface=},R,N
 T@"BLSHPresentationDateSpecifier",R,N
+array
+countByEnumeratingWithState:objects:count:
+lastObject
+copy
+indexOfObjectWithOptions:passingTest:
+removeObjectsInRange:
+initWithPresentationTime:frameId:specifier:memoryUsage:
+addObject:
+objectAtIndex:
+removeAllObjects
+count
+stringWithFormat:
+UTF8String
+_lock
+_activeFrames
+_nextframeID
 _presentationTime
 _frameId
 _bls_specifier
@@ -1367,6 +1433,8 @@ valueForKey:
 boolValue
 initWithIdentifier:
 initWithType:reason:timestamp:
+isAvailable
+boolForKey:
 registerHandlerForService:provider:
 useAlwaysOnBrightnessCurve:withRampDuration:
 scheduleWithFireInterval:leewayInterval:queue:handler:
@@ -1378,6 +1446,15 @@ monitorUsingMainQueue
 defaultCenter
 addObserverForName:object:queue:usingBlock:
 initWithIdentifier:forReason:invalidationBlock:
+startService
+mainQueue
+localizedDescription
+localizedFailureReason
+type
+initWithCoreMotionEvent:timestamp:
+startSuppressionUpdatesToQueue:withHandler:
+stopSuppressionUpdates
+stopService
 didDetectSignificantUserInteraction
 cbDisplayStateDelegate
 osInterfaceProvider:didCompleteTransitionToDisplayMode:withError:
@@ -1406,32 +1483,41 @@ TB,R,N,GisSuppressionServiceActive
 T@"BLSHSuppressionEvent",R,N
 willUnblank
 transitionToDisplayMode:withDuration:
+switchToFlipbookState:
 setShowingBlankingWindow:fadeDuration:
 isCABlanked
 setCABlanked:
 setCAFlipbookEnabled:
+isCAFlipbookSuppressed
+setCAFlipbookSuppressed:
 isKernelAlwaysOnMode
 setKernelAlwaysOnMode:
 setCBDisplayStateDelegate:
 cbDisplayMode
+supportsFlipbookState
+cbFlipbookState
 caBlanked
 TB,N,GisCABlanked,SsetCABlanked:
 caFlipbookEnabled
 TB,N,GisCAFlipbookEnabled,SsetCAFlipbookEnabled:
+caFlipbookSuppressed
+TB,N,GisCAFlipbookSuppressed,SsetCAFlipbookSuppressed:
 kernelAlwaysOnMode
 TB,N,GisKernelAlwaysOnMode
 T@"<BLSCBDisplayStateDelegate>",&,SsetCBDisplayStateDelegate:
 Tq,R,N
 showingBlankingWindow
 TB,R,N,GisShowingBlankingWindow
-initWithPlatformProvider:
 _platformProvider
 _watchdogProvider
 _lock_lastSuppressionEvent
+_suppressionManager
 _setCBDisplayModeTimer
 _lock_cbDisplayMode
+_lock_cbFlipbookState
 _lock_suppressionServiceActive
 _lock_caFlipbookEnabled
+_lock_caFlipbookSuppressed
 _lock_caBlanked
 _lock_flipbookTransparent
 _deviceSupportsAlwaysOn
@@ -1772,8 +1858,6 @@ isValidWithNowDate:
 minimumGapDuration
 isCompleted
 peekNextUpdate
-sharedFormatter
-stringFromByteCount:
 initWithDelegate:flipbook:presentation:osInterfaceProvider:
 prepareAndRenderFrameSpecifier:
 renderedFrames
@@ -1859,9 +1943,7 @@ removeObject:
 renderFrameSpecifier:timedOutEnvironments:
 domain
 code
-localizedDescription
 timeoutTimerFiredForSpecifier:
-_flipbook
 _lock_preparingSpecifier
 _lock_pendingEnvironments
 _lock_renderedFrames
@@ -1972,7 +2054,6 @@ T@"BLSAlwaysOnDateSpecifier",&,N,V_specifier
 T@"NSEnumerator",R,N,V_enumerator
 T@"NSDateInterval",R,N,V_dateInterval
 T@"BLSHEnvironmentDatesModel",R,N,V_sourceModel
-type
 isStarted
 setStarted:
 setCompleted:
@@ -2022,9 +2103,6 @@ _displayModeSource
 _presentationSource
 T@"BLSHBacklightEnvironmentStateMachine",&,V_presentationSource
 hasPrefix:
-flipbookContext
-isInverted
-wantsTransform
 objectAtIndexedSubscript:
 presentationEntryIdentifierFromString:
 stateMachineOldBacklightState
@@ -2208,9 +2286,8 @@ T@"BLSAssertionDescriptor",R,N,V_descriptor
 T@"<BLSXPCAssertionServiceClientInterface>",R,N,V_remoteTarget
 TB,R,N,GisAcquired,V_acquired
 checkForWatchdogDidFire:
-initWithCoreMotionEvent:timestamp:
-wantsSuppression
 reason
+wantsSuppression
 machContinuousTimestamp
 _type
 _reason
@@ -2260,7 +2337,6 @@ _attributeHandler
 T@"BLSAttribute",R,W,N,V_attribute
 duration
 timerFired
-cancel
 _timer
 T@"BLSDurationAttribute",R,W,N,V_attribute
 restartTimer
@@ -2269,7 +2345,6 @@ initWithFBScene:
 existingBacklightSceneHostEnvironment
 T@"BLSHBacklightFBSceneHostEnvironment",R
 suppressionSupported
-boolForKey:
 setPerformerDelegate:
 isAlwaysOnEnabled
 flipbookState
@@ -2458,7 +2533,6 @@ bls_doubleMedian
 bls_unsignedIntegerMedian
 initWithTotalCount:averagePresentationTimeFromNow:medianPresentationTimeFromNow:presentationTimeHistogram:intervalUntilFirstFrame:presentationDuration:memoryUsage:averageMemoryUsage:medianMemoryUsage:memoryUsageHistogram:lowestAPL:averageAPL:medianAPL:highestAPL:lowestAPLDimming:averageAPLDimming:medianAPLDimming:highestAPLDimming:
 unsignedIntValue
-appendFloat:withName:decimalPrecision:
 enumerateObjectsUsingBlock:
 enumerateObjectsWithOptions:usingBlock:
 length
@@ -2613,7 +2687,6 @@ initWithPresentationEntries:flipbookContext:expirationDate:
 initWithEnvironment:userObject:
 initWithPresentationEntries:caContext:expirationDate:
 currentSpecifier
-caContext
 appendArraySection:withName:skipIfEmpty:objectTransformer:
 appendString:withName:skipIfEmpty:
 differenceFromArray:withOptions:
@@ -2636,8 +2709,6 @@ T@"BLSHEnvironmentDateSpecifier",R,N
 T@,&,N,V_userObject
 appendPointer:
 appendPointer:counterpart:
-_wantsTransform
-_inverted
 _caContext
 T@"CAContext",R,N,V_caContext
 TB,R,N,V_wantsTransform
@@ -2712,10 +2783,11 @@ prewarmForDisplayMode:
 initWithSpecifier:
 backlightFadeOutDuration
 onMain_performNextStepInTransition
+setDisplayMode:withRampDuration:
 performerDelegate
 backlightFadeInDuration
 backlightDimmingDuration
-setDisplayMode:withRampDuration:
+ifStillValidPerformAlwaysOnBrightnessRamp:withDuration:
 displayState:didUpdateToMode:
 displayState:didUpdateToBrightnessCurve:
 isFlipbookDisabled
@@ -2934,8 +3006,9 @@ T@"<BLSHUserIdleProvidingDelegate>",W,N,V_delegate
 Td,R,N,V_idleTimeout
 TB,N,V_shouldNotifyOfUnidle
 _backlight
+dateWithTimeIntervalSinceReferenceDate:
 onMain_performNextStepInModeTransition
-localizedFailureReason
+osInterfaceProvider:didCompleteSwitchToFlipbookState:withError:
 lastSteadyStateDisplayMode
 isTransitioningDisplayMode
 _watchdogTimer
@@ -2946,6 +3019,8 @@ _lock_prewarmingDisplayMode
 _lock_lastSteadyStateDisplayMode
 _lock_completedCBDisplayMode
 _lock_cbDisplayModeTransitionOperation
+_lock_cbFlipbookStateChangeOperation
+_lock_completedCBFlipbookState
 _lock_updatingCA
 _lock_isPrewarmingDisplayMode
 T@"<BLSHBacklightDisplayStateMachineDelegate>",R,W,N,V_delegate
@@ -3028,6 +3103,7 @@ setDefaultService:
 _server
 T@"BLSHLocalAssertionService",R,N,V_localAssertionService
 T@"BLSHBacklightEnvironmentPresentation",R,V_presentation
+@24@0:8@16
 B24@0:8@16
 #16@0:8
 @16@0:8
@@ -3047,12 +3123,13 @@ v40@0:8@16@24@?32
 v40@0:8@"BLSHBacklightEnvironmentPresentation"16@"BLSHPresentationDateSpecifier"24@?<v@?@"<BLSHRenderedFlipbookFrame>"@"NSError">32
 @"<BLSHRenderedFlipbookFrame>"16@0:8
 @"NSArray"16@0:8
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
-@"NSMutableArray"
+@"CAFlipBook"
 f16@0:8
 ^{__IOSurface=}16@0:8
 @"<BLSPresentationDateSpecifying>"16@0:8
 @"BLSHPresentationDateSpecifier"16@0:8
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"NSMutableArray"
 @48@0:8Q16Q24@32Q40
 @"BLSHPresentationDateSpecifier"
 r^v16@0:8
@@ -3094,15 +3171,16 @@ v24@0:8@?16
 v24@0:8@?<v@?@"BLSHSuppressionEvent">16
 @"BLSHSuppressionEvent"16@0:8
 v32@0:8q16d24
+v24@0:8q16
 v28@0:8B16d20
 v24@0:8@16
 q16@0:8
 @"<BLSCBDisplayStateDelegate>"16@0:8
 v24@0:8@"<BLSCBDisplayStateDelegate>"16
-@24@0:8@16
 @"<BLSHBacklightPlatformProvider>"
 @"BLSHWatchdogProvider"
 @"BLSHSuppressionEvent"
+@"CMSuppressionManager"
 @"BSContinuousMachTimer"
 @"<BLSCBDisplayStateDelegate>"
 v40@0:8@16q24@32
@@ -3376,10 +3454,10 @@ v24@0:8@"<BLSHUserIdleProvidingDelegate>"16
 @"BLSBacklight"
 @"<BLSHAlwaysFillFlipbookProvider>"
 v40@0:8@"<BLSHBacklightOSInterfaceProviding>"16q24@"NSError"32
-v24@0:8q16
 @"<BLSHBacklightOSInterfaceProviding>"
 {?="sequenceNumber"i"displayMode"q"previousDisplayMode"q"duration"d"startSeconds"d"phase"q}
 {?="sequenceNumber"i"cbDisplayMode"q"previousCBDisplayMode"q"duration"d"fullDuration"d"startSeconds"d"effectiveStartSeconds"d"phase"q"shouldWait"B}
+{?="sequenceNumber"i"cbFlipbookState"q"phase"q}
 @"<BLSHBacklightDisplayStateMachineDelegate>"
 @"BLSHAggregateProcessAssertion"
 @28@0:8@16B24
@@ -3395,6 +3473,8 @@ v24@0:8q16
 ?333333
 ?333333
 %p created %{public}@
+%p -[CAFlipBook renderForTime:options:userInfo:error:] took %.5fs. Likely dupe of rdar://78634442
+%p -[CAFlipBook cancel] took %.5fs. Likely dupe of rdar://78634442
 %p culling (%lu) frames
 failure in %{public}@ of <%{public}@:%p> (%{public}@:%i) : %{public}@
 %p deviceSupportsAlwaysOnOverride set to %{BOOL}u - use 'login -f mobile defaults delete com.apple.BacklightServices deviceSupportsAlwaysOnOverride' to remove
@@ -3402,7 +3482,11 @@ failure in %{public}@ of <%{public}@:%p> (%{public}@:%i) : %{public}@
 %p flipbook transparent, will not blank
 %p set ca blanked:%{BOOL}u
 %p set ca flipbook enabled:%{BOOL}u
+%p set ca flipbook suppressed:%{BOOL}u
+%p (platformProvider) useAlwaysOnBrightnessCurve:%{BOOL}u withDuration:%fs
 %p SetBacklightFactor:%f WithFadeDuration:%fs
+%p unsupported call to switchToFlipbookState:%u
+%p suppression event error - event:%{public}@ error:%{public}@ reason:%{public}@
 %p got didCompleteTransitionToDisplayMode:%ld error:%@
 %p flipbook set transparent, will unblank
 %p flipbook no longer transparent, will blank
@@ -3739,8 +3823,13 @@ TSM:%p waiting for operation to complete: %{public}@
 TSM:%p operation has none type: %{public}@
 TSM:%p waiting for prewarmed event:%p toState:%{public}@ {/n%{public}@
 TSM:%p waiting for prewarmed event:%p toState:%{public}@
+TSM:%p waiting for display ramp operation: %{public}@
 TSM:%p postponing display operation (waiting for system activity acquisition) : %{public}@ safeToUnblank:%{BOOL}u
 TSM:%p: operation is nil (finalEvent:%{public}@). _pendingEventToPerform=%@, _pendingUpdatePresentation=%@, _pendingUpdateToSpecifier=%@, _pendingUpdateDisplayMode=%@, _queuedEventToPerform=%@
+TSM:%p nothing do here since rampOperation has already started:%{public}@
+TSM:%p waiting to perform brightness ramp with duration:%.2lfs using operation:%{public}@
+TSM:%p performing brightness ramp with duration:%.2lfs using operation:%{public}@
+TSM:%p not performing brightness ramp with duration:%.2lfs using operation:%{public}@ because display operation has changed to operation:%{public}@
 TSM:%p didBeginUpdateToState:%{public}@ matchesPendingEvent:%{BOOL}u pendingEvent:%{public}@
 TSM:%p environmentStateMachine didCompleteUpdateToState:%{public}@ matchesPendingEvent:%{BOOL}u pendingEvent:%{public}@
 TSM:%p didUpdateToPresentation:%{public}@ matchesPendingUpdate:%{BOOL}u targetDisplayMode:%{public}@ pending:%{public}@
@@ -3789,12 +3878,30 @@ error starting up attention awareness client %@
 error resuming attention awareness client %@
 could not reset user idle provider error=%@
 error invalidating attention awareness client %@
+DSM:%p setDisplayMode:%{public}@ duration:%lf
+DSM:%p setDisplayMode:%{public}@ duration:%lf interrupting previous setDisplayMode:%{public}@ duration:%lf with started at:%{public}@
 DSM:%p still waiting 35ms to update CA
 DSM:%p preWarmingToMode:%{public}@ fromMode:%{public}@
+DSM:%p waiting for CB callback to cbFlipbookState:%u->%u
 DSM:%p waiting for CB callback to cbDisplayMode:%u->%u
 DSM:%p (no prewarm) will start turning on display
+DSM:%p waiting to complete transition to cbDisplayMode:%u
 DSM:%p did wait 35ms to update CA
+DSM:%p didUpdateToMode:%{public}@ complete
+DSM:%p didUpdateToMode:%{public}@ but has new transition to:%{public}@
+DSM:%p reversing pending ramp to displayMode:%u withDuration:%fs fullDuration:%fs started at %{public}@ (%fs elapsed 
+ %f%%) with ramp to displayMode:%u withDuration:%fs fullDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p replacing pending ramp to displayMode:%u withDuration:%fs fullDuration:%fs started at %{public}@ with ramp to displayMode:%u withDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p ramp to displayMode:%u withDuration:%fs fullDuration:%fs shouldWaitForCompletion:%{BOOL}u
+DSM:%p replacing pending switch to flipbookState:%u with switch to flipbookState:%u
 DSM:%p core brightness failed to switch to display mode:%u error(%ld):%{public}@ reason:%{public}@
+DSM:%p core brightness completed switch to display mode:%u
+DSM:%p (likely initialization) core brightness completed switch to display mode:%u
+DSM:%p core brightness completed switch to matching display mode:%u, but operation is not started
+DSM:%p core brightness completed switch to wrong display mode:%u, waiting for display mode:%u phase:%u
+DSM:%p core brightness failed to switch to flipbook state:%u error(%ld):%{public}@ reason:%{public}@
+DSM:%p core brightness completed switch to flipbook state:%u
+DSM:%p core brightness completed switch to wrong flipbook state:%u, waiting for display mode:%u
 %p:createRBSAssertion, creating new RBS assertion for %{public}@
 + aggregateForProcessIdentity:shouldCreate: was passed a nil processIdentity
 %p (already invalidated) did not acquire rb assertion:%{public}@ for process:%{public}@
@@ -3827,13 +3934,15 @@ BLSH Critical Assert did fail at %{public}@ on build %{public}@: %{public}@
 %p handler:%{public}@ will cancel assertion:%{public}@ due to invalidated scene:%{public}@
 respondToActions: action: %@
 respondToActions: matched action: %@
+presentationTime
+frameId
+specifier
+memoryUsage
+dimming
 B32@?0@"<BLSHRenderedFlipbookFrame>"8Q16^B24
 Invalid condition not satisfying: %@
 [[self activeFrames] count] == 0
 BLSHPseudoFlipbook.m
-presentationTime
-frameId
-specifier
 displayMode
 transitioningToDisplayMode
 lastSteadyStateDisplayMode
@@ -3861,12 +3970,15 @@ j8/Omm6s1lsmTDFsXjsBfA
 com.apple.BacklightServices
 deviceSupportsAlwaysOnOverride
 backlightServices.setCBDisplayMode
+disableSuppression
 handler != nil
 BLSHBacklightOSInterfaceProvider.m
+cannot change cb display mode to %u, flipbook state:%u is transitioning
 v16@?0@"BSContinuousMachTimer"8
 v16@?0@"NSNotification"8
 observeSignificantTimeChange
 v16@?0@"BSSimpleAssertion"8
+v24@?0@"CMSuppressionEvent"8@"NSError"16
 [BLSHBacklightIdleProvider createSharedProviderWithLocalAssertionService:] should not be called twice
 BLSHBacklightIdleProvider.m
 [BLSHBacklightIdleProvider sharedProvider] should not be called before createSharedProviderWithLocalAssertionService:
@@ -3969,7 +4081,6 @@ not flipbook
  not
 render minimal frames
 renderSession != nil
-memoryUsage
 v16@?0@8
 AlwaysOnPresentationEngine-waking
 AlwaysOnPresentationEngine
@@ -4281,6 +4392,7 @@ _session != nil
 environmentStateMachine != nil
 v16@?0d8
 BLSBacklightStateIsActive([triggerEvent previousState]) && BLSBacklightStateIsActive([triggerEvent state])
+rampOperation != nil
 session:%@ exists but no environment state machine
 we only support one calculation in-flight at a time
 BLSHLocalHostSceneEnvironmentUpdater.m
@@ -4295,6 +4407,12 @@ Unexpected nil environmentStateMachine doPerformEvent=NO backlightSceneUpdate:%@
 %p (localHostSceneEnvironmentUpdater) didUpdateToSpecifier: specifier %@ userObject %@ isn't a BLSBacklightSceneUpdate
 session:%@ does not match _session:%@
 subhosted: %@
+softMemoryLimit
+frameCapacity
+minGap
+coaelscingEpsilon
+minimumPrepareInterval
+maximumRenderInterval
 Serious Bug
 Sometimes
 BacklightServices
@@ -4353,11 +4471,14 @@ waitingForCBDisplayMode
 pendingCBDisplayMode
 completedWaitForCBDisplayMode
 completedCBDisplayMode
+pendingCBFlipbookState
 isFlipbookSuppressed
 cbDisplayMode
+cbFlipbookState
 %p transition to displayMode:%@ duration:%lf
-DSM:%p did not have transition, but watchdog timer is non-nil: %@
+flipbook state is transitioning, yet cbFlipbookState=%u is not %u (targetIsFlipbook:%u, needToBeginTransitionToFlipbookOn:%u needToBeginTransitionToFlipbookOff:%u)
 BLSHBacklightDisplayStateMachine.m
+DSM:%p did not have transition, but watchdog timer is non-nil: %@
 DSM:%p did not have transition, but lastSteadyStateDisplayMode(%@) != targetDisplayMode(%@)
 BLSHAggregatedProcessAssertion.m
 explanation
@@ -4411,12 +4532,13 @@ BLSHAssertionService.m
 created BLSHPendingUpdatePresentation with nil presentation
 BLSHPendingUpdatePresentation.m
 BLSHFlipbook
-BLSHPseudoFlipbook
 BSInvalidatable
 NSObject
-BLSHPseudoFlipbookFrame
+BacklightServicesHost
 BLSHRenderedFlipbookFrame
 BLSRenderedFlipbookFrame
+BLSHPseudoFlipbook
+BLSHPseudoFlipbookFrame
 BLSHBacklightDisplayStateMachineAbortContext
 BLSHWatchdogAbortContext
 BLSHBacklightTransitionStateMachineAbortContext
@@ -4508,7 +4630,6 @@ BSCancellable
 BLSHInvalidationTimer
 BLSHWarningTimer
 BLSHTimeoutTimer
-BacklightServicesHost
 BLSHBacklightStateMachine
 BLSHBacklightPlatformProviderObserver
 BLSHDisableAlwaysOnProvider
@@ -4596,390 +4717,408 @@ BLSHBacklightSceneEnvironmentHosting
 BLSHDisableCommitOnWakeMeasurementAttributeHandler
 BLSHAssertionService
 BLSHPendingUpdatePresentation
-appendBodySectionWithOpenDelimiter:closeDelimiter:block:
-setWithArray:
-updateFidelity
-removeObjectsInArray:
-bls_hasDelegate
-stringWithFormat:
-appendBool:
-error
-numberWithBool:
-assertionWillCancel:
-removeObjectsInRange:
-isAnimated
-bls_hasUnrestrictedFramerateUpdates
-setWithObject:
-errorWithDomain:code:userInfo:
-canBePaused
-numberWithDouble:
-appendBool:counterpart:
-strongToWeakObjectsMapTable
-settings
-associatedObject
-bls_initWithBSContinuousMachTime:
-appendBool:withName:
-eventID
-numberWithFloat:
-isBeforeDate:
-updateSettingsWithBlock:
-createInactiveEnvironmentSession
-bls_initWithMachContinuousTime:
-initWithRequestedActivityState:explanation:timestamp:sourceEvent:sourceEventMetadata:
-appendBool:withName:ifEqualTo:
-differenceFromArray:withOptions:
-numberWithInteger:
-supportsAlwaysOn
-eventMask
-updateSettingsWithTransitionBlock:
-bls_isAlwaysOnEnabledForEnvironment
-numberWithUnsignedInteger:
-appendCollection:withName:itemBlock:
-setInterface:
-sharedFormatter
-serviceClass
-object
-bls_isBlanked
-appendCustomFormatWithName:block:
-setInterfaceTarget:
-createWithFrame:
-attributeOfClass:
-sharedInstance
-initWithEventID:state:previousState:changeRequest:
-bls_isDelegateActive
-activeAppearance
-objectAtIndex:
-serviceClass:relativePriority:
-disableFlipbook
-appendDictionarySection:withName:skipIfEmpty:
-bls_isLiveUpdating
-attributeWithDuration:warningDuration:startPolicy:endPolicy:
-disableWatchdogs
-keyEnumerator
-changeRequest
-appendDouble:withName:decimalPrecision:
-objectAtIndexedSubscript:
-setInvalidationHandler:
-suspendWithError:
-attributes
-dispatchWithQOSClass:block:
-bls_isOnOrAfter:andOnOrBefore:
-activityMode
-initWithStartDate:duration:
-initWithExplanation:attributes:
-objectEnumerator
-previousState
-appendFloat:withName:decimalPrecision:
-attributesOfClasses:
-currentContext
-setIsHostProcess:
-lastObject
-objectForKey:
-appendFormat:
-autoupdatingCurrentCalendar
 initWithStartDate:endDate:
-isDelegateActive
-previousVisualState
-laterDate:
-bls_machContinuousTime
-identityToken
-objectForKeyedSubscript:
-appendInt:withName:
-checkEntitlementSourceForRequiredEntitlements:error:
-date
-targetWithPid:
-requestedActivityState
-showBlankingWindow:withFadeDuration:
-length
-bls_optsOutOfProcessAssertions
-initWithExplanation:target:attributes:
-appendInteger:
-fidelity
-objectsAtIndexes:
-dateByAddingTimeInterval:
-targetWithProcessIdentity:
-listenerWithConfigurator:
-distantFuture
-bls_presentationDate
-appendInteger:counterpart:
-objectsPassingTest:
-requestedFidelity
-taskState
-setObject:forKey:
-distantPast
-UUID
-bls_setAlwaysOnEnabledForEnvironment:
-appendInteger:withName:
-initWithSuiteName:
-UUIDString
-isEqual
-observeOtherSetting:withBlock:
-addObject:
-ignoreWhenBacklightInactivates
-localizedDescription
-domain
-sortedArrayUsingSelector:
-appendObject:
-serviceQuality
-bls_setBlanked:
-uuid
-setPredicates:
-sourceEvent
-domainForMachName:
-addObjectsFromArray:
-bls_setDelegateActive:
-localizedFailureReason
-appendObject:counterpart:
-openURL:withOptions:error:
-dateSpecifiers
-backlightDimmingDuration
-isEqualToArray:
-bls_setLiveUpdating:
-sourceEventMetadata
-appendObject:withName:
-clearUserInteraction
-firstObject
 backlightFadeInDuration
-domainsContainingServiceIdentifier:
-logTelemetryForInvalidation:
+setWithArray:
+distantPast
 bls_setPresentationDate:
-appendObject:withName:skipIfNil:
-timeIntervalSinceDate:
+objectAtIndex:
+stopService
+clearUserInteraction
 addObserver:forKeyPath:options:context:
-firstObjectCommonWithArray:
-isEqualToDate:
-sessionProvider
-indexOfObject:inSortedRange:options:usingComparator:
-initWithIdentifier:forReason:invalidationBlock:
-addObserverForName:object:queue:usingBlock:
-logTelemetryForRenderSession:
+appendObject:withName:skipIfNil:
+serviceClass
+unsignedIntValue
 backlightFadeOutDuration
-doubleValue
+lastObject
+addObserverForName:object:queue:usingBlock:
+domain
 bls_setRenderSeed:
-specification
-timeIntervalSinceReferenceDate
+setWithObject:
+stopSuppressionUpdates
+serviceClass:relativePriority:
+objectAtIndexedSubscript:
+initWithExplanation:target:attributes:
 appendPointer:
-indexOfObjectWithOptions:passingTest:
-valueForKey:
-isEqualToString:
-setQueryItems:
-logTelemetryForRequestDates:
-queryItemWithName:value:
+unsignedIntegerValue
+setInterface:
+settings
+domainForMachName:
+laterDate:
+dateSpecifiers
+isDelegateActive
 bls_setUnrestrictedFramerateUpdates:
+stringByAppendingString:
+objectEnumerator
 adjustedLuminance
-timeRemaining
-setActions:
 appendPointer:counterpart:
-indexesOfObjectsPassingTest:
-raise:format:
+previousState
+setInterfaceTarget:
 backlightPlatformProvider
-isEssentiallyEqualToVisualState:
-earlierDate:
+unsignedLongValue
+ignoreWhenBacklightInactivates
 afterPendingSleepWasAlreadyInitiated
-clientIdentity
+length
 bls_setVisualState:
+stringFromByteCount:
+initWithSuiteName:
+firstObject
+objectForKey:
 appendPointer:withName:
-initWithType:reason:
-rampDuration
-specifierForPresentationDate:
-mainBundle
-endDate
-restartTimerOnInvalidation
-setReplacedSceneUpdate:
+previousVisualState
+domainsContainingServiceIdentifier:
+dateWithTimeIntervalSinceReferenceDate:
+listenerWithConfigurator:
 appendProem:block:
-clientPid
-timelineEntry
-isForeground
-setRunningBoardAssertionDisabled:
-formatDuration:
-clientSettings
+stringWithFormat:
+objectForKeyedSubscript:
+firstObjectCommonWithArray:
+setInvalidationHandler:
+clientIdentity
+sharedFormatter
+doubleValue
+flipBookWithOptions:
+objectsAtIndexes:
 appendString:
-timelineWithEntries:identifier:configure:
-defaultCenter
-initWithVisualState:previousVisualState:frameSpecifier:animated:triggerEvent:touchTargetable:isUpdateToDateSpecifier:sceneContentsUpdated:performBacklightRamp:sceneContentsAnimationComplete:
-initWithKeyOptions:valueOptions:capacity:
+clientPid
+setInverted:
+updateFidelity
+isEqual
+strongToWeakObjectsMapTable
+requestedActivityState
+localizedDescription
+sharedInstance
 bls_supportsAlwaysOn
-UTF8String
+objectsPassingTest:
 appendString:counterpart:
-defaultShellMachName
-setSecond:
+clientSettings
+setIsHostProcess:
+indexOfObject:inSortedRange:options:usingComparator:
+localizedFailureReason
+earlierDate:
+requestedFidelity
 appendString:withName:
-resumeWithError:
-setService:
-defaultWorkspace
-setAlwaysOnSession:
-allObjects
+observeOtherSetting:withBlock:
+indexOfObjectWithOptions:passingTest:
+supportsAlwaysOn
 backlightTelemetrySource:didAcquireSystemActivityWithError:isActive:details:forEvent:
+isEqualToArray:
+initWithIdentifier:forReason:invalidationBlock:
+allObjects
+endDate
 bls_visualState
-code
 appendString:withName:skipIfEmpty:
-performBacklightRampWithDuration:
-setServiceQuality:
-initWithActiveAppearance:updateFidelity:adjustedLuminance:
-insertObject:atIndex:
+indexesOfObjectsPassingTest:
 backlightTelemetrySource:didCompleteUpdateToFlipbookState:forEvent:
-definition
-standardUserDefaults
-allValues
+updateSettingsWithBlock:
 boolForKey:
-sceneContentsAnimationDidComplete
+logTelemetryForInvalidation:
+allValues
+code
+serviceQuality
 appendTimeInterval:withName:decomposeUnits:
-insertions
+openURL:withOptions:error:
+isEqualToDate:
+setMaximumMemoryUsageForDiagnostics:
+defaultCenter
 backlightTelemetrySource:didCompleteUpdateToState:forEvent:
-initWithActiveAppearance:updateFidelity:adjustedLuminance:dimmed:
+updateSettingsWithTransitionBlock:
+logTelemetryForRenderSession:
 appendUInt64:withName:
-sceneContentsDidUpdate
-touchLock
-frameSpecifier
+initWithType:reason:
+formatDuration:
+defaultShellMachName
+isEqualToString:
 backlightTelemetrySource:didUpdateDisplayForState:forEvent:
-isLocal
-initWithBacklightChangeEvent:animated:touchTargetable:isUpdateToDateSpecifier:completion:
-sceneFromIdentityToken:
+showBlankingWindow:withFadeDuration:
 bootstrapConfiguration
-entryForPresentationTime:withRequestedFidelity:animated:userObject:
+logTelemetryForRequestDates:
+frameAtTime:
 appendUnsignedInt:withName:
-transitionContextClass
-inspectDiff:withContext:
-completeWithDateSpecifiers:
-grant
+setObject:forKey:
+defaultWorkspace
 backlightTelemetrySource:didUpdateVisualContentsToBeginTransitionToState:forEvent:
-sceneIdentityToken
 bs_compactMap:
-interface
+isEssentiallyEqualToVisualState:
 appendUnsignedInteger:withName:
-entrySpecifierForTimelineIdentifier:
-completeWithDesiredFidelity:
-performFrameSpecifiersRequest:timelines:
+sessionProvider
+completeWithDateSpecifiers:
+initWithVisualState:previousVisualState:frameSpecifier:animated:triggerEvent:touchTargetable:isUpdateToDateSpecifier:sceneContentsUpdated:performBacklightRamp:sceneContentsAnimationComplete:
+suspendWithError:
 backlightTelemetrySource:hadExistingSystemActivityForEvent:
-grantUserInitiated
-descriptionForObject:
-monitorUsingMainQueue
+definition
+mainBundle
+initWithKeyOptions:valueOptions:capacity:
+queryItemWithName:value:
 alwaysOnSession
 bs_filter:
-intersectionWithDateInterval:
-componentsWithString:
-grantWithBackgroundPriority
-setCommitOnWakeMeasurementDisabled:
+completeWithDesiredFidelity:
+isForeground
+raise:format:
 backlightTelemetrySource:willTransitionToState:forEvent:
-setStateDescriptor:
-scheduleWithFireInterval:leewayInterval:queue:handler:
-initWithOptions:capacity:
-isRunning
-enumerateKeysAndObjectsUsingBlock:
+mainDisplay
+setPredicates:
 animationCoalesceThreshold
-monitorWithConfiguration:
-configureConnection:
+sortedArrayUsingSelector:
 array
 bs_flatten
-isScheduled
-relativePriority
-grantedFidelity
+setActions:
+UUIDString
+componentsWithString:
+initWithActiveAppearance:updateFidelity:adjustedLuminance:
 backlightTelemetrySource:willUpdateDisplayForState:forEvent:
-desiredFidelity
-state
+sourceEvent
+mainQueue
+rampDuration
 anyObject
-mutableCopy
 bs_map:
-enumerateObjectsUsingBlock:
+configureConnection:
+entryForPresentationTime:withRequestedFidelity:animated:userObject:
 arrayByAddingObjectsFromArray:
-configuredEntriesForDateInterval:previousEntry:shouldConstructStartEntry:
-setConfiguration:shouldReset:error:
 backlightTurnedOnForEvent:
+insertObject:atIndex:
+restartTimerOnInvalidation
 bs_mapNoNulls:
-desiredFidelityForDateInterval:timelines:withCompletion:
-enumerateObjectsWithOptions:usingBlock:
-setDefaultBacklightProxy:
+initWithActiveAppearance:updateFidelity:adjustedLuminance:dimmed:
+sourceEventMetadata
 arrayForKey:
-containsDate:
-transparentFlipbook
-setTargetQueue:
-initWithClientPid:hostPid:count:
+insertions
+entrySpecifierForTimelineIdentifier:
+targetWithPid:
+frameSpecifier
+configuredEntriesForDateInterval:previousEntry:shouldConstructStartEntry:
+descriptionForObject:
+initWithBacklightChangeEvent:animated:touchTargetable:isUpdateToDateSpecifier:completion:
 bs_reverse
 arrayWithCapacity:
-newSpecifierWithMaxFidelity:
-hasChanges
-remoteProcess
-setDefaultService:
-initWithCompletion:
+containsDate:
+grant
+targetWithProcessIdentity:
+setQueryItems:
 appendArraySection:withName:multilinePrefix:skipIfEmpty:
-secondsFidelityThreshold
-hasEntitlement:
-newVisualStateWithUpdateFidelity:
+enumerateKeysAndObjectsUsingBlock:
 arrayWithObject:
-dictionary
+specification
+inspectDiff:withContext:
+taskState
+useAlwaysOnBrightnessCurve:withRampDuration:
+grantUserInitiated
 bls_appendBoundedCollection:withName:maximumItems:itemBlock:
 build
-serial
-environment:performBacklightSceneUpdate:
-containsObject:
+desiredFidelity
+enumerateObjectsUsingBlock:
+resumeWithError:
 arrayWithObjects:count:
+interface
 appendArraySection:withName:multilinePrefix:skipIfEmpty:objectTransformer:
-hasPrefix:
-initWithDate:fidelity:
-removals
+setAlwaysOnSession:
+performBacklightRampWithDuration:
+grantWithBackgroundPriority
+isLocal
 bls_appendTimeInterval:withName:decomposeUnits:
-dictionaryForKey:
-setUpdateHandler:
 builder
 appendArraySection:withName:skipIfEmpty:
-nextCount
-environment:timelinesForDateInterval:previousSpecifier:completion:
-containsString:
-unsignedIntValue
-invalidateWithError:
-removeAllObjects
-dictionaryWithObjects:forKeys:count:
-initWithDate:fidelity:userObject:
+desiredFidelityForDateInterval:timelines:withCompletion:
+setReplacedSceneUpdate:
+enumerateObjectsWithOptions:usingBlock:
+intersectionWithDateInterval:
+containsObject:
+setRunningBoardAssertionDisabled:
+grantedFidelity
 bls_boundedDescription
 builderWithObject:
-nextDateAfterDate:matchingComponents:options:
+initWithOptions:capacity:
+userInfo
 appendArraySection:withName:skipIfEmpty:objectTransformer:
-statesForPredicate:withDescriptor:error:
-unsignedIntegerValue
-setDomain:
+specifierForPresentationDate:
+containsString:
 assertion:failedToAcquireWithError:
-context
-predicateMatchingIdentity:
-removeObject:
+sceneContentsAnimationDidComplete
 bls_boundedDescriptionWithMax:transformer:
-hasSuffix:
-initWithDateInterval:previousPresentationDate:shouldReset:completion:
-isTouchTargetable
 builderWithObject:ofExpectedClass:
 appendBodySectionWithName:block:
 acquireWithError:
-nextObject
-copy
 assertionAcquired:
-unsignedLongValue
-predicateMatchingTarget:
+sceneContentsDidUpdate
+context
+dictionary
+uuid
 bls_boundedDescriptionWithTransformer:
-removeObjectAtIndex:
-didChangeAlwaysOnEnabled:
-acquireWithExplanation:observer:attributes:
+initWithClientPid:hostPid:count:
+setSecond:
+sceneFromIdentityToken:
 bundleIdentifier
+acquireWithExplanation:observer:attributes:
+isRunning
 appendBodySectionWithName:multilinePrefix:block:
+contextId
+timeIntervalSinceDate:
+hasChanges
+environment:performBacklightSceneUpdate:
 assertionDidCancel:withError:
-removeObjectForKey:
-setEventHandlerWithQueue:block:
-setValues:
+performFrameSpecifiersRequest:timelines:
+setService:
+isScheduled
+dictionaryForKey:
+initWithCompletion:
 acquireWithObserver:
-stringByAppendingString:
-appendBodySectionWithName:openDelimiter:closeDelimiter:block:
+monitorUsingMainQueue
 bls_containsDate:withEpsilon:
-countByEnumeratingWithState:objects:count:
+sceneIdentityToken
+appendBodySectionWithName:openDelimiter:closeDelimiter:block:
+copy
+timeIntervalSinceReferenceDate
+hasEntitlement:
+environment:timelinesForDateInterval:previousSpecifier:completion:
 assertionPaused:
-didCompleteUpdateToState:forEvent:
+dictionaryWithObjects:forKeys:count:
 acquireWithTimeout:handler:
-setEventMask:
-removeObjectsAtIndexes:
-stringFromByteCount:
-isUpdateToDateSpecifier
-null
+setServiceQuality:
+monitorWithConfiguration:
+timeRemaining
+appendBodySectionWithOpenDelimiter:closeDelimiter:block:
+hasPrefix:
 assertionResumed:
 activate
+relativePriority
+scheduleWithFireInterval:leewayInterval:queue:handler:
+standardUserDefaults
+mutableCopy
+bls_hasDelegate
+appendBool:
+countByEnumeratingWithState:objects:count:
+assertionWillCancel:
+valueForKey:
+setCommitOnWakeMeasurementDisabled:
+initWithDate:fidelity:
+bls_hasUnrestrictedFramerateUpdates
+canBePaused
+didChangeAlwaysOnEnabled:
+appendBool:counterpart:
+timelineEntry
+associatedObject
+invalidateWithError:
+initWithDate:fidelity:userObject:
+bls_initWithBSContinuousMachTime:
+hasSuffix:
+appendBool:withName:
+newSpecifierWithMaxFidelity:
+timelineWithEntries:identifier:configure:
+remoteProcess
+bls_initWithMachContinuousTime:
+setConfiguration:shouldReset:error:
+initWithDateInterval:previousPresentationDate:shouldReset:completion:
+didCompleteUpdateToState:forEvent:
+appendBool:withName:ifEqualTo:
+newVisualStateWithUpdateFidelity:
+setContextId:
+UTF8String
+startService
+appendCollection:withName:itemBlock:
+bls_isAlwaysOnEnabledForEnvironment
+secondsFidelityThreshold
+setStateDescriptor:
+error
+setDefaultBacklightProxy:
+removals
+createInactiveEnvironmentSession
+bls_isBlanked
+errorWithDomain:code:userInfo:
+serial
+nextCount
+appendCustomFormatWithName:block:
+isTouchTargetable
+attributeOfClass:
+removeAllObjects
+setDefaultService:
+bls_isDelegateActive
+eventID
+activeAppearance
+startSuppressionUpdatesToQueue:withHandler:
+appendDictionarySection:withName:skipIfEmpty:
+nextDateAfterDate:matchingComponents:options:
+attributeWithDuration:warningDuration:startPolicy:endPolicy:
+setTargetQueue:
+predicateMatchingIdentity:
+removeObject:
+bls_isLiveUpdating
+appendDouble:withName:decimalPrecision:
+nextObject
+differenceFromArray:withOptions:
+eventMask
+createWithFrame:
+attributes
+predicateMatchingTarget:
+touchLock
+removeObjectAtIndex:
+bls_isOnOrAfter:andOnOrBefore:
+isAnimated
+activityMode
+isUpdateToDateSpecifier
+state
+changeRequest
+appendFloat:withName:decimalPrecision:
+attributesOfClasses:
+transitionContextClass
+removeObjectForKey:
+appendFormat:
+isAvailable
+setDomain:
+bls_machContinuousTime
+autoupdatingCurrentCalendar
+removeObjectsAtIndexes:
+setUpdateHandler:
+disableFlipbook
+initWithRequestedActivityState:explanation:timestamp:sourceEvent:sourceEventMetadata:
+appendInt:withName:
+null
+isBeforeDate:
+removeObjectsInArray:
+bls_optsOutOfProcessAssertions
+disableWatchdogs
+appendInteger:
+checkEntitlementSourceForRequiredEntitlements:error:
+numberWithBool:
+currentContext
+setEventHandlerWithQueue:block:
+removeObjectsInRange:
+dispatchWithQOSClass:block:
+bls_presentationDate
+appendInteger:counterpart:
+numberWithDouble:
+setEventMask:
+initWithEventID:state:previousState:changeRequest:
+bls_setAlwaysOnEnabledForEnvironment:
+appendInteger:withName:
+numberWithFloat:
+date
+transparentFlipbook
+renderForTime:options:userInfo:error:
+addObject:
+bls_setBlanked:
+setValues:
+appendObject:
+numberWithInteger:
+statesForPredicate:withDescriptor:error:
+dateByAddingTimeInterval:
+setWantsTransform:
+addObjectsFromArray:
+bls_setDelegateActive:
+appendObject:counterpart:
+numberWithUnsignedInteger:
+initWithExplanation:attributes:
+initWithStartDate:duration:
+fidelity
+backlightDimmingDuration
+bls_setLiveUpdating:
+identityToken
+distantFuture
+object
+UUID
+keyEnumerator
+appendObject:withName:
 init
-memoryUsage
+createWithPlatformProvider:
 isEqual:
 class
 self
@@ -5011,25 +5150,30 @@ purge
 frameOnGlass
 lastRenderedFrame
 activeFrames
+memoryUsage
 T@"<BLSHRenderedFlipbookFrame>",R,N
 T@"NSArray",R,N
 TQ,R,N
+initWithPlatformProvider:
 .cxx_destruct
-_lock
-_activeFrames
-_nextframeID
-releaseSurface
+_flipbook
+_wantsTransform
+_inverted
+bls_specifier
 bls_loggingString
 bls_shortLoggingString
+releaseSurface
 presentationTime
 frameId
 aplDimming
-bls_specifier
 surface
 Tf,R,N
 T@"<BLSPresentationDateSpecifying>",R,N
 T^{__IOSurface=},R,N
 T@"BLSHPresentationDateSpecifier",R,N
+_lock
+_activeFrames
+_nextframeID
 initWithPresentationTime:frameId:specifier:memoryUsage:
 _presentationTime
 _frameId
@@ -5109,36 +5253,45 @@ TB,R,N,GisSuppressionServiceActive
 T@"BLSHSuppressionEvent",R,N
 willUnblank
 transitionToDisplayMode:withDuration:
+switchToFlipbookState:
 setShowingBlankingWindow:fadeDuration:
 isCABlanked
 setCABlanked:
 isCAFlipbookEnabled
 setCAFlipbookEnabled:
+isCAFlipbookSuppressed
+setCAFlipbookSuppressed:
 isKernelAlwaysOnMode
 setKernelAlwaysOnMode:
 cbDisplayStateDelegate
 setCBDisplayStateDelegate:
 cbDisplayMode
+supportsFlipbookState
+cbFlipbookState
 isShowingBlankingWindow
 caBlanked
 TB,N,GisCABlanked,SsetCABlanked:
 caFlipbookEnabled
 TB,N,GisCAFlipbookEnabled,SsetCAFlipbookEnabled:
+caFlipbookSuppressed
+TB,N,GisCAFlipbookSuppressed,SsetCAFlipbookSuppressed:
 kernelAlwaysOnMode
 TB,N,GisKernelAlwaysOnMode
 T@"<BLSCBDisplayStateDelegate>",&,SsetCBDisplayStateDelegate:
 Tq,R,N
 showingBlankingWindow
 TB,R,N,GisShowingBlankingWindow
-initWithPlatformProvider:
 registerHandlersForService:
 _platformProvider
 _watchdogProvider
 _lock_lastSuppressionEvent
+_suppressionManager
 _setCBDisplayModeTimer
 _lock_cbDisplayMode
+_lock_cbFlipbookState
 _lock_suppressionServiceActive
 _lock_caFlipbookEnabled
+_lock_caFlipbookSuppressed
 _lock_caBlanked
 _lock_flipbookTransparent
 _deviceSupportsAlwaysOn
@@ -5412,7 +5565,6 @@ renderedFrames
 prepareAndRenderFrameSpecifier:
 telemetryDataWithEndTime:reasonEnded:preventedSleepDuration:
 presentation
-_flipbook
 _lock_preparingSpecifier
 _lock_pendingEnvironments
 _lock_renderedFrames
@@ -6077,8 +6229,6 @@ T@,&,N,V_userObject
 initWithCAContext:wantsTransform:inverted:
 wantsTransform
 isInverted
-_wantsTransform
-_inverted
 _caContext
 T@"CAContext",R,N,V_caContext
 TB,R,N,V_wantsTransform
@@ -6120,6 +6270,7 @@ _lock_assertion
 onMain_ensureSessionCreated
 lock_displayModeForBacklightState:session:
 onMain_performNextStepInTransition
+ifStillValidPerformAlwaysOnBrightnessRamp:withDuration:
 inactiveEnvironmentSession:updateToPresentation:
 displayState:didUpdateToMode:
 displayState:didUpdateToBrightnessCurve:
@@ -6335,6 +6486,7 @@ TB,N,V_shouldNotifyOfUnidle
 _backlight
 onMain_performNextStepInModeTransition
 osInterfaceProvider:didCompleteTransitionToDisplayMode:withError:
+osInterfaceProvider:didCompleteSwitchToFlipbookState:withError:
 initWithDelegate:platformProvider:osInterfaceProvider:
 lastSteadyStateDisplayMode
 isTransitioningDisplayMode
@@ -6348,6 +6500,8 @@ _lock_prewarmingDisplayMode
 _lock_lastSteadyStateDisplayMode
 _lock_completedCBDisplayMode
 _lock_cbDisplayModeTransitionOperation
+_lock_cbFlipbookStateChangeOperation
+_lock_completedCBFlipbookState
 _lock_updatingCA
 _lock_isPrewarmingDisplayMode
 T@"<BLSHBacklightDisplayStateMachineDelegate>",R,W,N,V_delegate
@@ -6419,6 +6573,7 @@ initWithService:osTimerProvider:
 _server
 T@"BLSHLocalAssertionService",R,N,V_localAssertionService
 T@"BLSHBacklightEnvironmentPresentation",R,V_presentation
+@24@0:8@16
 B24@0:8@16
 #16@0:8
 @16@0:8
@@ -6438,12 +6593,13 @@ v40@0:8@16@24@?32
 v40@0:8@"BLSHBacklightEnvironmentPresentation"16@"BLSHPresentationDateSpecifier"24@?<v@?@"<BLSHRenderedFlipbookFrame>"@"NSError">32
 @"<BLSHRenderedFlipbookFrame>"16@0:8
 @"NSArray"16@0:8
-{os_unfair_lock_s="_os_unfair_lock_opaque"I}
-@"NSMutableArray"
+@"CAFlipBook"
 f16@0:8
 ^{__IOSurface=}16@0:8
 @"<BLSPresentationDateSpecifying>"16@0:8
 @"BLSHPresentationDateSpecifier"16@0:8
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"NSMutableArray"
 @48@0:8Q16Q24@32Q40
 @"BLSHPresentationDateSpecifier"
 r^v16@0:8
@@ -6485,15 +6641,16 @@ v24@0:8@?16
 v24@0:8@?<v@?@"BLSHSuppressionEvent">16
 @"BLSHSuppressionEvent"16@0:8
 v32@0:8q16d24
+v24@0:8q16
 v28@0:8B16d20
 v24@0:8@16
 q16@0:8
 @"<BLSCBDisplayStateDelegate>"16@0:8
 v24@0:8@"<BLSCBDisplayStateDelegate>"16
-@24@0:8@16
 @"<BLSHBacklightPlatformProvider>"
 @"BLSHWatchdogProvider"
 @"BLSHSuppressionEvent"
+@"CMSuppressionManager"
 @"BSContinuousMachTimer"
 @"<BLSCBDisplayStateDelegate>"
 v40@0:8@16q24@32
@@ -6767,10 +6924,10 @@ v24@0:8@"<BLSHUserIdleProvidingDelegate>"16
 @"BLSBacklight"
 @"<BLSHAlwaysFillFlipbookProvider>"
 v40@0:8@"<BLSHBacklightOSInterfaceProviding>"16q24@"NSError"32
-v24@0:8q16
 @"<BLSHBacklightOSInterfaceProviding>"
 {?="sequenceNumber"i"displayMode"q"previousDisplayMode"q"duration"d"startSeconds"d"phase"q}
 {?="sequenceNumber"i"cbDisplayMode"q"previousCBDisplayMode"q"duration"d"fullDuration"d"startSeconds"d"effectiveStartSeconds"d"phase"q"shouldWait"B}
+{?="sequenceNumber"i"cbFlipbookState"q"phase"q}
 @"<BLSHBacklightDisplayStateMachineDelegate>"
 @"BLSHAggregateProcessAssertion"
 @28@0:8@16B24

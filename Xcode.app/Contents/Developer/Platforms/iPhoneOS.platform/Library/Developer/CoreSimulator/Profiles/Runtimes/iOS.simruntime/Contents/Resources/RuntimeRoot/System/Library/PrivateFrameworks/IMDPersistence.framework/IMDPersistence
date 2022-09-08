@@ -520,6 +520,7 @@ deleteDate
 chatGUIDs
 recoverableMessagesMetadataDictionary
 days
+deletedChatGUIDs
 resultLimit
 recoverableMessagesMetadataPendingCloudKitSave
 recoverableMessagesMetadataPendingCloudKitDelete
@@ -575,14 +576,12 @@ last_addressed_sim_id
 max(cm.message_date)
 GetMessageDateAndLastAddressedLabelID: found results from db %@
 labelID
-chatGUID is nil or empty string = %@. Returning NULL result.
-SELECT DISTINCT display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND c.guid = ?
+SELECT guid,display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND h.id = ?
 v16@?0^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}8
 chat_id
 SELECT handle_id FROM chat_handle_join WHERE chat_id = ?
 display_name
 Handle records from kIMDChatTableSelectHandleIDFromChatID query is empty.
-SELECT guid,display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND h.id = ?
 Trying to find last address handles/date from chatIds %@ and handles %@
 select max(cm.message_date),last_addressed_handle from (select * from chat where chat_identifier in (%@?) AND style=45 and service_name=? and last_addressed_handle in (%@?)) c INNER JOIN chat_message_join cm ON c.ROWID=cm.chat_id;
 GetMessageDateAndLastAddressedHandle: running with query %@
@@ -878,6 +877,7 @@ Original Ranges:
 -[IMDDatabase(Messages) updateAttachmentSyndicationRanges:shouldHideFromSyndication:]
 %s Found corresponding IMMessageItem for attachment GUID %@
 %s Found corresponding IMMessagePartDescriptor for attachment GUID %@ (actualAttachmentGUID %@)
+Failed to find matching messagePart for attachment GUID %@
 -[IMDDatabase(Messages) _updateMessageItemSyndicationRanges:messagePartDescriptor:shouldHideFromSyndication:]
 %s Updating syndication ranges for message guid: %@, part %ld, range: %@
 %s Removing message part range from syndication %@ for message item with GUID %@
@@ -2212,6 +2212,8 @@ INSERT INTO chat_recoverable_message_join (chat_id, message_id, delete_date) SEL
 DELETE FROM chat_message_join WHERE chat_id = ? AND message_id IN ( SELECT message_id FROM chat_recoverable_message_join WHERE chat_id = ?);
 Recently Deleted | Finished moving messages to recoverable message table for %lu chatGUIDs
 Recently Deleted | Will begin recovering messages for %lu unique chatGUIDs
+ SELECT m.guid FROM chat_recoverable_message_join AS crmj JOIN chat AS c  ON crmj.chat_id = c.ROWID AND c.guid = ? JOIN message AS m  ON crmj.message_id = m.ROWID;
+Recently Deleted: Unexpected column in recoverable message in chat %@ with index %d
 INSERT INTO chat_message_join (chat_id, message_id, message_date) SELECT crmj.chat_id, crmj.message_id, m.date FROM chat_recoverable_message_join AS crmj JOIN chat AS c  ON crmj.chat_id = c.ROWID AND c.guid = ? JOIN message AS m  ON crmj.message_id = m.ROWID;
 DELETE FROM chat_recoverable_message_join WHERE message_id IN ( SELECT message_id FROM chat_message_join);
 Recently Deleted | Finished recovering messages for %lu unique chatGUIDs
@@ -2864,7 +2866,6 @@ Deleting files older than %lld recent attachments
 Copying filenames for attachments for chat identifiers: %@ on services: %@   (Results: %ld)
 Copying purged attachments for chat %@ services %@ limit %@
 All chats that have %@ as a participant.
-All chats that have %@ as a chat GUID.
 Copying purged attachments count for chat %@ services %@
 purgedCount
 Copying filenames for sticker attachments
@@ -3409,6 +3410,7 @@ Query: Copy all active chats
 Query: Copy all active chats progressively
 Query: Copy recent chats
 Action: Add message with GUID to Spotlight
+Action: Add messages with GUIDs to Spotlight
 Action: Add chat with GUID to Spotlight
 Query: Reindex the given messages
 Query: Copy Chat for GUID
@@ -3798,6 +3800,8 @@ __syncXPCIMDMessageStoreSendXPCMessage failed several consecutive times - sleepi
 __syncXPCIMDMessageStoreSendXPCMessage failed too many times...bailing!
 FAFetchFamilyCircleRequest failed %@
 Recently Deleted | Insert to recoverable message table failed for chat guid %@: %@
+Recently Deleted: message GUID in recovery for chat %@, iterating
+Recently Deleted | Failed to finish query for messages to be restored in chat %@: %@
 Recently Deleted | Insert to chat message table failed for chat guid %@: %@
 Recently Deleted | Failed to remove entries from chat_recoverable_message_join: %@
 Recently Deleted | Parts: Will begin recovering message parts for %lu unique chatGUIDs
@@ -4664,9 +4668,9 @@ moveMessageRecordsToRecoveryForChatRecordsWithGUIDs:deleteDate:
 recoverMessageRecordsForChatRecordsWithGUIDs:
 loadRecoverableMessagesMetadataGroupedByChatGUID
 deleteRecoverableMessagesOlderThanDays:
-permanentlyDeleteRecoverableMessagesInChatsWithGUIDs:
-recoverableMessagesMetadataPendingCloudKitSaveWithLimit:
 _xpcArrayWithCodableObjects:
+permanentlyDeleteRecoverableMessagesInChatsWithGUIDs:completionHandler:
+recoverableMessagesMetadataPendingCloudKitSaveWithLimit:
 recoverableMessagesMetadataPendingCloudKitDeleteWithLimit:
 clearRecoverableMessageTombStones
 updateRecoverableMessageSyncState:forMessageRowID:onPartIndex:
@@ -4726,6 +4730,7 @@ cfChatRecord
 properties
 serviceName
 groupID
+groupName
 cloudKitRecordID
 lastMessageRecord
 T@"NSDictionary",R,C,N
@@ -5726,7 +5731,7 @@ v56@0:8@"NSString"16@"NSPredicate"24@"NSArray"32Q40@?<v@?@"NSArray">48
 v36@0:8@"NSString"16B24@?<v@?@"IMDMessageRecord">28
 v28@0:8@"NSString"16B24
 v32@0:8@"NSArray"16@"NSDate"24
-v24@0:8@"NSArray"16
+v32@0:8@"NSArray"16@?<v@?@"NSArray">24
 @"NSArray"24@0:8q16
 v40@0:8@"NSAttributedString"16@"NSString"24@"NSDate"32
 B32@0:8@16^@24
@@ -5758,6 +5763,7 @@ v32@0:8@"NSString"16@?<v@?@"NSArray">24
 @"NSArray"52@0:8@"NSArray"16@"NSString"24@"NSString"32@"NSString"40C48
 v44@0:8@"NSArray"16@"NSString"24C32@?<v@?@"NSArray">36
 v32@0:8@"NSArray"16@?<v@?@"NSDictionary">24
+v24@0:8@"NSArray"16
 @"NSDictionary"16@0:8
 v24@0:8@"NSPredicate"16
 v40@0:8@"NSPredicate"16Q24@?<v@?@"NSArray">32
@@ -5798,7 +5804,7 @@ Q40@0:8^{?=Q^@^Q[5Q]}16^@24Q32
 v64@0:8@16B24@28@36@44C52@?56
 v200@0:8@16{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}24
 v208@0:8@16@24{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
-v40@0:8@16@24^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
+B40@0:8@16@24^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
 ^{_IMDAttachmentRecordStruct={__CFRuntimeBase=QAQ}q^{__CFArray}}16@0:8
 v24@0:8^{CSDBSqliteStatement=^{CSDBSqliteConnection}^{sqlite3_stmt}i}16
 @40@0:8@16@24q32
@@ -6331,6 +6337,7 @@ deleteDate
 chatGUIDs
 recoverableMessagesMetadataDictionary
 days
+deletedChatGUIDs
 resultLimit
 recoverableMessagesMetadataPendingCloudKitSave
 recoverableMessagesMetadataPendingCloudKitDelete
@@ -6386,14 +6393,12 @@ last_addressed_sim_id
 max(cm.message_date)
 GetMessageDateAndLastAddressedLabelID: found results from db %@
 labelID
-chatGUID is nil or empty string = %@. Returning NULL result.
-SELECT DISTINCT display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND c.guid = ?
+SELECT guid,display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND h.id = ?
 v16@?0^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}8
 chat_id
 SELECT handle_id FROM chat_handle_join WHERE chat_id = ?
 display_name
 Handle records from kIMDChatTableSelectHandleIDFromChatID query is empty.
-SELECT guid,display_Name,chat_id from chat c INNER JOIN chat_handle_join ch ON c.ROWID = ch.chat_id INNER JOIN handle h on h.ROWID = ch.handle_id WHERE c.state = 3 AND h.id = ?
 Trying to find last address handles/date from chatIds %@ and handles %@
 select max(cm.message_date),last_addressed_handle from (select * from chat where chat_identifier in (%@?) AND style=45 and service_name=? and last_addressed_handle in (%@?)) c INNER JOIN chat_message_join cm ON c.ROWID=cm.chat_id;
 GetMessageDateAndLastAddressedHandle: running with query %@
@@ -6689,6 +6694,7 @@ Original Ranges:
 -[IMDDatabase(Messages) updateAttachmentSyndicationRanges:shouldHideFromSyndication:]
 %s Found corresponding IMMessageItem for attachment GUID %@
 %s Found corresponding IMMessagePartDescriptor for attachment GUID %@ (actualAttachmentGUID %@)
+Failed to find matching messagePart for attachment GUID %@
 -[IMDDatabase(Messages) _updateMessageItemSyndicationRanges:messagePartDescriptor:shouldHideFromSyndication:]
 %s Updating syndication ranges for message guid: %@, part %ld, range: %@
 %s Removing message part range from syndication %@ for message item with GUID %@
@@ -8022,6 +8028,8 @@ INSERT INTO chat_recoverable_message_join (chat_id, message_id, delete_date) SEL
 DELETE FROM chat_message_join WHERE chat_id = ? AND message_id IN ( SELECT message_id FROM chat_recoverable_message_join WHERE chat_id = ?);
 Recently Deleted | Finished moving messages to recoverable message table for %lu chatGUIDs
 Recently Deleted | Will begin recovering messages for %lu unique chatGUIDs
+ SELECT m.guid FROM chat_recoverable_message_join AS crmj JOIN chat AS c  ON crmj.chat_id = c.ROWID AND c.guid = ? JOIN message AS m  ON crmj.message_id = m.ROWID;
+Recently Deleted: Unexpected column in recoverable message in chat %@ with index %d
 INSERT INTO chat_message_join (chat_id, message_id, message_date) SELECT crmj.chat_id, crmj.message_id, m.date FROM chat_recoverable_message_join AS crmj JOIN chat AS c  ON crmj.chat_id = c.ROWID AND c.guid = ? JOIN message AS m  ON crmj.message_id = m.ROWID;
 DELETE FROM chat_recoverable_message_join WHERE message_id IN ( SELECT message_id FROM chat_message_join);
 Recently Deleted | Finished recovering messages for %lu unique chatGUIDs
@@ -8675,7 +8683,6 @@ Deleting files older than %lld recent attachments
 Copying filenames for attachments for chat identifiers: %@ on services: %@   (Results: %ld)
 Copying purged attachments for chat %@ services %@ limit %@
 All chats that have %@ as a participant.
-All chats that have %@ as a chat GUID.
 Copying purged attachments count for chat %@ services %@
 purgedCount
 Copying filenames for sticker attachments
@@ -9220,6 +9227,7 @@ Query: Copy all active chats
 Query: Copy all active chats progressively
 Query: Copy recent chats
 Action: Add message with GUID to Spotlight
+Action: Add messages with GUIDs to Spotlight
 Action: Add chat with GUID to Spotlight
 Query: Reindex the given messages
 Query: Copy Chat for GUID
@@ -9609,6 +9617,8 @@ __syncXPCIMDMessageStoreSendXPCMessage failed several consecutive times - sleepi
 __syncXPCIMDMessageStoreSendXPCMessage failed too many times...bailing!
 FAFetchFamilyCircleRequest failed %@
 Recently Deleted | Insert to recoverable message table failed for chat guid %@: %@
+Recently Deleted: message GUID in recovery for chat %@, iterating
+Recently Deleted | Failed to finish query for messages to be restored in chat %@: %@
 Recently Deleted | Insert to chat message table failed for chat guid %@: %@
 Recently Deleted | Failed to remove entries from chat_recoverable_message_join: %@
 Recently Deleted | Parts: Will begin recovering message parts for %lu unique chatGUIDs
@@ -9881,162 +9891,25 @@ IMAbstractDatabaseTrimmer
 IMDCNPersonAliasResolver
 IMDChatRecordBatchFetcher
 IMDRecord
-filteredArrayUsingPredicate:
-cStringUsingEncoding:
-setShouldIgnoreRingerSwitch:
-__im_nanosecondTimeInterval
-setMentionsCurrentUser:
-setDestinationCallerID:
-createMutableContactWithID:
-numberWithLongLong:
-stringByAppendingFormat:
-mapTableRepresentation
-setAssociatedMessageRange:
-removeObjectForKey:
-commSafetyUIEnabled
-initWithName:bundleIdentifier:
-uppercaseString
-im_livePhotoVideoPath
-setWithArray:
-__im_messagePartMatchingPartIndex:
-initWithMessageItem:
-im_stripCategoryLabel
-descriptorForRequiredKeysForStyle:
-predicateForContactsMatchingEmailAddress:
-UUIDString
-account
-numberWithInteger:
-makeDirectoriesInPath:mode:
-bytes
-setShouldIgnoreDowntime:
-ascending
-stringByAbbreviatingWithTildeInPath
-removeObjectAtIndex:
-_setLaunchId:
-setAssociatedMessageGUID:
-setMechanism:
-numberWithInt:
-initWithLongLong:
-setDefaultActionURL:
-isAuxVideo
-im_livePhotoBundlePath
-code
-__im_makeDirectoriesInPath:mode:
-removeObject:
-setDay:
-setShouldIgnoreDoNotDisturb:
-threadIdentifier
-arrayWithObjects:count:
-isAbsolutePath
-setWatchesDataProtectionLockState:
-bypassIndexVersionCheck
-arrayWithObjects:
-acceptEventVisitor:
-string
-__im_insertionIndexForMessagePartBody:
-isUnderFirstDataProtectionLock
-setService:
-initWithKeysToFetch:
-postalCode
-removeItemAtURL:error:
-thoroughfare
-setAlternateNames:
-cloudKitSyncState
-numberWithFloat:
-absoluteString
-setDateInterval:
-setSentMessages:
-street
-im_lastPathComponent
-numberWithDouble:
-arrayWithObject:
-cloudKitServerChangeTokenBlob
-setVibrationIdentifier:
-postalAddresses
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-setDateFormat:
-__im_filePathWithVariant:
-arrayWithCapacity:
-handleFailureInFunction:file:lineNumber:description:
-setLongitude:
-updateMessagesRanges:withMessagePartSyndicationRanges:didUpdate:
-setAlertTopic:
-initWithKeyName:searchable:searchableByDefault:unique:multiValued:
-removeItemAtPath:error:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-temporaryHighQualityLocalPath
-businessNameForUID:updateHandler:
-setSender:
-setLocal:
-setValue:forDomain:forKey:
-ignoreMute
-UTF8String
-numberWithBool:
-expressiveSendStyleID
-invalidate
-setAdditionalContactKeyDescriptors:
-__im_dateWithNanosecondTimeIntervalSinceReferenceDate:
-arrayWithArray:
-setDateEdited:
-isSpam
-null
-removeDeliveredNotificationsWithIdentifiers:
-initWithKey:ascending:
-boolValueForKey:withDefault:
-handle
-setValue:forCustomKey:
-setSearchPredicate:
-interactionRecorder
-expressionType
-__im_dateByAddingDays:
-cloudKitRecordChangeTag
-initWithItemContentType:
-setActionType:
-setLatitude:
-setReplyToGUID:
-setUuid:
-countryCode
-setDate:
-boolValue
-host
-__im_apfsCompatibleFilename
-guidByStrippingAuxPrefix:
-setLastUsedDate:
-intent
-initWithIntent:response:
-isSent
-bodyData
-removeAllObjects
-setReplyToCurrentUser:
-setData:
-setAccountIdentifier:
-expireState
-setUserInfo:
-syndicationType
-setUseInProcessMapperExclusively:
-notifyRecipientAnyway
-integerValue
-country
-initWithInteger:
-groupUUID
-removeAllDeliveredNotifications
+operatingSystemVersionString
 syndicationStatus
+body
 setReplyCountsByPart:
 remoteMembers
-body
 countForObject:
 deleteCharactersInRange:
 setAccountID:
+syndicationStartDate
 expectedIndexVersion
 setCountryCode:
 intValue
+setReplaceID:
 _serverResponse
 initWithIdentifier:type:displayName:personId:personIdType:
 hasUnseenMention
-syndicationStartDate
 lowercaseString
 plainBody
-setReplaceID:
+__im_filePathWithVariant:
 setUrl:
 isSMSSubClassificationEnabled
 setAccountHandles:
@@ -10044,23 +9917,22 @@ insertObject:atIndex:
 initWithIdentifier:conversationIdentifier:content:dateSent:sender:recipients:groupName:messageType:serviceName:
 hasSuffix:
 placeholderBusinessName
-longValue
 setUnitsStyle:
 insertAttributedString:atIndex:
 executeFetchRequest:error:
+longValue
 arrayByApplyingSelector:
 setAccount:
-exceptionWithName:reason:userInfo:
 setCountry:
 setRelatedUniqueIdentifier:
 unsignedLongValue
+exceptionWithName:reason:userInfo:
 syndicationRanges
 setUnformattedID:
 getValueFromDomain:forKey:
 count
-stickerUserInfo
 isRead
-__im_URLForChatIdentifier:entryBody:messageGUID:
+stickerUserInfo
 normalizedHandleWithDestinationID:
 longLongValue
 getObjects:range:
@@ -10096,18 +9968,18 @@ setIsFromMe:
 supportsDataDetectors
 state
 setContentCreationDate:
-logDictionary:
 nextObject
 initWithValue:type:
+logDictionary:
 defaultManager
 setType:
 unsignedIntegerValue
 setRecipientCount:
-initWithFileURL:
 serviceForContacts
 copyItemAtPath:toPath:error:
-errorCode
+initWithFileURL:
 getDeliveredNotificationsWithCompletionHandler:
+errorCode
 unsignedIntValue
 performanceClass
 setInterruptionLevel:
@@ -10129,27 +10001,27 @@ getAliasToCNIDMap
 localizedUserNotificationStringForKey:arguments:
 initWithUnsignedLong:
 setCompletionHandler:
-serializedStringFromArray:
-performSelector:withObject:afterDelay:
-isNotificationActionsEnabled
 balloonBundleID
+serializedStringFromArray:
+isNotificationActionsEnabled
+performSelector:withObject:afterDelay:
+performRecentsSearch:queue:completion:
 enumeratorAtPath:
 setInstantMessageAddresses:
-performRecentsSearch:queue:completion:
-applicationCurrentlyLimited
 unifiedContactsMatchingPredicate:keysToFetch:error:
-recordContactEvents:recentsDomain:sendingAddress:source:userInitiated:
-setComplete:
+applicationCurrentlyLimited
 sender
+setComplete:
+recordContactEvents:recentsDomain:sendingAddress:source:userInitiated:
 localizedStringWithFormat:
 initWithDouble:
 setToneIdentifier:
-defaultCenter
-isMainThread
 generatedRoomNameForGroupChat
+isMainThread
+defaultCenter
+initWithUniqueIdentifier:domainIdentifier:attributeSet:
 unifiedContactWithIdentifier:keysToFetch:error:
 setImage:forParameterNamed:
-initWithUniqueIdentifier:domainIdentifier:attributeSet:
 recipientAddresses
 copy
 appendString:
@@ -10190,21 +10062,22 @@ initWithDictionaryRepresentation:
 setCloudKitServerChangeTokenBlob:
 enumerateKeysAndObjectsUsingBlock:
 pathWithComponents:
+initWithContactStore:
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 isIncoming
 authors
 substringFromIndex:
-initWithContactStore:
 setHeader:
 isGelatoCoreEnabled
 andPredicateWithSubpredicates:
 firstObject
-setTimePlayed:
 reason
+setTimePlayed:
 enumerateAttributesInRange:options:usingBlock:
+startDate
 setCloudKitRecordID:
 subpredicates
-startDate
+__im_URLForChatIdentifier:entryBody:messageGUID:
 setPotentialEventMessage:
 dateWithTimeIntervalSince1970:
 pathExtensionForUTIType:
@@ -10215,26 +10088,26 @@ contentsOfDirectoryAtPath:error:
 setHasUnseenMention:
 firstNameForCNContact:
 setTimeExpressiveSendPlayed:
-enumerateAttribute:inRange:options:usingBlock:
+loadAllChatsProgressivelyEnabled
 setCloudKitRecordChangeTag:
 contentType
+enumerateAttribute:inRange:options:usingBlock:
 start
-loadAllChatsProgressivelyEnabled
 entriesForContact:
 needsIndexing
 submitWithHandler:networkActivity:
 characterSetWithCharactersInString:
 pathExtensionForMIMEType:
 authorizationStatus
+firstName
 trimmedString
 initWithCode:userActivity:
 scheme
-initWithSyndicationType:messagePartRange:syndicationStartDate:
-setPostalCode:
-allowedByScreenTime
-firstName
-setTimeDelivered:
 writeToURL:options:error:
+initWithSyndicationType:messagePartRange:syndicationStartDate:
+allowedByScreenTime
+setPostalCode:
+setTimeDelivered:
 enqueueTicket:submissionHandler:
 setPlainBody:
 dateByAddingUnit:value:toDate:options:
@@ -10264,7 +10137,7 @@ namesForDetail:limitTo:prependMaybe:onlySignificant:withCompletion:
 contentByUpdatingWithProvider:error:
 _strictlyUnarchivedObjectOfClasses:fromData:error:
 setChangeType:
-isCNContactAKnownContact:
+filteredArrayUsingPredicate:
 initWithString:attributes:
 setGroupName:
 attributesOfItemAtPath:error:
@@ -10316,33 +10189,34 @@ roomName
 sortID
 setThreadIdentifier:
 setFullyFormattedAddress:
-isEqualToNumber:
 containsObject:
+__im_dateWithNanosecondTimeIntervalSinceReferenceDate:
 fileURLWithPath:isDirectory:
 rangeOfString:
+isEqualToNumber:
+leftExpression
 dataWithMessageSummaryInfoDictionary:
-URLByAppendingPathComponent:isDirectory:
 containsIndex:
 vibration
 length
 _auxVideoPathIfItExists
-leftExpression
+setFlags:
 setOtherHandle:
 setByAddingObjectsFromSet:
 rightExpression
-setFlags:
-setThoroughfare:
 singleLineStringFromPostalAddress:addCountryName:
+setThoroughfare:
 initWithBase64EncodedString:options:
+verboseLoggingEnabled
 otherHandle
 fileURLWithPath:
 stringWithFormat:
-verboseLoggingEnabled
 attributeSet
 isEqualToIgnoringCase:
 setOtherCountryCode:
 queryItems
 doubleValue
+URLWithString:
 _randomTemporaryPathWithFileName:
 setTextContent:
 transferGUID
@@ -10357,7 +10231,7 @@ initWithArray:
 isEqualToDictionary:
 contactsWithData:error:
 query
-UTITypeOfPathExtension:
+URLByAppendingPathComponent:isDirectory:
 donateInteractionWithCompletion:
 setBundleId:
 setOriginalMessageGUID:
@@ -10371,10 +10245,10 @@ initWithAliasToCNIDMap:
 dataWithContentsOfURL:
 trackEvent:withDictionary:
 stringGUID
-setBodyData:
-isEqualToDate:
 addObserver:selector:name:object:
+setBodyData:
 domainIdentifier
+isEqualToDate:
 originalMessageGUID
 dataUsingEncoding:
 domain
@@ -10383,7 +10257,6 @@ attribute:existsInRange:
 minusSet:
 productVersion
 setSyndicationRanges:
-__imArrayByApplyingBlock:
 fileSize
 stringFromTimeInterval:
 setSyncedSyndicationRanges:
@@ -10403,79 +10276,78 @@ attribute:atIndex:longestEffectiveRange:inRange:
 stringFromDate:
 valueForCustomKey:
 setBody:
+UUIDString
 organizationName
-operatingSystemVersionString
 initForReadingFromData:error:
-addObject:
 setObject:forKeyedSubscript:
 setExpireState:
 attribute:atIndex:effectiveRange:
 contactIdentifier
-initWithSender:time:guid:type:
+addObject:
 distantFuture
 setBalloonBundleID:
+initWithSender:time:guid:type:
+lastPathComponent
 shouldIgnoreDoNotDisturb
 categoryWithIdentifier:actions:intentIdentifiers:hiddenPreviewsBodyPlaceholder:categorySummaryFormat:options:
-lastPathComponent
 value:withObjCType:
 title
-stringFromContact:style:
+isEqualToArray:
 setSubtitle:
 data
-isEqualToArray:
-setObject:forKey:
-IDsFromCNContact:
-setExpirationDate:
-addNotificationRequest:withCompletionHandler:
 requestWithIdentifier:content:trigger:destinations:
+addNotificationRequest:withCompletionHandler:
+setExpirationDate:
+setObject:forKey:
+stringFromContact:style:
 shouldBeAllowedByScreenTimeWhenLimited
-indexSetWithIndexesInRange:
 setSubject:
 addIndexesInRange:
 displayNameForContact:
 categoryIdentifier
 lastObject
 customAttributeDictionary
-setErrorCode:
+indexSetWithIndexesInRange:
 initWithSender:time:guid:messageSummaryInfo:
 setAuthors:
 constantValue
-direction
+setErrorCode:
 attachments
 messageSummaryInfo
+direction
 setNotifyRecipientAnyway:
 stringByResolvingAndStandardizingPath
-shortNameFormatPrefersNicknames
-isEmpty
 fileExistsAtPath:isDirectory:
 requestWithIdentifier:content:trigger:
+shortNameFormatPrefersNicknames
+isEmpty
 lastName
-currentIndexVersion
 primaryRecipients
-caseInsensitiveCompare:
-setStreet:
-URLWithString:
-value
-lastIndexedRowID
+currentIndexVersion
 compoundPredicateType
-setAuthorNames:
+caseInsensitiveCompare:
+value
+setStreet:
+lastIndexedRowID
 initWithRecipients:content:speakableGroupName:conversationIdentifier:serviceName:sender:
+setAuthorNames:
 sharedThrottler
-IMDeviceRegionIsEligibleToBeForcedIntoFilteringUnknownSender
 attachmentWithIdentifier:URL:options:error:
 objectForKeyedSubscript:
+__im_dateByAddingDays:
 validateAndCleanupID:
+setStatus:
 request
 fileExistsAtPath:
 stringByReplacingOccurrencesOfString:withString:
 setEndDate:
-setStatus:
 previewSummaryWithPluginPayload:
 dictionaryWithObjectsAndKeys:
 timeRead
-sharedService
 _appearsToBePhoneNumber
+sharedService
 setAuthorAddresses:
+__imArrayByApplyingBlock:
 objectForKey:
 stringByRemovingCharactersFromSet:
 lastDonatedRowID
@@ -10503,6 +10375,7 @@ setAttributes:ofItemAtPath:error:
 setNotificationCategories:
 componentsSeparatedByString:
 dictionaryWithObject:forKey:
+__im_apfsCompatibleFilename
 activeConversations
 predicateWithFormat:
 timeIntervalSinceReferenceDate
@@ -10518,59 +10391,61 @@ stringByDeletingPathExtension
 messagePartRange
 timeIntervalSinceNow
 componentsJoinedByString:
+predicateOperatorType
 setStartDate:
 replaceID
 predicateWithBlock:
 numberWithUnsignedLongLong:
-predicateOperatorType
 componentsForContact:
 isDateInToday:
 initWithPath:storeName:dataProtectionClass:
 setAttachments:
 stringByDeletingLastPathComponent
-isCorrupt
+label
 setMetadata:
 messagePartIndex
-label
+isCorrupt
+setDomainIdentifier:
 timeExpressiveSendPlayed
 associatedMessageRange
-setDomainIdentifier:
 sharedFeatureFlags
+IDsFromCNContact:
 dictionary
-setAttachmentTypes:
 setMessageSummaryInfo:
-IMMessagesFilteringSettingForPreferedSubscription
+setAttachmentTypes:
 deviceIsLockedDown
 numberWithUnsignedLong:
 setSound:
 messageIndexBatchSize:
+setSortID:
 predicateForKey:inCollection:
+actionWithIdentifier:title:options:
 stringByAppendingString:
 imageWithURL:
-setSortID:
+timeDelivered
 replaceContentForRequestWithIdentifier:replacementContent:completionHandler:
 compare:
 sharedDefaults
-timeDelivered
+UTITypeOfPathExtension:
 setAttachmentPaths:
-actionWithIdentifier:title:options:
+replaceCharactersInRange:withString:
 setDisplayName:
 keyPath
-numberWithUnsignedInteger:
-replaceCharactersInRange:withString:
 stringByAppendingPathExtension:
 initWithObjectsAndKeys:
+numberWithUnsignedInteger:
+IMDeviceRegionIsEligibleToBeForcedIntoFilteringUnknownSender
 predicateForContactsMatchingPhoneNumber:
 numberWithUnsignedInt:
 communicationContext
-fetchFamilyCircleWithError:
 time
 imageFilePath
 setDispatchQueue:
-actionType
+fetchFamilyCircleWithError:
 userInfo
 __im_visitMessageParts:
 predicateForContactsMatchingHandleStrings:
+actionType
 setAttachmentNames:
 _setMessageID:
 setShouldSuppressScreenLightUp:
@@ -10584,9 +10459,144 @@ stringByAppendingPathComponent:
 setDirection:
 ticketForForwardGeocodePostalAddress:maxResults:traits:
 _crossPlatformUnifiedMeContactWithKeysToFetch:error:
-keyEnumerator
+createMutableContactWithID:
 accountID
+keyEnumerator
 urlAddresses
+cStringUsingEncoding:
+isCNContactAKnownContact:
+setMentionsCurrentUser:
+setDestinationCallerID:
+setShouldIgnoreRingerSwitch:
+__im_nanosecondTimeInterval
+numberWithLongLong:
+initWithName:bundleIdentifier:
+stringByAppendingFormat:
+descriptorForRequiredKeysForStyle:
+setAssociatedMessageRange:
+commSafetyUIEnabled
+mapTableRepresentation
+removeObjectForKey:
+predicateForContactsMatchingEmailAddress:
+ascending
+uppercaseString
+initWithMessageItem:
+im_stripCategoryLabel
+setWithArray:
+__im_messagePartMatchingPartIndex:
+im_livePhotoVideoPath
+account
+setShouldIgnoreDowntime:
+makeDirectoriesInPath:mode:
+bytes
+numberWithInteger:
+stringByAbbreviatingWithTildeInPath
+removeObjectAtIndex:
+_setLaunchId:
+setAssociatedMessageGUID:
+setMechanism:
+numberWithInt:
+initWithLongLong:
+setDefaultActionURL:
+isAuxVideo
+im_livePhotoBundlePath
+code
+__im_makeDirectoriesInPath:mode:
+isAbsolutePath
+removeObject:
+setDay:
+setShouldIgnoreDoNotDisturb:
+threadIdentifier
+arrayWithObjects:count:
+arrayWithObjects:
+setWatchesDataProtectionLockState:
+bypassIndexVersionCheck
+__im_insertionIndexForMessagePartBody:
+acceptEventVisitor:
+string
+initWithKeysToFetch:
+setService:
+isUnderFirstDataProtectionLock
+removeItemAtURL:error:
+postalCode
+thoroughfare
+cloudKitSyncState
+setAlternateNames:
+absoluteString
+numberWithFloat:
+setDateInterval:
+street
+UTF8String
+im_lastPathComponent
+setSentMessages:
+numberWithDouble:
+cloudKitServerChangeTokenBlob
+setVibrationIdentifier:
+postalAddresses
+arrayWithObject:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+handleFailureInFunction:file:lineNumber:description:
+setLongitude:
+setDateFormat:
+setAlertTopic:
+initWithKeyName:searchable:searchableByDefault:unique:multiValued:
+updateMessagesRanges:withMessagePartSyndicationRanges:didUpdate:
+removeItemAtPath:error:
+arrayWithCapacity:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+setLocal:
+businessNameForUID:updateHandler:
+setValue:forDomain:forKey:
+ignoreMute
+temporaryHighQualityLocalPath
+expressiveSendStyleID
+setSender:
+numberWithBool:
+invalidate
+setAdditionalContactKeyDescriptors:
+setDateEdited:
+isSpam
+arrayWithArray:
+removeDeliveredNotificationsWithIdentifiers:
+initWithKey:ascending:
+boolValueForKey:withDefault:
+null
+setValue:forCustomKey:
+handle
+setSearchPredicate:
+expressionType
+interactionRecorder
+cloudKitRecordChangeTag
+initWithItemContentType:
+setLatitude:
+setActionType:
+setReplyToGUID:
+setUuid:
+setDate:
+countryCode
+boolValue
+host
+guidByStrippingAuxPrefix:
+setLastUsedDate:
+intent
+initWithIntent:response:
+isSent
+bodyData
+setReplyToCurrentUser:
+removeAllObjects
+setAccountIdentifier:
+setData:
+syndicationType
+expireState
+setUserInfo:
+setUseInProcessMapperExclusively:
+notifyRecipientAnyway
+IMMessagesFilteringSettingForPreferedSubscription
+integerValue
+country
+initWithInteger:
+groupUUID
+removeAllDeliveredNotifications
 init
 suggestionsService:needsContextForConversationIdentifier:numberOfMessagesNeeded:
 suggestionsFromMessage:options:completionHandler:
@@ -10958,6 +10968,7 @@ identifier
 properties
 serviceName
 groupID
+groupName
 cloudKitRecordID
 lastMessageRecord
 handleRecords
@@ -10981,7 +10992,7 @@ _updateMessageItemSyndicationRanges:messagePartDescriptor:shouldHideFromSyndicat
 updateMessageSyndicationRanges:shouldHideFromSyndication:
 moveMessageRecordsToRecoveryForMessageGUIDs:deleteDate:
 deleteRecoverableMessagesOlderThanDays:
-permanentlyDeleteRecoverableMessagesInChatsWithGUIDs:
+permanentlyDeleteRecoverableMessagesInChatsWithGUIDs:completionHandler:
 _permanentlyDeleteRecoverableMessagesInChatsWithGUIDs:beforeDate:
 _mostRecentRecoverableMessageDateForChatWithGUID:operation:
 _countMessagesExcludingGroupPhotosInChatWithGUID:isRecoverable:operation:
@@ -11533,7 +11544,7 @@ v56@0:8@"NSString"16@"NSPredicate"24@"NSArray"32Q40@?<v@?@"NSArray">48
 v36@0:8@"NSString"16B24@?<v@?@"IMDMessageRecord">28
 v28@0:8@"NSString"16B24
 v32@0:8@"NSArray"16@"NSDate"24
-v24@0:8@"NSArray"16
+v32@0:8@"NSArray"16@?<v@?@"NSArray">24
 @"NSArray"24@0:8q16
 v40@0:8@"NSAttributedString"16@"NSString"24@"NSDate"32
 B32@0:8@16^@24
@@ -11565,6 +11576,7 @@ v32@0:8@"NSString"16@?<v@?@"NSArray">24
 @"NSArray"52@0:8@"NSArray"16@"NSString"24@"NSString"32@"NSString"40C48
 v44@0:8@"NSArray"16@"NSString"24C32@?<v@?@"NSArray">36
 v32@0:8@"NSArray"16@?<v@?@"NSDictionary">24
+v24@0:8@"NSArray"16
 @"NSDictionary"16@0:8
 v24@0:8@"NSPredicate"16
 v40@0:8@"NSPredicate"16Q24@?<v@?@"NSArray">32
@@ -11605,7 +11617,7 @@ Q40@0:8^{?=Q^@^Q[5Q]}16^@24Q32
 v64@0:8@16B24@28@36@44C52@?56
 v200@0:8@16{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}24
 v208@0:8@16@24{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
-v40@0:8@16@24^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
+B40@0:8@16@24^{IMDSqlOperation=^v^v^{__CFString}^v{IMDSqlStatement=^vi^{__CFString}^{sqlite3}iii{IMPerfMeasurement_t={IMFileLocation_t=****i}QQ^{__CFString}ddd}}^{__CFError}}32
 ^{_IMDAttachmentRecordStruct={__CFRuntimeBase=QAQ}q^{__CFArray}}16@0:8
 v24@0:8^{CSDBSqliteStatement=^{CSDBSqliteConnection}^{sqlite3_stmt}i}16
 @40@0:8@16@24q32

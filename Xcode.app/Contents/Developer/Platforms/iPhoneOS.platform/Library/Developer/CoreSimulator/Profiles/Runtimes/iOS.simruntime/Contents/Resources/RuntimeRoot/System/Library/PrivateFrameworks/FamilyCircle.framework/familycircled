@@ -414,6 +414,7 @@ contact
 thumbnailImageData
 screenScale
 _faCircularImageDataWithDiameter:
+fetchCachedPhotoForFamilyMember:
 fetchRemotePhotoForFamilyMember:
 useMonogramAsLastResort
 givenName
@@ -430,8 +431,13 @@ fetchFamilyFactory
 runFetchFamilyCircleOperation:
 isEqualToNumber:
 hashedDSID
-initWithMemberDSID:accountStore:
+initWithAltDSID:
+setCache:
+initWithAppleAccount:grandSlamAccount:accountStore:
+setFamilyMemberDSID:
 photoData
+cache
+updateWithData:
 cropRect
 getValue:size:
 _faCircularImageDataWithDiameter:cropRect:
@@ -442,7 +448,7 @@ setFamilyName:
 monogramForContact:diameter:scale:
 mainScreen
 scale
-initWithNetworkService:memberDSID:memberHashedDSID:size:localFallback:context:fetchFamilyFactory:
+initWithNetworkService:memberDSID:memberHashedDSID:size:localFallback:context:requestCoalescer:fetchFamilyFactory:
 fetchPhoto
 setHashedDSID:
 size
@@ -460,6 +466,8 @@ setEmailAddress:
 phoneNumber
 setPhoneNumber:
 setFetchFamilyFactory:
+requestCoalescer
+setRequestCoalescer:
 _localFallback
 _useMonogramAsLastResort
 _hashedDSID
@@ -472,6 +480,8 @@ _phoneNumber
 _fetchFamilyFactory
 T@"<FAFetchFamilyPhotoOperationContext>",R,N,V_context
 T@?,C,N,V_fetchFamilyFactory
+T@"FAFamilyPhotoCache",&,N,V_cache
+T@"FARequestCoalescer",&,N,V_requestCoalescer
 T@"NSNumber",C,V_dsid
 T@"NSString",C,V_hashedDSID
 Tq,V_size
@@ -544,6 +554,7 @@ removeFamilyMemberWithDSID:options:replyBlock:
 fetchFamilyMemberPhotoWithDSID:hashedDSID:size:localFallback:options:replyBlock:
 registerPushToken:options:replyBlock:
 clearFamilyCircleCacheWithReplyBlock:
+clearPhotoCacheWithReplyBlock:
 didReceiveFamilyEventPushNotificationWithPayload:options:replyBlock:
 updateFamilyMemberFlagWithDSID:flag:enabled:replyBlock:
 updateFamilyMemberFlagsWithDSID:flags:replyBlock:
@@ -570,6 +581,7 @@ requestQueueWithOptions:
 boolValue
 initWithNetworkService:pushToken:
 registerToken
+invalidateFamilyPhotos
 handleDidReceivePushEventWithNetworkService:familyRefreshActivityScheduler:completion:
 _grandSlamSignerWithAccountStore:
 _familyGrandSlamSignerWithAccountStore:
@@ -626,8 +638,13 @@ T@"NSDate",&,N,V_cacheDate
 T@"NSString",N,V_serverTag
 Td,N,V_maxAge
 T@"NSDate",R,N
+_cacheDirectoryURLWithError:
+attributesOfItemAtPath:error:
+_isCacheDate:pastDuration:
+thenOnQueue
+setAltDSID:
+T@"NSString",&,N,V_altDSID
 containsObject:
-initWithAppleAccount:grandSlamAccount:accountStore:
 setPushTopic:
 isSuccess
 _deliverNotificationWithResponse:payload:
@@ -853,9 +870,11 @@ fetchFamilyFollowups
 settingsPresets
 setup
 v28@?0@"NSArray"8B16@"NSError"20
-@"NSData"16@?0@"NSData"8
+FAFetchFamilyPhotoOperationKeyPrefix
+@16@?0@"NSData"8
 @16@?0@"FAFamilyMember"8
 v24@?0@"FAFamilyCircle"8@"NSError"16
+%@-%@
 UIScreen
 cacheDuration
 FamilyCircle/CircleCache.plist
@@ -891,6 +910,7 @@ phoneNumber
 useMonogramAsLastResort
 v24@?0@"NSData"8@"NSError"16
 -[FamilyCircleServiceDelegate clearFamilyCircleCacheWithReplyBlock:]_block_invoke_2
+-[FamilyCircleServiceDelegate clearPhotoCacheWithReplyBlock:]_block_invoke_2
 prefs:root=APPLE_ACCOUNT&path=FAMILY
 v16@?0@"FACircleStateResponse"8
 v32@?0@"NSDictionary"8@"FAFamilyCircle"16@"NSError"24
@@ -900,6 +920,8 @@ v16@?0@"NSError"8
 STSetupClient
 STManagementState
 FACoalescedRequest Queue
+FamilyCircle/Images
+FAFamilyPhotoCache Queue
 f_delete
 f_member_upd
 f_child_transfer_apr
@@ -993,6 +1015,7 @@ FamilyCircleServiceDelegate
 NSXPCListenerDelegate
 FARequestCoalescer
 FAFamilyCircleCacheResponse
+FAFamilyPhotoCache
 FAEventPushHandler
 FANetworkService
 FAPushDetailResponse
@@ -1080,11 +1103,12 @@ v32@0:8@"APSConnection"16@"NSArray"24
 v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
 @"STPresetsClient"
 @"FANetworkService"
-@68@0:8@16@24@32q40B48@52@?60
+@76@0:8@16@24@32q40B48@52@60@?68
 d16@0:8
 v24@0:8q16
 v24@0:8d16
 @"<FAFetchFamilyPhotoOperationContext>"
+@"FAFamilyPhotoCache"
 B32@0:8@16d24
 @"ACAccount"
 @56@0:8@16@24@32@40@48
@@ -1212,11 +1236,13 @@ Push received for user (dsid %@, altDSID %@) is logged in as non-primary account
 Push missing some required info.
 %@: Fetching photo for family member %@
 Found contact image.
-%@: Server fetch returned %p for member %@
+Failed to fetch image from cache error: %@
 %@: Monogram of members first and last name returned %p for member %@
 %@: Monogram of caller-supplied full name returned %p for %@
 %@: DSID %@ not found in family, and no full name was supplied. No image will be generated
 No DSID present, no family member to match
+%@: Fetching cached photo for member %@
+%@: Fetching remote photo for member %@
 Failed to fetch image for member: %@, error: %@
 BEGIN [%lld]: LoadFamilyCache 
 Error fetching family circle cache: %@
@@ -1229,6 +1255,7 @@ END [%lld] %fs:LoadFamilyCache
 Skipping server fetch of family circle as the cache is fresh (%@)
 Attempting to fetch the family circle from the server as the cache is stale (%@)
 Got value %@
+%s: delete cached family photo.s
 Presenting remote user interface
 cleanup cached family count.
 Running heartbeat operation.
@@ -1243,6 +1270,16 @@ Applying Screen Time introduction model completed
 screentime introduction model is nil for %@
 RequestCoalescer - Returning already in flight promise for key %@ promise: %@
 RequestCoalescer - Executing block for key %@ force: %@ inFlightPromise: %@
+Call to fetch URL for photos cache provided error: %@
+BEGIN [%lld]: LoadFamilyPhotoCache 
+LoadFamilyPhotoCache
+END [%lld] %fs:LoadFamilyPhotoCache 
+Cache photo for member %@ is valid dateCreated: %@
+Cache photo for member %@ expired dateCreated: %@
+Error updating photo cache for member %@
+Updated photo cache for member %@
+Error finding cache photo directory %@
+Photo cache cleared
 CacheUpdate:Processing family event push
 Failed to fetch family push details with error: %@
 CacheUpdate:Push detail response: %@
@@ -1451,9 +1488,11 @@ fetchFamilyFollowups
 settingsPresets
 setup
 v28@?0@"NSArray"8B16@"NSError"20
-@"NSData"16@?0@"NSData"8
+FAFetchFamilyPhotoOperationKeyPrefix
+@16@?0@"NSData"8
 @16@?0@"FAFamilyMember"8
 v24@?0@"FAFamilyCircle"8@"NSError"16
+%@-%@
 UIScreen
 cacheDuration
 FamilyCircle/CircleCache.plist
@@ -1489,6 +1528,7 @@ phoneNumber
 useMonogramAsLastResort
 v24@?0@"NSData"8@"NSError"16
 -[FamilyCircleServiceDelegate clearFamilyCircleCacheWithReplyBlock:]_block_invoke_2
+-[FamilyCircleServiceDelegate clearPhotoCacheWithReplyBlock:]_block_invoke_2
 prefs:root=APPLE_ACCOUNT&path=FAMILY
 v16@?0@"FACircleStateResponse"8
 v32@?0@"NSDictionary"8@"FAFamilyCircle"16@"NSError"24
@@ -1498,6 +1538,8 @@ v16@?0@"NSError"8
 STSetupClient
 STManagementState
 FACoalescedRequest Queue
+FamilyCircle/Images
+FAFamilyPhotoCache Queue
 f_delete
 f_member_upd
 f_child_transfer_apr
@@ -1554,253 +1596,255 @@ AskPermission
 topics
 User-Agent
 Settings/1.0 CFNetwork/672.1.10 Darwin/14.0.0
-deliverNotification:
-renewCredentialsForAccount:options:completion:
-newHandleWithDefinition:configurationContext:
-sharedSession
-initWithIdentifier:machServiceName:
-activeBundleIDs
-statusCode
-initWithString:
-fa_firstObjectMatching:
-performRequestWithHandler:
-ams_altDSID
-identifier
-initWithHTTPResponse:body:familyRefreshTriggered:
-removeObjectForKey:
-URLForDirectory:inDomain:appropriateForURL:create:error:
-URLByAppendingPathComponent:
-initWithServiceName:viewControllerClassName:
-fa_familyErrorWithCode:
-activateWithContext:
-setBool:forKey:
-containsObject:
-ams_activeiTunesAccount
-setInteger:forKey:
-setXpcEndpoint:
-defaultWorkspace
-JSONObjectWithData:options:error:
-httpResponse
-initWithHTTPResponse:body:
-fetchFamilyMemberSuggestions
-XPCInterface
-mutableCopy
-setInformativeText:
-contact
-initWithServerResponse:
-setWithObjects:
-defaultStore
-expectedMediaAltDSID
-removeItemAtURL:error:
-UUIDString
-setArgument:atIndex:
-setIdentifier:
-monogramForContact:diameter:scale:
+addObserver:
 standardUserDefaults
-configurationWithUpdatedScreenTimeState:error:
-pendingFollowUpItems:
-hasRecommendedMembers
-abbreviation
-setAllHTTPHeaderFields:
-setValue:forHTTPHeaderField:
-defaultManager
-isParent
-UUID
-setHeaderFieldKey:
-URLByAppendingPathComponent:isDirectory:
-minAge
-broadcastFamilyChangedNotification
+setBool:forKey:
+initWithString:
+fa_map:
+setIdentifier:
+appendFormat:
+copy
 uniqueIdentifier
-aa_setBodyWithParameters:
+deliverNotification:
+identifier
+initWithHTTPResponse:body:
+setValue:forHTTPHeaderField:
+initWithServiceName:viewControllerClassName:
+_setEnabledTopics:
+mutableCopy
+fa_firstObjectMatching:
+setHeaderFieldKey:
+addObject:
+anonymousListener
 setUserInfo:
-configuration
-setActivateActionURL:
-_faCircularImageDataWithDiameter:cropRect:
-isMe
-methodSignatureForSelector:
-boolValue
-initWithFamilyCircleFetchBlock:cacheLoadBlock:
-errorWithDomain:code:userInfo:
-componentsSeparatedByString:
+setArgument:atIndex:
+fetchFamilyMemberSuggestions
+removeItemAtURL:error:
+httpResponse
+_serverResponse
+monogramForContact:diameter:scale:
+fa_familyErrorWithCode:
+JSONObjectWithData:options:error:
+containsObject:
+ams_sharedAccountStore
+pendingFollowUpItems:
+addFresnoPayloadToRequest:additionalPayload:
 setHTTPMethod:
-aa_primaryAppleAccount
-path
-dateByAddingTimeInterval:
-_faCircularImageDataWithDiameter:
-HTTPResponse
-boolForKey:
-_endpoint
-setHTTPBody:
-componentsJoinedByString:
-aa_personID
-date
-allObjects
-initWithError:
-setURL:
-isEqualToString:
-body
-error
-members
-setTitle:
-compare:
-setGivenName:
-aa_isAccountClass:
-allKeys
-serverEligibility
-propertyListWithData:options:format:error:
-isEqualToNumber:
+initWithServerResponse:
+setAllHTTPHeaderFields:
 writeToURL:options:error:
-enumerateObjectsUsingBlock:
-bagForProfile:profileVersion:
+isParent
+defaultWorkspace
+activeBundleIDs
+minAge
+ams_altDSID
+contact
+hasRecommendedMembers
+setHTTPBody:
+expectedMediaAltDSID
+setURL:
+defaultStore
+values
+isMe
+setActivateActionURL:
+activateWithContext:
+methodSignatureForSelector:
+initWithFamilyCircleFetchBlock:cacheLoadBlock:
+configurationWithUpdatedScreenTimeState:error:
+ams_activeiTunesAccount
+timeIntervalSinceNow
+setGivenName:
+path
+setTitle:
+valueWithError:
+defaultManager
+timeIntervalSince1970
+configuration
+setTarget:
+valueWithCompletion:
+isEqualToString:
+initWithError:
+dateByAddingTimeInterval:
+broadcastFamilyChangedNotification
+errorWithDomain:code:userInfo:
+members
+thumbnailImageData
+componentsSeparatedByString:
+abbreviation
+propertyListWithData:options:format:error:
+URLByAppendingPathComponent:
+isEqualToNumber:
+serverEligibility
+userInfo
+boolValue
+XPCInterface
 initWithEnvironmentName:namedDelegatePort:queue:
 memberForAltDSID:
-setTarget:
-aa_grandSlamAccountForiCloudAccount:
-timeIntervalSinceNow
-fetchAAURLConfigurationWithCompletion:
-code
-dataWithPropertyList:format:options:error:
-values
-screenTimeState
-allHeaderFields
-familyRefreshTriggered
-aa_appleAccountWithPersonID:
-openURL:configuration:completionHandler:
-timeIntervalSince1970
-processName
-valueWithError:
-dataWithJSONObject:options:error:
-mainScreen
-allHTTPHeaderFields
-initWithData:encoding:
 sources
-arrayWithObjects:count:
+thenOnQueue
 setShouldPersistWhenActivated:
-openSensitiveURL:withOptions:
-thumbnailImageData
-aa_appleAccountWithAltDSID:
-all:
-dataWithContentsOfFile:options:error:
-processInfo
-valueWithCompletion:
-endpoint
-lowercaseString
-dataTaskWithRequest:completion:
-scale
-arrayWithObjects:
-URLForEndpoint:
+aa_setBodyWithParameters:
+componentsJoinedByString:
+date
+UUIDString
+screenTimeState
+compare:
+boolForKey:
+error
 setFamilyName:
+aa_primaryAppleAccount
 setSelector:
-aa_addLoggedInAppleIDHeaderWithAccount:
-onComplete:
+URLByAppendingPathComponent:isDirectory:
 then
-invoke
-givenName
-userInfo
-ak_addInternalBuildHeader
-initWithClientIdentifier:
-arrayWithCapacity:
-longLongValue
-invocationWithMethodSignature:
-setExportedObject:
-familyName
-getValue:size:
-aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
+openURL:configuration:completionHandler:
+processName
+_faCircularImageDataWithDiameter:cropRect:
+enumerateObjectsUsingBlock:
+UUID
+mainScreen
+openSensitiveURL:withOptions:
+body
+initWithData:encoding:
+setFamilyMemberDSID:
+fetchAAURLConfigurationWithCompletion:
+processInfo
 systemTimeZone
-objectWithData:
-ak_addDeviceUDIDHeader
+code
+aa_personID
+dataWithPropertyList:format:options:error:
+_faCircularImageDataWithDiameter:
+allObjects
+lowercaseString
 setQueryItems:
-dataRepresentation
-URLWithString:
-localizedDescription
-eligibilityRequirements
-arrayForKey:
-setExportedInterface:
-currentConfigurationForUserID:completionHandler:
+scale
+bagForProfile:profileVersion:
+setExportedObject:
+_endpoint
+familyRefreshTriggered
+aa_isAccountClass:
 synchronizeFollowupWithPayload:altDSID:
-objectForKeyedSubscript:
-getFamilyPushDetailsURL
-ak_addClientInfoHeader
-resume
-initWithBlock:
-getBytes:length:
-objectForKey:
+onComplete:
+URLWithString:
+dataWithJSONObject:options:error:
+HTTPResponse
+invoke
+allKeys
+URLForEndpoint:
+setExportedInterface:
+longLongValue
+initWithClientIdentifier:
+objectWithData:
 stringWithFormat:
-currentConfigurationForUser:error:
-ak_addAnisetteHeaders
-doubleValue
+aa_grandSlamAccountForiCloudAccount:
+invocationWithMethodSignature:
+givenName
+dataWithContentsOfFile:options:error:
+endpoint
+urlForEndpoint:
+allHeaderFields
+localizedDescription
+stringWithCapacity:
+attributesOfItemAtPath:error:
+dataTaskWithRequest:completion:
+aa_appleAccountWithPersonID:
+URLForDirectory:inDomain:appropriateForURL:create:error:
+objectForKeyedSubscript:
+getValue:size:
+urlConfiguration
+allHTTPHeaderFields
+signURLRequest:
+arrayWithObjects:count:
+initWithBlock:
+resume
+familyName
+aa_appleAccountWithAltDSID:
+stringValue
+setDelegate:
+objectForKey:
+getFamilyPushDetailsURL
+dataRepresentation
+all:
+eligibilityRequirements
+shutdown
+arrayWithObjects:
 initWithAvailablePresets:expectedPreset:currentPreset:
 responseDictionary
-stringWithCapacity:
-initWithName:value:
-checkResourceIsReachableAndReturnError:
-introductionModel
+stringForKey:
+getBytes:length:
+aa_addLoggedInAppleIDHeaderWithAccount:
 objectAtIndexedSubscript:
-setDelegate:
-initWithAppleAccount:grandSlamAccount:accountStore:
-aida_accountForiCloudAccount:
-apsEnvironment
-domain
-reschedule
-signURLRequest:
-numberWithLong:
-stringValue
 setCustomHeaders:
-catch
-interfaceWithProtocol:
-cropRect
-firstObject
+currentConfigurationForUserID:completionHandler:
+ak_addInternalBuildHeader
+arrayWithCapacity:
+initWithAppleAccount:grandSlamAccount:accountStore:
+reschedule
+introductionModel
+aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
+initWithName:value:
+currentConfigurationForUser:error:
+numberWithLong:
+stringByDeletingLastPathComponent
+ak_addDeviceUDIDHeader
 requirementsForPropertyName:
 preferredLanguages
-urlForEndpoint:
-applyUpdatedConfiguration:error:
-initWithAccountStore:grandSlamAccount:appTokenID:
-shutdown
-length
-dictionaryWithObjects:forKeys:count:
-stringForKey:
-numberWithInteger:
-firstName
-addValue:forHTTPHeaderField:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-urlConfiguration
-integerValue
-requestWithURL:
-lastObject
-setContactType:
-dictionary
-initWithMemberDSID:accountStore:
-addObserver:
-stringByDeletingLastPathComponent
-numberWithInt:
-intValue
-appendFormat:
-fileExistsAtPath:
-countByEnumeratingWithState:objects:count:
 setObject:forKeyedSubscript:
-lastName
-setObject:forKey:
-_setEnabledTopics:
-initWithMachServiceName:
-numberWithBool:
+doubleValue
+arrayForKey:
+length
+setContactType:
+numberWithInteger:
 stringByAppendingFormat:
-addObject:
-photoData
-anonymousListener
-initWithValue:
-count
-initWithLoadSuccess:error:userInfo:
-isValidEnvironment:
-setClass:forSelector:argumentIndex:ofReply:
-_serverResponse
-fa_map:
-null
-addFresnoPayloadToRequest:additionalPayload:
+checkResourceIsReachableAndReturnError:
+setObject:forKey:
+interfaceWithProtocol:
+requestWithURL:
+firstObject
+ak_addClientInfoHeader
+initWithAccountStore:grandSlamAccount:appTokenID:
+lastObject
+domain
 setObject:atIndexedSubscript:
-initWithURL:resolvingAgainstBaseURL:
-ams_sharedAccountStore
-copy
+numberWithInt:
+catch
+cropRect
+firstName
+ak_addAnisetteHeaders
+integerValue
+lastName
+sharedSession
+dictionaryWithObjects:forKeys:count:
+intValue
+setClass:forSelector:argumentIndex:ofReply:
+numberWithBool:
+statusCode
+initWithMachServiceName:
+photoData
+aida_accountForiCloudAccount:
+fileExistsAtPath:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+apsEnvironment
+isValidEnvironment:
+initWithLoadSuccess:error:userInfo:
+dictionary
+null
+initWithValue:
+setXpcEndpoint:
 performRequestWithSession:withHandler:
+countByEnumeratingWithState:objects:count:
+setInteger:forKey:
+applyUpdatedConfiguration:error:
+newHandleWithDefinition:configurationContext:
+renewCredentialsForAccount:options:completion:
+setInformativeText:
+initWithIdentifier:machServiceName:
+performRequestWithHandler:
+addValue:forHTTPHeaderField:
+initWithURL:resolvingAgainstBaseURL:
+count
+setWithObjects:
+initWithHTTPResponse:body:familyRefreshTriggered:
+removeObjectForKey:
 initWithNetworkService:
 initWithNetworkService:dsidOfMemberToRemove:
 removeMember
@@ -2054,9 +2098,10 @@ fetchFollowUps
 networkService
 _networkService
 T@"FANetworkService",R,N,V_networkService
-initWithNetworkService:memberDSID:memberHashedDSID:size:localFallback:context:fetchFamilyFactory:
+initWithNetworkService:memberDSID:memberHashedDSID:size:localFallback:context:requestCoalescer:fetchFamilyFactory:
 fetchPhoto
 familyMemberMatchingDSID
+fetchCachedPhotoForFamilyMember:
 fetchRemotePhotoForFamilyMember:
 _monogramWithFirstName:lastName:
 _monogramForContact:
@@ -2081,6 +2126,10 @@ phoneNumber
 setPhoneNumber:
 fetchFamilyFactory
 setFetchFamilyFactory:
+cache
+setCache:
+requestCoalescer
+setRequestCoalescer:
 _localFallback
 _useMonogramAsLastResort
 _hashedDSID
@@ -2093,6 +2142,8 @@ _phoneNumber
 _fetchFamilyFactory
 T@"<FAFetchFamilyPhotoOperationContext>",R,N,V_context
 T@?,C,N,V_fetchFamilyFactory
+T@"FAFamilyPhotoCache",&,N,V_cache
+T@"FARequestCoalescer",&,N,V_requestCoalescer
 T@"NSNumber",C,V_dsid
 T@"NSString",C,V_hashedDSID
 Tq,V_size
@@ -2145,6 +2196,7 @@ removeFamilyMemberWithDSID:options:replyBlock:
 fetchFamilyMemberPhotoWithDSID:hashedDSID:size:localFallback:options:replyBlock:
 registerPushToken:options:replyBlock:
 clearFamilyCircleCacheWithReplyBlock:
+clearPhotoCacheWithReplyBlock:
 didReceiveFamilyEventPushNotificationWithPayload:options:replyBlock:
 updateFamilyMemberFlagWithDSID:flag:enabled:replyBlock:
 updateFamilyMemberFlagsWithDSID:flags:replyBlock:
@@ -2205,6 +2257,13 @@ T@"NSDate",&,N,V_cacheDate
 T@"NSString",N,V_serverTag
 Td,N,V_maxAge
 T@"NSDate",R,N
+initWithAltDSID:
+_cacheDirectoryURLWithError:
+_isCacheDate:pastDuration:
+updateWithData:
+invalidateFamilyPhotos
+setAltDSID:
+T@"NSString",&,N,V_altDSID
 _deliverNotificationWithResponse:payload:
 _events
 initWithAccount:deviceInfo:urlProvider:urlSession:
@@ -2339,6 +2398,7 @@ FamilyCircleServiceDelegate
 NSXPCListenerDelegate
 FARequestCoalescer
 FAFamilyCircleCacheResponse
+FAFamilyPhotoCache
 FAEventPushHandler
 FANetworkService
 FAPushDetailResponse
@@ -2426,11 +2486,12 @@ v32@0:8@"APSConnection"16@"NSArray"24
 v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
 @"STPresetsClient"
 @"FANetworkService"
-@68@0:8@16@24@32q40B48@52@?60
+@76@0:8@16@24@32q40B48@52@60@?68
 d16@0:8
 v24@0:8q16
 v24@0:8d16
 @"<FAFetchFamilyPhotoOperationContext>"
+@"FAFamilyPhotoCache"
 B32@0:8@16d24
 @"ACAccount"
 @56@0:8@16@24@32@40@48
@@ -2558,11 +2619,13 @@ Push received for user (dsid %@, altDSID %@) is logged in as non-primary account
 Push missing some required info.
 %@: Fetching photo for family member %@
 Found contact image.
-%@: Server fetch returned %p for member %@
+Failed to fetch image from cache error: %@
 %@: Monogram of members first and last name returned %p for member %@
 %@: Monogram of caller-supplied full name returned %p for %@
 %@: DSID %@ not found in family, and no full name was supplied. No image will be generated
 No DSID present, no family member to match
+%@: Fetching cached photo for member %@
+%@: Fetching remote photo for member %@
 Failed to fetch image for member: %@, error: %@
 BEGIN [%lld]: LoadFamilyCache 
 Error fetching family circle cache: %@
@@ -2575,6 +2638,7 @@ END [%lld] %fs:LoadFamilyCache
 Skipping server fetch of family circle as the cache is fresh (%@)
 Attempting to fetch the family circle from the server as the cache is stale (%@)
 Got value %@
+%s: delete cached family photo.s
 Presenting remote user interface
 cleanup cached family count.
 Running heartbeat operation.
@@ -2589,6 +2653,16 @@ Applying Screen Time introduction model completed
 screentime introduction model is nil for %@
 RequestCoalescer - Returning already in flight promise for key %@ promise: %@
 RequestCoalescer - Executing block for key %@ force: %@ inFlightPromise: %@
+Call to fetch URL for photos cache provided error: %@
+BEGIN [%lld]: LoadFamilyPhotoCache 
+LoadFamilyPhotoCache
+END [%lld] %fs:LoadFamilyPhotoCache 
+Cache photo for member %@ is valid dateCreated: %@
+Cache photo for member %@ expired dateCreated: %@
+Error updating photo cache for member %@
+Updated photo cache for member %@
+Error finding cache photo directory %@
+Photo cache cleared
 CacheUpdate:Processing family event push
 Failed to fetch family push details with error: %@
 CacheUpdate:Push detail response: %@
