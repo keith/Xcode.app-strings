@@ -142,6 +142,8 @@ ExecutionOverrideType
 ExecutionRuntimeClient
 ExecutionRuntimeClientError
 ConnectionInterruptedError
+ExecutionSignposter
+ScopedExecutionSignpost
 FlowAgent
 FlowBundle
 FlowExtensionConnection
@@ -205,6 +207,7 @@ FlowAndInputRegistry
 RemoteConversationTurnData
 ConversationTurnDataXPC
 CodingKeys
+ProxiedRequestContext
 RemoteConversation
 SendableRemoteConversationXPCWrapper
 RemoteConversationXPCHelper
@@ -223,7 +226,9 @@ SayMetricsLogger
 SharedContextServiceImpl
 SharedFlowPluginConnection
 SharedFlowPluginService
+CurrentTurnCache
 WarmupTracker
+TurnDataProviding
 SharedFlowPluginServiceClient
 LoadedConversationTracker
 SharedFlowPluginServiceXPCConnectionProviding
@@ -239,6 +244,7 @@ SiriKitBiomeDonator
 LogConst
 Category
 SiriKitExecutorSignpost
+ExecutionTimeSignpost
 AnalyticsEventConst
 DirectInvocationIdentifierConst
 TaskMetricsConst
@@ -422,8 +428,18 @@ com.apple.PointerUI.pointeruid
 requestContextData
 conversationLoggingId
 flowTask
-runSiriKitExecutor
 invokedByPeerToPeerEORR
+proxiedRequestContext
+refId
+sessionHandoffContinuityId
+isMultiUserEnabled
+requiresConditionalMultiUserGrounding
+isVoiceTriggerEnabled
+isTextToSpeechEnabled
+isDirectAction
+bargeInMode
+bargeInTTSInterval
+aceRemoteExecution
 SearchForMessages#ReadEmojiToken
 SearchForMessages#ReadGenericCountableComponent
 SearchForMessages#ReadImageURL
@@ -494,6 +510,7 @@ v32@0:8@"NSString"16@?<v@?>24
 v32@0:8@"NSData"16@?<v@?@"_TtC14SiriKitRuntime27ConversationCanHandleResult">24
 v24@0:8@?<v@?@"NSError">16
 v40@0:8@"SKRConversationTurnDataXPC"16@"<SKRExecutionBridge>"24@?<v@?@"NSError">32
+v40@0:8@"NSString"16@"<SKRExecutionBridge>"24@?<v@?B@"NSError">32
 v60@0:8@"NSData"16@"NSString"24B32@"SKEUserSpecificInfo"36@"AFSpeechPackage"44@?<v@?@"SKRFlowExtensionUserInputResultXPC">52
 v60@0:8@"NSUUID"16@"NSString"24B32@"SKEUserSpecificInfo"36@"AFSpeechPackage"44@?<v@?@"SKRFlowExtensionUserInputResultXPC">52
 v32@0:8@"<SKRExecutionBridge>"16@?<v@?@"NSError">24
@@ -504,6 +521,7 @@ NSCopying
 @24@0:8^{_NSZone=}16
 B16@0:8
 supportsSecureCoding
+NSObject
 q16@0:8
 #16@0:8
 @24@0:8:16
@@ -955,6 +973,7 @@ referenceResolutionClient
 correctionsClient
 preFlowWork
 executionTaskContext
+signposter
 $__lazy_storage_$_serialFacade
 _TtCC14SiriKitRuntime19ConversationService10ActiveTurn
 turnData
@@ -1085,14 +1104,10 @@ ReferenceResolutionCollection
 Forcing DeviceState.isLockedWithPasscode to false since isCarPlay is true
 Is watch authenticated? %{bool}d
 _TtC14SiriKitRuntime18DefaultDeviceState
-interactionType
 multiUserState
 siriLocale
 siriVoiceGender
 isEyesFree
-isVoiceTriggerEnabled
-isTextToSpeechEnabled
-isDirectAction
 renderDeviceIdiom
 sessionHandOffContinuityID
 preferencesLanguageCode
@@ -1228,6 +1243,19 @@ _TtC14SiriKitRuntime22ExecutionRuntimeClient
 connection
 conversationService
 Mark completion called with %s
+Ending %ld request signposts at end of execution
+execution_commit_time
+execution_prepare_time
+execution_find_flow_time
+execution_flow_plugin_load_time
+execution_flow_plugin_input_time
+execution_flow_plugin_execute_time
+_TtC14SiriKitRuntime19ExecutionSignposter
+requestSignposts
+_TtC14SiriKitRuntime23ScopedExecutionSignpost
+signpost
+Error: Tried to stop signpost %s but was not running
+Continuing already-running request signpost %s
 %s cancelling execute() task.
 %s cancelling prepare() task.
 [Conversation] Cancel flow %s
@@ -1328,7 +1356,6 @@ v32@0:8@"<PKSubsystemServicePersonality>"16@"NSBundle"24
 v24@0:8@"<PKSubsystemServicePersonality>"16
 @"<PKModularService>"16@0:8
 @"<PKModularService>"24@0:8@"NSDictionary"16
-@32@0:8:16@24
 FlowPluginInfo(supportsOnDeviceNL=
 ,isPersonalRequest=
 suppportsNLv4Parses
@@ -1509,6 +1536,8 @@ Tried to call %{public}s on an invalid connection to a RemoteConversation. Will 
 v12@?0B8
 v16@?0@"SKRConversationCommitResult"8
 v16@?0@"SKRFlowExtensionUserInputResultXPC"8
+v20@?0B8@"NSError"12
+Remote Conversation does not have turn data for the current request. Will serialize the TurnData again.
 Error calling startTurn: %s
 v16@?0@"_TtC14SiriKitRuntime27ConversationCanHandleResult"8
 SiriKitRuntime/RemoteConversationService.swift
@@ -1529,12 +1558,14 @@ accept(inputData:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:)
 Multiple calls to accept() in a turn
 accept() sent before we received a StartExecutionTurn
 isEmpty(reply:)
+startTurnFromCache(executionRequestId:bridge:reply:)
 executionDidComplete()
 _TtC14SiriKitRuntime25RemoteConversationService
 v32@0:8@16@?24
 flowPlugin
 siriKitRuntime
 flowPluginBundle
+turnDataProvider
 asyncUpdateQueue
 _TtCC14SiriKitRuntime25RemoteConversationService20FlowAndInputRegistry
 acceptedInputs
@@ -1545,6 +1576,8 @@ Error sending active task list to SiriRequestDispatcher: %s
 Sent active task list to SiriRequestDispatcher
 sendActiveTasks(_:rcId:)
 RemoteConversationService: %s sending active tasks if rcId='%s' is selected: %s
+No pre-cached turn data available, it will need to be re-sent.
+Starting turn from pre-cached turn data
 commit(bridge:reply:)
 Flow Extension commit(bridge:reply:) called when in state idle
  called when in state awaitingInput
@@ -1558,6 +1591,7 @@ doAccept(conversationTurnState:conversation:input:rcId:asrOnDevice:userSpecificI
 %s: Error calling conversation.accept: %s
 FlowExtensionContext: accept() returned %s
 v16@?0@"AFSharedUserInfo"8
+enableTelemetry=YES
 Unknown inputIdentifier sent to 
 , another turn may have started
 Multiple StartTurns while awaiting input. New executionRequestId=%{private}s
@@ -1568,16 +1602,26 @@ canHandle() called while we're not in a turn. This means we cannot keep the prov
 RemoteConversationTurnData{     executionRequestId: 
 ,     requestContextData: 
 ,     conversationLoggingId=
-,     runSiriKitExecutor=
 ,     scopedRRData=
 ,     invokedByPeerToPeerEORR=
+,     proxiedRequestContext=
 Error decoding ConversationTurnDataXPC: executionRequestId not present
 Error decoding ConversationTurnDataXPC: requestContextData not present
 No conversation logging ID found when decoding ConversationTurnData
 SiriKitRuntime.ConversationTurnDataXPC
+Unknown interactionType when decoding ProxiedRequestContext, returning nil
+Unknown input origin when decoding ProxiedRequestContext, returning nil
+Unknown interactionId when decoding ProxiedRequestContext, returning nil
+Unknown resultCandidateId when decoding ProxiedRequestContext, returning nil
+SiriKitRuntime.ProxiedRequestContext
 SKRConversationTurnDataXPC
 v24@0:8@16
 scopedRRData
+_TtC14SiriKitRuntime21ProxiedRequestContext
+aceId
+interactionType
+aceMeCard
+interactionId
 v8@?0
 _TtC14SiriKitRuntime36SendableRemoteConversationXPCWrapper
 Nobody should try to create an RemoteFlowPluginBundleConversationHandler from the default initializer
@@ -1669,9 +1713,15 @@ SharedFlowPluginConnection(
 SiriKitRuntime/SharedFlowPluginService.swift
 init(overrideFlowLoader:overrideSiriKitRuntime:)
 loadFlowPlugin(bundleId:bundlePath:reply:)
+endTurn(reply:)
+Trying to recover turn data from cache, but not in a turn
+Trying to recover turn data from cache, but request ID does not match
 _TtC14SiriKitRuntime23SharedFlowPluginService
 flowLoader
 warmupTracker
+currentTurnCache
+_TtCC14SiriKitRuntime23SharedFlowPluginService16CurrentTurnCache
+currentTurn
 _TtCC14SiriKitRuntime23SharedFlowPluginService13WarmupTracker
 $__lazy_storage_$_warmupTask
 SharedFlowPluginService: warmup end
@@ -1712,7 +1762,7 @@ Could not create NSXPCListener
 com.apple.siri.shared_flow_plugin_service_xpc_queue
 NSXPCListenerDelegate
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
-NSObject
+@32@0:8:16@24
 SKESiriCAMAppDisambiguation
 #SiriKitBiomeDonator - nil BMSiriExecutionSource, unable to donate event: taskId: %s, taskType: %s, stepType: %s
 #SiriKitBiomeDonator - donating execution event to BIOME for taskId: %s, taskType: %s, stepType: %s for statusReason:%s, with slotName: %s
@@ -1765,7 +1815,6 @@ Dispatching async event to sinks: %s with context: %s
 _TtC14SiriKitRuntime19SiriKitEventContext
 initialResultCandidateId
 overriddenResultCandidateId
-interactionId
 _TtC14SiriKitRuntime34InvocationScopedSiriKitEventSender
 eventContext
 getInputAndRRData(from:requestContextData:)
@@ -1814,7 +1863,6 @@ sharedContextService
 deviceState
 _TtCC14SiriKitRuntimeP33_A7ECC8DED425BD792F8542C4003D53E725ConversationTurnStateImpl14CommandHandler
 %s:%s
-enableTelemetry=YES
 %s:%s: %s
 AFAnalytics log start : AFAnalyticsEventType %ld - %ld
 AFAnalytics log end : AFAnalyticsEventType %ld - %ld
@@ -1831,7 +1879,6 @@ Could not deserialize executionRequestId in StartExecutionTurn
 SiriKitRuntime.StartExecutionTurn
 SKEStartExecutionTurn
 networkAvailability
-sessionHandoffContinuityId
 isInAirplaneMode
 isLockedWithPasscode
 deviceRegionCode
@@ -2061,8 +2108,6 @@ TaskService - Current task is created, using as is: %s
 TaskService - Current task is ongoing, using as is: %s
 TaskService - Current task has ended, creating a new one now
 TaskService - No current task, creating a new one
-TaskService - Ignoring RSKE metrics with nil taskId
-TaskService - Ignoring RSKE metrics with taskId: %s, taskType: %s, interactionid: %s
 TaskService - non .ended task %s, begin adopting existing task from XPC: %@
 TaskService - .ended task %s, don't adopt existing task from XPC: %@)
 TaskService - .onExistingXPCTask but no current task, this should not happen
@@ -2312,7 +2357,6 @@ ScTy
 yytG
 yytG
 So15AFSpeechPackageCSg
-So31SAIntentGroupRunSiriKitExecutorC
 _pXp
 SgIeghg_
 ScGyytG
@@ -2335,12 +2379,14 @@ Sg_ABt
 ySSSo14SASRecognitionCG
 ScGy
 SgIeghHr_
+So18SKRExecutionBridge_p
 So24SKRRemoteConversationXPC_p
 _pIeghHgzo_
 _pIeghHgzo_
 ScCySo15AFSpeechPackageCSg
 9topAction_Say
 G17alternativeParsestG
+So31SAIntentGroupRunSiriKitExecutorC
 So32SAIntentGroupSiriKitPluginSignalC
 $s14SiriKitRuntime21ConversationTurnStateP
 $s14SiriKitRuntime19CorrectionsHandlingP
@@ -2359,7 +2405,6 @@ So12AFSpeechInfoCSgIeyBy_
 SgIeyBy_
 So7NSErrorCSgIeyBy_
 _pIegg_
-So18SKRExecutionBridge_p
 So13SABaseCommandCSg
 _pSgIeggg_
 SbIegy_
@@ -2490,17 +2535,20 @@ Iegh_
 Ieghg_
 Ieghg_
 SbIeghy_
+_pSgIeghyg_
+So7NSErrorCSgIeyBhyy_
+_pSgXw
 _pSg
 IeyBhy_
 IeyBhy_
 Ieghg_
 IeyBhy_
 ABGSg
-_pSg
 So16AFSharedUserInfoCSg
-So31SAIntentGroupRunSiriKitExecutorCSg
+_pSg
 So6NSUUIDCSg
 So6NSDataCSg
+So8SAPersonCSg
 $s14SiriKitRuntime21RemoteConversationXPCP
 $s14SiriKitRuntime18RemoteConversationP
 $s14SiriKitRuntime25RemoteConversationHostXPCP
@@ -2522,6 +2570,7 @@ _pSg
 So24SKRRemoteConversationXPC_pSgIeghg_
 So24SKRRemoteConversationXPC_pSgIeyBhy_
 $s14SiriKitRuntime26SharedFlowPluginServiceXPCP
+$s14SiriKitRuntime17TurnDataProvidingP
 XDXMT
 SgXw
 SgIegho_
@@ -2579,7 +2628,6 @@ SgYbc
 $s14SiriKitRuntime22AppInformationProviderP
 SSyYbc
 Sb7exclude_t
-So8SAPersonCSg
 So9SAAceViewCm
 7XPCType
 19SwiftRepresentation
@@ -2822,6 +2870,7 @@ correctionsClient
 taskService
 preFlowWork
 executionTaskContext
+signposter
 $__lazy_storage_$_serialFacade
 idle
 awaitingRequestContextData
@@ -2992,6 +3041,8 @@ executionServiceNotFound
 multipleStartTurnCalls
 runtimeNotReadyAfterRetry
 unknown
+requestSignposts
+signpost
 $defaultActor
 flow
 completion
@@ -3150,6 +3201,7 @@ pluginId
 siriKitRuntime
 flowPluginBundle
 referenceResolutionClient
+turnDataProvider
 asyncUpdateQueue
 state
 awaitingInput
@@ -3164,9 +3216,27 @@ executionRequestId
 requestContextData
 conversationLoggingId
 flowTask
-runSiriKitExecutor
 invokedByPeerToPeerEORR
+proxiedRequestContext
 scopedRRData
+aceId
+refId
+interactionType
+inputOrigin
+aceMeCard
+sessionHandoffContinuityId
+isMultiUserEnabled
+requiresConditionalMultiUserGrounding
+isEyesFree
+isVoiceTriggerEnabled
+isTextToSpeechEnabled
+isDirectAction
+interactionId
+bargeInContext
+aceRemoteExecution
+resultCandidateId
+bargeInMode
+bargeInTTSInterval
 wrapped
 $defaultActor
 bundleId
@@ -3222,7 +3292,9 @@ taskInterruptionManager
 flowLoader
 siriKitRuntime
 warmupTracker
+currentTurnCache
 $defaultActor
+currentTurn
 $__lazy_storage_$_warmupTask
 $defaultActor
 connection
@@ -3242,6 +3314,12 @@ wrappedDict
 insertionOrder
 siriCamAppDisambiguation
 biomeSiriExecutionSource
+executionFlowPluginExecuteTime
+executionFlowPluginInputTime
+executionFlowPluginLoadTime
+executionFindFlowTime
+executionPrepareTime
+executionCommitTime
 initialResultCandidateId
 overriddenResultCandidateId
 aceServiceInvoker
@@ -3410,6 +3488,7 @@ cancelWithReply:
 resetWithReply:
 ensureReadyWithReply:
 startTurnWithTurnData:bridge:reply:
+startTurnFromCacheWithExecutionRequestId:bridge:reply:
 acceptWithInputData:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:
 acceptInitialInputWithInputIdentifier:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:
 prepareWithBridge:reply:
@@ -3417,6 +3496,7 @@ commitWithBridge:reply:
 isEmptyWithReply:
 drainAsyncWorkWithReply:
 loadFlowPluginWithBundleId:bundlePath:reply:
+endTurnWithReply:
 copyWithZone:
 supportsSecureCoding
 isEqual:
@@ -3488,14 +3568,13 @@ recognition
 aceRecognition
 setRecognition:
 setSpeechRecognizedAceId:
-remoteExecution
-runLocation
-invocationDeviceAssistantId
 executionDeviceAssistantId
-siriKitMetrics
-resultCandidateId
+invocationDeviceAssistantId
+runLocation
 bundleIdentifier
 setExecutionInputSystem:
+siriKitMetrics
+resultCandidateId
 mode
 decodeInt32ForKey:
 encodeInt:forKey:
@@ -3570,15 +3649,6 @@ intentId
 _className
 _dictionaryRepresentation
 homeIdentifier
-inputOrigin
-interactionType
-multiUser
-sessionHandOffContinuityID
-eyesFree
-voiceTriggerEnabled
-textToSpeechEnabled
-directAction
-interactionId
 personalDomainAuthenticationMode
 appId
 launchId
@@ -3638,6 +3708,18 @@ isDeviceOwnedByCurrentUser
 userInterfaceIdiom
 name
 getSharedUserInfoForSharedUserID:completion:
+interactionType
+inputOrigin
+identifiedUserMeCard
+sessionHandOffContinuityID
+multiUser
+requiresConditionalMultiUserGrounding
+eyesFree
+voiceTriggerEnabled
+textToSpeechEnabled
+directAction
+interactionId
+remoteExecution
 setInterface:forSelector:argumentIndex:ofReply:
 bundlePath
 bundleWithIdentifier:
@@ -3691,8 +3773,6 @@ invocationIdentifier
 jsonIntent
 jsonIntentTypeName
 siriKitIntent
-identifiedUserMeCard
-requiresConditionalMultiUserGrounding
 nlv3Parse
 _metadata
 _setOriginatingDeviceIdsIdentifier:
@@ -3775,8 +3855,6 @@ setTimings:
 setCategory:
 setOriginalCommandId:
 setEventInformation:
-taskId
-intentTypeName
 convertFromUserParse:
 convertUserParse:
 dialogPhase
@@ -3945,7 +4023,6 @@ $(,28
 AppResolutionType
 AsyncSerialQueue
 AsyncTaskUtils
-$P%G
 CamBridgeImpl
 CamState
 CaarState
@@ -4051,6 +4128,8 @@ ExecutionOverrideType
 ExecutionRuntimeClient
 ExecutionRuntimeClientError
 ConnectionInterruptedError
+ExecutionSignposter
+ScopedExecutionSignpost
 FlowAgent
 FlowBundle
 FlowExtensionConnection
@@ -4112,9 +4191,12 @@ RemoteConversationConnectionInvalidationResult
 RemoteConversationService
 State
 FlowAndInputRegistry
+"(/5;DMUX_f
+"(/5;DMUX_
 RemoteConversationTurnData
 ConversationTurnDataXPC
 CodingKeys
+ProxiedRequestContext
 RemoteConversation
 SendableRemoteConversationXPCWrapper
 RemoteConversationXPCHelper
@@ -4133,7 +4215,9 @@ SayMetricsLogger
 SharedContextServiceImpl
 SharedFlowPluginConnection
 SharedFlowPluginService
+CurrentTurnCache
 WarmupTracker
+TurnDataProviding
 SharedFlowPluginServiceClient
 LoadedConversationTracker
 SharedFlowPluginServiceXPCConnectionProviding
@@ -4149,6 +4233,7 @@ SiriKitBiomeDonator
 LogConst
 Category
 SiriKitExecutorSignpost
+ExecutionTimeSignpost
 AnalyticsEventConst
 DirectInvocationIdentifierConst
 TaskMetricsConst
@@ -4335,8 +4420,18 @@ com.apple.PointerUI.pointeruid
 requestContextData
 conversationLoggingId
 flowTask
-runSiriKitExecutor
 invokedByPeerToPeerEORR
+proxiedRequestContext
+refId
+sessionHandoffContinuityId
+isMultiUserEnabled
+requiresConditionalMultiUserGrounding
+isVoiceTriggerEnabled
+isTextToSpeechEnabled
+isDirectAction
+bargeInMode
+bargeInTTSInterval
+aceRemoteExecution
 SearchForMessages#ReadEmojiToken
 SearchForMessages#ReadGenericCountableComponent
 SearchForMessages#ReadImageURL
@@ -4407,6 +4502,7 @@ v32@0:8@"NSString"16@?<v@?>24
 v32@0:8@"NSData"16@?<v@?@"_TtC14SiriKitRuntime27ConversationCanHandleResult">24
 v24@0:8@?<v@?@"NSError">16
 v40@0:8@"SKRConversationTurnDataXPC"16@"<SKRExecutionBridge>"24@?<v@?@"NSError">32
+v40@0:8@"NSString"16@"<SKRExecutionBridge>"24@?<v@?B@"NSError">32
 v60@0:8@"NSData"16@"NSString"24B32@"SKEUserSpecificInfo"36@"AFSpeechPackage"44@?<v@?@"SKRFlowExtensionUserInputResultXPC">52
 v60@0:8@"NSUUID"16@"NSString"24B32@"SKEUserSpecificInfo"36@"AFSpeechPackage"44@?<v@?@"SKRFlowExtensionUserInputResultXPC">52
 v32@0:8@"<SKRExecutionBridge>"16@?<v@?@"NSError">24
@@ -4417,6 +4513,7 @@ NSCopying
 @24@0:8^{_NSZone=}16
 B16@0:8
 supportsSecureCoding
+NSObject
 q16@0:8
 #16@0:8
 @24@0:8:16
@@ -4868,6 +4965,7 @@ referenceResolutionClient
 correctionsClient
 preFlowWork
 executionTaskContext
+signposter
 $__lazy_storage_$_serialFacade
 _TtCC14SiriKitRuntime19ConversationService10ActiveTurn
 turnData
@@ -4998,14 +5096,10 @@ ReferenceResolutionCollection
 Forcing DeviceState.isLockedWithPasscode to false since isCarPlay is true
 Is watch authenticated? %{bool}d
 _TtC14SiriKitRuntime18DefaultDeviceState
-interactionType
 multiUserState
 siriLocale
 siriVoiceGender
 isEyesFree
-isVoiceTriggerEnabled
-isTextToSpeechEnabled
-isDirectAction
 renderDeviceIdiom
 sessionHandOffContinuityID
 preferencesLanguageCode
@@ -5141,6 +5235,19 @@ _TtC14SiriKitRuntime22ExecutionRuntimeClient
 connection
 conversationService
 Mark completion called with %s
+Ending %ld request signposts at end of execution
+execution_commit_time
+execution_prepare_time
+execution_find_flow_time
+execution_flow_plugin_load_time
+execution_flow_plugin_input_time
+execution_flow_plugin_execute_time
+_TtC14SiriKitRuntime19ExecutionSignposter
+requestSignposts
+_TtC14SiriKitRuntime23ScopedExecutionSignpost
+signpost
+Error: Tried to stop signpost %s but was not running
+Continuing already-running request signpost %s
 %s cancelling execute() task.
 %s cancelling prepare() task.
 [Conversation] Cancel flow %s
@@ -5241,7 +5348,6 @@ v32@0:8@"<PKSubsystemServicePersonality>"16@"NSBundle"24
 v24@0:8@"<PKSubsystemServicePersonality>"16
 @"<PKModularService>"16@0:8
 @"<PKModularService>"24@0:8@"NSDictionary"16
-@32@0:8:16@24
 FlowPluginInfo(supportsOnDeviceNL=
 ,isPersonalRequest=
 suppportsNLv4Parses
@@ -5422,6 +5528,8 @@ Tried to call %{public}s on an invalid connection to a RemoteConversation. Will 
 v12@?0B8
 v16@?0@"SKRConversationCommitResult"8
 v16@?0@"SKRFlowExtensionUserInputResultXPC"8
+v20@?0B8@"NSError"12
+Remote Conversation does not have turn data for the current request. Will serialize the TurnData again.
 Error calling startTurn: %s
 v16@?0@"_TtC14SiriKitRuntime27ConversationCanHandleResult"8
 SiriKitRuntime/RemoteConversationService.swift
@@ -5442,12 +5550,14 @@ accept(inputData:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:)
 Multiple calls to accept() in a turn
 accept() sent before we received a StartExecutionTurn
 isEmpty(reply:)
+startTurnFromCache(executionRequestId:bridge:reply:)
 executionDidComplete()
 _TtC14SiriKitRuntime25RemoteConversationService
 v32@0:8@16@?24
 flowPlugin
 siriKitRuntime
 flowPluginBundle
+turnDataProvider
 asyncUpdateQueue
 _TtCC14SiriKitRuntime25RemoteConversationService20FlowAndInputRegistry
 acceptedInputs
@@ -5458,6 +5568,8 @@ Error sending active task list to SiriRequestDispatcher: %s
 Sent active task list to SiriRequestDispatcher
 sendActiveTasks(_:rcId:)
 RemoteConversationService: %s sending active tasks if rcId='%s' is selected: %s
+No pre-cached turn data available, it will need to be re-sent.
+Starting turn from pre-cached turn data
 commit(bridge:reply:)
 Flow Extension commit(bridge:reply:) called when in state idle
  called when in state awaitingInput
@@ -5471,6 +5583,7 @@ doAccept(conversationTurnState:conversation:input:rcId:asrOnDevice:userSpecificI
 %s: Error calling conversation.accept: %s
 FlowExtensionContext: accept() returned %s
 v16@?0@"AFSharedUserInfo"8
+enableTelemetry=YES
 Unknown inputIdentifier sent to 
 , another turn may have started
 Multiple StartTurns while awaiting input. New executionRequestId=%{private}s
@@ -5481,16 +5594,26 @@ canHandle() called while we're not in a turn. This means we cannot keep the prov
 RemoteConversationTurnData{     executionRequestId: 
 ,     requestContextData: 
 ,     conversationLoggingId=
-,     runSiriKitExecutor=
 ,     scopedRRData=
 ,     invokedByPeerToPeerEORR=
+,     proxiedRequestContext=
 Error decoding ConversationTurnDataXPC: executionRequestId not present
 Error decoding ConversationTurnDataXPC: requestContextData not present
 No conversation logging ID found when decoding ConversationTurnData
 SiriKitRuntime.ConversationTurnDataXPC
+Unknown interactionType when decoding ProxiedRequestContext, returning nil
+Unknown input origin when decoding ProxiedRequestContext, returning nil
+Unknown interactionId when decoding ProxiedRequestContext, returning nil
+Unknown resultCandidateId when decoding ProxiedRequestContext, returning nil
+SiriKitRuntime.ProxiedRequestContext
 SKRConversationTurnDataXPC
 v24@0:8@16
 scopedRRData
+_TtC14SiriKitRuntime21ProxiedRequestContext
+aceId
+interactionType
+aceMeCard
+interactionId
 v8@?0
 _TtC14SiriKitRuntime36SendableRemoteConversationXPCWrapper
 Nobody should try to create an RemoteFlowPluginBundleConversationHandler from the default initializer
@@ -5582,9 +5705,15 @@ SharedFlowPluginConnection(
 SiriKitRuntime/SharedFlowPluginService.swift
 init(overrideFlowLoader:overrideSiriKitRuntime:)
 loadFlowPlugin(bundleId:bundlePath:reply:)
+endTurn(reply:)
+Trying to recover turn data from cache, but not in a turn
+Trying to recover turn data from cache, but request ID does not match
 _TtC14SiriKitRuntime23SharedFlowPluginService
 flowLoader
 warmupTracker
+currentTurnCache
+_TtCC14SiriKitRuntime23SharedFlowPluginService16CurrentTurnCache
+currentTurn
 _TtCC14SiriKitRuntime23SharedFlowPluginService13WarmupTracker
 $__lazy_storage_$_warmupTask
 SharedFlowPluginService: warmup end
@@ -5625,7 +5754,7 @@ Could not create NSXPCListener
 com.apple.siri.shared_flow_plugin_service_xpc_queue
 NSXPCListenerDelegate
 B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
-NSObject
+@32@0:8:16@24
 SKESiriCAMAppDisambiguation
 #SiriKitBiomeDonator - nil BMSiriExecutionSource, unable to donate event: taskId: %s, taskType: %s, stepType: %s
 #SiriKitBiomeDonator - donating execution event to BIOME for taskId: %s, taskType: %s, stepType: %s for statusReason:%s, with slotName: %s
@@ -5678,7 +5807,6 @@ Dispatching async event to sinks: %s with context: %s
 _TtC14SiriKitRuntime19SiriKitEventContext
 initialResultCandidateId
 overriddenResultCandidateId
-interactionId
 _TtC14SiriKitRuntime34InvocationScopedSiriKitEventSender
 eventContext
 getInputAndRRData(from:requestContextData:)
@@ -5727,7 +5855,6 @@ sharedContextService
 deviceState
 _TtCC14SiriKitRuntimeP33_A7ECC8DED425BD792F8542C4003D53E725ConversationTurnStateImpl14CommandHandler
 %s:%s
-enableTelemetry=YES
 %s:%s: %s
 AFAnalytics log start : AFAnalyticsEventType %ld - %ld
 AFAnalytics log end : AFAnalyticsEventType %ld - %ld
@@ -5744,7 +5871,6 @@ Could not deserialize executionRequestId in StartExecutionTurn
 SiriKitRuntime.StartExecutionTurn
 SKEStartExecutionTurn
 networkAvailability
-sessionHandoffContinuityId
 isInAirplaneMode
 isLockedWithPasscode
 deviceRegionCode
@@ -5974,8 +6100,6 @@ TaskService - Current task is created, using as is: %s
 TaskService - Current task is ongoing, using as is: %s
 TaskService - Current task has ended, creating a new one now
 TaskService - No current task, creating a new one
-TaskService - Ignoring RSKE metrics with nil taskId
-TaskService - Ignoring RSKE metrics with taskId: %s, taskType: %s, interactionid: %s
 TaskService - non .ended task %s, begin adopting existing task from XPC: %@
 TaskService - .ended task %s, don't adopt existing task from XPC: %@)
 TaskService - .onExistingXPCTask but no current task, this should not happen
@@ -6225,7 +6349,6 @@ ScTy
 yytG
 yytG
 So15AFSpeechPackageCSg
-So31SAIntentGroupRunSiriKitExecutorC
 _pXp
 SgIeghg_
 ScGyytG
@@ -6248,12 +6371,14 @@ Sg_ABt
 ySSSo14SASRecognitionCG
 ScGy
 SgIeghHr_
+So18SKRExecutionBridge_p
 So24SKRRemoteConversationXPC_p
 _pIeghHgzo_
 _pIeghHgzo_
 ScCySo15AFSpeechPackageCSg
 9topAction_Say
 G17alternativeParsestG
+So31SAIntentGroupRunSiriKitExecutorC
 So32SAIntentGroupSiriKitPluginSignalC
 $s14SiriKitRuntime21ConversationTurnStateP
 $s14SiriKitRuntime19CorrectionsHandlingP
@@ -6272,7 +6397,6 @@ So12AFSpeechInfoCSgIeyBy_
 SgIeyBy_
 So7NSErrorCSgIeyBy_
 _pIegg_
-So18SKRExecutionBridge_p
 So13SABaseCommandCSg
 _pSgIeggg_
 SbIegy_
@@ -6403,17 +6527,20 @@ Iegh_
 Ieghg_
 Ieghg_
 SbIeghy_
+_pSgIeghyg_
+So7NSErrorCSgIeyBhyy_
+_pSgXw
 _pSg
 IeyBhy_
 IeyBhy_
 Ieghg_
 IeyBhy_
 ABGSg
-_pSg
 So16AFSharedUserInfoCSg
-So31SAIntentGroupRunSiriKitExecutorCSg
+_pSg
 So6NSUUIDCSg
 So6NSDataCSg
+So8SAPersonCSg
 $s14SiriKitRuntime21RemoteConversationXPCP
 $s14SiriKitRuntime18RemoteConversationP
 $s14SiriKitRuntime25RemoteConversationHostXPCP
@@ -6435,6 +6562,7 @@ _pSg
 So24SKRRemoteConversationXPC_pSgIeghg_
 So24SKRRemoteConversationXPC_pSgIeyBhy_
 $s14SiriKitRuntime26SharedFlowPluginServiceXPCP
+$s14SiriKitRuntime17TurnDataProvidingP
 XDXMT
 SgXw
 SgIegho_
@@ -6492,7 +6620,6 @@ SgYbc
 $s14SiriKitRuntime22AppInformationProviderP
 SSyYbc
 Sb7exclude_t
-So8SAPersonCSg
 So9SAAceViewCm
 7XPCType
 19SwiftRepresentation
@@ -6735,6 +6862,7 @@ correctionsClient
 taskService
 preFlowWork
 executionTaskContext
+signposter
 $__lazy_storage_$_serialFacade
 idle
 awaitingRequestContextData
@@ -6905,6 +7033,8 @@ executionServiceNotFound
 multipleStartTurnCalls
 runtimeNotReadyAfterRetry
 unknown
+requestSignposts
+signpost
 $defaultActor
 flow
 completion
@@ -7063,6 +7193,7 @@ pluginId
 siriKitRuntime
 flowPluginBundle
 referenceResolutionClient
+turnDataProvider
 asyncUpdateQueue
 state
 awaitingInput
@@ -7077,9 +7208,27 @@ executionRequestId
 requestContextData
 conversationLoggingId
 flowTask
-runSiriKitExecutor
 invokedByPeerToPeerEORR
+proxiedRequestContext
 scopedRRData
+aceId
+refId
+interactionType
+inputOrigin
+aceMeCard
+sessionHandoffContinuityId
+isMultiUserEnabled
+requiresConditionalMultiUserGrounding
+isEyesFree
+isVoiceTriggerEnabled
+isTextToSpeechEnabled
+isDirectAction
+interactionId
+bargeInContext
+aceRemoteExecution
+resultCandidateId
+bargeInMode
+bargeInTTSInterval
 wrapped
 $defaultActor
 bundleId
@@ -7135,7 +7284,9 @@ taskInterruptionManager
 flowLoader
 siriKitRuntime
 warmupTracker
+currentTurnCache
 $defaultActor
+currentTurn
 $__lazy_storage_$_warmupTask
 $defaultActor
 connection
@@ -7155,6 +7306,12 @@ wrappedDict
 insertionOrder
 siriCamAppDisambiguation
 biomeSiriExecutionSource
+executionFlowPluginExecuteTime
+executionFlowPluginInputTime
+executionFlowPluginLoadTime
+executionFindFlowTime
+executionPrepareTime
+executionCommitTime
 initialResultCandidateId
 overriddenResultCandidateId
 aceServiceInvoker
@@ -7323,6 +7480,7 @@ cancelWithReply:
 resetWithReply:
 ensureReadyWithReply:
 startTurnWithTurnData:bridge:reply:
+startTurnFromCacheWithExecutionRequestId:bridge:reply:
 acceptWithInputData:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:
 acceptInitialInputWithInputIdentifier:rcId:asrOnDevice:userSpecificInfo:speechPackage:reply:
 prepareWithBridge:reply:
@@ -7330,6 +7488,7 @@ commitWithBridge:reply:
 isEmptyWithReply:
 drainAsyncWorkWithReply:
 loadFlowPluginWithBundleId:bundlePath:reply:
+endTurnWithReply:
 copyWithZone:
 supportsSecureCoding
 isEqual:
@@ -7401,14 +7560,13 @@ recognition
 aceRecognition
 setRecognition:
 setSpeechRecognizedAceId:
-remoteExecution
-runLocation
-invocationDeviceAssistantId
 executionDeviceAssistantId
-siriKitMetrics
-resultCandidateId
+invocationDeviceAssistantId
+runLocation
 bundleIdentifier
 setExecutionInputSystem:
+siriKitMetrics
+resultCandidateId
 mode
 decodeInt32ForKey:
 encodeInt:forKey:
@@ -7483,15 +7641,6 @@ intentId
 _className
 _dictionaryRepresentation
 homeIdentifier
-inputOrigin
-interactionType
-multiUser
-sessionHandOffContinuityID
-eyesFree
-voiceTriggerEnabled
-textToSpeechEnabled
-directAction
-interactionId
 personalDomainAuthenticationMode
 appId
 launchId
@@ -7551,6 +7700,18 @@ isDeviceOwnedByCurrentUser
 userInterfaceIdiom
 name
 getSharedUserInfoForSharedUserID:completion:
+interactionType
+inputOrigin
+identifiedUserMeCard
+sessionHandOffContinuityID
+multiUser
+requiresConditionalMultiUserGrounding
+eyesFree
+voiceTriggerEnabled
+textToSpeechEnabled
+directAction
+interactionId
+remoteExecution
 setInterface:forSelector:argumentIndex:ofReply:
 bundlePath
 bundleWithIdentifier:
@@ -7604,8 +7765,6 @@ invocationIdentifier
 jsonIntent
 jsonIntentTypeName
 siriKitIntent
-identifiedUserMeCard
-requiresConditionalMultiUserGrounding
 nlv3Parse
 _metadata
 _setOriginatingDeviceIdsIdentifier:
@@ -7688,8 +7847,6 @@ setTimings:
 setCategory:
 setOriginalCommandId:
 setEventInformation:
-taskId
-intentTypeName
 convertFromUserParse:
 convertUserParse:
 dialogPhase

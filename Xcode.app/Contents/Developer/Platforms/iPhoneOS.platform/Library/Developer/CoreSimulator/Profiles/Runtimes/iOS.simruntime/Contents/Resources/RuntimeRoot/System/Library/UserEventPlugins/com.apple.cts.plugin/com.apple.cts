@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.36
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.40.15
 distantFuture
 timeIntervalSinceReferenceDate
 interval
@@ -454,7 +454,7 @@ Minute
 Weekday
 com.apple.launchd.calendarinterval
 calendarinterval
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.0.36
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.40.15
 newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@
 Using temporary delay of %lld seconds to account for late fire of %{public}@
@@ -503,46 +503,46 @@ Rescheduling StartCalendarInterval: %{public}@: %{public}@
 CTSActivityTime
 CTSActivity
 CTSCalendarInterval
-initWithSuiteName:
-minute
-numberWithUnsignedLongLong:
-setValue:forComponent:
-compare:
-removeObject:
-initWithCapacity:
-isValidDate
-UTF8String
-addObject:
-setDay:
-stringWithUTF8String:
-calendarWithIdentifier:
-countByEnumeratingWithState:objects:count:
-nextDateAfterDate:matchingComponents:options:
-isEqualToString:
-setSecond:
+distantFuture
 copy
 stringWithFormat:
-distantFuture
 setCalendar:
 date
 hour
-calendar
 containsObject:
 stringForKey:
-setObject:forKey:
 objectForKeyedSubscript:
+setObject:forKey:
+compare:
 timeIntervalSinceReferenceDate
 mutableCopy
 descriptionWithLocale:
 timeIntervalSinceNow
 currentLocale
-arrayForKey:
+calendarWithIdentifier:
 weekday
-month
-earlierDate:
 objectForKey:
+month
 removeObjectForKey:
+earlierDate:
 setMonth:
+minute
+initWithSuiteName:
+arrayForKey:
+numberWithUnsignedLongLong:
+setValue:forComponent:
+removeObject:
+initWithCapacity:
+isValidDate
+calendar
+addObject:
+setDay:
+stringWithUTF8String:
+nextDateAfterDate:matchingComponents:options:
+isEqualToString:
+countByEnumeratingWithState:objects:count:
+setSecond:
+UTF8String
 loadBaseTime
 advanceBaseTime
 resetBaseTime

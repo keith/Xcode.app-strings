@@ -20,6 +20,7 @@ CSAudioInjectionBuiltInEngine
 SampleCount
 HostTime
 -[CSAudioInjectionBuiltInEngine getBestSampleCountWithOption:]
+-[CSAudioInjectionBuiltInEngine audioEngineBufferAvailable:audioStreamHandleId:buffer:remoteVAD:atTime:]_block_invoke
 trigger-time
 -[NviDataLogger logData:]
 -[NviDataLogger stream:handleEvent:]
@@ -845,7 +846,7 @@ not
 -[CSSpeechController didTTSVolumeChange:forReason:]
 -[CSSpeechController didTTSVolumeChange:forReason:]_block_invoke
 -[CSSpeechController audioConverterDidConvertPackets:packets:durationInSec:timestamp:arrivalTimestampToAudioRecorder:]
--[CSSpeechController setAlertSoundFromURL:forType:]
+-[CSSpeechController setAlertSoundFromURL:forType:force:]
 -[CSSpeechController playAlertSoundForType:]
 -[CSSpeechController playRecordStartingAlertAndResetEndpointer]
 -[CSSpeechController stopEndpointer]
@@ -855,6 +856,8 @@ not
 -[CSSpeechController voiceTriggerInfo]
 -[CSSpeechController endpointer:detectedTwoShotAtTime:]
 -[CSSpeechController keywordDetectorDidDetectKeyword]_block_invoke
+-[CSSpeechController _shouldRunHybridSDSDMitigation]
+v20@?0B8@"NSArray"12
 -[CSSpeechController _fetchAudioDecoderForTV:]
 -[CSSpeechController _createAudioProviderFromXPCWithContext:]
 Accounts
@@ -974,6 +977,7 @@ setDuckOthersOption
 enableSmartRoutingConsideration
 enableMiniDucking
 alertType
+forceSetAlert
 soundPath
 alertStartTime
 -[CSXPCClient alertStartTime]_block_invoke
@@ -1405,6 +1409,13 @@ raise-to-speak assertion queue
 -[CSVoiceTriggerXPCServiceProxy setRaiseToSpeakBypassing:timeout:]_block_invoke
 -[CSVoiceTriggerXPCServiceProxy notifyVoiceTriggeredSiriSessionCancelled]
 -[CSVoiceTriggerXPCServiceProxy notifyServiceConnectionLost]
+com.apple.corespeech.rchandling.xpc.connection
+-[CSRCHandlingXPCClient processRCWithId:duration:lrnnScore:lrnnThreshold:taskId:forceAccept:completionHandler:]
+-[CSRCHandlingXPCClient getMitigationDecisionForRCIdWithCompletion:completion:]
+-[CSRCHandlingXPCClient _getRemoteServiceProxyObject]
+-[CSRCHandlingXPCClient _getRemoteServiceProxyObject]_block_invoke
+com.apple.corespeech.corespeechd.rchandling.service
+-[CSRCHandlingXPCClient _createClientConnection]_block_invoke
 smartSiriVolumeOverrideMediaVolume
 com.apple.ssv.clientq
 -[CSSmartSiriVolumeController getVolumeForTTSType:withContext:]_block_invoke
@@ -2056,7 +2067,7 @@ CSAudioProvider.m
 -[CSAudioProvider deactivateAudioSession:error:]
 -[CSAudioProvider _deactivateAudioSession:error:]
 -[CSAudioProvider setDuckOthersOption:]
--[CSAudioProvider setAlertSoundFromURL:forType:]
+-[CSAudioProvider setAlertSoundFromURL:forType:force:]
 -[CSAudioProvider playAlertSoundForType:]
 -[CSAudioProvider playRecordStartingAlertAndResetEndpointer]
 -[CSAudioProvider alertStartTime]
@@ -2378,11 +2389,12 @@ timedOut
 delegate is nil
 -[CSSiriSpeechRecorder _handleFakeTwoShotPromptTimeoutWithUUID:]
 -[CSSiriSpeechRecorder _handleFakeTwoShotPromptCallbackWithUUID:timestamp:duration:error:]
--[CSSiriSpeechRecorder updateEndpointHintForDuration:completion:]
--[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted]
--[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted]_block_invoke_2
-v20@?0B8@"NSArray"12
--[CSSiriSpeechRecorder _enforceEndpointHint]
+-[CSSiriSpeechRecorder updateEndpointHintForRC:forceAccept:completion:]
+-[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted:]
+-[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted:]_block_invoke_2
+v24@?0B8B12@"NSArray"16
+-[CSSiriSpeechRecorder _enforceEndpointHintWithMitigation:]
+-[CSSiriSpeechRecorder enforcePreviousEndpointHint]
 -[CSSiriSpeechRecorder performBlockAfterAlerts:timeout:]
 -[CSSiriSpeechRecorder performBlockAfterAlerts:timeout:]_block_invoke
 -[CSSiriSpeechRecorder acousticFingerprinter:hasFingerprint:duration:]
@@ -2634,6 +2646,7 @@ CSOpportuneSpeakEventMonitor
 %s Tagging as FarField as user dismissed
 %s Dealloc CSAudioInjectionEngine : %@
 %s Looking up audio diff:%llu sampleCount:%llu %@
+%s First Pass Score : %f, First Pass Best Start : %llu, First Pass Best End : %llu
 %s Unable to write to o/p stream ! 
 %s Got event! %lu
 %s Got unhandled evt code %lu 
@@ -3039,10 +3052,10 @@ trailingPktSpeechLatencies: %{public}@
 %s Two shot audible feedback should notify? [%{public}@]
 %s Two shot audible feedback is prevented by Myriad decision.
 %s Two shot audible feedback decision timed out while waiting for Myriad decision
-%s Phatic not needed since we already stopped recording
-%s Phatic decision elapsedTimeWithNoSpeech: %{public}.3f
-%s Notifying scheduled phatic playback...
-%s Failed to playback phatic, error: %{public}@
+%s Audible feedback not needed since we already stopped recording
+%s Audible feedback decision elapsedTimeWithNoSpeech: %{public}.3f
+%s Notifying scheduled audible feedback playback...
+%s Failed to playback audible feedback, error: %{public}@
 %s Asking stopRecording when audio stream is not existing
 %s Options: %{public}@ at: %{public}llu
 %s Reporting didDeliverLastPacket at: %{public}llu
@@ -3064,13 +3077,14 @@ trailingPktSpeechLatencies: %{public}@
 %s Ignore session active notification
 %s SmartSiriVolume update reason: %lu
 %s SpeechController is trying to forward encoded audio after didStopForwarding, we shouldn't have this
-%s Setting Alert Sounds From : %{public}@ for AlertType : %{public}d
+%s Setting Alert Sounds From : %{public}@ for AlertType : %{public}d, force : %{public}@
 %s Creating Audio Power Meter with record route %{public}@
 %s We don't need Audio Power Meter with record route %{public}@
 %s Not available
 %s Reported 2-shot at: %{public}f secs
 %s _delegate doesnt respond to speechControllerDidDetectVoiceTriggerTwoShot
 %s Requesting QuickStop operation upon detecting keyword
+%s _endpointId: %@, _rcHandlingClient: %@, languageCode: %@
 %s Unexpected audioFormat for ATV : %{public}u
 %s Create audioDecoder for audioFormat %{public}u
 %s Creating xpcClient
@@ -3426,6 +3440,10 @@ Invalidating
 %s ::: Asserting that raiseToSpeak should be %{public}@, timeout: %{public}f
 %s ::: Timeout!! raiseToSpeak should be NOT bypassed
 %s HandleDisconnect
+%s Received RC with id: %lu, duration: %f, lrnnScore: %f, lrnnThreshold: %f, taskId: %@, forceAccept: %d
+%s Getting mitigation decision for rdId: %lu
+%s ERR: RC Processing Remote Object Proxy returned error : %{public}ld (%{public}@)
+%s ERR: RCProcessing rcProcConnection is nil
 %s ERR: Failed to get TTS Volume
 %s Estimated TTS volume : %{public}f
 %s SmartSiriVolume not available
@@ -4147,7 +4165,7 @@ RecordBufferHandleEnd
 %s numberOfAVVCAlertPlaybacksByType is nil.
 %s Language detection delegate is active
 %s Language detection delegate is NOT active. %d, %@
-%s isSiriMode=%d, speechEvent=%ld, wasRequestCancelled=%d, shouldSuppressAlert=%d, isMonitoringMyriadEvents=%d, didMyriadWin=%d
+%s isSiriMode=%d, speechEvent=%ld, wasRequestCancelled=%d, shouldSuppressAlert=%d, isMonitoringMyriadEvents=%d, didMyriadWin=%d, recordRoute=%@
 %s Explicitly playing %@ alert
 %s BTLE Myriad Not explicitly playing speech stop alert
 %s Not explicitly playing alert
@@ -4178,11 +4196,14 @@ SpeechRecorder
 %s Fake two shot TTS prompt timeout is not handled due to context mismatch (fakeTwoShotPromptUUID = %@, _fakeTwoShotPromptUUID = %@).
 %s Fake two shot TTS prompt called back (timestamp = %f, duration = %f, error = %@)
 %s Fake two shot TTS prompt callback is not handled due to context mismatch (fakeTwoShotPromptUUID = %@, _fakeTwoShotPromptUUID = %@).
+%s duration = %lf
 %s No endpoint yet, waiting
-%s %lf
-%s Eager results accepted: %d. Duration: %lf last duration: %lf
+%s rcID: %lu, duration: %lf, lrnnScore: %f, lrnnThreshold: %f, taskId: %@
+%s Eager results - shouldAccept: %d. Duration: %lf last duration: %lf
 %s Enforce previous endpointHint
 %s Got an enforce message without a current completion. Ignoring
+%s Processing RC for mitigation, force accept
+%s Got an enforce message without a current RC. Stop Recording
 %s timeout = %f
 %s Done
 %s Watchdog timer timed out.
@@ -4622,6 +4643,8 @@ CSSiriAudioPlaybackSessionImplAVAudioPlayerBased
 AVAudioPlayerDelegate
 CSVoiceTriggerXPCServiceProxy
 CSAdBlockerAssetDecoderV2
+CSRCHandlingXPCService
+CSRCHandlingXPCClient
 CSSmartSiriVolumeController
 CSSmartSiriVolumeClientDelegate
 SpeakerRecognition
@@ -4905,9 +4928,13 @@ applyNegative32dBGainToShortBuffer:
 applyNegative20dBGainToShortBuffer:
 initWithData:numChannels:numSamples:sampleByteDepth:startSampleCount:hostTime:remoteVAD:
 processAudioChunk:
-isEarlyDetect
-bestEnd
+sharedPreferences
+firstPassDebuggingEnabled
+getLastResult
+bestScore
 bestStart
+bestEnd
+isEarlyDetect
 secondsToHostTime:
 sharedManagerForCoreSpeechDaemon
 builtInMicVoiceTriggerEvent:hostTime:
@@ -5031,7 +5058,6 @@ wakeGestureManager:didUpdateWakeGesture:type:detectedAt:
 wakeGestureManager:didUpdateWakeGesture:orientation:
 wakeGestureManager:didUpdateWakeGesture:orientation:detectedAt:
 _gestureManager
-sharedPreferences
 isVoiceTriggerAssetOverridingEnabled
 weakObjectsHashTable
 removeObject:
@@ -5315,7 +5341,6 @@ T@"<CSVoiceTriggerDelegate>",W,N,V_delegate
 T@"<CSSecondPassProgressProviding>",W,N,V_builtInSeconPassProgressProvider
 T@"<CSSecondPassProgressProviding>",W,N,V_remoraSecondPassProgressProvider
 getBestAnalyzedResultsFromAudioChunk:
-bestScore
 getThreshold
 deviceID
 remoteMicVoiceTriggerEvent:activationInfo:hostTime:
@@ -5979,7 +6004,7 @@ deactivateAudioSession:error:
 setRecordMode:streamHandleId:error:
 setDuckOthersOption:
 duckOthersOption
-setAlertSoundFromURL:forType:
+setAlertSoundFromURL:forType:force:
 playRecordStartingAlertAndResetEndpointerFromStream:
 playAlertSoundForType:recordDevideIndicator:
 alertStartTime
@@ -6817,6 +6842,7 @@ Tf,N,V_bestScore
 TB,N,V_isEarlyDetect
 checkForTriggerWithBytes:withNumberOfSamples:
 _currentBlob
+_lastResult
 _activeChannel
 TQ,N,V_activeChannel
 T@"<CSKeywordAnalyzerNDEAPIScoreDelegate>",W,N,V_delegate
@@ -6837,6 +6863,7 @@ setEndpointerImplDelegate:
 supportsEndpointingOnATV
 initForSidekick
 endpointerProxy
+_supportsHybridSDSD
 twoShotNotificationEnabled
 _currentAudioRecorderSampleRate
 _shouldUseSoundPlaybackMonitors
@@ -6965,10 +6992,10 @@ _canPlayPhaticDuringMediaPlayback
 speechControllerDidDetectVoiceTriggerTwoShot:atTime:wantsAudibleFeedback:
 speechControllerDidDetectVoiceTriggerTwoShot:atTime:
 shouldDelayPhaticForMyriadDecision
-_shouldSchedulePhaticAtStartRecording
-_scheduledPhaticDelay
+_shouldScheduleAudibleFeedbackAtStartRecording
+_scheduledAudibleFeedbackDelay
 speechControllerRequestsOperation:forReason:completion:
-_phaticPlaybackReason
+_audibleFeedbackPlaybackReason
 isBuiltInVoiceTriggered
 isHearstVoiceTriggered
 isJarvisVoiceTriggered
@@ -7040,6 +7067,11 @@ channelForOutputReference
 speechControllerRequestsOperation:forReason:
 audioMetricProvider
 audioMetric
+languageCode
+setWithObjects:
+_shouldRunHybridSDSDMitigation
+processRCWithId:duration:lrnnScore:lrnnThreshold:taskId:forceAccept:completionHandler:
+getMitigationDecisionForRCIdWithCompletion:completion:
 supportNonInterruptibleSiri
 submitAudioIssueReport:
 speexASBD
@@ -7112,6 +7144,7 @@ fetchAudioMetricsWithCompletion:
 endpointAnalyzer
 setEndpointAnalyzerDelegate:
 resetEndpointer
+getMitigationDecisionForRCId:completion:
 _contextToString:
 getSmartSiriVolume
 languageDetectorSetMostRecentRecognitionLanguage:
@@ -7218,6 +7251,8 @@ audioSessionController
 setAudioSessionController:
 sacInfoMonitor
 setSacInfoMonitor:
+rcHandlingClient
+setRcHandlingClient:
 _contextResetQueue
 _opusAudioConverter
 _narrowBandOpusConverter
@@ -7291,6 +7326,7 @@ _volumeMonitor
 _audioDeviceInfo
 _audioSessionController
 _sacInfoMonitor
+_rcHandlingClient
 TB,N,V_supportPhatic
 TB,N,V_supportHearstVoiceTrigger
 TB,N,V_supportTriagleModeSessionActivationRetry
@@ -7354,6 +7390,7 @@ T@"NSUUID",R,C,N,V_endpointId
 TB,N,V_setupStarted
 T@"CSAudioSessionController",&,N,V_audioSessionController
 T@"CSSACInfoMonitor",&,N,V_sacInfoMonitor
+T@"CSRCHandlingXPCClient",&,N,V_rcHandlingClient
 T@"<CSSpeechControllerDelegate>",W,N,V_delegate
 T@"<CSLanguageDetectorDelegate>",W,N,V_languageDetectorDelegate
 T@"<CSSpeakerIdentificationDelegate>",W,N,V_speakerIdDelegate
@@ -8411,6 +8448,10 @@ T@"NSData",&,N,V_payloadData
 Tf,R,N,V_maxFingerprintBufferSize
 T@"NSMutableDictionary",R,N,V_shouldResetAdsDictionary
 T@"NSString",R,N,V_assetVersion
+rcXPCConnection
+setRcXPCConnection:
+_rcXPCConnection
+T@"NSXPCConnection",&,N,V_rcXPCConnection
 _createSSVClientConnectionIfNeeded
 ssvClient
 setSsvClient:
@@ -8533,7 +8574,6 @@ dateAdded
 homeId
 _getHomeUserIdForSharedSiriId:withCompletion:
 userName
-languageCode
 initWithObjectsAndKeys:
 enter
 leave
@@ -8731,7 +8771,6 @@ Tf,N,V_estimatedAzimuth
 Td,N,V_processedAudioDurMs
 T@"NSArray",&,N,V_spatialSpectrumData
 T@"NSDictionary",&,N,V_azDistribution
-setWithObjects:
 decodeObjectOfClasses:forKey:
 initWithTotalAudioRecorded:endpointBufferHostTime:featuresAtEndpoint:endpointerType:serverFeatureLatencyDistribution:additionalMetrics:trailingSilenceDurationAtEndpoint:
 totalAudioRecorded
@@ -10164,7 +10203,6 @@ _checkAudioLoggingLimits:
 linkItemAtURL:toURL:error:
 _stopRecordingWithReason:hostTime:
 speechCapturingWillStopRecording
-preheatWithOption:
 logMHAssistantDaemonAudioPrewarmContextWithMHUUID:withPrewarmStarted:
 tapToSiriAudioPlaybackRequest
 prewarmRequest:completion:
@@ -10228,6 +10266,7 @@ logMHAssistantDaemonAudioRecordingMissedBufferDetectedWithMHUUID:
 _speechControllerDidReceiveFirstAudioRecordBufferWithHostTime:atHostTime:mhUUID:
 speechCapturingDidRecordSpeechPackets:atTimestamp:totalPacketCount:
 logEventWithType:machAbsoluteTime:context:contextNoCopy:
+hostTimeToNs:
 logMHAssistantDaemonAudioLateBufferDetectedWithMHUUID:withBufferReceiptTimeInNs:
 logMHAssistantDaemonAudioRecordingFirstBufferWithMHUUID:withStartEvent:withFirstBufferStartTimeOffsetNs:withFirstBufferReceiptTimeOffsetNs:
 setInterfaceVendorID:
@@ -10256,7 +10295,7 @@ performBlockAfterAlerts:timeout:
 speechCapturingDidRequestUpdateSiriOutputVolume:
 speechCapturing:didDetectStartpointAtTime:
 _hardEndpointWasDetectedWithMetrics:atTime:
-_checkIfLastEndpointHintShouldBeAccepted
+_checkIfLastEndpointHintShouldBeAccepted:
 speechCapturing:didDetectEndpointAtTime:
 logTwoShotStartEventWithPromptType:withMHUUID:
 logTwoShotEndEventWithSuppresedAlert:withTimedOut:withMHUUID:
@@ -10264,7 +10303,12 @@ twoShotAudioPlaybackRequest
 _handleFakeTwoShotPromptTimeoutWithUUID:
 _handleFakeTwoShotPromptCallbackWithUUID:timestamp:duration:error:
 speechCapturing:performTwoShotPromptWithType:completion:
-_enforceEndpointHint
+processedAudioDuration
+resultId
+latticeRnnMitigatorScore
+latticeRnnMitigatorThreshold
+speechRecognitionTask
+_enforceEndpointHintWithMitigation:
 speechCapturing:didReceiveFingerprint:duration:
 startRequest:options:completion:
 speechCapturingDidProvideConfidenceScores:classification:classifiedUser:unknownUserScore:duration:version:thresholdingType:assetVersion:
@@ -10286,11 +10330,13 @@ setIsDriving:
 getLastStartpointTimestampAndCurrentTime:
 playRecordingStartAlert
 updateServerEndpointFeatures:
-updateEndpointHintForDuration:completion:
+updateEndpointHintForRC:forceAccept:completion:
 enforcePreviousEndpointHint
 disableSpeechPacketGeneration:
 _mapInstrumentationEndpointTypeFromStopRecordingReason:
 eagerlyInitializeAudioRecording
+preheatWithOption:
+preheatRecognizerWithOption:
 prepareSpeechCaptureWithOptions:error:
 recordingInfoForPreheatWithEvent:
 currentVTSatScore
@@ -10360,9 +10406,10 @@ _lastAudioRecordBufferStartTime
 _lastAudioRecordBufferReceiptTime
 _lastEndpointerMetrics
 _endpointDelayReporter
-_lastEndpointHintDuration
 _lastEndpointHintFeatures
 _lastEndpointHintCompletion
+_lastEndpointHintRC
+_lastEndpointHintRCProcessedForMitigation
 _mostRecentSpeechSynthesisRecord
 _alertPlaybackGroup
 _numberOfAVVCAlertPlaybacksByType
@@ -10672,6 +10719,7 @@ setPeakPower:
 setAvgPower:
 streamDescription
 _processAudioChain:audioStreamHandleId:remoteVAD:atTime:arrivalTimestampToAudioRecorder:numberOfChannels:
+setAlertSoundFromURL:forType:
 _stopTrackingRemoteAccessoryStreamId:
 _processAudioBuffer:audioStreamHandleId:arrivalTimestampToAudioRecorder:
 _audioRecorderDidStopRecordingForReason:streamHandleID:
@@ -10724,6 +10772,7 @@ _audioFilePathIndex
 _waitingForDidStart
 _pendingTwoShotVTToken
 _audioBufferPool
+_hasSetAlertDictionary
 _voiceControllerCreationQueue
 _crashEventDelegate
 _sessionEventDelegate
@@ -11007,7 +11056,7 @@ B24@0:8Q16
 B32@0:8Q16^@24
 B40@0:8Q16Q24^@32
 B40@0:8q16Q24^@32
-B32@0:8@16q24
+B36@0:8@16q24B32
 B32@0:8q16@24
 @"CSAudioInjectionEngine"
 v32@0:8@"<CSAudioStreamProviding>"16q24
@@ -11145,6 +11194,7 @@ v24@0:8@?<v@?@>16
 @28@0:8@16B24
 @32@0:8r^s16q24
 @32@0:8^v16q24
+@"CSKeywordAnalyzerNDEAPIResult"
 @"<CSKeywordAnalyzerNDEAPIScoreDelegate>"
 @32@0:8Q16Q24
 @"NSNumber"
@@ -11177,6 +11227,7 @@ v56@0:8d16Q24@32@?40@?48
 B24@0:8^@16
 B24@0:8B16B20
 B24@0:8q16
+v68@0:8Q16d24d32d40@48B56@?60
 v24@0:8B16B20
 @"CSAudioConverter"
 @"<CSSpeechControllerDelegate>"
@@ -11199,6 +11250,7 @@ v24@0:8B16B20
 @"CSAudioDeviceInfo"
 @"CSAudioSessionController"
 @"CSSACInfoMonitor"
+@"CSRCHandlingXPCClient"
 @"<CSSSRXPCClientDelegate>"
 @"CSAttSiriRequestContext"
 @48@0:8q16Q24Q32@40
@@ -11255,7 +11307,7 @@ v24@0:8@"CSAudioStreamHolding"16
 @"CSAudioDeviceInfo"16@0:8
 @"NSDictionary"16@0:8
 v24@0:8@"<CSAudioAlertProvidingDelegate>"16
-B32@0:8@"NSURL"16q24
+B36@0:8@"NSURL"16q24B32
 I24@0:8@16
 v24@0:8@"<CSAudioSessionInfoProvidingDelegate>"16
 I24@0:8@"NSString"16
@@ -11344,6 +11396,8 @@ B40@0:8Q16@24^@32
 v36@0:8B16@20d28
 @"CSSiriAssertionMonitor"
 @"NSData"
+v68@0:8Q16d24d32d40@"NSString"48B56@?<v@?BB@"NSArray">60
+v32@0:8Q16@?<v@?B>24
 @"<CSSmartSiriVolumeControllerDelegate>"
 @"CSSmartSiriVolumeClient"
 v44@0:8@16@24B32@?36
@@ -11525,6 +11579,7 @@ v36@0:8q16B24Q28
 v24@0:8@"<CSSiriSpeechCapturingDelegate>"16
 v24@0:8@"AFSpeechRequestOptions"16
 v24@0:8@?<v@?dd>16
+v36@0:8@"SASResultCandidate"16B24@?<v@?BB@"NSArray">28
 @20@0:8B16
 v28@0:8q16B24
 v28@0:8(?={?=SS}I)16Q20
@@ -11551,6 +11606,7 @@ B40@0:8@16Q24@?32
 @"AFWatchdogTimer"
 @"CSEndpointerMetrics"
 @"CSEndpointDelayReporter"
+@"SASResultCandidate"
 @"AFSpeechSynthesisRecord"
 @"AFBluetoothWirelessSplitterSessionStateObserver"
 v40@0:8@16q24q32
@@ -11672,6 +11728,7 @@ CSAudioInjectionBuiltInEngine
 SampleCount
 HostTime
 -[CSAudioInjectionBuiltInEngine getBestSampleCountWithOption:]
+-[CSAudioInjectionBuiltInEngine audioEngineBufferAvailable:audioStreamHandleId:buffer:remoteVAD:atTime:]_block_invoke
 trigger-time
 -[NviDataLogger logData:]
 -[NviDataLogger stream:handleEvent:]
@@ -12503,7 +12560,7 @@ not
 -[CSSpeechController didTTSVolumeChange:forReason:]
 -[CSSpeechController didTTSVolumeChange:forReason:]_block_invoke
 -[CSSpeechController audioConverterDidConvertPackets:packets:durationInSec:timestamp:arrivalTimestampToAudioRecorder:]
--[CSSpeechController setAlertSoundFromURL:forType:]
+-[CSSpeechController setAlertSoundFromURL:forType:force:]
 -[CSSpeechController playAlertSoundForType:]
 -[CSSpeechController playRecordStartingAlertAndResetEndpointer]
 -[CSSpeechController stopEndpointer]
@@ -12513,6 +12570,8 @@ not
 -[CSSpeechController voiceTriggerInfo]
 -[CSSpeechController endpointer:detectedTwoShotAtTime:]
 -[CSSpeechController keywordDetectorDidDetectKeyword]_block_invoke
+-[CSSpeechController _shouldRunHybridSDSDMitigation]
+v20@?0B8@"NSArray"12
 -[CSSpeechController _fetchAudioDecoderForTV:]
 -[CSSpeechController _createAudioProviderFromXPCWithContext:]
 Accounts
@@ -12634,6 +12693,7 @@ setDuckOthersOption
 enableSmartRoutingConsideration
 enableMiniDucking
 alertType
+forceSetAlert
 soundPath
 alertStartTime
 -[CSXPCClient alertStartTime]_block_invoke
@@ -13067,6 +13127,14 @@ raise-to-speak assertion queue
 -[CSVoiceTriggerXPCServiceProxy setRaiseToSpeakBypassing:timeout:]_block_invoke
 -[CSVoiceTriggerXPCServiceProxy notifyVoiceTriggeredSiriSessionCancelled]
 -[CSVoiceTriggerXPCServiceProxy notifyServiceConnectionLost]
+com.apple.corespeech.rchandling.xpc.connection
+-[CSRCHandlingXPCClient processRCWithId:duration:lrnnScore:lrnnThreshold:taskId:forceAccept:completionHandler:]
+-[CSRCHandlingXPCClient getMitigationDecisionForRCIdWithCompletion:completion:]
+-[CSRCHandlingXPCClient _getRemoteServiceProxyObject]
+-[CSRCHandlingXPCClient _getRemoteServiceProxyObject]_block_invoke
+com.apple.corespeech.corespeechd.rchandling.service
+-[CSRCHandlingXPCClient _createClientConnection]_block_invoke
+-[CSRCHandlingXPCClient _createClientConnection]_block_invoke_2
 smartSiriVolumeOverrideMediaVolume
 com.apple.ssv.clientq
 -[CSSmartSiriVolumeController getVolumeForTTSType:withContext:]_block_invoke
@@ -13722,7 +13790,7 @@ CSAudioProvider.m
 -[CSAudioProvider deactivateAudioSession:error:]
 -[CSAudioProvider _deactivateAudioSession:error:]
 -[CSAudioProvider setDuckOthersOption:]
--[CSAudioProvider setAlertSoundFromURL:forType:]
+-[CSAudioProvider setAlertSoundFromURL:forType:force:]
 -[CSAudioProvider playAlertSoundForType:]
 -[CSAudioProvider playRecordStartingAlertAndResetEndpointer]
 -[CSAudioProvider alertStartTime]
@@ -14048,11 +14116,12 @@ timedOut
 delegate is nil
 -[CSSiriSpeechRecorder _handleFakeTwoShotPromptTimeoutWithUUID:]
 -[CSSiriSpeechRecorder _handleFakeTwoShotPromptCallbackWithUUID:timestamp:duration:error:]
--[CSSiriSpeechRecorder updateEndpointHintForDuration:completion:]
--[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted]
--[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted]_block_invoke_2
-v20@?0B8@"NSArray"12
--[CSSiriSpeechRecorder _enforceEndpointHint]
+-[CSSiriSpeechRecorder updateEndpointHintForRC:forceAccept:completion:]
+-[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted:]
+-[CSSiriSpeechRecorder _checkIfLastEndpointHintShouldBeAccepted:]_block_invoke_2
+v24@?0B8B12@"NSArray"16
+-[CSSiriSpeechRecorder _enforceEndpointHintWithMitigation:]
+-[CSSiriSpeechRecorder enforcePreviousEndpointHint]
 -[CSSiriSpeechRecorder performBlockAfterAlerts:timeout:]
 -[CSSiriSpeechRecorder performBlockAfterAlerts:timeout:]_block_invoke
 -[CSSiriSpeechRecorder acousticFingerprinter:hasFingerprint:duration:]
@@ -14308,6 +14377,7 @@ CSOpportuneSpeakEventMonitor
 %s Tagging as FarField as user dismissed
 %s Dealloc CSAudioInjectionEngine : %@
 %s Looking up audio diff:%llu sampleCount:%llu %@
+%s First Pass Score : %f, First Pass Best Start : %llu, First Pass Best End : %llu
 %s Unable to write to o/p stream ! 
 %s Got event! %lu
 %s Got unhandled evt code %lu 
@@ -14714,10 +14784,10 @@ trailingPktSpeechLatencies: %{public}@
 %s Two shot audible feedback should notify? [%{public}@]
 %s Two shot audible feedback is prevented by Myriad decision.
 %s Two shot audible feedback decision timed out while waiting for Myriad decision
-%s Phatic not needed since we already stopped recording
-%s Phatic decision elapsedTimeWithNoSpeech: %{public}.3f
-%s Notifying scheduled phatic playback...
-%s Failed to playback phatic, error: %{public}@
+%s Audible feedback not needed since we already stopped recording
+%s Audible feedback decision elapsedTimeWithNoSpeech: %{public}.3f
+%s Notifying scheduled audible feedback playback...
+%s Failed to playback audible feedback, error: %{public}@
 %s Asking stopRecording when audio stream is not existing
 %s Options: %{public}@ at: %{public}llu
 %s Reporting didDeliverLastPacket at: %{public}llu
@@ -14740,13 +14810,14 @@ trailingPktSpeechLatencies: %{public}@
 %s Ignore session active notification
 %s SmartSiriVolume update reason: %lu
 %s SpeechController is trying to forward encoded audio after didStopForwarding, we shouldn't have this
-%s Setting Alert Sounds From : %{public}@ for AlertType : %{public}d
+%s Setting Alert Sounds From : %{public}@ for AlertType : %{public}d, force : %{public}@
 %s Creating Audio Power Meter with record route %{public}@
 %s We don't need Audio Power Meter with record route %{public}@
 %s Not available
 %s Reported 2-shot at: %{public}f secs
 %s _delegate doesnt respond to speechControllerDidDetectVoiceTriggerTwoShot
 %s Requesting QuickStop operation upon detecting keyword
+%s _endpointId: %@, _rcHandlingClient: %@, languageCode: %@
 %s Unexpected audioFormat for ATV : %{public}u
 %s Create audioDecoder for audioFormat %{public}u
 %s Creating xpcClient
@@ -15102,6 +15173,10 @@ Invalidating
 %s ::: Asserting that raiseToSpeak should be %{public}@, timeout: %{public}f
 %s ::: Timeout!! raiseToSpeak should be NOT bypassed
 %s HandleDisconnect
+%s Received RC with id: %lu, duration: %f, lrnnScore: %f, lrnnThreshold: %f, taskId: %@, forceAccept: %d
+%s Getting mitigation decision for rdId: %lu
+%s ERR: RC Processing Remote Object Proxy returned error : %{public}ld (%{public}@)
+%s ERR: RCProcessing rcProcConnection is nil
 %s ERR: Failed to get TTS Volume
 %s Estimated TTS volume : %{public}f
 %s SmartSiriVolume not available
@@ -15823,7 +15898,7 @@ RecordBufferHandleEnd
 %s numberOfAVVCAlertPlaybacksByType is nil.
 %s Language detection delegate is active
 %s Language detection delegate is NOT active. %d, %@
-%s isSiriMode=%d, speechEvent=%ld, wasRequestCancelled=%d, shouldSuppressAlert=%d, isMonitoringMyriadEvents=%d, didMyriadWin=%d
+%s isSiriMode=%d, speechEvent=%ld, wasRequestCancelled=%d, shouldSuppressAlert=%d, isMonitoringMyriadEvents=%d, didMyriadWin=%d, recordRoute=%@
 %s Explicitly playing %@ alert
 %s BTLE Myriad Not explicitly playing speech stop alert
 %s Not explicitly playing alert
@@ -15853,11 +15928,14 @@ EndpointHandled
 %s Fake two shot TTS prompt timeout is not handled due to context mismatch (fakeTwoShotPromptUUID = %@, _fakeTwoShotPromptUUID = %@).
 %s Fake two shot TTS prompt called back (timestamp = %f, duration = %f, error = %@)
 %s Fake two shot TTS prompt callback is not handled due to context mismatch (fakeTwoShotPromptUUID = %@, _fakeTwoShotPromptUUID = %@).
+%s duration = %lf
 %s No endpoint yet, waiting
-%s %lf
-%s Eager results accepted: %d. Duration: %lf last duration: %lf
+%s rcID: %lu, duration: %lf, lrnnScore: %f, lrnnThreshold: %f, taskId: %@
+%s Eager results - shouldAccept: %d. Duration: %lf last duration: %lf
 %s Enforce previous endpointHint
 %s Got an enforce message without a current completion. Ignoring
+%s Processing RC for mitigation, force accept
+%s Got an enforce message without a current RC. Stop Recording
 %s timeout = %f
 %s Watchdog timer timed out.
 %s duration %lf
@@ -16296,6 +16374,8 @@ CSSiriAudioPlaybackSessionImplAVAudioPlayerBased
 AVAudioPlayerDelegate
 CSVoiceTriggerXPCServiceProxy
 CSAdBlockerAssetDecoderV2
+CSRCHandlingXPCService
+CSRCHandlingXPCClient
 CSSmartSiriVolumeController
 CSSmartSiriVolumeClientDelegate
 SpeakerRecognition
@@ -16470,882 +16550,890 @@ CSOpportuneSpeakBehaviorMonitorDelegate
 NviSignalData
 CSSinglePhraseResult
 CSSRFUserSettingMonitor
-contentsOfDirectoryAtPath:error:
-supportBluetoothDeviceVoiceTrigger
-initWithData:encoding:
-setDiscretionary:
-defaultManager
-processedAudioMs
-opusNarrowBandASBD
-audioConverterBitrate
-addObject:
-initWithUUIDString:
-useAutomaticEndpointing
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-initWithData:error:
-productID
-outputStreamToFileAtPath:append:
-getZeroStatisticsFromBuffer:entireSamples:
-supportCSTwoShotDecision
-setTarget:
-contextForBuiltInVoiceTrigger
-isEqualAsset:
-addObjectsFromArray:
-base64EncodedStringWithOptions:
-setTimeStamp:
-initWithUnsignedLongLong:
-isEqualToNumber:
-startRecordForStream:error:
-defaultServerEndpointFeatures
-contextForHearstVoiceTriggerWithDeviceId:
-setDuckOthersForStream:withSettings:error:
-supportHandsFree
-useDeviceSpeakerForTTS
-initWithData:numChannels:numSamples:sampleByteDepth:startSampleCount:hostTime:arrivalHostTimeToAudioRecorder:wasBuffered:remoteVAD:
-baseDir
-initWithVoiceRetrainingContext:error:
-isEqualToString:
-profileID
-setTimestamp:
-outputs
-contextForOpportuneSpeakerListener
-spaceCheck:
-endpointType
-initWithData:numChannels:numSamples:sampleByteDepth:startSampleCount:hostTime:remoteVAD:
-supportHangUp
-moveItemAtPath:toPath:error:
-isFeatureGroupOneEnabled
-contextForOpportuneSpeakerListenerWithCall
-usePrelisteningMode
-deleteUserVoiceProfile:
-setDuckOverride:
-speakerStateActiveCompletionBlock:
-handleFailureInFunction:file:lineNumber:description:
-overwritingVoiceTriggerMLock
-addObserver:forKeyPath:options:context:
-addObserver:selector:name:object:
-useRecognizerCombination
-setDuckToLevelDB:error:
-speakerStateMutedCompletionBlock:
-supportHomeKitAccessory
-setEffectiveDate:
-initWithWordCount:trailingSilenceDuration:endOfSentenceLikelihood:pauseCounts:silencePosterior:clientSilenceFramesCountMs:clientSilenceProbability:silencePosteriorNF:serverFeaturesLatency:
-programmableAudioInjectionEnabled
-handleFailureInMethod:object:file:lineNumber:description:
-beepSoundID
-contextForRemoraVoiceTriggerWithDeviceId:
-addPackets:audioStreamHandleId:remoteVAD:timestamp:arrivalTimestampToAudioRecorder:wasBuffered:receivedNumChannels:
-setProductID:
+addUtterances:toProfile:withContext:withCompletion:
 initWithWordCount:trailingSilenceDuration:endOfSentenceLikelihood:pauseCounts:silencePosterior:clientSilenceFramesCountMs:clientSilenceProbability:silencePosteriorNF:serverFeaturesLatency:eagerResultEndTime:
-supportHybridEndpointer
-packetDescriptionCount
-useSpeexForAudioInjection
+startRecordForStream:error:
+overwritingVoiceTriggerMLock
+copy
 initWithDescription:
-speechCapturing:didDetectEndpointAtTime:
-supportJarvisVoiceTrigger
-deviceBuildVersion
+spaceCheck:
 languageDetectorUserContext
+useDeviceSpeakerForTTS
+supportHandsFree
 isHeadphoneDeviceWithRecordRoute:playbackRoute:
-packetDescriptions
-speechCapturing:didDetectLanguage:confidenceScores:isConfident:
-_setQueue:
-userInfo
-setType:
-supportLanguageDetector
-packets
-provisionedVoiceProfilesForLocale:
-setAllowMixableAudioWhileRecording:error:
-speechCapturing:didDetectStartpointAtTime:
-initWithZeroWindowSize:approxAbsSpeechThreshold:numHostTicksPerAudioSample:
-beginTimestamp
-supportLazySessionActivation
-purgeSync
+setTarget:
+setDuckOthersForStream:withSettings:error:
+getAveragePowerDB
+copyBufferWithNumSamplesCopiedIn:
+programmableAudioInjectionEnabled
+audioInjectionFilePath
 isHearstVoiceTriggered
-convertToFloatLPCMBufFromShortLPCMBuf:
-requestSupportedWithSamplingRate:
-addSamples:numSamples:atHostTime:
+packetDescriptionCount
+setTimeStamp:
+supportHangUp
+speakerStateActiveCompletionBlock:
+initWithZeroWindowSize:approxAbsSpeechThreshold:numHostTicksPerAudioSample:
+audioInputRoute
+packetDescriptions
+setTimestamp:
+usePrelisteningMode
 isHomePressed
-mutableBytes
+setAlertSoundFromURL:forType:
+packets
+speakerStateMutedCompletionBlock:
+getAveragePowerForStream:forChannel:
+deviceRingerSwitchState
+useRecognizerCombination
+enter
+copySamplesFrom:to:channelIdx:
+isIOSDeviceSupportingBargeIn
+handleSiriRequest:deliveryHandler:completionHandler:
+setDuckOverride:
+supportHomeKitAccessory
+copyWithThreshold:secondChanceThreshold:loggingThreshold:ndapiScaleFactor:recognizerScoreOffset:recognizerScoreScaleFactor:keywordRejectLoggingThreshold:
+speechCapturing:didDetectEndpointAtTime:
+enumerateKeysAndObjectsUsingBlock:
+setEffectiveDate:
+initWithDictionary:
+setDuckToLevelDB:error:
+lastObject
+setProductID:
+supportHybridEndpointer
+provisionedVoiceProfilesForLocale:
 pathExtension
-convertToShortLPCMBufFromFloatLPCMBuf:
+copybufferFrom:to:
+mutableBytes
+useSpeexForAudioInjection
+initWithDispatchQueue:
+speechCapturing:didDetectLanguage:confidenceScores:isConfident:
+enumerateObjectsUsingBlock:
+purgeSync
+lastPathComponent
+URLByAppendingPathComponent:
+supportJarvisVoiceTrigger
+isJarvisVoiceTriggered
+mutableCopy
+pause
+requestSupportedWithSamplingRate:
+userInfo
+boolValue
+handleSpeechRecordingEvent:
+initWithDomain:code:userInfo:
+speechCapturing:didDetectStartpointAtTime:
+supportLanguageDetector
+queryMetaData:
+audioPlaybackService:didStartRequest:
+URLByDeletingPathExtension
+count
+bufferLength
 speechCapturing:didFinishWritingAudioFile:error:
-setRate:
+mutatedCopyWithMutator:
+audioPlaybackService:didStopRequest:error:
+queryMetaDataSync
+isLocalVoiceTriggerAvailable
+supportLazySessionActivation
+setType:
+setAllowMixableAudioWhileRecording:error:
+peakPower
+countByEnumeratingWithState:objects:count:
+myriadHashFilePath
+initWithDouble:
+URLForResource:withExtension:
+speechCapturing:didInterruptAudioSession:
+hardwareInterfaceVendorID
 utteranceFileASBD
 supportMphAssets
-queryMetaData:
-isIOSDeviceSupportingBargeIn
-startRequestWith:context:delegate:
-converterForAudioStreamId:
-mutableCopy
-setReason:
-pause
-speechCapturing:didInterruptAudioSession:
-initWithDictionary:
-addUtterances:toProfile:withContext:withCompletion:
-supportNonInterruptibleSiri
-queryMetaDataSync
-handleSiriRequest:deliveryHandler:completionHandler:
-setUserInfo:
-lastObject
-valueForEntitlement:
-copy
-setAllowsCellularAccess:
-getAveragePowerDB
-speechCapturing:didLoseAudioSessionOwnerOrMediaServices:
-valueForKey:
-supportOpportunisticZLL
-initWithDispatchQueue:
-mutatedCopyWithMutator:
 queryParams
-setRecentMessages:
-lastPathComponent
-isJarvisVoiceTriggered
-peakPower
-myriadHashFilePath
-speechCapturing:didReceiveFingerprint:duration:
-copyBufferWithNumSamplesCopiedIn:
-initWithDomain:code:userInfo:
-vendorID
-setAnnounceCallsEnabled:
-speechCapturing:didSetAudioSessionActive:
-audioInjectionFilePath
-getAveragePowerForStream:forChannel:
-audioInputRoute
-supportPremiumAssets
-startWakeGestureUpdates
-handleSpeechRecordingEvent:
-isLocalVoiceTriggerAvailable
-initWithDouble:
-speechCapturing:performTwoShotPromptWithType:completion:
-deviceRingerSwitchState
-setValue:forKey:
-copySamplesFrom:to:channelIdx:
-supportPremiumModel
-pendingSecondPassTriggerWasClearedForClient:deviceId:
-rangeOfFirstMatchInString:options:range:
-speechCapturing:willSetAudioSessionActive:
-copyWithThreshold:secondChanceThreshold:loggingThreshold:ndapiScaleFactor:recognizerScoreOffset:recognizerScoreScaleFactor:keywordRejectLoggingThreshold:
-ndapiScaleFactor
-enter
-enumerateKeysAndObjectsUsingBlock:
-setRecordDelegate:
-supportRemoraVoiceTrigger
-setVendorID:
-hardwareInterfaceVendorID
-receiveOnlyProcessedChannelData
-setAnnounceCallsEnabledForStream:enable:
-setVoiceTriggerEverUsed
-speechCapturingDidProvideConfidenceScores:classification:classifiedUser:unknownUserScore:duration:version:thresholdingType:assetVersion:
-copybufferFrom:to:
-setRemoteObjectInterface:
-initWithDuckOthers:duckToLevel:mixWithOthers:
-voiceProfileForId:
-enumerateObjectsUsingBlock:
-leave
-speechCapturingDidReceiveLastAudioBufferWithEndpointMode:totalPacketCount:endpointerMetrics:
-isMitigationAssetOverridingEnabled
-supportRemoteDarwinVoiceTrigger
-length
-boolValue
-isMonitoring
-setExportedInterface:
-supportRingtoneA2DP
-audioPlaybackService:didStartRequest:
-speechCapturingDidRecordPCMAudioData:
-setVolume:
-count
-setRemoteVAD:
-bufferLength
-recognizerScoreOffset
-audioPlaybackService:didStopRequest:error:
-setExportedObject:
-lengthOfBytesUsingEncoding:
-isMphVTEnabled
-URLByAppendingPathComponent:
-countByEnumeratingWithState:objects:count:
-speechCapturingDidRecordSpeechPackets:atTimestamp:totalPacketCount:
-setVolume:fadeDuration:
-initWithError:
-recognizerScoreScaleFactor
-initWithFileDescriptor:closeOnDealloc:
-persistentDomainForName:
-supportSmartVolume
-newVoiceProfileWithLocale:withAppDomain:
-setRepresentation
 audioPlaybackService:willStartRequest:
-startingAlertBehavior
-speechCapturingDidRequestQuickStop:
-inputRecordingBufferDuration
-getBoolForKey:category:default:
+URLForSoundID:
+startRequestWith:context:delegate:
 enumeratorAtPath:
-URLByDeletingPathExtension
-newWithBuilder:
-limitedAudioLoggingEnabled
-initWithFormat:
-supportZeroFilter:
-recognizerToken
+setRate:
 createAudioFileWriterForAdBlockerWithInputFormat:outputFormat:withAccessoryID:
-state
-setWithArray:
-speechCapturingDidRequestShutdownUI:
-getBytes:range:
-resetWithSampleRate:
-setAttributes:ofItemAtPath:error:
+speechCapturing:didLoseAudioSessionOwnerOrMediaServices:
+URLWithString:
+valueForEntitlement:
+supportNonInterruptibleSiri
+getBoolForKey:category:default:
 createAudioFileWriterForOpportuneSpeakListenerWithInputFormat:outputFormat:
-linkItemAtURL:toURL:error:
+latticeRnnMitigatorScore
+speechCapturing:didReceiveFingerprint:duration:
 allKeys
 error
-URLForResource:withExtension:
-status
-initWithIdentifier:queue:effectiveDate:expirationDuration:heartBeatInterval:heartBeatHandler:invalidationHandler:
-nextObject
-listeningEnabledCompletionBlock:
-speechCapturingDidRequestUpdateSiriOutputVolume:
-createAudioFileWriterForRemoteVADWithInputFormat:outputFormat:withLoggingUUID:
-hasRemoteCoreSpeech
+initWithDuckOthers:duckToLevel:mixWithOthers:
+valueForKey:
+pendingSecondPassTriggerWasClearedForClient:deviceId:
+supportOpportunisticZLL
+isMitigationAssetOverridingEnabled
+setAllowsCellularAccess:
 bundleForClass:
+getBytes:range:
+setReason:
+ndapiScaleFactor
+createAudioFileWriterForRemoteVADWithInputFormat:outputFormat:withLoggingUUID:
+URLsForDirectory:inDomains:
+speechCapturing:didSetAudioSessionActive:
 bytes
-URLForSoundID:
-supportsDuckingOnSpeakerOutput
+rangeOfFirstMatchInString:options:range:
+latticeRnnMitigatorThreshold
+isMonitoring
+vendorID
+UTF8String
 allValues
-setWithObjects:
-hasSpaceAvailable
-URLWithString:
-phraseConfigs
-speechCapturingDidStartRecordingSuccessfully:error:withInfo:
-supportsEndpointingOnATV
+setUserInfo:
+speechCapturing:performTwoShotPromptWithType:completion:
 createAudioFileWriterWithInputFormat:outputFormat:withLoggingUUID:
 errorWithCode:
-locale
-resetWithSamplingRate:language:taskType:userId:sessionId:deviceId:farField:audioSource:maxAudioBufferSizeSeconds:
+leave
+setAnnounceCallsEnabled:
+isMphVTEnabled
+startWakeGestureUpdates
+speechCapturing:willSetAudioSessionActive:
+supportPremiumAssets
+setRecentMessages:
+initWithError:
+length
+cStringUsingEncoding:
+initWithFileDescriptor:closeOnDealloc:
+bytesDataSize
+dictionaryWithDictionary:
+UUIDString
+errorWithCode:description:
+supportPremiumModel
+dictionaryWithCapacity:
+receiveOnlyProcessedChannelData
+inputRecordingBufferDuration
+lengthOfBytesUsingEncoding:
+initWithFormat:
+speechCapturingDidProvideConfidenceScores:classification:classifiedUser:unknownUserScore:duration:version:thresholdingType:assetVersion:
+errorWithCode:description:underlyingError:
+supportRemoraVoiceTrigger
+allowExtendedRingBufferSize
+hasRemoteCoreSpeech
+dictionaryWithObject:forKey:
+setValue:forKey:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+newVoiceProfileWithLocale:withAppDomain:
+speechCapturingDidReceiveLastAudioBufferWithEndpointMode:totalPacketCount:endpointerMetrics:
+errorWithDomain:code:userInfo:
+persistentDomainForName:
+voiceProfileForId:
+initWithIdentifier:queue:effectiveDate:expirationDuration:heartBeatInterval:heartBeatHandler:invalidationHandler:
+dictionaryWithObjects:forKeys:count:
+hasSpaceAvailable
+setAnnounceCallsEnabledForStream:enable:
+setRecordDelegate:
+newWithBuilder:
+limitedAudioLoggingEnabled
+speechCapturingDidRecordPCMAudioData:
+recognizerScoreOffset
+supportRemoteDarwinVoiceTrigger
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+setVendorID:
+supportRingtoneA2DP
+setVoiceTriggerEverUsed
+getCurrentSessionState
+setRemoteObjectInterface:
+linkItemAtURL:toURL:error:
 isP2PTransferEnabled
-recordDeviceIdentifier
+speechCapturingDidRecordSpeechPackets:atTimestamp:totalPacketCount:
+setExportedInterface:
 inputRecordingDuration
-URLsForDirectory:inDomains:
+recognizerScoreScaleFactor
+hasSuffix:
+nextObject
+getCurrentStreamState:
+listeningEnabledCompletionBlock:
+setExportedObject:
+recognizerToken
+hashFromResourcePath
+speechCapturingDidRequestQuickStop:
+phraseConfigs
+inputRecordingDurationInSecs
+initWithItemURL:itemData:numberOfLoops:volume:fadeInDuration:fadeOutDuration:userInfo:
+supportSmartVolume
+setVolume:
+resetWithSampleRate:
+isPlaying
+didEndpointWithFeatures:audioTimestamp:featuresToLog:endpointPosterior:extraDelayMs:
+speechCapturingDidRequestShutdownUI:
+setRemoteVAD:
+startingAlertBehavior
+initWithLength:
+inputRecordingDurationInSecsExtended
+locale
+supportZeroFilter:
+state
+hashTableWithOptions:
+setVolume:fadeDuration:
+notifyCallbackWithOption:
+phraseSpotterEnabled
+hearstNumberOfBytesPerChunk
+speechCapturingDidRequestUpdateSiriOutputVolume:
+setRepresentation
+inputRecordingIsFloat
+initWithListenerEndpoint:
+status
+didIgnoreEvent:from:
+speechCapturingDidStartRecordingSuccessfully:error:withInfo:
+localeWithLocaleIdentifier:
+setAttributes:ofItemAtPath:error:
+resetWithSamplingRate:language:taskType:userId:sessionId:deviceId:farField:audioSource:maxAudioBufferSizeSeconds:
+hearstNumberOfSamplesPerChunk
+setWithArray:
+initWithLongLong:
+supportsDuckingOnSpeakerOutput
+announceCallsEnabled
 resourcePath
 speechCapturingDidStopRecordingWithError:endpointMode:totalPacketCount:endpointerMetrics:
-phraseSpotterEnabled
-bytesDataSize
-cStringUsingEncoding:
-supportsSpeakerRecognitionAssets
-hasSuffix:
-notifyCallbackWithOption:
-errorWithCode:description:
-dictionaryWithDictionary:
-inputRecordingDurationInSecs
-UTF8String
-dictionaryWithCapacity:
-initWithItemURL:itemData:numberOfLoops:volume:fadeInDuration:fadeOutDuration:userInfo:
-isPlaying
-results
-setHardwareInterfaceVendorID:
-supportsUnderstandingOnDevice
-errorWithCode:description:underlyingError:
-allowExtendedRingBufferSize
-shadowMicScoreThreshold
-inputRecordingDurationInSecsExtended
-localeWithLocaleIdentifier:
-hashFromResourcePath
-stopAlert
-initWithLength:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-dictionaryWithObject:forKey:
-speechCapturingDidUpdateRecordingInfo:
-resultsWithAddedAudio:numberOfSamples:taskName:
-errorWithDomain:code:userInfo:
-dictionaryWithObjects:forKeys:count:
-UUIDString
-setAudioInputRoute:
-speechCapturingWillStopRecording
-inputRecordingIsFloat
-hashTableWithOptions:
-getCurrentSessionState
-resultsWithAddedFloatAudio:numberOfSamples:taskName:
-pickedRoute
-initWithListenerEndpoint:
-suppressStartAlert
-hearstNumberOfBytesPerChunk
-sharedAnalytics
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-setHearstFirstPassModelVersion:
-speechCapturingWillStopRecordingWithSignpostID:
-initWithLongLong:
-getCurrentStreamState:
-logEventWithType:context:
-synchronousRemoteObjectProxyWithErrorHandler:
-resultsWithEndedAudio
-setHearstSecondPassModelVersion:
-hearstNumberOfSamplesPerChunk
-resume
-sharedConnection
-notifyImplicitTrainingUtteranceAvailable:forVoiceProfileId:withRecordDeviceInfo:withRecordCtxt:withVoiceTriggerCtxt:withOtherCtxt:assetToUse:withCompletion:
-logEventWithType:context:contextNoCopy:
-platformSupportsImplcitUttAddition
-initWithMachServiceName:
-systemUpTime
-isRTSTriggered
-play
-setIAmTheAssistant:error:
-initWithMachServiceName:options:
-systemUptime
-didEndpointWithFeatures:audioTimestamp:featuresToLog:endpointPosterior:extraDelayMs:
-retrieveSessionWithID:
-logEventWithType:contextProvider:
-voiceTriggerPhraseNDEAPIScorerDidDetectedKeyword:bestStartSampleCount:bestEndSampleCount:
-initWithMessage:makeAppFrontmost:
-stopCountingZeroStatisticsWithReporter:
-returnTypes:
-didIgnoreEvent:from:
-inputRecordingSampleRateNarrowBand
-rootQueueWithFixedPriority:
-logEventWithType:contextResolver:
-initWithMode:deviceUID:
-recordingAlertPolicy
-playAlertSoundForType:overrideMode:
-logEventWithType:machAbsoluteTime:context:
-setAudioSession:
-sharedLogger
-tapToSiriAudioPlaybackRequest
-setServerCrashedBlock:
 csAudioProcessingQueuePriority
-initWithNSUUID:
-announceCallsEnabled
+recordDeviceIdentifier
+supportsEndpointingOnATV
+setWithObjects:
 announcementPlatform
-inputs
-logEventWithType:machAbsoluteTime:context:contextNoCopy:
-setInterfaceProductID:
-setServerResetBlock:
 appDomain
+initWithMachServiceName:
+pickedRoute
 expectedTimeRemaining
-temporaryDirectory
-initWithName:clientQueue:
-homeButtonDownEventMachAbsoluteTime
-getFiringAlarmIDsWithCompletion:
-setInterfaceVendorID:
+resultId
+supportsSpeakerRecognitionAssets
+speechCapturingDidUpdateRecordingInfo:
+isRTSTriggered
 appName
-setInterruptionHandler:
+results
 expressionForConstantValue:
-registerAssetDelegate:assetType:
-initWithName:options:queue:delegate:
-getFiringTimerIDsWithCompletion:
-volume
+initWithMachServiceName:options:
+logEventWithType:context:
+notifyImplicitTrainingUtteranceAvailable:forVoiceProfileId:withRecordDeviceInfo:withRecordCtxt:withVoiceTriggerCtxt:withOtherCtxt:assetToUse:withCompletion:
+supportsUnderstandingOnDevice
+stopAlert
+speechCapturingWillStopRecording
+getFiringAlarmIDsWithCompletion:
+setHardwareInterfaceVendorID:
+initWithMessage:makeAppFrontmost:
 expressionForFunction:arguments:
-logInstrumentation:machAbsoluteTime:turnIdentifier:
-initWithNumChannels:recordingDuration:samplingRate:
-threshold
-horsemanDeviceType
-stopOnErrorAlert
+resultsWithAddedAudio:numberOfSamples:taskName:
+logEventWithType:context:contextNoCopy:
 currentCarPlayExternalDevice
-sharedObserver
+platformSupportsImplcitUttAddition
+play
+inputRecordingSampleRateNarrowBand
 currentContext
 expressionValueWithObject:context:
-initWithNumChannels:recordingDuration:samplingRate:audioTimeConverter:
-setInvalidationHandler:
+initWithMode:deviceUID:
 cancelBeepFromSamples:timestamp:
-hostTime
-timeIntervalSinceDate:
-playingApps
-sharedPowerLogger
+setAudioInputRoute:
+getFiringTimerIDsWithCompletion:
+speechCapturingWillStopRecordingWithSignpostID:
+shadowMicScoreThreshold
+suppressStartAlert
+resultsWithAddedFloatAudio:numberOfSamples:taskName:
 appendBytes:length:
-waitForMyriadDecisionForReason:withCompletion:
-timeIntervalSinceNow
-relativePath
-stopRecordForStream:error:
-initWithObjectsAndKeys:
-getFixedPrioritySerialQueueWithLabel:fixedPriority:
-hostTimeForSeconds:
-setSiriClientRecordStateChangedBlock:
-portName
+resultsWithEndedAudio
+initWithNSUUID:
+logEventWithType:contextProvider:
+inputs
+synchronousRemoteObjectProxyWithErrorHandler:
+homeButtonDownEventMachAbsoluteTime
 currentHandler
+resume
 appendData:
-logMHASRAudioConfigureStartedWithMHUUID:withAudioCodecString:withAudioSkippedNumSamples:
-timeStamp
+setHearstFirstPassModelVersion:
 cancelDownloadSync
-runRecognitionWithResultStream:
 fadeInDuration
-setIsAdvancedAppleAudioDevice:
-powerWithNumFalseWakeup:withDuration:
-logMHAssistantDaemonAudioBluetoothInfoWithMHUUID:withWirelessSplitterSessionState:withAudioDeviceCategory:
+logEventWithType:contextResolver:
+playAlertSoundForType:overrideMode:
+setHearstSecondPassModelVersion:
+sharedAnalytics
+systemUpTime
+getFixedPrioritySerialQueueWithLabel:fixedPriority:
 appendFormat:
-waitWithTimeout:
-setSiriCueType:
-initWithOptions:capacity:
-sampleByteDepth
-initWithOverrideOption:reason:
-relinquishWithContext:options:
-setIsAlarmPlayingOnAccessory:isAlarmPlaying:
+initWithName:clientQueue:
+logEventWithType:machAbsoluteTime:context:
 currentItem
-setAvgPower:
 fadeOutDuration
-getHomeUserIdForSharedUserId:completion:
-sampleCount
-intValue
+horsemanDeviceType
+systemUptime
+retrieveSessionWithID:
+initWithName:options:queue:delegate:
 cancelIfNotAlreadyCanceled
-predicateWithBlock:
-sharedSiriId
-logMHAssistantDaemonAudioConfigureContextWithMHUUID:withConfigureStarted:
-getHostClockFrequency
-relinquishWithError:options:
-hostTimeFromSampleCount:anchorHostTime:anchorSampleCount:sampleRate:
-initWithPattern:options:error:
-numInputChannels
-hostTimeToSeconds:
+returnTypes:
+logEventWithType:machAbsoluteTime:context:contextNoCopy:
+getHomeUserIdForSharedUserId:completion:
+voiceTriggerPhraseNDEAPIScorerDidDetectedKeyword:bestStartSampleCount:bestEndSampleCount:
+initWithNumChannels:recordingDuration:samplingRate:
+setIAmTheAssistant:error:
+sharedConnection
+recordingAlertPolicy
+hostTime
 fakeEndpointAssetPath
-logMHAssistantDaemonAudioFetchRouteContextWithMHUUID:withFetchRouteContextStarted:
-integerValue
-setIsBlur:
-setSiriLanguageCodeDarwin:
-tokenName
-acceptEagerResultWithFeatures:featuresToLog:
-hostTimeToTimeInterval:
-isRemoraVoiceTriggered
-fakeHearstModelPath
-appendString:
-numSamples
+stopCountingZeroStatisticsWithReporter:
+rootQueueWithFixedPriority:
+initWithNumChannels:recordingDuration:samplingRate:audioTimeConverter:
+getHostClockFrequency
 didTransitFrom:to:by:
-logMHAssistantDaemonAudioInitContextWithMHUUID:withInitStarted:
-tokens
-wasBuffered
+appendString:
+acceptEagerResultWithFeatures:featuresToLog:
+hostTimeForSeconds:
+fakeHearstModelPath
+logInstrumentation:machAbsoluteTime:turnIdentifier:
+tapToSiriAudioPlaybackRequest
 accessibilityState
-setSkipAlert:
-shouldDeinterleaveAudioOnCS
-sampleCountFromHostTime:anchorHostTime:anchorSampleCount:sampleRate:
+setAudioSession:
+initWithObjectsAndKeys:
+currentRoute
+didWin
+fakeMitigationAssetPath
+fakeVoiceTriggerAssetPath
+registerAssetDelegate:assetType:
+playingApps
+sharedLogger
+accessibleEndpointerThreshold
+setServerCrashedBlock:
+currentRunLoop
+setInterfaceProductID:
+temporaryDirectory
+hostTimeFromSampleCount:anchorHostTime:anchorSampleCount:sampleRate:
+initWithOptions:capacity:
+caseInsensitiveCompare:
+channelForOutputReference
+initWithOverrideOption:reason:
+fallBackAssetResourcePath
+intValue
+data
+logMHASRAudioConfigureStartedWithMHUUID:withAudioCodecString:withAudioSkippedNumSamples:
+setServerResetBlock:
+portName
+setInterfaceVendorID:
+setInterruptionHandler:
+channelForProcessedInput
+hostTimeToSeconds:
+hostTimeToNs:
+threshold
+volume
+integerValue
+initWithPattern:options:error:
+powerWithNumFalseWakeup:withDuration:
+applyNegative20dBGainToFloatBuffer:
+stopOnErrorAlert
+dataForChannel:
+accessorySiriClientBehaviorMonitor:didStartStreamWithContext:successfully:option:withEventUUID:forAccessory:
+relativePath
+logMHAssistantDaemonAudioBluetoothInfoWithMHUUID:withWirelessSplitterSessionState:withAudioDeviceCategory:
+timeIntervalSinceDate:
+hostTimeToTimeInterval:
+logMHAssistantDaemonAudioConfigureContextWithMHUUID:withConfigureStarted:
+isRemoraVoiceTriggered
+applyNegative20dBGainToShortBuffer:
+getLocalUrl
+dataUsingEncoding:
+predicateWithBlock:
+setInvalidationHandler:
+accessorySiriClientBehaviorMonitor:didStopStream:reason:withEventUUID:forAccessory:
+waitForMyriadDecisionForReason:withCompletion:
+channels
+numInputChannels
+timeIntervalSinceNow
+interfaceProductID
+runRecognitionWithResultStream:
+sharedObserver
+applyNegative32dBGainToFloatBuffer:
+dataWithBytes:length:
+stopRecordForStream:error:
+CSSpeakerRecognitionAssetDownloadMonitor:didInstallNewAsset:assetProviderType:
+accessorySiriClientBehaviorMonitor:willStartStreamWithContext:option:forAccessory:
+relinquishWithContext:options:
+logMHAssistantDaemonAudioFetchRouteContextWithMHUUID:withFetchRouteContextStarted:
+waitWithTimeout:
+chunkForChannel:
+timeStamp
+interfaceVendorID
+applyNegative32dBGainToShortBuffer:
+interfaceWithProtocol:
+numSamples
+logMHAssistantDaemonAudioInitContextWithMHUUID:withInitStarted:
+sharedPowerLogger
+dataWithCapacity:
+sampleByteDepth
+accessorySiriClientBehaviorMonitor:willStopStream:reason:forAccessory:
+relinquishWithError:options:
+initWithQueue:
+isRemoteDeviceDarwin
+getMachTimeAdjustedVoiceTriggerEventInfoForDeviceUUID:
+array
+setIsAdvancedAppleAudioDevice:
+sampleCount
+setSiriClientRecordStateChangedBlock:
+initFileURLWithPath:isDirectory:
 logMHAssistantDaemonAudioLateBufferDetectedWithMHUUID:withBufferReceiptTimeInNs:
 preheatLanguage
-fakeMitigationAssetPath
-interfaceProductID
-setIsMediaPlayingOnAccessory:isMediaPlaying:isInterrupted:interruptedTime:
-didWin
-fakeVoiceTriggerAssetPath
-preheatLocalSpeechRecognitionWithLanguage:source:
-shouldDelayPhaticForMyriadDecision
-currentRoute
-accessibleEndpointerThreshold
-interfaceWithProtocol:
-currentRunLoop
-weakObjectsHashTable
-logMHAssistantDaemonAudioPrepareContextWithMHUUID:withPrepareStarted:
-caseInsensitiveCompare:
-initWithQueue:
-interfaceVendorID
-channelForOutputReference
-totalExpected
-setIsRequestDuringActiveCall:
-numberOfLoops
-isRemoteDeviceDarwin
-fallBackAssetResourcePath
-wearerDetectionConfig
-getLocalUrl
-logMHAssistantDaemonAudioPrewarmContextWithMHUUID:withPrewarmStarted:
-data
-initFileURLWithPath:isDirectory:
-channelForProcessedInput
-isRemoteDeviceGibraltar
-totalWritten
-isRequestDuringActiveCall
-CSAdBlockerAssetDownloadMonitor:didInstallNewAsset:assetProviderType:
-setIsRequestFromSpokenNotification:
-streamDescription
-streamHandleID
-applyNegative20dBGainToFloatBuffer:
-dataForChannel:
-initWithQueue:delegate:
-willBeep
-logMHAssistantDaemonAudioRecordingContextWithMHUUID:withAudioRecordingStarted:withAudioInputRoute:withAudioSource:withAudioInterfaceVendorId:withAudioInterfaceProductId:
-setSource:
-accessorySiriClientBehaviorMonitor:didStartStreamWithContext:successfully:option:withEventUUID:forAccessory:
-numberWithBool:
-shouldLogForQA
-applyNegative20dBGainToShortBuffer:
-numberWithDouble:
-logMHAssistantDaemonAudioRecordingFirstBufferWithMHUUID:withStartEvent:withFirstBufferStartTimeOffsetNs:withFirstBufferReceiptTimeOffsetNs:
-dataUsingEncoding:
-channels
-accessorySiriClientBehaviorMonitor:didStopStream:reason:withEventUUID:forAccessory:
-remoteGradingDataDirectory
-applyNegative32dBGainToFloatBuffer:
-numberWithFloat:
-dataWithBytes:length:
-saveAudioChunck:toURL:
-logMHAssistantDaemonAudioRecordingInterruptionContextWithMHUUID:withStartEvent:withLinkID:withAvAudioSessionInterruptorName:withAVAudioSessionInterrupterType:
-accessorySiriClientBehaviorMonitor:willStartStreamWithContext:option:forAccessory:
-getMachTimeAdjustedVoiceTriggerEventInfoForDeviceUUID:
-invocationFeedbackExperiment
-initWithQueue:instanceContext:
-shouldOverwriteVoiceTriggerMLock
-chunkForChannel:
-setSpeakerMuteStateChangedBlock:
-applyNegative32dBGainToShortBuffer:
-getNumberForKey:category:default:
-invoke
-logMHAssistantDaemonAudioRecordingInterruptionStartedTier1WithMHUUID:withLinkID:withActiveSessionDisplayIDs:
-dataWithCapacity:
-numberWithInt:
-accessorySiriClientBehaviorMonitor:willStopStream:reason:forAccessory:
-setSpeakerStateChangedBlock:
-initWithQueue:qosClass:asynchronous:
-streamID
-isServerInvoked
-scheduleInRunLoop:forMode:
-array
-CSSpeakerRecognitionAssetDownloadMonitor:didInstallNewAsset:assetProviderType:
-logMHAssistantDaemonAudioRecordingLastBufferWithMHUUID:withStartEvent:withLastBufferStartTimeOffsetNs:withLastBufferReceiptTimeOffsetNs:
+setIsAlarmPlayingOnAccessory:isAlarmPlaying:
 dataWithContentsOfFile:
-numberWithInteger:
-setCallback:
-invokeWithSignal:
-remoteObjectProxyWithErrorHandler:
+isRemoteDeviceGibraltar
+isRequestDuringActiveCall
+preheatLocalSpeechRecognitionWithLanguage:source:
+setAvgPower:
 dataWithContentsOfFile:options:error:
 arrayWithCapacity:
-logMHAssistantDaemonAudioRecordingMissedBufferDetectedWithMHUUID:
+setSiriCueType:
+logMHAssistantDaemonAudioPrepareContextWithMHUUID:withPrepareStarted:
+numberOfLoops
+initWithQueue:delegate:
+tokenName
+logMHAssistantDaemonAudioPrewarmContextWithMHUUID:withPrewarmStarted:
+arrayWithObjects:count:
+sharedSiriId
+dataWithJSONObject:options:error:
+acquireAudioSessionAssertionWithContext:relinquishmentHandler:
+wasBuffered
+setIsBlur:
+domain
+sampleCountFromHostTime:anchorHostTime:anchorSampleCount:sampleRate:
+tokens
+getNumberForKey:category:default:
+dataWithLength:
+numberWithBool:
+setSiriLanguageCodeDarwin:
+logMHAssistantDaemonAudioRecordingContextWithMHUUID:withAudioRecordingStarted:withAudioInputRoute:withAudioSource:withAudioInterfaceVendorId:withAudioInterfaceProductId:
+arrivalHostTimeToAudioRecorder
+initWithQueue:instanceContext:
+invocationFeedbackExperiment
+doubleValue
+numberWithDouble:
+invoke
+dataWithRemoteVADWithScaleFactor:numAudioSamplesPerRemoteVAD:
+setSkipAlert:
+logMHAssistantDaemonAudioRecordingFirstBufferWithMHUUID:withStartEvent:withFirstBufferStartTimeOffsetNs:withFirstBufferReceiptTimeOffsetNs:
+weakObjectsHashTable
+setIsMediaPlayingOnAccessory:isMediaPlaying:isInterrupted:interruptedTime:
+initWithQueue:qosClass:asynchronous:
+isServerInvoked
+clientSilenceFramesCountMs
+totalExpected
+numberWithFloat:
+date
+shouldDeinterleaveAudioOnCS
 getPeakPowerDB
-setIsTimerPlayingOnAccessory:isTimerPlaying:
-speexASBD
-remoteP2pLogDirectory
+logMHAssistantDaemonAudioRecordingInterruptionContextWithMHUUID:withStartEvent:withLinkID:withAvAudioSessionInterruptorName:withAVAudioSessionInterrupterType:
+assetChangeMonitorDidDetectAssetChange:
+wearerDetectionConfig
+CSVoiceTriggerXPCServiceProxy:bypassPhraseSpotter:
+activateAudioSessionForStream:isPrewarm:error:
+setIsRequestDuringActiveCall:
+clientSilenceProbability
+shouldDelayPhaticForMyriadDecision
+invokeWithSignal:
+totalWritten
+assetForAssetType:resourcePath:configVersion:
+streamHandleID
+logMHAssistantDaemonAudioRecordingInterruptionStartedTier1WithMHUUID:withLinkID:withActiveSessionDisplayIDs:
+streamDescription
+numberWithInt:
+willBeep
+activateAudioSessionForStream:isPrewarm:recordMode:error:
 invokeWithValue:
 initWithAppBundleIdentifier:
-numberWithLong:
-setCanUseLocalCacheServer:
-arrayWithObjects:count:
-write:maxLength:
-dataWithJSONObject:options:error:
-numberWithLongLong:
-logMHAssistantDaemonAudioStartRecordingContextWithMHUUID:withStartRecordingContext:withFanInfoArray:withActiveSessionDisplayIDs:
-acquireAudioSessionAssertionWithContext:relinquishmentHandler:
-screenIDs
-domain
-initWithArray:
-prepareRecordForStream:error:
-logMHAssistantDaemonAudioStopRecordingContextWithMHUUID:withStopRecordingStarted:withADStopRecordingEvent:
-numberWithUnsignedInt:
-dataWithLength:
-writeToFile:atomically:
-remoteProductIdentifier
-secondChanceThreshold
-getPeakPowerForStream:forChannel:
-remoteVAD
-getPlaybackStateWithCompletion:
-arrivalHostTimeToAudioRecorder
-doubleValue
-isAdBlockerAudioLoggingEnabled
-logSiriLaunchCompletedWithVoiceTriggerEventInfo:
-numberWithUnsignedInteger:
-dataWithRemoteVADWithScaleFactor:numAudioSamplesPerRemoteVAD:
-secondsForHostTime:
-remoteVADDuration
-logSiriLaunchStartedWithVoiceTriggerEventInfo:
-writeToFile:options:error:
-initWithRecordType:deviceId:
-string
-isSpeakerRecognitionAvailable
-clientSilenceFramesCountMs
-setClasses:forSelector:argumentIndex:ofReply:
-initWithAsset:
-secondsToHostTime:
-date
-assetChangeMonitorDidDetectAssetChange:
-numberWithUnsignedLong:
-prepareToPlay
-activateAudioSessionForStream:isPrewarm:error:
-writeToURL:atomically:
-remoteVADSubChunkFrom:numSamples:numAudioSamplesPerRemoteVAD:
-clientSilenceProbability
-stringByAppendingFormat:
-logTwoShotDetectedWithMHUUID:
-numberWithUnsignedLongLong:
-assetForAssetType:resourcePath:configVersion:
-activateAudioSessionForStream:isPrewarm:recordMode:error:
-seekToTime:toleranceBefore:toleranceAfter:
-getRecordDeviceInfoForStream:
-setStartAlert:
-dateAdded
-stringByAppendingPathComponent:
-setComponent:
-isStarkTriggered
-logTwoShotEndEventWithSuppresedAlert:withTimedOut:withMHUUID:
-dateByAddingTimeInterval:
-remoteVoiceActivityAvailable
-code
-getRecordSettingsForStream:
-fileDescriptor
-effectiveBoolValueForSetting:
-seekToTime:toleranceBefore:toleranceAfter:completionHandler:
-CSVoiceTriggerXPCServiceProxy:bypassPhraseSpotter:
-signalProvidersMapForContext:
-logTwoShotStartEventWithPromptType:withMHUUID:
-assetForAssetType:resourcePath:configVersion:assetProvider:
-stringByAppendingPathExtension:
-remoteVoiceActivityVAD
-setLength:
-fileExistsAtPath:
-loggingDict
-initWithSampleRate:
 CSVoiceTriggerXPCServiceProxy:bypassRaiseToSpeak:
-activationDeviceIdentifier
-stringByAppendingString:
-isTVRemote
-getResourceValue:forKey:error:
-objectAtIndex:
-twoShotAudioPlaybackRequest
-silenceDurationMs
-removeAllObjects
-objCType
-fileExistsAtPath:isDirectory:
-loggingThreshold
-setLocale:
-dateWithTimeIntervalSinceNow:
-activationDeviceUID
-daysBeforeRemovingLogFiles
-objectAtIndexedSubscript:
-silenceFramesCountMs
+setIsRequestFromSpokenNotification:
+remoteGradingDataDirectory
+dateAdded
+dateByAddingTimeInterval:
+effectiveBoolValueForSetting:
+getPlaybackStateWithCompletion:
+getPeakPowerForStream:forChannel:
+numberWithInteger:
+code
+fileDescriptor
+logMHAssistantDaemonAudioRecordingLastBufferWithMHUUID:withStartEvent:withLastBufferStartTimeOffsetNs:withLastBufferReceiptTimeOffsetNs:
+assetForAssetType:resourcePath:configVersion:assetProvider:
+setSource:
+initWithArray:
 JSONObjectWithData:options:error:
-stringByDeletingLastPathComponent
+saveAudioChunck:toURL:
+logMHAssistantDaemonAudioRecordingMissedBufferDetectedWithMHUUID:
+fileExistsAtPath:
+numberWithLong:
+activationDeviceIdentifier
+shouldLogForQA
+isAdBlockerAudioLoggingEnabled
+prepareRecordForStream:error:
+logMHAssistantDaemonAudioStartRecordingContextWithMHUUID:withStartRecordingContext:withFanInfoArray:withActiveSessionDisplayIDs:
+numberWithLongLong:
+dateWithTimeIntervalSinceNow:
+speechRecognitionTask
+fileExistsAtPath:isDirectory:
+initWithRecordType:deviceId:
+remoteObjectProxyWithErrorHandler:
+isSpeakerRecognitionAvailable
+initWithAsset:
+logMHAssistantDaemonAudioStopRecordingContextWithMHUUID:withStopRecordingStarted:withADStopRecordingEvent:
+streamID
+scheduleInRunLoop:forMode:
+numberWithUnsignedInt:
+CSAdBlockerAssetDownloadMonitor:didInstallNewAsset:assetProviderType:
+daysBeforeRemovingLogFiles
+getRecordDeviceInfoForStream:
+activationDeviceUID
+logSiriLaunchCompletedWithVoiceTriggerEventInfo:
 activationEvent
-setContext:streamType:error:
-longLongValue
-isAudioRecordTypeSupportedByRemora
-stringByDeletingPathExtension
-getSerialQueue:qualityOfService:
-removeFromRunLoop:forMode:
-standardUserDefaults
-fileSystemRepresentation
-isTest
-isTriggeredFromHearst
-activationEventMachAbsoluteTime
-setContextForStream:forStream:error:
-lowercaseString
-stringByReplacingOccurrencesOfString:withString:
-objectForKey:
-getSerialQueue:withQualityOfService:andTargetQueue:
-silenceProbability
-lpcmASBD
-objectEnumerator
-sendMessageWithPayload:toPeer:withReply:
-removeItemAtPath:error:
-zeroFilterApproxAbsSpeechThreshold
-fileURLWithPath:
-stringByStandardizingPath
 SSRSpeakerProfilesBasePath
-setStopAlert:
-unsignedIntValue
-removeItemAtURL:error:
-startAlert
+remoteP2pLogDirectory
+shouldOverwriteVoiceTriggerMLock
+setSpeakerMuteStateChangedBlock:
+numberWithUnsignedInteger:
+getRecordSettingsForStream:
+fileSystemRepresentation
+prepareToPlay
+speexASBD
+logSiriLaunchStartedWithVoiceTriggerEventInfo:
+setCallback:
+isStarkTriggered
+activationEventMachAbsoluteTime
+setSpeakerStateChangedBlock:
+getResourceValue:forKey:error:
+remoteProductIdentifier
+write:maxLength:
+remoteVAD
+setIsTimerPlayingOnAccessory:isTimerPlaying:
+numberWithUnsignedLong:
+fileURLWithPath:
+screenIDs
+numberWithUnsignedLongLong:
+logTwoShotDetectedWithMHUUID:
+setCanUseLocalCacheServer:
+secondChanceThreshold
+remoteVADDuration
+writeToFile:atomically:
 fileURLWithPath:isDirectory:
-initWithServicePort:
-setCurrentAttributionKey:andApp:
-zeroFilterWindowSizeInMs
+isTVRemote
+initWithSampleRate:
 activationEventTime
-isUpsamplingSourceAudio
-stringFromDate:
-isBuiltInVoiceTriggered
-isVibrationDisabled
-unsignedIntegerValue
+secondsForHostTime:
 deactivateAudioSessionForStream:withOptions:error:
-startAlertEnabled
-lpcmFloatASBD
+remoteVADSubChunkFrom:numSamples:numAudioSamplesPerRemoteVAD:
+logTwoShotEndEventWithSuppresedAlert:withTimedOut:withMHUUID:
+writeToFile:options:error:
 filterZerosInAudioPacket:atBufferHostTime:filteredPacket:
-initWithSilenceFramesCountMs:silenceProbability:silenceDurationMs:processedAudioMs:
-stringValue
-initWithBackingStoreCapacity:minimalNumberOfBackingStores:maximumNumberOfBackingStores:backingStoreIdleTimeout:
 assetProvider
+secondsToHostTime:
+string
 deactivateAudioSessionWithOptions:
-setStopOnErrorAlert:
-unsignedLongLongValue
-removeLogFilesOlderThanNDays:
-lpcmInt16ASBD
-filteredArrayUsingPredicate:
+getSerialQueue:qualityOfService:
+logTwoShotStartEventWithPromptType:withMHUUID:
+loggingDict
 assetServerUrl
+filteredArrayUsingPredicate:
 companionSyncVoiceTriggerUtterancesEnabled
+deactivateForReason:options:context:completion:
+writeToURL:atomically:
+setClasses:forSelector:argumentIndex:ofReply:
+objCType
+enableProgrammableAudioInjection:
+objectAtIndex:
+stringByAppendingFormat:
+getSerialQueue:withQualityOfService:andTargetQueue:
+isAudioRecordTypeSupportedByRemora
+isTest
+activationMode
+assetWithData:contentType:options:
+loggingThreshold
+seekToTime:toleranceBefore:toleranceAfter:
+remoteVoiceActivityAvailable
+isTriggeredFromHearst
+compare:
+stringByAppendingPathComponent:
+objectAtIndexedSubscript:
+seekToTime:toleranceBefore:toleranceAfter:completionHandler:
+remoteVoiceActivityVAD
+assistantAudioFileLogDirectory
+finalFilteredDictationLanguages
+setComponent:
+setStartAlert:
+componentsJoinedByString:
+longLongValue
+removeAllObjects
+stringByAppendingPathExtension:
+firstObject
+isUpsamplingSourceAudio
+componentsSeparatedByString:
+isVibrationDisabled
+enableSmartRoutingConsiderationForStream:enable:error:
+enableSpeakerStateListening:completionBlock:
+initWithServicePort:
+objectEnumerator
+objectForKey:
+lowercaseString
+stringByAppendingString:
+isBuiltInVoiceTriggered
+lpcmASBD
+setLength:
+twoShotAudioPlaybackRequest
+initWithBackingStoreCapacity:minimalNumberOfBackingStores:maximumNumberOfBackingStores:backingStoreIdleTimeout:
+initWithSilenceFramesCountMs:silenceProbability:silenceDurationMs:processedAudioMs:
+signalProvidersMapForContext:
+decodeInt64ForKey:
+firstPassDebuggingEnabled
+removeFromRunLoop:forMode:
+confidences
+decodeIntegerForKey:
 isVoiceTriggerAssetOverridingEnabled
 initWithBlock:
-stringWithCString:encoding:
-deactivateForReason:options:context:completion:
-enableProgrammableAudioInjection:
-serverFeaturesLatency
-open
-assetWithData:contentType:options:
-opaqueSessionID
-activationMode
-removeObject:
-lpcmInt16NarrowBandASBD
-compare:
-stringWithCapacity:
-initWithBlock:defaultValue:
-setStopReasonMajor:
-isConfident
-removeObjectAtIndex:
-setCurrentDictationLanguage:
-assistantAudioFileLogDirectory
-lpcmInterleavedASBD
-finalFilteredDictationLanguages
-stringWithFormat:
-componentsJoinedByString:
-isVoiceTriggered
-setStopReasonMinor:
-removeObjectForKey:
-lpcmInterleavedWithRemoteVADASBD
-firstObject
-initWithBool:
-initWithStreamID:atStartHostTime:
-isWakeGestureAvailable
-stringWithString:
-componentsSeparatedByString:
-enableSmartRoutingConsiderationForStream:enable:error:
-initWithBytes:length:
-sessionForContext:error:
-isDarwinOS
-setStreamHandleID:
-enableSpeakerStateListening:completionBlock:
-initWithCapacity:
-stringWithUTF8String:
-getStateWithCompletion:
-getStringForKey:category:default:
-decodeInt64ForKey:
-initWithStreamID:settings:bufferDuration:
-startCatalogDownload:options:then:
-removeObserver:name:object:
-decodeIntegerForKey:
-confidences
-siriClientsRecordingCompletionBlock:
-lpcmMonoInterleavedWithRemoteVADASBD
-setDateFormat:
+stringByDeletingLastPathComponent
+setLocale:
+silenceDurationMs
 decodeJson:
-initWithString:
-isDarwinVoiceTriggered
-isDeviceInCarDNDMode
-strongToWeakObjectsMapTable
-floatValue
+standardUserDefaults
 addAudioSamples:count:
+initWithBlock:defaultValue:
 configPathNDAPI
-removeOpportunisticAudioLoggingOlderThanNDays:
-lpcmMonoNonInterleavedWithRemoteVADASBD
-subChunkFrom:numSamples:
-itemData
-setNumberOfLoops:
-initWithSuiteName:
+silenceFramesCountMs
+setContext:streamType:error:
+lpcmFloatASBD
 decodeObjectOfClass:forKey:
-updateEndpointerDelayedTriggerSwitch:
-initWithTaskDeliverer:
-lpcmNarrowBandASBD
-setObject:atIndexedSubscript:
+removeItemAtPath:error:
+isConfident
+stringByDeletingPathExtension
 configPathRecognizer
-initWithConfigFile:
-startDownload:then:
-removeRemoteP2PLogFilesOlderThanNDays:
-processFloatBuffer:stride:inFrameToProcess:
-encodeInt64:forKey:
-itemURL
+floatValue
+stringByReplacingOccurrencesOfString:withString:
+removeItemAtURL:error:
+sendMessageWithPayload:toPeer:withReply:
+setContextForStream:forStream:error:
+lpcmInt16ASBD
 addConditions:
-encodeInteger:forKey:
-siriProfileId
-setObject:forKey:
-decodeObjectOfClasses:forKey:
+encodeInt64:forKey:
+zeroFilterApproxAbsSpeechThreshold
+opaqueSessionID
+isVoiceTriggered
+open
+stringByStandardizingPath
+lpcmInt16NarrowBandASBD
 addContextKey:fromMetaFile:
-initWithTimeoutInterval:onQueue:timeoutHandler:
-lpcmNonInterleavedASBD
-processIdentifier
+startAlert
+initWithStreamID:atStartHostTime:
+encodeInteger:forKey:
+unsignedIntValue
+isWakeGestureAvailable
+decodeObjectOfClasses:forKey:
+zeroFilterWindowSizeInMs
 encodeObject:forKey:
-getUUIDBytes:
-replaceBytesInRange:withBytes:
-subChunkFrom:numSamples:forChannel:
-updateEndpointerThresholdWithValue:
-defaultCStringEncoding
+initWithBool:
 configVersion
-setASVUserIntent:
-startHostTime
-attachProgressCallBack:
-initWithToken:sampleRate:numChannels:
-isDictationVoiceTriggerEnabled
-lpcmNonInterleavedWithRemoteVADASBD
+isDarwinOS
+getStringForKey:category:default:
+getStateWithCompletion:
+defaultCStringEncoding
+removeLogFilesOlderThanNDays:
+initWithBytes:length:
+stringFromDate:
 addContextKey:withContext:
-getValueForKey:category:
-initWithConfigFile:sampleRate:context:queue:delegate:
-forceVoiceTriggerAPMode
-processInfo
-subdataWithRange:
+attachProgressCallBack:
+silenceProbability
+lpcmInterleavedASBD
+setCurrentAttributionKey:andApp:
+unsignedIntegerValue
+initWithCapacity:
+startAlertEnabled
 defaultCenter
-replaceBytesInRange:withBytes:length:
-submitAudioIssueReport:
-updateMeterForStream:
-replaceCurrentItemWithPlayerItem:
-mapTableWithKeyOptions:valueOptions:
-initWithConfigFile:samplingRate:queue:
-submitEndpointerIssueReport:
-skipAlert
+stringValue
+setStopAlert:
+removeObject:
+initWithStreamID:settings:bufferDuration:
+lpcmInterleavedWithRemoteVADASBD
+forceVoiceTriggerAPMode
+unsignedLongLongValue
+initWithString:
+serverFeaturesLatency
+stringWithCString:encoding:
+isDarwinVoiceTriggered
+removeObjectAtIndex:
+isDeviceInCarDNDMode
+initWithSuiteName:
 gainCompensatedChunk
-opportuneSpeakListenerBypassEnabled
-setActionAtItemEnd:
-setOverrideState:
-setDeviceUID:
-mediaPlaybackVolume
-geckoAudioLogDirectory
-replaceMatchesInString:options:range:withTemplate:
-processSampleCount:hostTime:
-setSupportsAnnounceCall:
+itemData
 attributes
+stringWithCapacity:
 defaultContext
-startOfSpeechAudioLoggingEnabled
-submitVoiceTriggerIssueReport:
-setActivationExpirationTime:
-setPackets:
+setStopOnErrorAlert:
+initWithTaskDeliverer:
+removeObjectForKey:
 defaultContinousFingerprintBufferDuration
-skipPersonalizedASR
-subscribeEventMonitor:
-setSupportsInEarDetection:
-opportuneSpeakingFileLoggingIsEnabled
+lpcmMonoInterleavedWithRemoteVADASBD
+initWithConfigFile:
+geckoAudioLogDirectory
+itemURL
+getUUIDBytes:
+stringWithFormat:
 endAudioAndFetchAnyTrailingZerosPacket:
-isDuckingSupportedOnPickedRouteForStream:error:
-generateDeviceAudioLogging:speechId:
-keysOfEntriesPassingTest:
+lpcmMonoNonInterleavedWithRemoteVADASBD
+setCurrentDictationLanguage:
+getValueForKey:category:
+initWithTimeoutInterval:onQueue:timeoutHandler:
+sessionForContext:error:
 addEntriesFromDictionary:
+processFloatBuffer:stride:inFrameToProcess:
 containsCategory:
-getVoiceTriggerCurrentCompatibilityVersion
-updateVoiceProfile:withUserName:
-setActivationMetadata:
-initWithConfiguration:memoryLock:
-initWithConfiguration:
-smartSiriVolumeSoftVolumeEnabled
-setActivationMode:
-reportIssueForType:subType:context:processIdentifier:walkboutStatus:
-substringToIndex:
-defaultConverter
-setSupportsListeningModeANC:
+setStopReasonMajor:
 endOfSentenceLikelihood
-setPeakPower:
+stringWithString:
+defaultConverter
+removeObserver:name:object:
+initWithToken:sampleRate:numChannels:
+lpcmNarrowBandASBD
 containsObject:
-isEarpieceActiveNoiseCancelationEnabled
-addKeyValuePair:with:
-setSupportsListeningModeTransparency:
-sortUsingComparator:
-keywordAnalyzerQuasar:hasResultAvailable:forChannel:
-processShortBuffer:stride:inFrameToProcess:
+generateDeviceAudioLogging:speechId:
+initWithConfigFile:sampleRate:context:queue:delegate:
+processIdentifier
 avgPower
-opusASBD
-substringWithRange:
-initWithConfiguration:modelVersion:
-setPerceptualAudioHash:
+isDictationVoiceTriggerEnabled
+addKeyValuePair:with:
+stringWithUTF8String:
+setStopReasonMinor:
+removeOpportunisticAudioLoggingOlderThanNDays:
+startCatalogDownload:options:then:
+lpcmNonInterleavedASBD
+processInfo
+initWithConfigFile:samplingRate:queue:
 containsString:
-setActivationSource:
-mhLogDirectory
-keywordRejectLoggingThreshold
-supportAdBlocker
-setSupportsSpokenNotification:
-setActive:error:
-initWithContentsOfURL:error:
-sortUsingSelector:
-isEndpointAssetBypassTrialEnabled
-getASVUserIntent:
-sortedArrayUsingComparator:
+setStreamHandleID:
+lpcmNonInterleavedWithRemoteVADASBD
+removeRemoteP2PLogFilesOlderThanNDays:
+avvcContext
+strongToWeakObjectsMapTable
+setDateFormat:
 containsValueForKey:
 endTimestamp
-avvcContext
-setSupportsVoiceTrigger:
+updateEndpointerDelayedTriggerSwitch:
+subChunkFrom:numSamples:
+mapTableWithKeyOptions:valueOptions:
+getVoiceTriggerCurrentCompatibilityVersion
+getASVUserIntent:
+startDownload:then:
+replaceBytesInRange:withBytes:
+siriClientsRecordingCompletionBlock:
+audioChunkAvailable:numChannels:numSamplesPerChannel:startSampleId:atAbsMachTimestamp:
+setNumberOfLoops:
+contentsOfDirectoryAtPath:error:
+defaultManager
+keysOfEntriesPassingTest:
+opportuneSpeakListenerBypassEnabled
+isDuckingSupportedOnPickedRouteForStream:error:
+audioConverterBitrate
+addObject:
+setObject:atIndexedSubscript:
+mediaPlaybackVolume
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+subChunkFrom:numSamples:forChannel:
+processSampleCount:hostTime:
+initWithConfiguration:memoryLock:
+updateEndpointerThresholdWithValue:
+initWithConfiguration:
+replaceBytesInRange:withBytes:length:
+setASVUserIntent:
+startHostTime
+setObject:forKey:
+contextForBuiltInVoiceTrigger
+isEarpieceActiveNoiseCancelationEnabled
+replaceCurrentItemWithPlayerItem:
+keywordAnalyzerQuasar:hasResultAvailable:forChannel:
+addObjectsFromArray:
+siriProfileId
+base64EncodedStringWithOptions:
+opportuneSpeakingFileLoggingIsEnabled
+initWithConfiguration:modelVersion:
+subdataWithRange:
+submitAudioIssueReport:
+defaultServerEndpointFeatures
+contextForHearstVoiceTriggerWithDeviceId:
+keywordRejectLoggingThreshold
+updateMeterForStream:
+baseDir
+replaceMatchesInString:options:range:withTemplate:
+initWithContentsOfURL:error:
+setActionAtItemEnd:
+contextForOpportuneSpeakerListener
+submitEndpointerIssueReport:
+isEndpointAssetBypassTrialEnabled
+processShortBuffer:stride:inFrameToProcess:
+endpointType
+submitVoiceTriggerIssueReport:
+opusASBD
+initWithUTF8String:
+contextForOpportuneSpeakerListenerWithCall
+setDeviceUID:
+startOfSpeechAudioLoggingEnabled
+setOverrideState:
+setActivationExpirationTime:
+languageCodeDarwin
+deleteUserVoiceProfile:
+mhLogDirectory
+skipAlert
+initWithData:encoding:
+isEndpointAssetOverridingEnabled
+addObserver:forKeyPath:options:context:
+getZeroStatisticsFromBuffer:entireSamples:
+reportIssueForType:subType:context:processIdentifier:walkboutStatus:
+addObserver:selector:name:object:
+initWithUUIDString:
+setPackets:
+subscribeEventMonitor:
+setActivationMetadata:
+beepSoundID
+setActivationMode:
+contextForRemoraVoiceTriggerWithDeviceId:
+initWithData:error:
+setSupportsAnnounceCall:
+_setQueue:
+updateVoiceProfile:withUserName:
+isEqualAsset:
+addPackets:audioStreamHandleId:remoteVAD:timestamp:arrivalTimestampToAudioRecorder:wasBuffered:receivedNumChannels:
+substringToIndex:
+setSupportsInEarDetection:
+initWithUnsignedLongLong:
+skipPersonalizedASR
+processedAudioDuration
+substringWithRange:
+opusNarrowBandASBD
+setActivationSource:
+setPeakPower:
+isEqualToNumber:
+initWithVoiceRetrainingContext:error:
+deviceBuildVersion
+initWithData:numChannels:numSamples:sampleByteDepth:startSampleCount:hostTime:arrivalHostTimeToAudioRecorder:wasBuffered:remoteVAD:
+setSupportsListeningModeANC:
+processedAudioMs
+outputStreamToFileAtPath:append:
+isEqualToString:
+smartSiriVolumeSoftVolumeEnabled
+setActive:error:
+supportAdBlocker
+setPerceptualAudioHash:
+initWithData:numChannels:numSamples:sampleByteDepth:startSampleCount:hostTime:remoteVAD:
+sortUsingComparator:
+setSupportsListeningModeTransparency:
+productID
+handleFailureInFunction:file:lineNumber:description:
 supportBeepCanceller:
 setActive:withOptions:error:
-audioChunkAvailable:numChannels:numSamplesPerChannel:startSampleId:atAbsMachTimestamp:
-initWithUTF8String:
-isEndpointAssetOverridingEnabled
-languageCodeDarwin
+convertToFloatLPCMBufFromShortLPCMBuf:
+isFeatureGroupOneEnabled
+beginTimestamp
+setSupportsSpokenNotification:
+supportBluetoothDeviceVoiceTrigger
+addSamples:numSamples:atHostTime:
+outputs
+handleFailureInMethod:object:file:lineNumber:description:
+convertToShortLPCMBufFromFloatLPCMBuf:
+sortUsingSelector:
+moveItemAtPath:toPath:error:
+sortedArrayUsingComparator:
+setDiscretionary:
+initWithWordCount:trailingSilenceDuration:endOfSentenceLikelihood:pauseCounts:silencePosterior:clientSilenceFramesCountMs:clientSilenceProbability:silencePosteriorNF:serverFeaturesLatency:
+useAutomaticEndpointing
+setSupportsVoiceTrigger:
+profileID
+converterForAudioStreamId:
+supportCSTwoShotDecision
 distributionDictionary:
 sharedInstance
 _startMonitoringWithQueue:
@@ -18238,7 +18326,7 @@ deactivateAudioSession:error:
 setRecordMode:streamHandleId:error:
 setDuckOthersOption:
 duckOthersOption
-setAlertSoundFromURL:forType:
+setAlertSoundFromURL:forType:force:
 playRecordStartingAlertAndResetEndpointerFromStream:
 playAlertSoundForType:recordDevideIndicator:
 alertStartTime
@@ -18947,7 +19035,9 @@ initWithBlob:
 checkForTriggerWithBytes:withNumberOfSamples:
 processAudioBytes:withNumberOfSamples:
 processAudioChunk:
+getLastResult
 _currentBlob
+_lastResult
 _activeChannel
 TQ,N,V_activeChannel
 T@"<CSKeywordAnalyzerNDEAPIScoreDelegate>",W,N,V_delegate
@@ -19007,6 +19097,7 @@ audioSessionProvider:didChangeContext:
 continuousVoiceTrigger:detectedVoiceTriggerResult:
 continuousVoiceTrigger:detectedSilenceAfterVoiceTriggerAt:
 initWithEndpointId:xpcClientFactory:endpointer:continuousVoiceTrigger:siriVolumeController:mediaPlayingMonitor:alarmMonitor:timerMonitor:sacInfoMonitor:audioSessionController:supportPhatic:supportHearstVoiceTrigger:supportTriagleModeSessionActivationRetry:supportSessionActivateDelay:supportLazySessionActivtion:
+_supportsHybridSDSD
 _createMediaPlayingMonitor
 _createAlarmMonitor
 _createTimerMonitor
@@ -19072,6 +19163,9 @@ endpointAnalyzer
 setEndpointAnalyzerDelegate:
 _currentAudioRecorderSampleRate
 resetEndpointer
+_shouldRunHybridSDSDMitigation
+processRCWithId:duration:lrnnScore:lrnnThreshold:taskId:forceAccept:completionHandler:
+getMitigationDecisionForRCId:completion:
 _shouldUseSoundPlaybackMonitors
 _shouldTrackLaunchLatency
 _logRecordingStopErrorIfNeeded:
@@ -19084,9 +19178,9 @@ _getSpeechIdentifier
 _deviceAudioLoggingWithFileWriter:
 _contextToString:
 _canPlayPhaticDuringMediaPlayback
-_shouldSchedulePhaticAtStartRecording
-_scheduledPhaticDelay
-_phaticPlaybackReason
+_shouldScheduleAudibleFeedbackAtStartRecording
+_scheduledAudibleFeedbackDelay
+_audibleFeedbackPlaybackReason
 getVolumeForTTSType:
 getSmartSiriVolume
 languageDetectorSetMostRecentRecognitionLanguage:
@@ -19225,6 +19319,8 @@ audioSessionController
 setAudioSessionController:
 sacInfoMonitor
 setSacInfoMonitor:
+rcHandlingClient
+setRcHandlingClient:
 _contextResetQueue
 _opusAudioConverter
 _narrowBandOpusConverter
@@ -19298,6 +19394,7 @@ _volumeMonitor
 _audioDeviceInfo
 _audioSessionController
 _sacInfoMonitor
+_rcHandlingClient
 TB,N,V_supportPhatic
 TB,N,V_supportHearstVoiceTrigger
 TB,N,V_supportTriagleModeSessionActivationRetry
@@ -19361,6 +19458,7 @@ T@"NSUUID",R,C,N,V_endpointId
 TB,N,V_setupStarted
 T@"CSAudioSessionController",&,N,V_audioSessionController
 T@"CSSACInfoMonitor",&,N,V_sacInfoMonitor
+T@"CSRCHandlingXPCClient",&,N,V_rcHandlingClient
 T@"<CSSpeechControllerDelegate>",W,N,V_delegate
 T@"<CSLanguageDetectorDelegate>",W,N,V_languageDetectorDelegate
 T@"<CSSpeakerIdentificationDelegate>",W,N,V_speakerIdDelegate
@@ -20291,6 +20389,11 @@ T@"NSData",&,N,V_payloadData
 Tf,R,N,V_maxFingerprintBufferSize
 T@"NSMutableDictionary",R,N,V_shouldResetAdsDictionary
 T@"NSString",R,N,V_assetVersion
+getMitigationDecisionForRCIdWithCompletion:completion:
+rcXPCConnection
+setRcXPCConnection:
+_rcXPCConnection
+T@"NSXPCConnection",&,N,V_rcXPCConnection
 _createSSVClientConnectionIfNeeded
 ssvClient
 setSsvClient:
@@ -21937,7 +22040,7 @@ setIsDriving:
 getLastStartpointTimestampAndCurrentTime:
 playRecordingStartAlert
 updateServerEndpointFeatures:
-updateEndpointHintForDuration:completion:
+updateEndpointHintForRC:forceAccept:completion:
 enforcePreviousEndpointHint
 disableSpeechPacketGeneration:
 _currentMHUUID:
@@ -21964,6 +22067,7 @@ _cancelExtendedEndpointTimer
 _stopRecordingForEndpointReason:
 eagerlyInitializeAudioRecording
 preheatWithOption:
+preheatRecognizerWithOption:
 prepareSpeechCaptureWithOptions:error:
 recordingInfoForPreheatWithEvent:
 currentVTSatScore
@@ -22008,9 +22112,9 @@ _performTwoShotPromptForType:atTime:
 _playPhaticWithCompletion:
 _handleFakeTwoShotPromptTimeoutWithUUID:
 _handleFakeTwoShotPromptCallbackWithUUID:timestamp:duration:error:
-_checkIfLastEndpointHintShouldBeAccepted
+_checkIfLastEndpointHintShouldBeAccepted:
 _clearEndpointHint
-_enforceEndpointHint
+_enforceEndpointHintWithMitigation:
 setEndpointerThreshold:
 setEndpointerDelayedTrigger:
 setSpeechRecognizedContext:
@@ -22071,9 +22175,10 @@ _lastAudioRecordBufferStartTime
 _lastAudioRecordBufferReceiptTime
 _lastEndpointerMetrics
 _endpointDelayReporter
-_lastEndpointHintDuration
 _lastEndpointHintFeatures
 _lastEndpointHintCompletion
+_lastEndpointHintRC
+_lastEndpointHintRCProcessedForMitigation
 _mostRecentSpeechSynthesisRecord
 _alertPlaybackGroup
 _numberOfAVVCAlertPlaybacksByType
@@ -22384,6 +22489,7 @@ _audioFilePathIndex
 _waitingForDidStart
 _pendingTwoShotVTToken
 _audioBufferPool
+_hasSetAlertDictionary
 _voiceControllerCreationQueue
 _crashEventDelegate
 _sessionEventDelegate
@@ -22681,7 +22787,7 @@ B24@0:8Q16
 B32@0:8Q16^@24
 B40@0:8Q16Q24^@32
 B40@0:8q16Q24^@32
-B32@0:8@16q24
+B36@0:8@16q24B32
 B32@0:8q16@24
 @"CSAudioInjectionEngine"
 v32@0:8@"<CSAudioStreamProviding>"16q24
@@ -22819,6 +22925,7 @@ v24@0:8@?<v@?@>16
 @28@0:8@16B24
 @32@0:8r^s16q24
 @32@0:8^v16q24
+@"CSKeywordAnalyzerNDEAPIResult"
 @"<CSKeywordAnalyzerNDEAPIScoreDelegate>"
 @32@0:8Q16Q24
 @"NSNumber"
@@ -22851,6 +22958,7 @@ v56@0:8d16Q24@32@?40@?48
 B24@0:8^@16
 B24@0:8B16B20
 B24@0:8q16
+v68@0:8Q16d24d32d40@48B56@?60
 v24@0:8B16B20
 @"CSAudioConverter"
 @"<CSSpeechControllerDelegate>"
@@ -22873,6 +22981,7 @@ v24@0:8B16B20
 @"CSAudioDeviceInfo"
 @"CSAudioSessionController"
 @"CSSACInfoMonitor"
+@"CSRCHandlingXPCClient"
 @"<CSSSRXPCClientDelegate>"
 @"CSAttSiriRequestContext"
 @48@0:8q16Q24Q32@40
@@ -22929,7 +23038,7 @@ v24@0:8@"CSAudioStreamHolding"16
 @"CSAudioDeviceInfo"16@0:8
 @"NSDictionary"16@0:8
 v24@0:8@"<CSAudioAlertProvidingDelegate>"16
-B32@0:8@"NSURL"16q24
+B36@0:8@"NSURL"16q24B32
 I24@0:8@16
 v24@0:8@"<CSAudioSessionInfoProvidingDelegate>"16
 I24@0:8@"NSString"16
@@ -23018,6 +23127,8 @@ B40@0:8Q16@24^@32
 v36@0:8B16@20d28
 @"CSSiriAssertionMonitor"
 @"NSData"
+v68@0:8Q16d24d32d40@"NSString"48B56@?<v@?BB@"NSArray">60
+v32@0:8Q16@?<v@?B>24
 @"<CSSmartSiriVolumeControllerDelegate>"
 @"CSSmartSiriVolumeClient"
 v44@0:8@16@24B32@?36
@@ -23199,6 +23310,7 @@ v36@0:8q16B24Q28
 v24@0:8@"<CSSiriSpeechCapturingDelegate>"16
 v24@0:8@"AFSpeechRequestOptions"16
 v24@0:8@?<v@?dd>16
+v36@0:8@"SASResultCandidate"16B24@?<v@?BB@"NSArray">28
 @20@0:8B16
 v28@0:8q16B24
 v28@0:8(?={?=SS}I)16Q20
@@ -23225,6 +23337,7 @@ B40@0:8@16Q24@?32
 @"AFWatchdogTimer"
 @"CSEndpointerMetrics"
 @"CSEndpointDelayReporter"
+@"SASResultCandidate"
 @"AFSpeechSynthesisRecord"
 @"AFBluetoothWirelessSplitterSessionStateObserver"
 v40@0:8@16q24q32

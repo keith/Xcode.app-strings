@@ -392,6 +392,7 @@ Tq,N,R
 fp_isContainer
 syncRoot
 NSFileProviderItemDecorating
+@32@0:8:16@24
 _TtC24LocalStorageFileProvider21LocalContainerMonitor
 appRegistry
 version
@@ -1128,7 +1129,6 @@ cannot decode sync anchor
 could not decode the previous sync anchor, starting working set enumerator from scratch: %@
 v24@?0@"FPExtensionResponse"8@"NSError"16
 delete(_:recursively:baseVersion:domainVersion:completion:)
-VICOLOG withStagedContextURL
 v32@?0@"NSURL"8@"NSString"16@"NSError"24
 v44@?0@"FPItem"8Q16B24@"FPExtensionResponse"28@"NSError"36
 create(_:with:capturedContent:from:reviving:domainVersion:options:completion:)
@@ -1386,6 +1386,9 @@ database removal failed %@
   Delete the FPFS DB %s
 Can't unlink %s: %@
 reimportWithReason
+reimportRemovingCachedItems
+reimportDataless
+databaseInitError
   Move the FPFS Wharf away %s
   Move the FPFS DB away %s
 withFPItemIdentifier(for:cb:)
@@ -1467,6 +1470,24 @@ isItemDataless(for:completion:)
 materializedURL(for:completion:)
 materializedURL vfsItem with ID %s is dataless
 listConflicts(for:completionHandler:)
+importProgress(completionHandler:)
+@"NSString"16@?0@"PQLQueryBuilder"8
+SELECT rec.fs_id, throttle.last_error
+  FROM reconciliation_table AS rec
+ INNER JOIN fs_throttle AS throttle ON throttle.item_id == rec.fs_id
+ WHERE rec.fs_disk_import_status == 
+   AND throttle.job_type IN (
+                             
+   AND rec.fs_id IS NOT NULL
+   AND throttle.last_error IS NOT NULL
+ GROUP BY rec.fs_id
+ LIMIT 100
+SELECT COUNT(DISTINCT rec.fs_id)
+  FROM reconciliation_table AS rec
+ INNER JOIN fs_throttle AS throttle ON throttle.item_id == rec.fs_id
+ WHERE rec.fs_disk_import_status == 
+   AND rec.fs_id IS NOT NULL
+   AND throttle.last_error IS NOT NULL
 reimportItems(below:removeCachedItems:markItemDataless:completionHandler:)
   reimporting below %s (%s disk content)
 can't mark the root dataless: %@
@@ -1481,7 +1502,6 @@ materialized_als
 materialized_sym
 reimport_running_time_sec
 SQLDB: building telemetry report
-@"NSString"16@?0@"PQLQueryBuilder"8
 SELECT metadata_kind,
        metadata_is_package,
        metadata_is_dataless,
@@ -1558,6 +1578,8 @@ must create root directory at %s
 root directory already exists at %s
 An update of the package extension list was detected, reloading...
 registering xpc activities
+queryDiskImportSchedulerLabel(completionHandler:)
+didChangeDomainConfiguration(_:)
 copyDatabase(to:completionHandler:)
 Failed to provide temporaryDirectoryURL because domain is invalidated
 initializeErrorGeneration()
@@ -1621,7 +1643,8 @@ v32@0:8@"FPDRequest"16@?<v@?@"NSArray"@"NSError">24
 v40@0:8@"NSArray"16@"FPDRequest"24@?<v@?@"NSDictionary"@"NSError">32
 v32@0:8@"<FPProgressProtocol>"16@?<v@?@"NSError">24
 v24@0:8@?<v@?B@"NSError">16
-@32@0:8:16@24
+v24@0:8@?<v@?@"FPImportProgressReport"@"NSError">16
+v24@0:8@"NSFileProviderDomain"16
 _TtC9libfssync19PersistenceCounters
 jobsWaitingForPersistence
 jobsNeedingFlushRunning
@@ -1658,6 +1681,7 @@ receivedContentVersion
 _TtC9libfssync11TaskTracker
 _TtC9libfssync23MaintenanceContinuation
 rowID
+unblock-remote-deletion
 rescan-pending-set-fp-side
 rescan-pending-set-fs-side
 unblock-disk-import-items
@@ -1724,21 +1748,19 @@ recursive deletion of id, delete succeeded
 recursive deletion of propagatedID, delete succeeded
 B16@?0^{fpfs_tag=*i}8
 _TtC9libfssync22DiskImportContinuation
-com.apple.fileproviderd.disk-import
 skip item not importing from disk
 skip item not watching content
 skip item with pending children
 %@ evaluating disk import status for %{public}s
   enumerating %s is throttled, unfaulting folder to allow user access
   import of %s within %s is throttled, unfaulting folder to allow user access
+com.apple.fileproviderd.disk-import
 disk-import-finished
 mark-disk-import-done
 unfault-directory-and-children
 selectNextDirectoryForDiskImport(db:result:)
 continue-disk-import
-reimportRemovingCachedItems
-reimportDataless
-databaseInitError(
+com.apple.fileproviderd.hidden-disk-import
 structural_version
 structural_filename
 structural_parent_id
@@ -1828,6 +1850,8 @@ hasPlannedRescan
 publishHandler
 wharf
 stream was signaled
+stream is idle enough to allow rescan
+stream is idle enough to unblock dependent operations
 forget change for 
 itemID item fetchStrategy 
 invalidate()
@@ -2210,7 +2234,6 @@ syncBatch(function:updateBlock:)
   processing FS tree changes
   processing ingestion
 %{public}s)
-%{public}s
   discarded %s: %s
   already known %s
 %{public}s force fetch: %{public}s
@@ -2228,6 +2251,7 @@ not processing more jobs since we were cancelled
 executeRunnableJobs(on:allowConcurrentJobs:count:)
   executing jobs, availabilities fetch-from-fs:"%s" other-fs:"%s"/%s fetch-from-fp:"%s" other-fp:"%s"/%s
 com.apple.fileproviderd.fpfs.running-jobs
+%ld blocked jobs, cannot schedule any more jobs (limit: %ld)
 vacuum(force:completionHandler:)
   vacuum-ing
   vaccuum still running when triggered
@@ -2875,6 +2899,7 @@ SELECT decoration_inherited_user_info, decoration_user_info, parent_id
 SQLDB: Lookup item non syncable attributes
 SQLDB: Lookup item by parent ID and name
    AND filename = 
+   AND id != parent_id
 SQLDB: Lookup item by ID
  AND +snapshot_version = 
 SQLDB: Lookup snapshot version
@@ -3079,6 +3104,7 @@ DELETE FROM jobs
       WHERE id = 
 recovering running job %{public}s
 jobType itemID 
++ lock (in memory state)
 + propagation jobs
 corrupted database: 
 SELECT rowID
@@ -3147,6 +3173,7 @@ scheduleStateStorage
 onSchedulingStateChange
 source
 backgroundDownloadLimit
+blockedJobsLimit
 jobLockForAStorage
 jobLockForBStorage
 isCancelling
@@ -3182,8 +3209,11 @@ finishedDownloadJobs
 uploadJobs
 downloadJobs
 _isInDiskImportStorage
+_diskImportScheduler
 isInResetStream
+runningResetStreamJobs
 isUpcallTimeoutSchedulerRegister
+%{public}s
 com.apple.fileproviderd.vacuum
 com.apple.fileproviderd.auto-resume
 @"<OS_xpc_object>"8@?0
@@ -3876,6 +3906,12 @@ SELECT COUNT(fs.metadata_size), SUM(MAX(1, fs.metadata_size))
  INNER JOIN fs_snapshot AS fs ON (fs.id = rt.fs_id)
  WHERE rt.kind IN 
    AND rt.fs_updated_fields & 
+SELECT rowID, fp_id
+  FROM reconciliation_table
+ WHERE fs_id IS NOT NULL
+   AND fp_deletion_status = 
+   AND fp_scheduling_state = 
+   AND fp_scheduling_state_conditions & 
 UPDATE reconciliation_table
 SET is_pending = 1
 WHERE rowID IN 
@@ -3949,7 +3985,6 @@ SELECT fs_id
  WHERE fs_id IS NOT NULL
    AND fp_id IS NOT NULL
    AND fp_scheduling_state = 
-   AND fp_scheduling_state_conditions & 
   FROM reconciliation_table
  WHERE fs_scheduling_state = 
    AND fp_scheduling_state NOT IN 
@@ -4339,9 +4374,11 @@ _rootURLLock
 idLookupCache
 _lastFSEventID
 _fakeEventSeq
-lastFSEventIDShortWaitSubscription
+lastFSEventIDAndFakeEventShortWaitSubscription
 lastFSEventIDLongWaitSubscription
 eventAggregator
+canRescanMarker
+canUnblockDependentOperationsMarker
 counters
 preventedEvictabilityTable
  droppedEventCount=
@@ -4386,6 +4423,7 @@ If the item is the domain root %s, no need to handle parent mtime
 ESTALE: root/trash changed during enumeration.
 %llu, %llu,
 %llu, %s
+listing directory %llu, cannot build element for fileID:%llu docID:%u: %{public}@
 libfssync/VFSFileTree.swift
 FSEvent stream got reason: 
 deduplicating FSEvent lookup for %llu at %s
@@ -4422,7 +4460,9 @@ root needs deep scan
 dropped historical event
 kernel dropped event
   readingOptions=%{public, signpost.telemetry:string1, name=readingOptions,public}s
-  enableTelemetry=YES
+  enableTelemetry=NO")
+  readingOptions=%{public, signpost.telemetry:string1, name=readingOptions,public}s
+  enableTelemetry=YES")
   state=%{public, signpost.telemetry:string2, name=state,public}s
   providerID=%{public, signpost.telemetry:number1, name=providerID,public}llu
 [Error] Interval already ended
@@ -4863,7 +4903,6 @@ TB,R,N,V_ignoreOwnEvents
 TQ,N,V_lastDeliveredEventID
 T@"NSUUID",&,N,V_eventStreamUUID
 TB,N,V_isActivated
-label
 group
 cancelled
 regularExpressionWithPattern:options:error:
@@ -5063,6 +5102,7 @@ TI,R,N,V_additionalDebugFlags
 isProviderInitiated
 reportProgressUpdate:totalUnitCount:completedFileCount:totalFileCount:
 asyncUnregisterLifetimeExtensionForObject:
+fp_obfuscatedExtendedAttributeName
 initWithIdentifier:displayName:pathRelativeToDocumentStorage:
 currentPersona
 generateAndRestorePersonaContextWithPersonaUniqueString:
@@ -5200,7 +5240,9 @@ userInteractionErrorsForPerformingAction:sourceItems:destinationItem:fpProviderD
 updateIgnoreStateOfItemWithIdentifiers:ignoreState:completionHandler:
 _removeSubscriber:
 doubleForKey:
+initWithLongLong:
 fractionCompleted
+initWithDouble:
 executablePath
 integerForKey:
 _addSubscriberForFileURL:withPublishingHandler:
@@ -5240,6 +5282,8 @@ errorGenerationCount
 backgroundActivityIsPaused
 updateRootAfterDomainChangeWithError:
 copyDatabaseToURL:completionHandler:
+didChangeDomainConfiguration:
+queryDiskImportSchedulerLabelWithCompletionHandler:
 start
 needsRootsCreation
 createRootByImportingURL:error:
@@ -5273,6 +5317,7 @@ nonEvictableSpace
 telemetryReport
 providerVersion
 reimportItemsBelowItemWithID:removeCachedItems:markItemDataless:completionHandler:
+importProgressWithCompletionHandler:
 createIndexerWithExtension:enabled:error:
 valuesForAttributes:forURL:request:completionHandler:
 materializedURLForItemID:
@@ -5347,17 +5392,18 @@ setTrashed:
 setParentItemIdentifier:
 requestForSelf
 asAppExtensionBackedProvider
+fetchSwift:error:
+next
+longAtIndex:
+initWithStatus:numberOfItemsInError:errorDetails:
 reloadDomain:unableToStartup:completionHandler:
 initWithUnsignedInteger:
 initWithInteger:
-fetchSwift:error:
-next
 initWithProviderDomainID:itemIdentifier:parentItemIdentifier:filename:isDirectory:
 requestForPID:
 setDomainVersion:
 initWithProviderID:domainIdentifier:itemIdentifier:
 initWithProviderDomainID:itemIdentifier:parentItemIdentifier:filename:contentType:
-longAtIndex:
 executeSwift:error:
 stringAtIndex:
 isNullAtIndex:
@@ -5381,6 +5427,7 @@ addKey:executor:
 markDoneForKey:
 shouldPause
 ping
+label
 backupToURL:progress:
 lastError
 fp_isFileProviderInternalError:
@@ -5404,6 +5451,7 @@ bindCharParameter:
 bindDoubleParameter:
 unarchivedObjectOfClass:atIndex:
 archivedDataWithRootObject:requiringSecureCoding:error:
+initWithItemIdentifier:error:
 purgeAndWaitAtUrl:
 contentsOfDirectoryAtPath:error:
 queue
@@ -5443,11 +5491,6 @@ setNumberOfBrokenFilesInFSSnapshotAndFPSnapshotCheck:
 setTelemetryReport:
 initWithDatabasesBackupsPaths:providerDomainID:usingFPFS:isCiconia:iCDPackageDetection:
 launchFromURL:options:error:resultHandler:
-doubleValue
-decimalValue
-initWithDecimal:
-initWithDouble:
-initWithLongLong:
 fileDescriptor
 initWithFd:forceColor:
 userVersion
@@ -5507,6 +5550,7 @@ rawFields
 sourceItem
 renamedItem
 setDateFormat:
+fp_obfuscatedDotSeparatedComponents
 providerID
 domainIdentifier
 addLRUSignature:
@@ -5572,6 +5616,7 @@ setUploaded:
 setUploading:
 setFp_lastModifiedByCurrentUser:
 setAllowsContextualMenuDownloadEntry:
+setUploadingError:
 setExclusionType:
 setDocumentID:
 setItemVersion:
@@ -5581,7 +5626,6 @@ fp_isPinned
 allowsUserControlledEviction
 setIgnoreRoot:
 setDocumentSize:
-setUploadingError:
 setDownloadingError:
 setShared:
 setTopLevelSharedItem:
@@ -5608,6 +5652,9 @@ timeout
 timeoutState
 setTimeoutState:
 fp_relativePathWithRealpath:
+doubleValue
+objCType
+initWithUnsignedLongLong:
 dateAtIndex:
 unsignedIntValue
 setSelectedForMaterialization:
@@ -5631,6 +5678,9 @@ fp_realpathURL
 setUnderlyingQueue:
 setMaxConcurrentOperationCount:
 fp_coordinatorReadingOptions:
+perfTelemetrySubSamplingPercentage
+defaultWorkspace
+deviceIdentifierForVendor
 NSFileProviderValidationServiceV1
 FileProviderValidationServiceSource
 NSXPCListenerDelegate
@@ -5799,6 +5849,7 @@ FPProviderDomainID
 FileProvider
 Foundation
 SharedWithYouCore
+FPImportStatus
 CFError
 NCFErrorRef
 CGSize
@@ -5845,6 +5896,7 @@ PersistenceTrigger
 AffectedGlobalJobs
 AffectedItemJobs
 AffectedReconciliation
+ @l
 JobLockAggregator
 JobLock
 JobLockRuleAssociatedJobs
@@ -5886,7 +5938,7 @@ FSRepair
 VFSVersion
 VFSItem
 CodingKeys
-iCDPackageExtensions
+f@iCDPackageExtensions
 libfssync
 ObservedEnumerator
 FPDDomainFPFSBackend
@@ -5923,13 +5975,16 @@ VersionConflictStruct
 ItemMismatchStruct
 LookupNotPermittedStruct
 ItemContentVersionMismatchStruct
- @56
- @E5
- @U4
- @4g
- @Tg
- @tg
+ @}B
+ @-B
+ @=A
+ @M@
+ @]?
+ @<w
+ @\w
+ @|w
 CodingKeys
+ @|g
 TaskTracker
 LifetimeError
 MaintenanceContinuation
@@ -5948,6 +6003,7 @@ UnblockItemRejection
 UnblockDiskImportItems
 RescanPendingSetFSSide
 RescanPendingSetFPSide
+UnblockRemoteDeletions
 Maintenance
 CodingKeys
 libfssync
@@ -5987,9 +6043,7 @@ URLBackedFileTreeWriter
 URLBackedItem
 DomainBackedFileTreeWriter
 FileTreeChange
- @4O
 ItemOrContinuation
- @DO
 EventStreamBatch
 FPCK
 ReconciliationTableBrokenInvariants
@@ -6010,7 +6064,6 @@ FSDirectoryLister
 VFSDirectoryLister
 URLDirectoryLister
 CodingKeys
- @\_
 SyncStateStore
 SyncState
 SchedulingState
@@ -6035,14 +6088,12 @@ JobLimitSlot
 JobLimit
 JobLimitCategory
 ReconciliationID
- @,{
 GSConflictManager
 SQLBackupManifestRecord
 BitSetIterator
 BitSet
 CustomStringConvertibleBitSet
 ItemChange
- @,z
 SnapshotItemSQLFields
 SwappedJobRegistry
 SnapshotItem
@@ -6061,6 +6112,7 @@ ID ContentVersion StructuralVersion
 FPFSMaterializedSetAnchor
 CodingKeys
 Mutation
+ @\|
 NSecTimestamp
 NSecTimeInterval
 FPFSPendingSetAnchor
@@ -6077,6 +6129,7 @@ SQLVolatileJobID
 SQLJobID
 Lazy
 TestingOperation
+ @du
 DirectionalTestingOperation
 SQLHistoryTable
 ItemNonSyncableAttributes
@@ -6087,7 +6140,6 @@ CodableClass
 CodableClassCodingKeys
 CodableClassWrapper
 UserRequest
- @a
 FileItemKind
 Fields
 ConcreteDatabase
@@ -6119,6 +6171,7 @@ JobThrottlingState
 Kind
 JobThrottle
 ThrottlingKey
+ @i
 FileProviderPageToken
 WorkingSetSyncAnchor
 CodingKeys
@@ -6133,7 +6186,7 @@ PlaceholderError
 JobSQLFields
 ItemStateSQLFields
 SQLFields
- !"#$%&'()*+,
+ !"#$%&'()*+,-
 FileTree
 Continuation
 RequestContinuation
@@ -6148,7 +6201,6 @@ FPSnapshotChecker
 Version
 FileItemVersion
 CodingKeys
- @s
 CapturedContent
 FPFSSyncEngine
 DecorationOptions
@@ -6525,7 +6577,6 @@ y2ID
 QzAbCQy_G_
 y2ID
 QzAcDQy_Gt
-_Sb8longWaitt
 y2ID
 QzAbCQy_G5below_t
 y2ID
@@ -6698,6 +6749,11 @@ ABGG
 SaySSGSg
 ABGGSg
 So6FPItemCG
+SSSg
+_pSgIeggg_
+SSSg
+_pSgIegng_
+So8NSStringCSgSo7NSErrorCSgIeyByy_
 So10FPDRequestC
 So8FPItemIDCSg
 _pSgIeggg_
@@ -6745,6 +6801,11 @@ So12NSDictionaryCSo7NSErrorCSgIeyByy_
 SaySo6FPItemCGIegg_
 SaySo6FPItemCG
 So7NSArrayCIeyBy_
+So22FPImportProgressReportCSg
+_pSgIeggg_
+So22FPImportProgressReportCSg
+_pSgIegng_
+So22FPImportProgressReportCSgSo7NSErrorCSgIeyByy_
 ypGSg
 _pSgIeggg_
 So12NSDictionaryCSgSo7NSErrorCSgIeyByy_
@@ -7127,7 +7188,6 @@ Qz04itemA0_xSg0B0
 yxGSg13fetchStrategyt
 Qz04itemA0_t
 Sb11deferRescan_SS6reasont
-Sb8longWait_t
 yx_G
 _pGIegn_
 Say2ID
@@ -7253,6 +7313,7 @@ So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
+So6FPItemC_G
 ySo6FPItemC
 So6FPItemC_G
 So6FPItemC_G
@@ -7266,6 +7327,7 @@ So6FPItemC_G
 So6FPItemC_G
 ySo6FPItemC
 _GSg
+ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
@@ -7410,6 +7472,7 @@ AB_G
 AB_G
 AB_G
 AB_G
+AB_G
 ySay
 GSSG
 _GSg
@@ -7420,6 +7483,12 @@ ySo6FPItemCG
 So6FPItemCGSgG
 ySo6FPItemCGG
 ytIgr_
+ySo6FPItemCG
+_GSay
+_pGG
+ySo6FPItemCG
+_GSay
+_pGG
 So6FPItemCGSgXw
 ySo6FPItemC
 GSgXw
@@ -7437,6 +7506,7 @@ ySpy
 Gz_SpySo8NSObjectCSgGSgzSpyypGSgztc
 SbIgr_
 So6FPItemCGG
+Igr_
 Si_Sit
 So6FPItemCxq_GSgXw
 yxq_GG
@@ -7518,7 +7588,6 @@ yq_xG
 yxq_G
 _pSg
 yxq_G
-G0R3_
 yAAySay
 GSiGSSG
 yShySiGSSG
@@ -7586,6 +7655,7 @@ y2ID
 QzAbCQy_G
 yxq_GG
 yxq_GSgG
+So18FPDSharedSchedulerC
 SDySO
 yxq_G_So10NSProgressC
 _pSgctG
@@ -7781,6 +7851,7 @@ So15FSChangeMonitorC
 So20FSChangeSubscriptionCSg
 So18OS_dispatch_sourceCG
 _pSgXw
+_SitSg
 ySi_SitSg
 _pGIegg_
 ySi_SitSg
@@ -7809,9 +7880,11 @@ SgXwz_Xx
 ySiG
 _pGIegn_
 So6FPItemCGG
+_GSo17OS_dispatch_queueCG
 _GABySi_GG
 _GACySi_GGSo17OS_dispatch_queueCG
 So9OS_os_logC
+_A15At
 SgXw
 GSgSb
 Igyyd_
@@ -7824,6 +7897,7 @@ So17OS_dispatch_queueCSg
 yxq_G
 yxq_G
 yxq__G
+G0R3_
 _pGSg
 _pIgrzo_
 yxq_GSgXw
@@ -8229,7 +8303,8 @@ requestCompleted
 jobScheduled
 jobContinuationScheduled
 jobCompleted
-streamIsIdle
+canUnblockDependentOperations
+canRescan
 meaningfulRecursivePropertyChange
 evictabilityCanBeSet
 cycleDetected
@@ -8603,7 +8678,8 @@ wharf
 itemChange
 forgetChange
 resetStream
-streamIsIdle
+canUnblockDependentOperations
+canRescan
 streamWasSignaled
 updatedItems
 deletedIDs
@@ -8947,6 +9023,7 @@ scheduleStateStorage
 onSchedulingStateChange
 source
 backgroundDownloadLimit
+blockedJobsLimit
 jobLockForAStorage
 jobLockForBStorage
 isCancelling
@@ -8985,7 +9062,9 @@ finishedDownloadJobs
 uploadJobs
 downloadJobs
 _isInDiskImportStorage
+_diskImportScheduler
 isInResetStream
+runningResetStreamJobs
 isUpcallTimeoutSchedulerRegister
 flushCount
 resetDate
@@ -8996,7 +9075,8 @@ completions
 changes
 position
 resetStream
-streamIsIdleWithLongWait
+canUnblockDependentOperations
+canRescan
 streamWasSignaled
 positionPersisted
 ArrayLiteralElement
@@ -9147,6 +9227,7 @@ unblockItemRejection
 unblockDiskImportItems
 rescanPendingSetFSSide
 rescanPendingSetFPSide
+unblockRemoteDeleletions
 RawValue
 SQLFields
 SQLFieldsSequence
@@ -9350,9 +9431,11 @@ _rootURLLock
 idLookupCache
 _lastFSEventID
 _fakeEventSeq
-lastFSEventIDShortWaitSubscription
+lastFSEventIDAndFakeEventShortWaitSubscription
 lastFSEventIDLongWaitSubscription
 eventAggregator
+canRescanMarker
+canUnblockDependentOperationsMarker
 counters
 preventedEvictabilityTable
 lookupCount
@@ -9365,11 +9448,13 @@ statesByKey
 positionPersisted
 processedFileIDAndPaths
 processedPaths
+lastFSEventID
 fileID
 path
 name
 providerIDHash
 ossignposter
+shouldReport
 signpostID
 signposter
 interval
@@ -9416,6 +9501,12 @@ Iterator
 [DEBUG] Resuming FSEvent stream %s <XPC activity running>
 [DEBUG] Stop processing of FSEvents on stream %s
 [DEBUG] Defer processing of FSEvents on stream %s per XPC activity
+Cloning file failed [%llu]: %{errno}d
+BSD flags cleanup on item cloned from ino:%llu failed: %{errno}d
+stat of item cloned from ino:%llu failed: %{errno}d
+Permission cleanup on item cloned from ino:%llu failed: %{errno}d
+ACL cleanup on item cloned from ino:%llu failed: %{errno}d
+xattr cleanup on item cloned from ino:%llu failed: %{errno}d
 [DEBUG] Observing %@ (%s)
 [DEBUG] Creating stream with name %s since %llu
 [DEBUG] Already need deep scan.  Dropping all incoming events
@@ -9491,6 +9582,8 @@ Iterator
 </array>
 </dict>
 </plist>
+0BF@B
+v^ v
 /.docid
 .DS_Store
 .DS_Store
@@ -9573,6 +9666,7 @@ FPProviderDomainID
 FileProvider
 Foundation
 SharedWithYouCore
+FPImportStatus
 CFError
 NCFErrorRef
 CGSize
@@ -9587,6 +9681,7 @@ ComparisonResult
 NNSComparisonResult
 wharf_step
 LookupBehavior
+ @,e
 ItemLookupResult
 PQLSynchronousMode
 OSLogType
@@ -9601,14 +9696,14 @@ fpfs_item_type
 ReconciliationTable
 CachedEntry
 PersistAction
- @<E
+ @t`
 FPFSEnumerator
 %3AQa
 22 2*
 ?N]l{
 ?N]l{
 ReconciliationMutation
- @<B
+ @l]
 ReconciliationSideMutation
 ReconciliationChildrenDeletionOptions
 Filename
@@ -9631,7 +9726,7 @@ CodingKeys
 SQLThrottler
 ThrottlingError
 SQLFields
- @,F
+ @\a
 "1@O^
  /<IV
 #2AP_
@@ -9644,7 +9739,6 @@ PersistenceTrigger
 AffectedGlobalJobs
 AffectedItemJobs
 AffectedReconciliation
- @T7
 !5<
 !5<
 !5<
@@ -9653,7 +9747,7 @@ JobLockAggregator
 JobLock
 JobLockRuleAssociatedJobs
 JobLockRule
- @,7
+ @\R
 BlockedRuleError
 Registration
 SchedulableJob
@@ -9757,6 +9851,7 @@ UnblockItemRejection
 UnblockDiskImportItems
 RescanPendingSetFSSide
 RescanPendingSetFPSide
+UnblockRemoteDeletions
 Maintenance
 CodingKeys
 libfssync
@@ -9912,7 +10007,7 @@ CodableClassWrapper
 Qff~
 UserRequest
 FileItemKind
-BhHhhhNhhhhhhhVhhhhhhhhhhhhhhh\hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd9
+BhHhhhNhhhhhhhVhhhhhhhhhhhhhhh\hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd
 Fields
 ConcreteDatabase
 FileTreeChangeAggregator
@@ -9960,7 +10055,7 @@ PlaceholderError
 JobSQLFields
 ItemStateSQLFields
 SQLFields
- !"#$%&'()*+,
+ !"#$%&'()*+,-
 A`aBC
 FileTree
 Continuation
@@ -10450,6 +10545,7 @@ Tq,N,R
 fp_isContainer
 syncRoot
 NSFileProviderItemDecorating
+@32@0:8:16@24
 _TtC24LocalStorageFileProvider21LocalContainerMonitor
 appRegistry
 version
@@ -11186,7 +11282,6 @@ cannot decode sync anchor
 could not decode the previous sync anchor, starting working set enumerator from scratch: %@
 v24@?0@"FPExtensionResponse"8@"NSError"16
 delete(_:recursively:baseVersion:domainVersion:completion:)
-VICOLOG withStagedContextURL
 v32@?0@"NSURL"8@"NSString"16@"NSError"24
 v44@?0@"FPItem"8Q16B24@"FPExtensionResponse"28@"NSError"36
 create(_:with:capturedContent:from:reviving:domainVersion:options:completion:)
@@ -11444,6 +11539,9 @@ database removal failed %@
   Delete the FPFS DB %s
 Can't unlink %s: %@
 reimportWithReason
+reimportRemovingCachedItems
+reimportDataless
+databaseInitError
   Move the FPFS Wharf away %s
   Move the FPFS DB away %s
 withFPItemIdentifier(for:cb:)
@@ -11525,6 +11623,24 @@ isItemDataless(for:completion:)
 materializedURL(for:completion:)
 materializedURL vfsItem with ID %s is dataless
 listConflicts(for:completionHandler:)
+importProgress(completionHandler:)
+@"NSString"16@?0@"PQLQueryBuilder"8
+SELECT rec.fs_id, throttle.last_error
+  FROM reconciliation_table AS rec
+ INNER JOIN fs_throttle AS throttle ON throttle.item_id == rec.fs_id
+ WHERE rec.fs_disk_import_status == 
+   AND throttle.job_type IN (
+                             
+   AND rec.fs_id IS NOT NULL
+   AND throttle.last_error IS NOT NULL
+ GROUP BY rec.fs_id
+ LIMIT 100
+SELECT COUNT(DISTINCT rec.fs_id)
+  FROM reconciliation_table AS rec
+ INNER JOIN fs_throttle AS throttle ON throttle.item_id == rec.fs_id
+ WHERE rec.fs_disk_import_status == 
+   AND rec.fs_id IS NOT NULL
+   AND throttle.last_error IS NOT NULL
 reimportItems(below:removeCachedItems:markItemDataless:completionHandler:)
   reimporting below %s (%s disk content)
 can't mark the root dataless: %@
@@ -11539,7 +11655,6 @@ materialized_als
 materialized_sym
 reimport_running_time_sec
 SQLDB: building telemetry report
-@"NSString"16@?0@"PQLQueryBuilder"8
 SELECT metadata_kind,
        metadata_is_package,
        metadata_is_dataless,
@@ -11616,6 +11731,8 @@ must create root directory at %s
 root directory already exists at %s
 An update of the package extension list was detected, reloading...
 registering xpc activities
+queryDiskImportSchedulerLabel(completionHandler:)
+didChangeDomainConfiguration(_:)
 copyDatabase(to:completionHandler:)
 Failed to provide temporaryDirectoryURL because domain is invalidated
 initializeErrorGeneration()
@@ -11679,7 +11796,8 @@ v32@0:8@"FPDRequest"16@?<v@?@"NSArray"@"NSError">24
 v40@0:8@"NSArray"16@"FPDRequest"24@?<v@?@"NSDictionary"@"NSError">32
 v32@0:8@"<FPProgressProtocol>"16@?<v@?@"NSError">24
 v24@0:8@?<v@?B@"NSError">16
-@32@0:8:16@24
+v24@0:8@?<v@?@"FPImportProgressReport"@"NSError">16
+v24@0:8@"NSFileProviderDomain"16
 _TtC9libfssync19PersistenceCounters
 jobsWaitingForPersistence
 jobsNeedingFlushRunning
@@ -11716,6 +11834,7 @@ receivedContentVersion
 _TtC9libfssync11TaskTracker
 _TtC9libfssync23MaintenanceContinuation
 rowID
+unblock-remote-deletion
 rescan-pending-set-fp-side
 rescan-pending-set-fs-side
 unblock-disk-import-items
@@ -11782,21 +11901,19 @@ recursive deletion of id, delete succeeded
 recursive deletion of propagatedID, delete succeeded
 B16@?0^{fpfs_tag=*i}8
 _TtC9libfssync22DiskImportContinuation
-com.apple.fileproviderd.disk-import
 skip item not importing from disk
 skip item not watching content
 skip item with pending children
 %@ evaluating disk import status for %{public}s
   enumerating %s is throttled, unfaulting folder to allow user access
   import of %s within %s is throttled, unfaulting folder to allow user access
+com.apple.fileproviderd.disk-import
 disk-import-finished
 mark-disk-import-done
 unfault-directory-and-children
 selectNextDirectoryForDiskImport(db:result:)
 continue-disk-import
-reimportRemovingCachedItems
-reimportDataless
-databaseInitError(
+com.apple.fileproviderd.hidden-disk-import
 structural_version
 structural_filename
 structural_parent_id
@@ -11886,6 +12003,8 @@ hasPlannedRescan
 publishHandler
 wharf
 stream was signaled
+stream is idle enough to allow rescan
+stream is idle enough to unblock dependent operations
 forget change for 
 itemID item fetchStrategy 
 invalidate()
@@ -12268,7 +12387,6 @@ syncBatch(function:updateBlock:)
   processing FS tree changes
   processing ingestion
 %{public}s)
-%{public}s
   discarded %s: %s
   already known %s
 %{public}s force fetch: %{public}s
@@ -12286,6 +12404,7 @@ not processing more jobs since we were cancelled
 executeRunnableJobs(on:allowConcurrentJobs:count:)
   executing jobs, availabilities fetch-from-fs:"%s" other-fs:"%s"/%s fetch-from-fp:"%s" other-fp:"%s"/%s
 com.apple.fileproviderd.fpfs.running-jobs
+%ld blocked jobs, cannot schedule any more jobs (limit: %ld)
 vacuum(force:completionHandler:)
   vacuum-ing
   vaccuum still running when triggered
@@ -12933,6 +13052,7 @@ SELECT decoration_inherited_user_info, decoration_user_info, parent_id
 SQLDB: Lookup item non syncable attributes
 SQLDB: Lookup item by parent ID and name
    AND filename = 
+   AND id != parent_id
 SQLDB: Lookup item by ID
  AND +snapshot_version = 
 SQLDB: Lookup snapshot version
@@ -13137,6 +13257,7 @@ DELETE FROM jobs
       WHERE id = 
 recovering running job %{public}s
 jobType itemID 
++ lock (in memory state)
 + propagation jobs
 corrupted database: 
 SELECT rowID
@@ -13205,6 +13326,7 @@ scheduleStateStorage
 onSchedulingStateChange
 source
 backgroundDownloadLimit
+blockedJobsLimit
 jobLockForAStorage
 jobLockForBStorage
 isCancelling
@@ -13240,8 +13362,11 @@ finishedDownloadJobs
 uploadJobs
 downloadJobs
 _isInDiskImportStorage
+_diskImportScheduler
 isInResetStream
+runningResetStreamJobs
 isUpcallTimeoutSchedulerRegister
+%{public}s
 com.apple.fileproviderd.vacuum
 com.apple.fileproviderd.auto-resume
 @"<OS_xpc_object>"8@?0
@@ -13934,6 +14059,12 @@ SELECT COUNT(fs.metadata_size), SUM(MAX(1, fs.metadata_size))
  INNER JOIN fs_snapshot AS fs ON (fs.id = rt.fs_id)
  WHERE rt.kind IN 
    AND rt.fs_updated_fields & 
+SELECT rowID, fp_id
+  FROM reconciliation_table
+ WHERE fs_id IS NOT NULL
+   AND fp_deletion_status = 
+   AND fp_scheduling_state = 
+   AND fp_scheduling_state_conditions & 
 UPDATE reconciliation_table
 SET is_pending = 1
 WHERE rowID IN 
@@ -14007,7 +14138,6 @@ SELECT fs_id
  WHERE fs_id IS NOT NULL
    AND fp_id IS NOT NULL
    AND fp_scheduling_state = 
-   AND fp_scheduling_state_conditions & 
   FROM reconciliation_table
  WHERE fs_scheduling_state = 
    AND fp_scheduling_state NOT IN 
@@ -14397,9 +14527,11 @@ _rootURLLock
 idLookupCache
 _lastFSEventID
 _fakeEventSeq
-lastFSEventIDShortWaitSubscription
+lastFSEventIDAndFakeEventShortWaitSubscription
 lastFSEventIDLongWaitSubscription
 eventAggregator
+canRescanMarker
+canUnblockDependentOperationsMarker
 counters
 preventedEvictabilityTable
  droppedEventCount=
@@ -14444,6 +14576,7 @@ If the item is the domain root %s, no need to handle parent mtime
 ESTALE: root/trash changed during enumeration.
 %llu, %llu,
 %llu, %s
+listing directory %llu, cannot build element for fileID:%llu docID:%u: %{public}@
 libfssync/VFSFileTree.swift
 FSEvent stream got reason: 
 deduplicating FSEvent lookup for %llu at %s
@@ -14480,7 +14613,9 @@ root needs deep scan
 dropped historical event
 kernel dropped event
   readingOptions=%{public, signpost.telemetry:string1, name=readingOptions,public}s
-  enableTelemetry=YES
+  enableTelemetry=NO")
+  readingOptions=%{public, signpost.telemetry:string1, name=readingOptions,public}s
+  enableTelemetry=YES")
   state=%{public, signpost.telemetry:string2, name=state,public}s
   providerID=%{public, signpost.telemetry:number1, name=providerID,public}llu
 [Error] Interval already ended
@@ -14622,68 +14757,68 @@ CREATE TABLE background_downloader (
 SELECT COUNT(id)
   FROM background_downloader
  WHERE state = 
-stringByAppendingFormat:
-appendString:
-setExportedObject:
-string
-fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
-count
-removeAllObjects
-fp_cachedTypeWithIdentifier:
-arrayByAddingObject:
-objectAtIndexedSubscript:
-addObjectsFromArray:
-countByEnumeratingWithState:objects:count:
-fp_errorWithPOSIXCode:itemURL:debugDescription:
-hasPrefix:
-maxFSEventQueueSize
-removeObject:
-UUID
-valueForKey:
-setInterruptionHandler:
-lowercaseString
-subarrayWithRange:
-regularExpressionWithPattern:options:error:
-objectAtIndex:
+componentsJoinedByString:
+setExportedInterface:
+errorWithDomain:code:userInfo:
+copy
+fp_errorWithPOSIXCode:
 stringWithUTF8String:
 initWithCapacity:
-fp_errorWithPOSIXCode:
+regularExpressionWithPattern:options:error:
+URLByAppendingPathComponent:isDirectory:
 conformsToType:
-copy
-errorWithDomain:code:userInfo:
-setExportedInterface:
-fseventsAggregationDelay
-length
-interfaceWithProtocol:
-removeObjectsInRange:
-appendFormat:
+objectAtIndex:
+setExportedObject:
+count
+removeAllObjects
+subarrayWithRange:
+appendString:
+string
+fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
+initWithUUIDString:
+arrayByAddingObject:
+objectAtIndexedSubscript:
+fp_errorWithPOSIXCode:itemURL:debugDescription:
+fp_cachedTypeWithIdentifier:
+maxFSEventQueueSize
+removeObject:
+hasPrefix:
+setInterruptionHandler:
+valueForKey:
+addObjectsFromArray:
+stringByAppendingFormat:
+UUID
+countByEnumeratingWithState:objects:count:
+hasSuffix:
+arrayWithCapacity:
+objectForKey:
+removeObjectAtIndex:
 arrayWithObjects:
-fp_realpath
-isEqualToString:
+fp_pathWithFileSystemRepresentation:
+lowercaseString
+setInvalidationHandler:
+substringWithRange:
+setAutoRollbackHandler:
+firstMatchInString:options:range:
+fpfs_initWithFSEventsFlags:
+endpoint
 typeWithFilenameExtension:conformingToType:
-containsString:
+appendFormat:
+length
+fseventsAggregationDelay
+interfaceWithProtocol:
+isEqualToString:
 arrayWithObjects:count:
+fp_realpath
+containsString:
 stringWithFormat:
 insertObject:atIndex:
-URLByAppendingPathComponent:isDirectory:
+hashTableWithOptions:
 removeObjectsInArray:
 rangeAtIndex:
 fseventProcessBatchSize
 anonymousListener
-hashTableWithOptions:
-componentsJoinedByString:
-endpoint
-removeObjectAtIndex:
-firstMatchInString:options:range:
-setAutoRollbackHandler:
-substringWithRange:
-fpfs_initWithFSEventsFlags:
-fp_pathWithFileSystemRepresentation:
-setInvalidationHandler:
-objectForKey:
-arrayWithCapacity:
-hasSuffix:
-initWithUUIDString:
+removeObjectsInRange:
 init
 validation_allowValidation:
 validation_evictDocumentWithCompletionHandler:
@@ -14979,7 +15114,6 @@ TB,R,N,V_ignoreOwnEvents
 TQ,N,V_lastDeliveredEventID
 T@"NSUUID",&,N,V_eventStreamUUID
 TB,N,V_isActivated
-label
 group
 cancelled
 fpfs_extractFSEventsBarrierUUID
@@ -15107,6 +15241,7 @@ TI,R,N,V_additionalDebugFlags
 isProviderInitiated
 reportProgressUpdate:totalUnitCount:completedFileCount:totalFileCount:
 asyncUnregisterLifetimeExtensionForObject:
+fp_obfuscatedExtendedAttributeName
 initWithIdentifier:displayName:pathRelativeToDocumentStorage:
 currentPersona
 generateAndRestorePersonaContextWithPersonaUniqueString:
@@ -15247,7 +15382,9 @@ userInteractionErrorsForPerformingAction:sourceItems:destinationItem:fpProviderD
 updateIgnoreStateOfItemWithIdentifiers:ignoreState:completionHandler:
 _removeSubscriber:
 doubleForKey:
+initWithLongLong:
 fractionCompleted
+initWithDouble:
 executablePath
 integerForKey:
 _addSubscriberForFileURL:withPublishingHandler:
@@ -15288,6 +15425,8 @@ errorGenerationCount
 backgroundActivityIsPaused
 updateRootAfterDomainChangeWithError:
 copyDatabaseToURL:completionHandler:
+didChangeDomainConfiguration:
+queryDiskImportSchedulerLabelWithCompletionHandler:
 start
 needsRootsCreation
 createRootByImportingURL:error:
@@ -15321,6 +15460,7 @@ nonEvictableSpace
 telemetryReport
 providerVersion
 reimportItemsBelowItemWithID:removeCachedItems:markItemDataless:completionHandler:
+importProgressWithCompletionHandler:
 createIndexerWithExtension:enabled:error:
 valuesForAttributes:forURL:request:completionHandler:
 materializedURLForItemID:
@@ -15395,17 +15535,18 @@ setTrashed:
 setParentItemIdentifier:
 requestForSelf
 asAppExtensionBackedProvider
+fetchSwift:error:
+next
+longAtIndex:
+initWithStatus:numberOfItemsInError:errorDetails:
 reloadDomain:unableToStartup:completionHandler:
 initWithUnsignedInteger:
 initWithInteger:
-fetchSwift:error:
-next
 initWithProviderDomainID:itemIdentifier:parentItemIdentifier:filename:isDirectory:
 requestForPID:
 setDomainVersion:
 initWithProviderID:domainIdentifier:itemIdentifier:
 initWithProviderDomainID:itemIdentifier:parentItemIdentifier:filename:contentType:
-longAtIndex:
 executeSwift:error:
 stringAtIndex:
 isNullAtIndex:
@@ -15429,6 +15570,7 @@ addKey:executor:
 markDoneForKey:
 shouldPause
 ping
+label
 backupToURL:progress:
 lastError
 fp_isFileProviderInternalError:
@@ -15452,6 +15594,7 @@ bindCharParameter:
 bindDoubleParameter:
 unarchivedObjectOfClass:atIndex:
 archivedDataWithRootObject:requiringSecureCoding:error:
+initWithItemIdentifier:error:
 purgeAndWaitAtUrl:
 contentsOfDirectoryAtPath:error:
 UTF8String
@@ -15492,11 +15635,6 @@ setNumberOfBrokenFilesInFSSnapshotAndFPSnapshotCheck:
 setTelemetryReport:
 initWithDatabasesBackupsPaths:providerDomainID:usingFPFS:isCiconia:iCDPackageDetection:
 launchFromURL:options:error:resultHandler:
-doubleValue
-decimalValue
-initWithDecimal:
-initWithDouble:
-initWithLongLong:
 fileDescriptor
 initWithFd:forceColor:
 userVersion
@@ -15556,6 +15694,7 @@ rawFields
 sourceItem
 renamedItem
 setDateFormat:
+fp_obfuscatedDotSeparatedComponents
 providerID
 domainIdentifier
 addLRUSignature:
@@ -15622,6 +15761,7 @@ setUploaded:
 setUploading:
 setFp_lastModifiedByCurrentUser:
 setAllowsContextualMenuDownloadEntry:
+setUploadingError:
 setExclusionType:
 setDocumentID:
 setItemVersion:
@@ -15631,7 +15771,6 @@ fp_isPinned
 allowsUserControlledEviction
 setIgnoreRoot:
 setDocumentSize:
-setUploadingError:
 setDownloadingError:
 setShared:
 setTopLevelSharedItem:
@@ -15659,6 +15798,9 @@ timeoutState
 setTimeoutState:
 fileURLWithPath:
 fp_relativePathWithRealpath:
+doubleValue
+objCType
+initWithUnsignedLongLong:
 dateAtIndex:
 unsignedIntValue
 setSelectedForMaterialization:
@@ -15689,6 +15831,9 @@ fp_realpathURL
 setUnderlyingQueue:
 setMaxConcurrentOperationCount:
 fp_coordinatorReadingOptions:
+perfTelemetrySubSamplingPercentage
+defaultWorkspace
+deviceIdentifierForVendor
 NSFileProviderValidationServiceV1
 FileProviderValidationServiceSource
 NSXPCListenerDelegate
@@ -16081,7 +16226,6 @@ y2ID
 QzAbCQy_G_
 y2ID
 QzAcDQy_Gt
-_Sb8longWaitt
 y2ID
 QzAbCQy_G5below_t
 y2ID
@@ -16254,6 +16398,11 @@ ABGG
 SaySSGSg
 ABGGSg
 So6FPItemCG
+SSSg
+_pSgIeggg_
+SSSg
+_pSgIegng_
+So8NSStringCSgSo7NSErrorCSgIeyByy_
 So10FPDRequestC
 So8FPItemIDCSg
 _pSgIeggg_
@@ -16301,6 +16450,11 @@ So12NSDictionaryCSo7NSErrorCSgIeyByy_
 SaySo6FPItemCGIegg_
 SaySo6FPItemCG
 So7NSArrayCIeyBy_
+So22FPImportProgressReportCSg
+_pSgIeggg_
+So22FPImportProgressReportCSg
+_pSgIegng_
+So22FPImportProgressReportCSgSo7NSErrorCSgIeyByy_
 ypGSg
 _pSgIeggg_
 So12NSDictionaryCSgSo7NSErrorCSgIeyByy_
@@ -16683,7 +16837,6 @@ Qz04itemA0_xSg0B0
 yxGSg13fetchStrategyt
 Qz04itemA0_t
 Sb11deferRescan_SS6reasont
-Sb8longWait_t
 yx_G
 _pGIegn_
 Say2ID
@@ -16809,6 +16962,7 @@ So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
+So6FPItemC_G
 ySo6FPItemC
 So6FPItemC_G
 So6FPItemC_G
@@ -16822,6 +16976,7 @@ So6FPItemC_G
 So6FPItemC_G
 ySo6FPItemC
 _GSg
+ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
@@ -16966,6 +17121,7 @@ AB_G
 AB_G
 AB_G
 AB_G
+AB_G
 ySay
 GSSG
 _GSg
@@ -16976,6 +17132,12 @@ ySo6FPItemCG
 So6FPItemCGSgG
 ySo6FPItemCGG
 ytIgr_
+ySo6FPItemCG
+_GSay
+_pGG
+ySo6FPItemCG
+_GSay
+_pGG
 So6FPItemCGSgXw
 ySo6FPItemC
 GSgXw
@@ -16993,6 +17155,7 @@ ySpy
 Gz_SpySo8NSObjectCSgGSgzSpyypGSgztc
 SbIgr_
 So6FPItemCGG
+Igr_
 Si_Sit
 So6FPItemCxq_GSgXw
 yxq_GG
@@ -17074,7 +17237,6 @@ yq_xG
 yxq_G
 _pSg
 yxq_G
-G0R3_
 yAAySay
 GSiGSSG
 yShySiGSSG
@@ -17142,6 +17304,7 @@ y2ID
 QzAbCQy_G
 yxq_GG
 yxq_GSgG
+So18FPDSharedSchedulerC
 SDySO
 yxq_G_So10NSProgressC
 _pSgctG
@@ -17337,6 +17500,7 @@ So15FSChangeMonitorC
 So20FSChangeSubscriptionCSg
 So18OS_dispatch_sourceCG
 _pSgXw
+_SitSg
 ySi_SitSg
 _pGIegg_
 ySi_SitSg
@@ -17365,9 +17529,11 @@ SgXwz_Xx
 ySiG
 _pGIegn_
 So6FPItemCGG
+_GSo17OS_dispatch_queueCG
 _GABySi_GG
 _GACySi_GGSo17OS_dispatch_queueCG
 So9OS_os_logC
+_A15At
 SgXw
 GSgSb
 Igyyd_
@@ -17380,6 +17546,7 @@ So17OS_dispatch_queueCSg
 yxq_G
 yxq_G
 yxq__G
+G0R3_
 _pGSg
 _pIgrzo_
 yxq_GSgXw
@@ -17785,7 +17952,8 @@ requestCompleted
 jobScheduled
 jobContinuationScheduled
 jobCompleted
-streamIsIdle
+canUnblockDependentOperations
+canRescan
 meaningfulRecursivePropertyChange
 evictabilityCanBeSet
 cycleDetected
@@ -18159,7 +18327,8 @@ wharf
 itemChange
 forgetChange
 resetStream
-streamIsIdle
+canUnblockDependentOperations
+canRescan
 streamWasSignaled
 updatedItems
 deletedIDs
@@ -18503,6 +18672,7 @@ scheduleStateStorage
 onSchedulingStateChange
 source
 backgroundDownloadLimit
+blockedJobsLimit
 jobLockForAStorage
 jobLockForBStorage
 isCancelling
@@ -18541,7 +18711,9 @@ finishedDownloadJobs
 uploadJobs
 downloadJobs
 _isInDiskImportStorage
+_diskImportScheduler
 isInResetStream
+runningResetStreamJobs
 isUpcallTimeoutSchedulerRegister
 flushCount
 resetDate
@@ -18552,7 +18724,8 @@ completions
 changes
 position
 resetStream
-streamIsIdleWithLongWait
+canUnblockDependentOperations
+canRescan
 streamWasSignaled
 positionPersisted
 ArrayLiteralElement
@@ -18703,6 +18876,7 @@ unblockItemRejection
 unblockDiskImportItems
 rescanPendingSetFSSide
 rescanPendingSetFPSide
+unblockRemoteDeleletions
 RawValue
 SQLFields
 SQLFieldsSequence
@@ -18906,9 +19080,11 @@ _rootURLLock
 idLookupCache
 _lastFSEventID
 _fakeEventSeq
-lastFSEventIDShortWaitSubscription
+lastFSEventIDAndFakeEventShortWaitSubscription
 lastFSEventIDLongWaitSubscription
 eventAggregator
+canRescanMarker
+canUnblockDependentOperationsMarker
 counters
 preventedEvictabilityTable
 lookupCount
@@ -18921,11 +19097,13 @@ statesByKey
 positionPersisted
 processedFileIDAndPaths
 processedPaths
+lastFSEventID
 fileID
 path
 name
 providerIDHash
 ossignposter
+shouldReport
 signpostID
 signposter
 interval
@@ -18972,6 +19150,12 @@ Iterator
 [DEBUG] Resuming FSEvent stream %s <XPC activity running>
 [DEBUG] Stop processing of FSEvents on stream %s
 [DEBUG] Defer processing of FSEvents on stream %s per XPC activity
+Cloning file failed [%llu]: %{errno}d
+BSD flags cleanup on item cloned from ino:%llu failed: %{errno}d
+stat of item cloned from ino:%llu failed: %{errno}d
+Permission cleanup on item cloned from ino:%llu failed: %{errno}d
+ACL cleanup on item cloned from ino:%llu failed: %{errno}d
+xattr cleanup on item cloned from ino:%llu failed: %{errno}d
 [DEBUG] Observing %@ (%s)
 [DEBUG] Creating stream with name %s since %llu
 [DEBUG] Already need deep scan.  Dropping all incoming events
@@ -19047,6 +19231,7 @@ Iterator
 </array>
 </dict>
 </plist>
+T()q
 /.docid
 .DS_Store
 .DS_Store

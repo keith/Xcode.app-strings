@@ -34,6 +34,8 @@ deviceApprovedSeconds
 DeviceApprovedSeconds: %f -> %f
 deviceStateTimeoutSeconds
 DeviceStateTimeoutSeconds: %f -> %f
+partialIPsSeconds
+DAAppPartialIPUpdateMinCadenceSeconds: %f -> %f
 enabled
 Enabled: %s -> %s
 -[DADaemonServer _checkDevicesForAllApps]_block_invoke
@@ -74,12 +76,13 @@ No device ID
 Read app data failed
 No devices
 Device not found
+-[DADaemonServer saveDevice:session:allowCreate:error:]
+nw_endpoint signed: %s for device: %@ for app: %@
 Expired
 Not in approved state: %@
 State not allowed: %@
 bluetoothIdentifier
 Rejecting mismatched Bluetooth UUID
--[DADaemonServer saveDevice:session:allowCreate:error:]
 SaveDevice: no changes, %@, %@
 Serialize app data failed
 Write app data failed
@@ -178,6 +181,16 @@ NECP update UUIDs: unchanged, total %d
 Serialize data failed
 Write data failed
 NECP update UUIDs: changed, total %d
+-[DADaemonServer setPartialIPsForAppBundleID:partialIPs:error:]
+setPartialIPs: %@
+ipfragtime
+setPartialIPs rejected: too soon
+ipfragaddr
+ipfragmask
+ipfrag
+-[DADaemonServer getPartialIPsWithAppBundleID:error:]
+getPartialIPsWithAppBundleID: %@
+IP: %@
 -[DADaemonServer _xpcListenerEvent:]
 XPC listener invalidated
 ### XPC listener error: %@
@@ -210,6 +223,8 @@ SesA
 DgSh
 GADv
 SDvS
+GIFs
+SIFs
 ### XPC unknown message type: '%s'
 Unknown message type: '%s'
 -[DADaemonXPCConnection _xpcSendEvent:]
@@ -259,6 +274,21 @@ dvSt
 -[DADaemonXPCConnection _xpcSetDeviceState:]
 SetDeviceState: %@, %@, state %@, from %@
 ### SetDeviceState create reply failed
+-[DADaemonXPCConnection _xpcSetPartialIPs:]_block_invoke
+### SetPartialIPs failed: %@ from %@
+-[DADaemonXPCConnection _xpcSetPartialIPs:]
+setPartialIPs: allowing entitled process to set for arbitrary app
+bndI
+No App Bundle ID
+IPFr
+No partial IPs
+### SetPartialIPs create reply failed
+-[DADaemonXPCConnection _xpcGetPartialIPs:]_block_invoke
+### GetPartialIPs failed: %@ from %@
+process not entitled
+No App ID
+-[DADaemonXPCConnection _xpcGetPartialIPs:]
+### GetPartialIPs create reply failed
 DADaemonXPCConnection
 Invalid
 InProgress
@@ -274,15 +304,25 @@ errM
 --vers
 vers
 DeviceAccess daemon version %s
-100.58
+110.2
 warning: unknown option '%s'
 int main(int, const char **)
 Launched
 com.apple.deviceaccessd
 ### _set_user_dir_suffix failed: %@
+%@ super init failed
+ipAd
+ipMa
+address
+mask
+addr: %@, mask: %@
 DADaemonDiscovery
 DADaemonServer
 DADaemonXPCConnection
+DAPartialIP
+CUXPCCodable
+NSSecureCoding
+NSCoding
 deviceMap
 setDeviceMap:
 discoveryObj
@@ -358,6 +398,7 @@ length
 integerValue
 state
 setApproveTime:
+networkEndpoint
 persistentDictionaryRepresentation
 numberWithInteger:
 isEqualToString:
@@ -385,7 +426,6 @@ setPendingRemoval:
 reportDiscoveryEvent:appID:
 numberWithDouble:
 markState:forDeviceId:atTime:
-networkEndpoint
 txtRecordData
 bytes
 protocolType
@@ -407,17 +447,24 @@ UUIDString
 URLForDirectory:inDomain:appropriateForURL:create:error:
 createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 sendAnalytics:forEvent:
+array
+dictionary
+address
+mask
+initWithAddress:mask:
+description
 _xpcConnectionAccept:
 setDaemon:
 setPid:
 setXpcCnx:
 xpcReceivedMessage:
-description
 devicesPresentWithAppID:
 reportAuthorizedDevices:
 saveDevice:session:allowCreate:error:
 addDiscovery:
 removeDiscovery:
+setPartialIPsForAppBundleID:partialIPs:error:
+getPartialIPsWithAppBundleID:error:
 xpcListenerEndpoint
 xpcConnectionInvalidated:
 _appSessionMap
@@ -432,6 +479,7 @@ _necpFD
 _prefCheckDevicesSeconds
 _prefDeviceApprovedSeconds
 _prefDeviceStateTimeoutSeconds
+_prefAppPartialIPUpdateMinCadenceSeconds
 _prefEnabled
 _prefsChangedNotifyToken
 _startTicksAwake
@@ -454,6 +502,8 @@ _xpcDASessionActivate:
 _xpcDiagnosticShow:
 _xpcGetAuthorizedDevices:
 _xpcSetDeviceState:
+_xpcGetPartialIPs:
+_xpcSetPartialIPs:
 _entitledAndReturnError:
 initWithUUIDString:
 setBluetoothDevices:
@@ -461,6 +511,8 @@ _xpcSendEvent:
 initWithXPCObject:error:
 _xpcSendReply:
 encodeWithXPCObject:
+bundleRecordForAuditToken:error:
+bundleIdentifier
 xpcReceivedEvent:
 appID
 setAppID:
@@ -483,6 +535,18 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_dispatchQueue
 TB,N,V_entitled
 Ti,N,V_pid
 T@"NSObject<OS_xpc_object>",&,N,V_xpcCnx
+encodeObject:forKey:
+decodeObjectForKey:
+isEqualToData:
+stringWithFormat:
+supportsSecureCoding
+encodeWithCoder:
+initWithCoder:
+TB,R
+_address
+_mask
+T@"NSData",R,C,N,V_address
+T@"NSData",R,C,N,V_mask
 @16@0:8
 v24@0:8@16
 v16@0:8
@@ -500,6 +564,8 @@ B44@0:8@16@24B32^@36
 B40@0:8@16[16C]24^@32
 v24@0:8@?16
 @40@0:8@16@24[16C]32
+B40@0:8@16@24^@32
+@32@0:8@16^@24
 @"NSObject<OS_dispatch_source>"
 @"NSObject<OS_dispatch_queue>"
 @"NSObject<OS_xpc_object>"
@@ -511,6 +577,12 @@ v20@0:8i16
 @"DASession"
 @"NSString"
 @"DADaemonServer"
+@32@0:8@"NSObject<OS_xpc_object>"16^@24
+v24@0:8@"NSObject<OS_xpc_object>"16
+v24@0:8@"NSCoder"16
+@24@0:8@"NSCoder"16
+@32@0:8@16@24
+@"NSData"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -534,25 +606,25 @@ v20@0:8i16
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>100.58</string>
+<string>110.2</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A5270i</string>
+<string>20B5043s</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>16.0</string>
+<string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20A344</string>
+<string>20B5043s</string>
 <key>DTSDKName</key>
-<string>iphonesimulator16.0.internal</string>
+<string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>
 <string>1400</string>
 <key>DTXcodeBuild</key>
 <string>14A5270i</string>
 <key>MinimumOSVersion</key>
-<string>16.0</string>
+<string>16.1</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
@@ -636,6 +708,8 @@ deviceApprovedSeconds
 DeviceApprovedSeconds: %f -> %f
 deviceStateTimeoutSeconds
 DeviceStateTimeoutSeconds: %f -> %f
+partialIPsSeconds
+DAAppPartialIPUpdateMinCadenceSeconds: %f -> %f
 enabled
 Enabled: %s -> %s
 -[DADaemonServer _checkDevicesForAllApps]_block_invoke
@@ -676,12 +750,13 @@ No device ID
 Read app data failed
 No devices
 Device not found
+-[DADaemonServer saveDevice:session:allowCreate:error:]
+nw_endpoint signed: %s for device: %@ for app: %@
 Expired
 Not in approved state: %@
 State not allowed: %@
 bluetoothIdentifier
 Rejecting mismatched Bluetooth UUID
--[DADaemonServer saveDevice:session:allowCreate:error:]
 SaveDevice: no changes, %@, %@
 Serialize app data failed
 Write app data failed
@@ -781,6 +856,16 @@ NECP update UUIDs: unchanged, total %d
 Serialize data failed
 Write data failed
 NECP update UUIDs: changed, total %d
+-[DADaemonServer setPartialIPsForAppBundleID:partialIPs:error:]
+setPartialIPs: %@
+ipfragtime
+setPartialIPs rejected: too soon
+ipfragaddr
+ipfragmask
+ipfrag
+-[DADaemonServer getPartialIPsWithAppBundleID:error:]
+getPartialIPsWithAppBundleID: %@
+IP: %@
 -[DADaemonServer _xpcListenerEvent:]
 XPC listener invalidated
 ### XPC listener error: %@
@@ -813,6 +898,8 @@ SesA
 DgSh
 GADv
 SDvS
+GIFs
+SIFs
 ### XPC unknown message type: '%s'
 Unknown message type: '%s'
 -[DADaemonXPCConnection _xpcSendEvent:]
@@ -862,6 +949,21 @@ dvSt
 -[DADaemonXPCConnection _xpcSetDeviceState:]
 SetDeviceState: %@, %@, state %@, from %@
 ### SetDeviceState create reply failed
+-[DADaemonXPCConnection _xpcSetPartialIPs:]_block_invoke
+### SetPartialIPs failed: %@ from %@
+-[DADaemonXPCConnection _xpcSetPartialIPs:]
+setPartialIPs: allowing entitled process to set for arbitrary app
+bndI
+No App Bundle ID
+IPFr
+No partial IPs
+### SetPartialIPs create reply failed
+-[DADaemonXPCConnection _xpcGetPartialIPs:]_block_invoke
+### GetPartialIPs failed: %@ from %@
+process not entitled
+No App ID
+-[DADaemonXPCConnection _xpcGetPartialIPs:]
+### GetPartialIPs create reply failed
 DADaemonXPCConnection
 Invalid
 InProgress
@@ -877,92 +979,107 @@ errM
 --vers
 vers
 DeviceAccess daemon version %s
-100.58
+110.2
 warning: unknown option '%s'
 int main(int, const char **)
 Launched
 com.apple.deviceaccessd
 ### _set_user_dir_suffix failed: %@
+%@ super init failed
+ipAd
+ipMa
+address
+mask
+addr: %@, mask: %@
 DADaemonDiscovery
 DADaemonServer
 DADaemonXPCConnection
-protocolType
-fileURLWithPath:
-initWithEventType:device:
-lastPathComponent
-count
-stringByDeletingPathExtension
-writeToURL:options:error:
-initWithUUIDString:
-networkEndpoint
-dictionaryWithObjects:forKeys:count:
-bytes
-protocol
-utf8ValueSafe
+DAPartialIP
+CUXPCCodable
+NSSecureCoding
+NSCoding
 pathExtension
-setConfiguration:
-isEqualToString:
-initWithContentsOfURL:error:
-copy
-eventType
-setBluetoothDevices:
-initWithUUIDBytes:
-presenceOnly
-mutableCopy
-defaultManager
-removeObject:
-absoluteString
-UTF8String
-setPendingRemoval:
-markState:forDeviceId:atTime:
-bundleID
-objectForKeyedSubscript:
-state
-isEqual:
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-dataWithPropertyList:format:options:error:
-enumerateKeysAndObjectsUsingBlock:
-identifier
-initWithPresent:
-removeItemAtURL:error:
-encodeWithXPCObject:
-setObject:forKeyedSubscript:
-deviceMetadataURLValid:
-allValues
-numberWithInteger:
-containsObject:
-markSessionActivationForPid:atTime:
-port
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-numberWithInt:
-setApproveTime:
 host
-txtRecordData
-setDirect:
-URLForDirectory:inDomain:appropriateForURL:create:error:
-initWithPersistentDictionaryRepresentation:error:
-sendAnalyticsInfo:forEvent:withDeviceIdentifier:
-setIdentifier:
-allKeys
-configuration
-stringWithUTF8String:
-integerValue
-UUIDString
-persistentDictionaryRepresentation
-length
-removeAllObjects
-numberWithDouble:
-initWithXPCObject:error:
-countByEnumeratingWithState:objects:count:
-device
-setEventHandler:
-sendAnalytics:forEvent:
-initWithFormat:
 addObject:
-pendingRemoval
-URLByAppendingPathComponent:isDirectory:
-setState:
+protocol
+dictionary
+setPendingRemoval:
+integerValue
+enumerateKeysAndObjectsUsingBlock:
+lastPathComponent
+initWithFormat:
+setConfiguration:
+bundleID
+state
+mutableCopy
+txtRecordData
+removeObject:
+configuration
+setBluetoothDevices:
+encodeObject:forKey:
+isEqualToData:
+objectForKeyedSubscript:
+countByEnumeratingWithState:objects:count:
+presenceOnly
+initWithUUIDString:
+stringWithUTF8String:
+array
+isEqualToString:
+initWithEventType:device:
+port
 caseInsensitiveCompare:
+stringWithFormat:
+URLForDirectory:inDomain:appropriateForURL:create:error:
+removeItemAtURL:error:
+numberWithInteger:
+setObject:forKeyedSubscript:
+count
+allValues
+numberWithInt:
+UTF8String
+setApproveTime:
+initWithUUIDBytes:
+bundleRecordForAuditToken:error:
+defaultManager
+initWithContentsOfURL:error:
+decodeObjectForKey:
+bytes
+absoluteString
+markState:forDeviceId:atTime:
+deviceMetadataURLValid:
+setDirect:
+markSessionActivationForPid:atTime:
+sendAnalyticsInfo:forEvent:withDeviceIdentifier:
+copy
+setIdentifier:
+writeToURL:options:error:
+allKeys
+fileURLWithPath:
+setState:
+initWithPresent:
+persistentDictionaryRepresentation
+stringByDeletingPathExtension
+sendAnalytics:forEvent:
+removeAllObjects
+utf8ValueSafe
+UUIDString
+numberWithDouble:
+setEventHandler:
+eventType
+bundleIdentifier
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+pendingRemoval
+dataWithPropertyList:format:options:error:
+URLByAppendingPathComponent:isDirectory:
+protocolType
+device
+containsObject:
+length
+identifier
+dictionaryWithObjects:forKeys:count:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+networkEndpoint
+initWithPersistentDictionaryRepresentation:error:
 deviceMap
 setDeviceMap:
 discoveryObj
@@ -1019,6 +1136,8 @@ _necpUpdateValueStrings:
 _necpUpdateUUIDForAppID:device:
 _necpUpdateUUIDsWithBlock:
 _necpUUIDForAppID:deviceID:uuidBytes:
+setPartialIPsForAppBundleID:partialIPs:error:
+getPartialIPsWithAppBundleID:error:
 xpcListenerEndpoint
 _xpcListenerEvent:
 _xpcConnectionAccept:
@@ -1035,6 +1154,7 @@ _necpFD
 _prefCheckDevicesSeconds
 _prefDeviceApprovedSeconds
 _prefDeviceStateTimeoutSeconds
+_prefAppPartialIPUpdateMinCadenceSeconds
 _prefEnabled
 _prefsChangedNotifyToken
 _startTicksAwake
@@ -1061,6 +1181,8 @@ _xpcDiagnosticShow:
 _xpcReportDAEvent:
 _xpcGetAuthorizedDevices:
 _xpcSetDeviceState:
+_xpcSetPartialIPs:
+_xpcGetPartialIPs:
 appID
 setAppID:
 daemon
@@ -1086,6 +1208,20 @@ T@"NSObject<OS_dispatch_queue>",&,N,V_dispatchQueue
 TB,N,V_entitled
 Ti,N,V_pid
 T@"NSObject<OS_xpc_object>",&,N,V_xpcCnx
+supportsSecureCoding
+initWithXPCObject:error:
+encodeWithXPCObject:
+encodeWithCoder:
+initWithCoder:
+TB,R
+initWithAddress:mask:
+isEqual:
+address
+mask
+_address
+_mask
+T@"NSData",R,C,N,V_address
+T@"NSData",R,C,N,V_mask
 @16@0:8
 v24@0:8@16
 v16@0:8
@@ -1103,6 +1239,8 @@ B44@0:8@16@24B32^@36
 B40@0:8@16[16C]24^@32
 v24@0:8@?16
 @40@0:8@16@24[16C]32
+B40@0:8@16@24^@32
+@32@0:8@16^@24
 @"NSObject<OS_dispatch_source>"
 @"NSObject<OS_dispatch_queue>"
 @"NSObject<OS_xpc_object>"
@@ -1114,6 +1252,12 @@ v20@0:8i16
 @"DASession"
 @"NSString"
 @"DADaemonServer"
+@32@0:8@"NSObject<OS_xpc_object>"16^@24
+v24@0:8@"NSObject<OS_xpc_object>"16
+v24@0:8@"NSCoder"16
+@24@0:8@"NSCoder"16
+@32@0:8@16@24
+@"NSData"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1137,25 +1281,25 @@ v20@0:8i16
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>100.58</string>
+<string>110.2</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>14A5270i</string>
+<string>20B5043s</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
-<string>16.0</string>
+<string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20A344</string>
+<string>20B5043s</string>
 <key>DTSDKName</key>
-<string>iphonesimulator16.0.internal</string>
+<string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>
 <string>1400</string>
 <key>DTXcodeBuild</key>
 <string>14A5270i</string>
 <key>MinimumOSVersion</key>
-<string>16.0</string>
+<string>16.1</string>
 <key>UIDeviceFamily</key>
 <array>
 <integer>1</integer>
