@@ -212,6 +212,7 @@ v12@?0i8
 Failed to update database %@ from %@
 kTCCServiceExposureNotification
 kTCCServiceCrashDetection
+kTCCServicePasteboard
 explicitly
 implicitly
 Requestor: %@ is not entitled to check access for accessor %@
@@ -223,7 +224,7 @@ Unable to construct an identity to %@, %@
 com.apple.tcc.delegated-services
 delegated service: %@: %@ sandbox_check_by_audit_token(%@) fails: %d
 SELECT auth_value, auth_reason, csreq, strftime('%s','now') - last_modified AS age, flags, auth_version FROM access WHERE service = ? AND client = ? AND client_type = ?
-Query for current DB state for  %@: Requestor: %@
+Query for current DB state for %@: Requestor: %@
 com.apple.private.tcc.system
 unexpected!
 Allowed:No Record
@@ -268,21 +269,6 @@ Failed to create a Result from do_TCCAccessRequest().
 Failed to issue Sandbox Extension for %@ from %@
 com.apple.tcc.
 extension
-SELECT service, auth_value, last_modified, csreq, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE client = ? AND client_type = ?
-handle_TCCAccessCopyInformationForBundle_block_invoke
-service
-granted
-auth_value
-auth_reason
-auth_version
-last_modified
-code_requirement
-services
-handle_TCCAccessCopyBundleIdentifiersForService
-SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value != 0
-clients
-handle_TCCAccessCopyBundleIdentifiersDisabledForService
-SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value = 0
 handle_TCCAccessSetOverride
 override
 handle_TCCAccessGetOverride
@@ -304,7 +290,10 @@ handle_TCCExpirationCopyInformationForService
 SELECT client, client_type, csreq, last_modified, expired_at FROM expired WHERE service = ?
 path
 bundle
+last_modified
 expired_at
+code_requirement
+clients
 handle_TCCExpirationReset
 client
 DELETE FROM expired
@@ -386,8 +375,6 @@ truncated
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 DELETE FROM access_overrides WHERE service = ?
 SELECT client, client_type, auth_value FROM access WHERE service = ?
-SELECT service, client, client_type FROM access
-DELETE FROM access
 SELECT service, client FROM access WHERE client LIKE '%@%@' AND client_type = %d
 DELETE FROM access WHERE client LIKE '%@%@' AND client_type = %d
 SELECT client, client_type FROM access WHERE service = ?
@@ -408,7 +395,7 @@ error using asprintf() for db_path in _create_database
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 BEGIN
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 21);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 22);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
@@ -432,7 +419,7 @@ kTCCServicePhotos
 INSERT OR REPLACE INTO admin (key, value) VALUES ('%@', %d)
 DELETE FROM access WHERE client = 'com.apple.Health' AND service = 'kTCCServiceLiverpool'
 DELETE FROM access WHERE client = '/usr/sbin/sshd' AND service = 'kTCCServiceSystemPolicyAllFiles'
-UPDATE admin SET value = 21 WHERE key = 'version'
+UPDATE admin SET value = 22 WHERE key = 'version'
 SELECT value FROM admin WHERE key = '%@'
 DELETE FROM admin WHERE key = '%@'
 main
@@ -444,6 +431,8 @@ ST_ATIME
 ST_MTIME
 ST_CTIME
 ST_BIRTHTIME
+SELECT service, client, client_type FROM access
+DELETE FROM access
 _db_eval
 TCCDDatabase.m
 sql != NULL
@@ -536,6 +525,8 @@ Invalid Access Identity from message
 indirect_object_type
 indirect_object_identifier
 indirect_object_code_requirement
+granted
+auth_value
 modDate
 -[TCCDServer purgeExpiredAccessEntriesForService:]
 FROM access WHERE service = ? AND strftime('%s','now') - last_modified > ?
@@ -567,7 +558,7 @@ SELECT COUNT(*) FROM access WHERE service = '%@'
 SELECT COUNT(*) FROM access WHERE service = '%@' AND auth_value = %lld
 -[TCCDServer numberOfRecordsForService:withAuthorizationValue:]
 v32@?0@"TCCDAccessRecord"8Q16^B24
--[TCCDServer fetchAllOverridenServiceNames]
+-[TCCDServer fetchAllOverriddenServiceNames]
 SELECT * FROM policies
 uuid
 -[TCCDServer fetchAllPolicies]
@@ -819,12 +810,23 @@ SB Ext
 Allow Standard User to Set System Service
 Next Request Should Prompt
 Flags
-handle_TCCAccessResetInternal
-handle_TCCAccessCopyInformation
+handle_TCCAccessResetInternal_with_attribution_chain
+handle_TCCAccessCopyInformation_with_attribution_chain
+SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE service = ? OR service = ?
+kTCCServiceEndpointSecurityClient
 SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE service = ?
 SELECT    id, uuid, display FROM    policies JOIN active_policy ON (policies.id = active_policy.policy_id) WHERE    active_policy.client_type = ? AND active_policy.client = ?
 .overridable
 has_private_tcc_entitlement
+handle_TCCAccessCopyBundleIdentifiersForService_with_attribution_chain
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE (service = ? OR service = ?) AND client_type = ? AND auth_value != 0
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value != 0
+SELECT service, auth_value, last_modified, csreq, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE client = ? AND client_type = ?
+handle_TCCAccessCopyInformationForBundle_with_attribution_chain_block_invoke
+services
+handle_TCCAccessCopyBundleIdentifiersDisabledForService_with_attribution_chain
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE (service = ? OR service = ?) AND client_type = ? AND auth_value = 0
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value = 0
 TCCD_MSG_IDENTITY_VERIFIER_TYPE_KEY
 TCC_MSG_REQUEST_AUTHORIZATION_SUBJECT_IDENTITY_DICTIONARY_KEY
 com.apple.tccd.policy-override
@@ -895,6 +897,7 @@ v1-upgrade-deny
 _ID_type
 _bundle_version
 com.apple.TCC.management_action
+service
 plugin
 @"NSMutableDictionary"8@?0
 -[TCCDPlatform sendAnalyticsForPlugin:service:API:]_block_invoke
@@ -906,6 +909,7 @@ v1_authorization_right
 subject
 indirect_object
 -[TCCDPlatform sendAnalyticsForAction:service:subjectIdentity:indirectObjectIdentity:authValue:includeV1AuthValue:v1AuthValue:]_block_invoke
+auth_reason
 auth_error_string
 auth_error_code
 ReqResult(
@@ -920,6 +924,7 @@ restricted
 abort
 problem_key
 do_not_cache
+auth_version
 auth_abort_description
 auth_abort_key
 TCCDEventPublisherQueue
@@ -1509,7 +1514,7 @@ recordFromMessage:accessIdentity:error:
 subjectIdentity
 identityType
 isProcessServiceCompositionManager:
-updateAccessRecord:replaceOnly:doCompositionWithChildService:
+updateAccessRecord:replaceOnly:doCompositionWithChildService:requestingProcess:function:
 codesignStatus
 isSystemPreferencesApp
 accessIdentity
@@ -1518,7 +1523,7 @@ scheduleAccessEntryExpiryCheckForService:
 name
 identifierAuthority
 isAccessEntryWithAge:authorizationValue:expiredForService:
-fetchAllOverridenServiceNames
+fetchAllOverriddenServiceNames
 isWatchKitApp
 setLogHandle:
 setAllowsInternalSecurityPolicies:
@@ -1582,6 +1587,8 @@ arrayValueForEntitlement:
 sandboxOperationForDelegation
 auditToken
 setDatabaseFlags:
+attributionPath
+translateAllFilesToEndpointSecurity:withClient:clientType:requestingProcess:function:executablePath:
 setV1AuthorizationUpgrade:
 setV1AuthorizationValue:
 setV1AuthorizationReason:
@@ -1649,8 +1656,6 @@ populateReplyMessage:
 shouldIssueSandboxExtension
 stringByAppendingString:
 ios_useGenericSandboxExtension
-serviceAll
-initWithBundleIdentifier:allowPlaceholder:error:
 applicationProxyForIdentifier:placeholder:
 absoluteString
 serviceDescriptionsForPlatformName:
@@ -1738,7 +1743,6 @@ cachedAccessIdentityForAccessorAuditToken:responsibleAuditToken:isSpecificIdenti
 cacheAccessIdentity:forAccessorAuditToken:responsibleAuditToken:isSpecificIdentity:
 isEqualToCachedIdentity:
 initWithBundleIdentifier:isWK2Proxy:
-attributionPath
 accessorAuditToken
 responsibleAuditToken
 pluginBundleURL
@@ -1892,6 +1896,7 @@ fetchAllPolicies
 fetchAllActivePolicies
 internalPreferenceBoolValueForName:present:
 targetAuditToken:fromMessage:error:
+canProcess:manageESClientServiceWith:
 evaluateUserIndependentEntitlementsForAccessByAttributionChain:forFunction:toService:error:
 setMacos_isSystemServer:
 macos_compatibilityFileVnodeSource
@@ -2309,6 +2314,7 @@ TQ,V_flags
 T@"NSDate",&,V_lastModifiedDate
 TB,R,V_replaceStoredCodeRequirement
 numberWithLongLong:
+initWithBundleIdentifier:allowPlaceholder:error:
 orderedOverridePolicies
 firstObject
 isActive
@@ -2467,6 +2473,7 @@ _initializeUsingResponsibleIdentity:
 _initializeUsingTaskForAuditToken:
 entitlements
 auid
+serviceAll
 identifierForInvalidCode
 hasRuntimeValidationEnabled
 setEntitlements:
@@ -2919,7 +2926,6 @@ REPLY_MSG: msg=%{public}@
 REPLY: (%d) function=%{public}s, msgID=%{public}s
 Unhandled message!: %{public}@
 Failed to issue sandbox extension for class: %{public}s
-%s: failed to allocate accessRecord dictionary
 Failed to convert overrides to an XPC object: %@
 AccessDeclarePolicy() for %{public}@ policy: %{uuid_t}.16P; display: '%{public}s'
 SelectPolicyForExtensionWithIdentifier() for %{public}@ policy: %{uuid_t}.16P; bundle_id: '%{public}s
@@ -3112,6 +3118,7 @@ NSLocalizedStringFromTableInBundle failed for service %{public}@: request_key=%{
 [%zu] = %{public}@
 PolicyOverride: For %{public}@: policy_id:%{public}@, policy_client: %{public}@, display_name: %{public}@
 %{public}s: invalid entitlement requested - %{public}@
+%s: failed to allocate accessRecord dictionary
 handle_TCCAccessCopyInformation(): failed to allocate clientInfo dictionary.
 Failed to initialize LSApplicationRecord with bundle ID: %{public}@, error: %{public}@
 handle_TCCAccessCopyInformation(): skipping identity type: IDENTITY_TYPE_POLICY_ID for identifier: %{public}s.
@@ -3417,6 +3424,7 @@ B32@0:8@16o^B24
 v40@0:8^@16q24@32
 @28@0:8@16i24
 B40@0:8^{?=[8I]}16@24^@32
+B32@0:8@16@24
 B40@0:8@16@24@32
 @32@0:8@16^@24
 @40@0:8@16^@24^@32
@@ -3424,7 +3432,8 @@ B36@0:8i16Q20@28
 @48@0:8@16@24@32Q40
 @48@0:8@16@24@32^@40
 B64@0:8@16B24@28B36^Q40^Q48^@56
-B32@0:8@16B24B28
+@60@0:8@16@24i32@36@44@52
+B48@0:8@16B24B28@32@40
 B64@0:8@16@24q32^Q40^Q48^@56
 Q32@0:8@16Q24
 @24@0:8^{sqlite3_stmt=}16
@@ -3522,7 +3531,7 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <key>DTPlatformVersion</key>
 <string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20B43</string>
+<string>20B5050f</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>
@@ -3791,6 +3800,7 @@ v12@?0i8
 Failed to update database %@ from %@
 kTCCServiceExposureNotification
 kTCCServiceCrashDetection
+kTCCServicePasteboard
 explicitly
 implicitly
 Requestor: %@ is not entitled to check access for accessor %@
@@ -3802,7 +3812,7 @@ Unable to construct an identity to %@, %@
 com.apple.tcc.delegated-services
 delegated service: %@: %@ sandbox_check_by_audit_token(%@) fails: %d
 SELECT auth_value, auth_reason, csreq, strftime('%s','now') - last_modified AS age, flags, auth_version FROM access WHERE service = ? AND client = ? AND client_type = ?
-Query for current DB state for  %@: Requestor: %@
+Query for current DB state for %@: Requestor: %@
 com.apple.private.tcc.system
 unexpected!
 Allowed:No Record
@@ -3847,21 +3857,6 @@ Failed to create a Result from do_TCCAccessRequest().
 Failed to issue Sandbox Extension for %@ from %@
 com.apple.tcc.
 extension
-SELECT service, auth_value, last_modified, csreq, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE client = ? AND client_type = ?
-handle_TCCAccessCopyInformationForBundle_block_invoke_2
-service
-granted
-auth_value
-auth_reason
-auth_version
-last_modified
-code_requirement
-services
-handle_TCCAccessCopyBundleIdentifiersForService
-SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value != 0
-clients
-handle_TCCAccessCopyBundleIdentifiersDisabledForService
-SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value = 0
 handle_TCCAccessSetOverride
 override
 handle_TCCAccessGetOverride
@@ -3883,7 +3878,10 @@ handle_TCCExpirationCopyInformationForService
 SELECT client, client_type, csreq, last_modified, expired_at FROM expired WHERE service = ?
 path
 bundle
+last_modified
 expired_at
+code_requirement
+clients
 handle_TCCExpirationReset
 client
 DELETE FROM expired
@@ -3965,8 +3963,6 @@ truncated
 INSERT OR IGNORE INTO access_overrides VALUES (?)
 DELETE FROM access_overrides WHERE service = ?
 SELECT client, client_type, auth_value FROM access WHERE service = ?
-SELECT service, client, client_type FROM access
-DELETE FROM access
 SELECT service, client FROM access WHERE client LIKE '%@%@' AND client_type = %d
 DELETE FROM access WHERE client LIKE '%@%@' AND client_type = %d
 SELECT client, client_type FROM access WHERE service = ?
@@ -3987,7 +3983,7 @@ error using asprintf() for db_path in _create_database
 allocation failed
 PRAGMA journal_mode=WAL;PRAGMA foreign_keys=ON;
 BEGIN
-CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 21);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
+CREATE TABLE IF NOT EXISTS admin (key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL);INSERT OR IGNORE INTO admin VALUES ('version', 22);CREATE TABLE IF NOT EXISTS policies (    id        INTEGER    NOT NULL PRIMARY KEY,     bundle_id    TEXT    NOT NULL,     uuid        TEXT    NOT NULL,     display        TEXT    NOT NULL,     UNIQUE (bundle_id, uuid));CREATE TABLE IF NOT EXISTS active_policy (    client        TEXT    NOT NULL,     client_type    INTEGER    NOT NULL,     policy_id    INTEGER NOT NULL,     PRIMARY KEY (client, client_type),     FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE INDEX IF NOT EXISTS active_policy_id ON active_policy(policy_id);CREATE TABLE IF NOT EXISTS access (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     auth_value     INTEGER     NOT NULL,     auth_reason    INTEGER     NOT NULL,     auth_version   INTEGER     NOT NULL,     csreq          BLOB,     policy_id      INTEGER,     indirect_object_identifier_type    INTEGER,     indirect_object_identifier         TEXT NOT NULL DEFAULT 'UNUSED',     indirect_object_code_identity      BLOB,     flags          INTEGER,     last_modified  INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type, indirect_object_identifier),    FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE ON UPDATE CASCADE);CREATE TABLE IF NOT EXISTS access_overrides (    service        TEXT    NOT NULL PRIMARY KEY);CREATE TABLE IF NOT EXISTS expired (    service        TEXT        NOT NULL,     client         TEXT        NOT NULL,     client_type    INTEGER     NOT NULL,     csreq          BLOB,     last_modified  INTEGER     NOT NULL ,     expired_at     INTEGER     NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),     PRIMARY KEY (service, client, client_type));
 SELECT value FROM admin WHERE key = 'version'
 DROP TABLE access; DROP TABLE access_times; DROP TABLE access_overrides;
 ALTER TABLE access ADD COLUMN csreq BLOB
@@ -4011,7 +4007,7 @@ kTCCServicePhotos
 INSERT OR REPLACE INTO admin (key, value) VALUES ('%@', %d)
 DELETE FROM access WHERE client = 'com.apple.Health' AND service = 'kTCCServiceLiverpool'
 DELETE FROM access WHERE client = '/usr/sbin/sshd' AND service = 'kTCCServiceSystemPolicyAllFiles'
-UPDATE admin SET value = 21 WHERE key = 'version'
+UPDATE admin SET value = 22 WHERE key = 'version'
 SELECT value FROM admin WHERE key = '%@'
 DELETE FROM admin WHERE key = '%@'
 main
@@ -4023,6 +4019,8 @@ ST_ATIME
 ST_MTIME
 ST_CTIME
 ST_BIRTHTIME
+SELECT service, client, client_type FROM access
+DELETE FROM access
 _db_eval
 TCCDDatabase.m
 sql != NULL
@@ -4115,6 +4113,8 @@ Invalid Access Identity from message
 indirect_object_type
 indirect_object_identifier
 indirect_object_code_requirement
+granted
+auth_value
 modDate
 -[TCCDServer purgeExpiredAccessEntriesForService:]
 FROM access WHERE service = ? AND strftime('%s','now') - last_modified > ?
@@ -4146,7 +4146,7 @@ SELECT COUNT(*) FROM access WHERE service = '%@'
 SELECT COUNT(*) FROM access WHERE service = '%@' AND auth_value = %lld
 -[TCCDServer numberOfRecordsForService:withAuthorizationValue:]
 v32@?0@"TCCDAccessRecord"8Q16^B24
--[TCCDServer fetchAllOverridenServiceNames]
+-[TCCDServer fetchAllOverriddenServiceNames]
 SELECT * FROM policies
 uuid
 -[TCCDServer fetchAllPolicies]
@@ -4398,12 +4398,23 @@ SB Ext
 Allow Standard User to Set System Service
 Next Request Should Prompt
 Flags
-handle_TCCAccessResetInternal
-handle_TCCAccessCopyInformation
+handle_TCCAccessResetInternal_with_attribution_chain
+handle_TCCAccessCopyInformation_with_attribution_chain
+SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE service = ? OR service = ?
+kTCCServiceEndpointSecurityClient
 SELECT client, client_type, auth_value, csreq, last_modified, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE service = ?
 SELECT    id, uuid, display FROM    policies JOIN active_policy ON (policies.id = active_policy.policy_id) WHERE    active_policy.client_type = ? AND active_policy.client = ?
 .overridable
 has_private_tcc_entitlement
+handle_TCCAccessCopyBundleIdentifiersForService_with_attribution_chain
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE (service = ? OR service = ?) AND client_type = ? AND auth_value != 0
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value != 0
+SELECT service, auth_value, last_modified, csreq, strftime('%s','now') - last_modified AS age, indirect_object_identifier, indirect_object_identifier_type, indirect_object_code_identity, auth_reason, auth_version, flags FROM access WHERE client = ? AND client_type = ?
+handle_TCCAccessCopyInformationForBundle_with_attribution_chain_block_invoke_2
+services
+handle_TCCAccessCopyBundleIdentifiersDisabledForService_with_attribution_chain
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE (service = ? OR service = ?) AND client_type = ? AND auth_value = 0
+SELECT client, strftime('%s','now') - last_modified AS age, auth_value FROM access WHERE service = ? AND client_type = ? AND auth_value = 0
 TCCD_MSG_IDENTITY_VERIFIER_TYPE_KEY
 TCC_MSG_REQUEST_AUTHORIZATION_SUBJECT_IDENTITY_DICTIONARY_KEY
 com.apple.tccd.policy-override
@@ -4474,6 +4485,7 @@ v1-upgrade-deny
 _ID_type
 _bundle_version
 com.apple.TCC.management_action
+service
 plugin
 @"NSMutableDictionary"8@?0
 -[TCCDPlatform sendAnalyticsForPlugin:service:API:]_block_invoke_2
@@ -4485,6 +4497,7 @@ v1_authorization_right
 subject
 indirect_object
 -[TCCDPlatform sendAnalyticsForAction:service:subjectIdentity:indirectObjectIdentity:authValue:includeV1AuthValue:v1AuthValue:]_block_invoke
+auth_reason
 auth_error_string
 auth_error_code
 ReqResult(
@@ -4499,6 +4512,7 @@ restricted
 abort
 problem_key
 do_not_cache
+auth_version
 auth_abort_description
 auth_abort_key
 TCCDEventPublisherQueue
@@ -4552,172 +4566,50 @@ Persistent state not set
 com.apple.tccd.AlertManager
 TCCDAlertConfig_SBRemoteAlertServiceName
 TCCDAlertConfig_SBRemoteAlertViewControllerClassName
-stringByAppendingString:
-code
-initWithString:
-activeSyncSession
-sharedManager
-TCCPolicy
-keysSortedByValueUsingComparator:
-setSound:
-plugInKitPlugins
-initWithTimeIntervalSince1970:
-length
-request
-companionAppBundleID
-addDelegate:queue:
-sendMessage:toDestinations:priority:options:identifier:error:
-setLocale:
-newHandleWithDefinition:configurationContext:
-setBody:
-addEntriesFromDictionary:
-notification
-addNotificationRequest:withCompletionHandler:
-setCategoryIdentifier:
-extensionPointRecord
-addObject:
-initWithUTF8String:
-extensionPointType
-addObjectsFromArray:
-deviceForPairingID:
-userInfo
-initWithUUIDBytes:
-syncCoordinatorWithServiceName:
-addObserver:
-intValue
-containingBundleRecord
-userType
-dictionary
-containsObject:
-syncDidComplete
-integerValue
-showUserNotification:applicationName:extensionBundleID:
-localeWithLocaleIdentifier:
-syncDidFailWithError:
-containsValueForKey:
-dictionaryWithDictionary:
-setDateFormat:
-showUserNotification:bundleID:
-dictionaryWithObjects:forKeys:count:
-setDelegate:
-content
-localizedDescription
-invalidate
+mainRunLoop
 sortedArrayUsingSelector:
-copy
+content
+dictionaryWithObjects:forKeys:count:
 setDelegate:queue:
 numberWithBool:
 localizedName
+copy
+numberWithInt:
+standardUserDefaults
 fileExistsAtPath:
 count
-numberWithInt:
-initWithBundleIdentifier:
-sharedInstance
-activateWithContext:
-sharedDeviceConnection
-initWithServiceName:viewControllerClassName:
-actionWithIdentifier:title:options:
-isValid
-suspend
-setShouldIgnoreDoNotDisturb:
-arrayWithObjects:count:
-removeObserver:
-actionIdentifier
-defaultWorkspace
-substringFromIndex:
-removeObjectForKey:
-defaultSound
-setShouldBackgroundDefaultAction:
-hostProcess
-setPerMessageTimeout:
-setWithObjects:
-removeObjectAtIndex:
-array
-initWithService:priority:asMasterStore:options:
-defaultManager
-removeObject:
-isSending
-archivedDataWithRootObject:requiringSecureCoding:error:
-setWithObject:
-setWithArray:
-setInterruptionLevel:
-removeItemAtPath:error:
-persistentDomainForName:
-initWithService:
-numberWithLongLong:
-hideUserNotification
-isResetSync
-removeAllObjects
-errorWithDomain:code:userInfo:
-applicationType
-unsignedLongLongValue
-decodeObjectOfClass:forKey:
-categoryWithIdentifier:actions:intentIdentifiers:options:
-applicationProxyForIdentifier:placeholder:
-unsignedIntegerValue
-decodeInt64ForKey:
-initWithObjects:
-hasSuffix:
-caseInsensitiveCompare:
-setWantsNotificationResponsesDelivered
-applicationProxyForIdentifier:
-enumerateObjectsUsingBlock:
-unsignedIntValue
-hasPrefix:
-decodeInt32ForKey:
-enumerateLocallyAvailableApplicationsForPairedDevice:options:withBlock:
-applicationMode
-dateWithTimeIntervalSinceNow:
-unarchivedObjectOfClasses:fromData:error:
-setObject:forKeyedSubscript:
-enumerateKeysAndObjectsUsingBlock:
-applicationIsInstalled:
-absoluteURL
-dateWithTimeIntervalSince1970:
-setObject:forKey:cost:
-mainRunLoop
-strongToStrongObjectsMapTable
-appendString:
-enumerateInstalledApplicationsOnPairedDevice:withBlock:
-pathExtension
-date
-absoluteString
-bytes
-stringWithValidatedFormat:validFormatSpecifiers:error:
-setObject:forKey:
-isInstalled
-valueForProperty:
-standardUserDefaults
-fileExistsAtPath:isDirectory:
-countByEnumeratingWithState:objects:count:
 serviceName
-initWithBundleIdentifier:allowPlaceholder:error:
+initWithBundleIdentifier:
 numberWithLong:
+valueForProperty:
 setTargetQueue:
 localizedStringForKey:value:table:
-counterpartIdentifiers
+fileExistsAtPath:isDirectory:
+countByEnumeratingWithState:objects:count:
 syncSessionType
 numberWithUnsignedInt:
-allObjects
-fileSystemRepresentation
+SDKDictionary
 state
-boolValue
+allObjects
+counterpartIdentifiers
 numberWithUnsignedInteger:
 initWithBytes:length:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+TCCPolicy
 setTimeZone:
-fileURLWithPath:
+fileSystemRepresentation
+boolValue
 numberWithUnsignedLongLong:
-SDKDictionary
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 initWithBytesNoCopy:length:encoding:freeWhenDone:
 setTotalCostLimit:
+fileURLWithPath:
 objectAtIndexedSubscript:
 initWithCapacity:
-firstObject
 systemTimeZone
 allValues
 URLByAppendingPathComponent:
 longLongValue
+firstObject
 targetIsInProximity
 objectForKey:
 propertyListWithData:options:format:error:
@@ -4727,49 +4619,171 @@ objectForKey:ofClass:
 UTF8String
 stringByAppendingPathComponent:
 objectForKeyedSubscript:
-currentSession
-isApplication
 UUID
-bundleRecordForAuditToken:error:
+isApplication
+stringByAppendingString:
+currentSession
+initWithDomain:code:userInfo:
+UUIDString
+localizedDescription
+dictionaryWithDictionary:
+setDelegate:
+containsValueForKey:
+showUserNotification:bundleID:
+setDateFormat:
+syncDidFailWithError:
+containsObject:
+localeWithLocaleIdentifier:
+showUserNotification:applicationName:extensionBundleID:
+integerValue
+dictionary
+userType
+syncDidComplete
+containingBundleRecord
+deviceForPairingID:
+intValue
+addObserver:
+userInfo
+syncCoordinatorWithServiceName:
+extensionPointType
+initWithUUIDBytes:
+addObjectsFromArray:
+extensionPointRecord
+initWithUTF8String:
+addObject:
+setCategoryIdentifier:
+addNotificationRequest:withCompletionHandler:
+notification
+numberWithLongLong:
+addEntriesFromDictionary:
+newHandleWithDefinition:configurationContext:
+setBody:
+companionAppBundleID
+sendMessage:toDestinations:priority:options:identifier:error:
+initWithBundleIdentifier:allowPlaceholder:error:
+setLocale:
+addDelegate:queue:
+request
+length
+initWithTimeIntervalSince1970:
+plugInKitPlugins
+setSound:
+keysSortedByValueUsingComparator:
+code
+sharedManager
+initWithString:
+activeSyncSession
+mutableCopy
+sharedInstance
+activateWithContext:
+sharedDeviceConnection
+initWithServiceName:viewControllerClassName:
+actionWithIdentifier:title:options:
+defaultWorkspace
+isValid
+suspend
+arrayWithObjects:count:
+removeObserver:
+defaultSound
+setShouldIgnoreDoNotDisturb:
+actionIdentifier
+substringFromIndex:
+hostProcess
+removeObjectForKey:
+setShouldBackgroundDefaultAction:
+defaultManager
+setPerMessageTimeout:
+setWithObjects:
+removeObjectAtIndex:
+array
+initWithService:priority:asMasterStore:options:
+removeObject:
+isSending
+setWithObject:
 getActivePairedDevice
-appendFormat:
-pathComponents
-setSerializer:
-stringWithUTF8String:
-appendBytes:length:
-setActivatingForSiri:
-isEqualToString:
-timeIntervalSince1970
-bundleWithPath:
-handleForIdentifier:error:
-isEqualToNumber:
-stringWithFormat:
-setHasChangesAvailable
-encodeObject:forKey:
-appState
-dataWithPropertyList:format:options:error:
-setNotificationCategories:
-resume:
-encodeInt64:forKey:
-dataWithContentsOfFile:options:error:
-stringFromDate:
-getResourceValue:forKey:error:
-encodeInt32:forKey:
-writeToFile:options:error:
-initWithFormat:locale:arguments:
-dataWithContentsOfFile:
-getBytes:range:
-setUserInfo:
-domain
-dataWithBytes:length:
-getBytes:length:
+resetStandardUserDefaults
+bundleRecordForAuditToken:error:
+currentUser
 setNeedsResetSync
 bundleRecordWithBundleIdentifier:allowPlaceholder:error:
-resetStandardUserDefaults
-UUIDString
-currentUser
-initWithDomain:code:userInfo:
-mutableCopy
+setUserInfo:
+getBytes:length:
+initWithFormat:locale:arguments:
+dataWithBytes:length:
+domain
+getBytes:range:
+stringFromDate:
+dataWithContentsOfFile:
+writeToFile:options:error:
+encodeInt32:forKey:
+resume:
+setNotificationCategories:
+getResourceValue:forKey:error:
+dataWithContentsOfFile:options:error:
+appState
+encodeInt64:forKey:
+setHasChangesAvailable
+stringWithFormat:
+isEqualToNumber:
+dataWithPropertyList:format:options:error:
+timeIntervalSince1970
+isEqualToString:
+encodeObject:forKey:
+setActivatingForSiri:
+appendBytes:length:
+stringWithUTF8String:
+handleForIdentifier:error:
+setSerializer:
+bundleWithPath:
+pathComponents
+appendFormat:
+isInstalled
+stringWithValidatedFormat:validFormatSpecifiers:error:
+setObject:forKey:
+absoluteString
+pathExtension
+appendString:
+bytes
+setObject:forKey:cost:
+archivedDataWithRootObject:requiringSecureCoding:error:
+hideUserNotification
+setWithArray:
+setInterruptionLevel:
+persistentDomainForName:
+errorWithDomain:code:userInfo:
+removeItemAtPath:error:
+initWithService:
+unsignedLongLongValue
+decodeObjectOfClass:forKey:
+categoryWithIdentifier:actions:intentIdentifiers:options:
+isResetSync
+removeAllObjects
+applicationType
+unsignedIntegerValue
+decodeInt64ForKey:
+hasSuffix:
+caseInsensitiveCompare:
+applicationProxyForIdentifier:placeholder:
+enumerateObjectsUsingBlock:
+unsignedIntValue
+decodeInt32ForKey:
+initWithObjects:
+hasPrefix:
+setWantsNotificationResponsesDelivered
+applicationProxyForIdentifier:
+enumerateLocallyAvailableApplicationsForPairedDevice:options:withBlock:
+dateWithTimeIntervalSinceNow:
+unarchivedObjectOfClasses:fromData:error:
+applicationMode
+enumerateKeysAndObjectsUsingBlock:
+dateWithTimeIntervalSince1970:
+setObject:forKeyedSubscript:
+applicationIsInstalled:
+enumerateInstalledApplicationsOnPairedDevice:withBlock:
+absoluteURL
+strongToStrongObjectsMapTable
+date
+invalidate
 init
 _sendSyncSessionDidFinishWithResult:error:
 _syncStatusDescriptionString
@@ -5380,6 +5394,7 @@ _descriptionForXPCObject:depth:
 descriptionForMessage:
 targetAuditToken:fromMessage:error:
 sendAnalyticsIfMigrationPluginForProcess:withService:API:
+canProcess:manageESClientServiceWith:
 canProcess:callFunction:forService:
 generateBacktraceOnPrompt
 setGenerateBacktraceOnPrompt:
@@ -5393,14 +5408,15 @@ isAccessEntryWithAge:authorizationValue:expiredForService:
 _evaluateForProcess:entitlementName:containsService:options:
 evaluateUserIndependentEntitlementsForAccessByAttributionChain:forFunction:toService:error:
 evaluateAccessToService:defaultAccessAllowed:by:checkCodeRequirements:authorizationResult:authorizationReason:subjectCodeIdentityDataResult:
-updateAccessRecord:replaceOnly:doCompositionWithChildService:
+translateAllFilesToEndpointSecurity:withClient:clientType:requestingProcess:function:executablePath:
+updateAccessRecord:replaceOnly:doCompositionWithChildService:requestingProcess:function:
 evaluateComposedAuthorizationToService:andAccessSubject:withRelation:authorizationResult:authorizationReason:subjectCodeIdentityDataResult:
 numberOfRecordsForService:withAuthorizationValue:
 numberOfRecordsForService:
 accessRecordFromStep:
 fetchAllAccessRecords
 descriptionDictionariesForAllAccessRecords
-fetchAllOverridenServiceNames
+fetchAllOverriddenServiceNames
 fetchAllPolicies
 fetchAllActivePolicies
 stateDumpDictionary
@@ -6498,7 +6514,6 @@ REPLY_MSG: msg=%{public}@
 REPLY: (%d) function=%{public}s, msgID=%{public}s
 Unhandled message!: %{public}@
 Failed to issue sandbox extension for class: %{public}s
-%s: failed to allocate accessRecord dictionary
 Failed to convert overrides to an XPC object: %@
 AccessDeclarePolicy() for %{public}@ policy: %{uuid_t}.16P; display: '%{public}s'
 SelectPolicyForExtensionWithIdentifier() for %{public}@ policy: %{uuid_t}.16P; bundle_id: '%{public}s
@@ -6691,6 +6706,7 @@ NSLocalizedStringFromTableInBundle failed for service %{public}@: request_key=%{
 [%zu] = %{public}@
 PolicyOverride: For %{public}@: policy_id:%{public}@, policy_client: %{public}@, display_name: %{public}@
 %{public}s: invalid entitlement requested - %{public}@
+%s: failed to allocate accessRecord dictionary
 handle_TCCAccessCopyInformation(): failed to allocate clientInfo dictionary.
 Failed to initialize LSApplicationRecord with bundle ID: %{public}@, error: %{public}@
 handle_TCCAccessCopyInformation(): skipping identity type: IDENTITY_TYPE_POLICY_ID for identifier: %{public}s.
@@ -6996,6 +7012,7 @@ B32@0:8@16o^B24
 v40@0:8^@16q24@32
 @28@0:8@16i24
 B40@0:8^{?=[8I]}16@24^@32
+B32@0:8@16@24
 B40@0:8@16@24@32
 @32@0:8@16^@24
 @40@0:8@16^@24^@32
@@ -7003,7 +7020,8 @@ B36@0:8i16Q20@28
 @48@0:8@16@24@32Q40
 @48@0:8@16@24@32^@40
 B64@0:8@16B24@28B36^Q40^Q48^@56
-B32@0:8@16B24B28
+@60@0:8@16@24i32@36@44@52
+B48@0:8@16B24B28@32@40
 B64@0:8@16@24q32^Q40^Q48^@56
 Q32@0:8@16Q24
 @24@0:8^{sqlite3_stmt=}16
@@ -7101,7 +7119,7 @@ softlink:r:path:/System/Library/Frameworks/WatchKit.framework/WatchKit
 <key>DTPlatformVersion</key>
 <string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20B43</string>
+<string>20B5050f</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>

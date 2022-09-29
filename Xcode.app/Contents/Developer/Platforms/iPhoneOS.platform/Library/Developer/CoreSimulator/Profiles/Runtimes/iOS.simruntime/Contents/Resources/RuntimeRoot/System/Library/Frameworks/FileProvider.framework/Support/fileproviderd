@@ -1,4 +1,4 @@
-@(#)PROGRAM:fileproviderd  PROJECT:FileProvider-730.40.37
+@(#)PROGRAM:fileproviderd  PROJECT:FileProvider-730.40.48
 33333
 @fileproviderd
 Blah
@@ -173,12 +173,14 @@ VersionConflictStruct
 ItemMismatchStruct
 LookupNotPermittedStruct
 ItemContentVersionMismatchStruct
- @M#
- @]"
- @m!
- @4;
- @T;
- @t;
+ @e*
+ @u)
+ @%)
+ @5(
+ @$C
+ @DC
+ @dC
+ @$D
 CodingKeys
 TaskTracker
 LifetimeError
@@ -199,6 +201,7 @@ UnblockDiskImportItems
 RescanPendingSetFSSide
 RescanPendingSetFPSide
 UnblockRemoteDeletions
+UnblockPathMatchingCycles
 Maintenance
 CodingKeys
 libfssync
@@ -238,9 +241,9 @@ URLBackedFileTreeWriter
 URLBackedItem
 DomainBackedFileTreeWriter
 FileTreeChange
- @l#
+ @d+
 ItemOrContinuation
- @|#
+ @t+
 EventStreamBatch
 FPCK
 ReconciliationTableBrokenInvariants
@@ -261,7 +264,7 @@ FSDirectoryLister
 VFSDirectoryLister
 URLDirectoryLister
 CodingKeys
- @D4
+ @D<
 SyncStateStore
 SyncState
 SchedulingState
@@ -281,6 +284,7 @@ CodingKeys
 ItemStateVersion
 ItemState
 CodingKeys
+ @[
 ConflictManager
 JobLimitSlot
 JobLimit
@@ -300,6 +304,7 @@ ItemJob
 Tags
 CodingKeys
 FSOrFPJob
+ @4P
 FileTreeLookupOptions
 FileTreeProtocol
 ItemType
@@ -310,6 +315,7 @@ ID ContentVersion StructuralVersion
 FPFSMaterializedSetAnchor
 CodingKeys
 Mutation
+ @<I
 NSecTimestamp
 NSecTimeInterval
 FPFSPendingSetAnchor
@@ -326,8 +332,8 @@ SQLVolatileJobID
 SQLJobID
 Lazy
 TestingOperation
+ @4B
 DirectionalTestingOperation
- @|9
 SQLHistoryTable
 ItemNonSyncableAttributes
 UserInfo
@@ -337,6 +343,7 @@ CodableClass
 CodableClassCodingKeys
 CodableClassWrapper
 UserRequest
+ @\>
 FileItemKind
 Fields
 ConcreteDatabase
@@ -366,9 +373,9 @@ ThrottlingParameters
 JobThrottlingDomainWideError
 JobThrottlingState
 Kind
+ @t5
 JobThrottle
 ThrottlingKey
- @t-
 FileProviderPageToken
 WorkingSetSyncAnchor
 CodingKeys
@@ -383,7 +390,7 @@ PlaceholderError
 JobSQLFields
 ItemStateSQLFields
 SQLFields
- !"#$%&'()*+,-
+ !"#$%&'()*+,-.
 FileTree
 Continuation
 RequestContinuation
@@ -398,6 +405,7 @@ FPSnapshotChecker
 Version
 FileItemVersion
 CodingKeys
+ @lR
 CapturedContent
 FPFSSyncEngine
 DecorationOptions
@@ -408,6 +416,7 @@ FPFSIndexer
 ItemReconciliation
 ItemReconciliationHalf
 PropagationStatus
+ @4b
 ReconciledPropagationStatus
 DeletionStatus
 MaterializationStatus
@@ -418,8 +427,6 @@ BouncingHardlinkStagedContext
 Bouncing
 BouncingContext
 CodingKeys
- @<Q
- @$Q
 Snapshot
 SnapshotCounters
 SnapshotFPRecursiveProperties
@@ -712,6 +719,7 @@ libfssync/ReconciliationTable.swift
   detected move cycle by disabling path-matching condition for propagation of %s
   breaking parent creation cycle by disabling path-matching condition for propagation of %s
   breaking reparent cycle by disabling path-matching condition for propagation of %s
+  breaking reparent-to-new cycle by disabling path-matching condition for propagation of %s
   breaking replacing a parent cycle by disabling path-matching condition for propagation of %s
  filename below 
   breaking move-back vs creation cycle by disabling path-matching condition for propagation of %s
@@ -1769,6 +1777,7 @@ receivedContentVersion
 _TtC9libfssync11TaskTracker
 _TtC9libfssync23MaintenanceContinuation
 rowID
+unblock-path-matching-cycles
 unblock-remote-deletion
 rescan-pending-set-fp-side
 rescan-pending-set-fs-side
@@ -1817,6 +1826,7 @@ trying to delete a non existing reconciliation:
 FPShouldRetryExclusion
 libfssync/Reconciliation.swift
 Expecting an item for reconciliation: 
+ forcing bounce of colliding item %s to break reparent-to-new cycle with %s
  forcing bounce of colliding item %s to break replace cycle with %s
  forcing bounce of colliding item %s to break move cycle with %s
  forcing bounce of colliding item %s to break reparent cycle with %s
@@ -2753,6 +2763,16 @@ _updated_fields != 0 OR rt.
 _deletion_status != 0)
    AND rt.
 SQLDB: check path-matching loop
+SELECT fs_snap.id
+  FROM 
+ AS fs_snap
+ INNER JOIN reconciliation_table AS rt ON (fs_snap.id = rt.fs_id)
+ INNER JOIN 
+_snapshot AS fp_snap ON (fp_snap.id = rt.fp_id)
+ WHERE fs_snap.parent_id = 
+   AND fp_snap.parent_id = 
+   AND +fs_snap.id != fs_snap.parent_id
+ LIMIT 1
 WITH RECURSIVE path_matching(id, parent_id, filename, wait_on_path_matching) AS (
   SELECT s.id, s.parent_id, s.filename, (rt.
 _scheduling_state_conditions & 
@@ -4009,12 +4029,18 @@ SELECT COUNT(fs.metadata_size), SUM(MAX(1, fs.metadata_size))
  INNER JOIN fs_snapshot AS fs ON (fs.id = rt.fs_id)
  WHERE rt.kind IN 
    AND rt.fs_updated_fields & 
+SELECT rowID, fs_id, fp_id
+  FROM reconciliation_table
+ WHERE fp_scheduling_state = 
+   AND fp_scheduling_state_conditions & 
+ != 0
+   AND fp_updated_fields != 0
+   AND 
 SELECT rowID, fp_id
   FROM reconciliation_table
  WHERE fs_id IS NOT NULL
    AND fp_deletion_status = 
    AND fp_scheduling_state = 
-   AND fp_scheduling_state_conditions & 
 UPDATE reconciliation_table
 SET is_pending = 1
 WHERE rowID IN 
@@ -6809,6 +6835,7 @@ So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
+So6FPItemC_G
 ySo6FPItemC
 So6FPItemC_G
 So6FPItemC_G
@@ -6822,6 +6849,7 @@ So6FPItemC_G
 So6FPItemC_G
 ySo6FPItemC
 _GSg
+ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
@@ -6922,6 +6950,7 @@ _pIegnrzo_
 _pXp
 ySo6FPItemC
 Igr_
+AB_G
 AB_G
 AB_G
 AB_G
@@ -8579,6 +8608,7 @@ unblockDiskImportItems
 rescanPendingSetFSSide
 rescanPendingSetFPSide
 unblockRemoteDeleletions
+unblockPathMatchingCycles
 RawValue
 SQLFields
 SQLFieldsSequence
@@ -8861,17 +8891,17 @@ Iterator
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>730.40.37</string>
+<string>730.40.48</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>20B5044s</string>
+<string>14A5270i</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20B5044s</string>
+<string>20B5050f</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>
@@ -9015,14 +9045,14 @@ Iterator
 </array>
 </dict>
 </plist>
- \@0\
+p]B
 .DS_Store
 .DS_Store
 silaSCAM
 BLOB
 BLOB
 BLOB
-@(#)PROGRAM:fileproviderd  PROJECT:FileProvider-730.40.37
+@(#)PROGRAM:fileproviderd  PROJECT:FileProvider-730.40.48
 33333
 @fileproviderd
 Blah
@@ -9212,6 +9242,7 @@ MaterializationError
 (.8.K
 -050
 FileTreeError
+ @|6
 MaxLookupDepthStruct
 UploadInterrupted
 UploadCancelled
@@ -9224,6 +9255,7 @@ ItemNotEvictableStruct
 CapturedContentMissingStruct
 CollidingItemChangedBeforeBounceStruct
 CodingKeys
+ @t0
 ItemNotFoundStruct
 ItemCollisionStruct
 CannotBounceStruct
@@ -9233,6 +9265,13 @@ VersionConflictStruct
 ItemMismatchStruct
 LookupNotPermittedStruct
 ItemContentVersionMismatchStruct
+ @=+
+ @M*
+ @])
+ @$
+ @,$
+ @L$
+ @l$
 CodingKeys
 TaskTracker
 LifetimeError
@@ -9253,6 +9292,7 @@ UnblockDiskImportItems
 RescanPendingSetFSSide
 RescanPendingSetFPSide
 UnblockRemoteDeletions
+UnblockPathMatchingCycles
 Maintenance
 CodingKeys
 libfssync
@@ -9326,6 +9366,7 @@ FSDirectoryLister
 VFSDirectoryLister
 URLDirectoryLister
 CodingKeys
+ @,!
 SyncStateStore
 SyncState
 SchedulingState
@@ -9345,18 +9386,19 @@ CodingKeys
 ItemStateVersion
 ItemState
 CodingKeys
+ @E
 ConflictManager
 JobLimitSlot
 JobLimit
 JobLimitCategory
 ReconciliationID
+ @LC
 GSConflictManager
 SQLBackupManifestRecord
 BitSetIterator
 BitSet
 CustomStringConvertibleBitSet
 ItemChange
- @T5
 $+2;
 !%-1
 SnapshotItemSQLFields
@@ -9367,7 +9409,6 @@ ItemJob
 Tags
 CodingKeys
 FSOrFPJob
- @d/
 FileTreeLookupOptions
 FileTreeProtocol
 ItemType
@@ -9387,7 +9428,7 @@ CodingKeys
 FSSnapshotChecker
 DocumentTrackingTombstoneSlayer
 SnapshotMutation
- @L'
+ @|4
 FPFSID
 JobReason
 SQLJobRegistry
@@ -9399,8 +9440,9 @@ Lazy
 <\v|
 :[rx~
 TestingOperation
- @T'
+ @t4
 DirectionalTestingOperation
+ @$4
 SQLHistoryTable
 ItemNonSyncableAttributes
 UserInfo
@@ -9412,7 +9454,7 @@ CodableClassWrapper
 Qff~
 UserRequest
 FileItemKind
-BhHhhhNhhhhhhhVhhhhhhhhhhhhhhh\hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhd)$
+BhHhhhNhhhhhhhVhhhhhhhhhhhhhhh\hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdI1
 Fields
 ConcreteDatabase
 FileTreeChangeAggregator
@@ -9443,7 +9485,7 @@ ThrottlingParameters
 JobThrottlingDomainWideError
 JobThrottlingState
 Kind
- @4"
+ @T/
 JobThrottle
 ThrottlingKey
 FileProviderPageToken
@@ -9461,8 +9503,7 @@ PlaceholderError
 JobSQLFields
 ItemStateSQLFields
 SQLFields
- @lG
- !"#$%&'()*+,-
+ !"#$%&'()*+,-.
 A`aBC
 FileTree
 Continuation
@@ -9478,7 +9519,6 @@ FPSnapshotChecker
 Version
 FileItemVersion
 CodingKeys
- @LA
 CapturedContent
 FPFSSyncEngine
 DecorationOptions
@@ -9491,7 +9531,6 @@ FPFSIndexer
 ItemReconciliation
 ItemReconciliationHalf
 PropagationStatus
- @TQ
 ReconciledPropagationStatus
 DeletionStatus
 MaterializationStatus
@@ -9502,6 +9541,7 @@ BouncingHardlinkStagedContext
 Bouncing
 BouncingContext
 CodingKeys
+ @,\
 Snapshot
 SnapshotCounters
 SnapshotFPRecursiveProperties
@@ -9526,7 +9566,6 @@ CancelFetchFileContent
 CollectCapturedContent
 MergeItems
 Ingestion
- @EY
 FPDNetworkMonitor
 FileTreeSide
 JobSchedulingState
@@ -9542,7 +9581,6 @@ RestoreUpgradeSchemaFPFileTree
 PopulateConflicts
 CleanConflicts
 Conflict
- @M`
 VFSIDLookupCache
 VFSFileTree
 VFSEventAggregator
@@ -9797,6 +9835,7 @@ libfssync/ReconciliationTable.swift
   detected move cycle by disabling path-matching condition for propagation of %s
   breaking parent creation cycle by disabling path-matching condition for propagation of %s
   breaking reparent cycle by disabling path-matching condition for propagation of %s
+  breaking reparent-to-new cycle by disabling path-matching condition for propagation of %s
   breaking replacing a parent cycle by disabling path-matching condition for propagation of %s
  filename below 
   breaking move-back vs creation cycle by disabling path-matching condition for propagation of %s
@@ -10854,6 +10893,7 @@ receivedContentVersion
 _TtC9libfssync11TaskTracker
 _TtC9libfssync23MaintenanceContinuation
 rowID
+unblock-path-matching-cycles
 unblock-remote-deletion
 rescan-pending-set-fp-side
 rescan-pending-set-fs-side
@@ -10902,6 +10942,7 @@ trying to delete a non existing reconciliation:
 FPShouldRetryExclusion
 libfssync/Reconciliation.swift
 Expecting an item for reconciliation: 
+ forcing bounce of colliding item %s to break reparent-to-new cycle with %s
  forcing bounce of colliding item %s to break replace cycle with %s
  forcing bounce of colliding item %s to break move cycle with %s
  forcing bounce of colliding item %s to break reparent cycle with %s
@@ -11838,6 +11879,16 @@ _updated_fields != 0 OR rt.
 _deletion_status != 0)
    AND rt.
 SQLDB: check path-matching loop
+SELECT fs_snap.id
+  FROM 
+ AS fs_snap
+ INNER JOIN reconciliation_table AS rt ON (fs_snap.id = rt.fs_id)
+ INNER JOIN 
+_snapshot AS fp_snap ON (fp_snap.id = rt.fp_id)
+ WHERE fs_snap.parent_id = 
+   AND fp_snap.parent_id = 
+   AND +fs_snap.id != fs_snap.parent_id
+ LIMIT 1
 WITH RECURSIVE path_matching(id, parent_id, filename, wait_on_path_matching) AS (
   SELECT s.id, s.parent_id, s.filename, (rt.
 _scheduling_state_conditions & 
@@ -13094,12 +13145,18 @@ SELECT COUNT(fs.metadata_size), SUM(MAX(1, fs.metadata_size))
  INNER JOIN fs_snapshot AS fs ON (fs.id = rt.fs_id)
  WHERE rt.kind IN 
    AND rt.fs_updated_fields & 
+SELECT rowID, fs_id, fp_id
+  FROM reconciliation_table
+ WHERE fp_scheduling_state = 
+   AND fp_scheduling_state_conditions & 
+ != 0
+   AND fp_updated_fields != 0
+   AND 
 SELECT rowID, fp_id
   FROM reconciliation_table
  WHERE fs_id IS NOT NULL
    AND fp_deletion_status = 
    AND fp_scheduling_state = 
-   AND fp_scheduling_state_conditions & 
 UPDATE reconciliation_table
 SET is_pending = 1
 WHERE rowID IN 
@@ -13827,67 +13884,67 @@ FPFSSQLRestoreManager
 SwiftWorkaround
 FSChangeMonitor
 FSChangeRecord
-setDisallowedConnectionReason:
-typeWithFilenameExtension:conformingToType:
-fpfs_initWithFSEventsFlags:
-firstMatchInString:options:range:
-countByEnumeratingWithState:objects:count:
-fp_pathWithFileSystemRepresentation:
-setFpfsSQLBackupManagerClass:
-URLByAppendingPathComponent:isDirectory:
-length
-subarrayWithRange:
-removeObjectsInRange:
-arrayByAddingObject:
-appendString:
-hasSuffix:
-isEqualToString:
-count
-stringWithUTF8String:
-initWithMachServiceName:
-setAutoRollbackHandler:
-removeObjectsInArray:
-fp_errorWithPOSIXCode:itemURL:debugDescription:
-lowercaseString
-setFpfsClass:
-rangeAtIndex:
-hasPrefix:
-arrayWithObjects:
-fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
-copy
-removeObjectAtIndex:
-appendFormat:
-stringWithFormat:
-setFpdPurgerClass:
-initWithUUIDString:
-fp_errorWithPOSIXCode:
-addObjectsFromArray:
-objectForKey:
-containsString:
-fp_cachedTypeWithIdentifier:
-arrayWithObjects:count:
-removeObject:
-maxFSEventQueueSize
-fseventsAggregationDelay
-conformsToType:
-setFpckTaskClass:
-UUID
-substringWithRange:
-objectAtIndexedSubscript:
-componentsJoinedByString:
 fp_realpath
-regularExpressionWithPattern:options:error:
+lowercaseString
 initWithCapacity:
 stringByAppendingFormat:
+URLByAppendingPathComponent:isDirectory:
+componentsJoinedByString:
 removeAllObjects
 valueForKey:
-currentRunLoop
+addObjectsFromArray:
+regularExpressionWithPattern:options:error:
 insertObject:atIndex:
 objectAtIndex:
 fseventProcessBatchSize
-arrayWithCapacity:
 setFpfsSQLRestoreManagerClass:
+currentRunLoop
+fp_cachedTypeWithIdentifier:
+arrayWithCapacity:
+firstMatchInString:options:range:
 string
+subarrayWithRange:
+setDisallowedConnectionReason:
+removeObjectsInRange:
+fp_pathWithFileSystemRepresentation:
+countByEnumeratingWithState:objects:count:
+length
+fpfs_initWithFSEventsFlags:
+setFpfsSQLBackupManagerClass:
+isEqualToString:
+arrayByAddingObject:
+hasSuffix:
+stringWithUTF8String:
+appendString:
+initWithMachServiceName:
+setAutoRollbackHandler:
+fp_errorWithPOSIXCode:itemURL:debugDescription:
+setFpfsClass:
+removeObjectsInArray:
+count
+conformsToType:
+rangeAtIndex:
+hasPrefix:
+copy
+typeWithFilenameExtension:conformingToType:
+fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
+removeObjectAtIndex:
+initWithUUIDString:
+stringWithFormat:
+setFpdPurgerClass:
+objectForKey:
+UUID
+appendFormat:
+arrayWithObjects:
+fp_errorWithPOSIXCode:
+removeObject:
+objectAtIndexedSubscript:
+maxFSEventQueueSize
+setFpckTaskClass:
+substringWithRange:
+containsString:
+fseventsAggregationDelay
+arrayWithObjects:count:
 isEqual:
 class
 self
@@ -15894,6 +15951,7 @@ So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
 So6FPItemC_G
+So6FPItemC_G
 ySo6FPItemC
 So6FPItemC_G
 So6FPItemC_G
@@ -15907,6 +15965,7 @@ So6FPItemC_G
 So6FPItemC_G
 ySo6FPItemC
 _GSg
+ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
 ySo6FPItemC
@@ -16007,6 +16066,7 @@ _pIegnrzo_
 _pXp
 ySo6FPItemC
 Igr_
+AB_G
 AB_G
 AB_G
 AB_G
@@ -17664,6 +17724,7 @@ unblockDiskImportItems
 rescanPendingSetFSSide
 rescanPendingSetFPSide
 unblockRemoteDeleletions
+unblockPathMatchingCycles
 RawValue
 SQLFields
 SQLFieldsSequence
@@ -17946,17 +18007,17 @@ Iterator
 <string>iPhoneSimulator</string>
 </array>
 <key>CFBundleVersion</key>
-<string>730.40.37</string>
+<string>730.40.48</string>
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>20B5044s</string>
+<string>14A5270i</string>
 <key>DTPlatformName</key>
 <string>iphonesimulator</string>
 <key>DTPlatformVersion</key>
 <string>16.1</string>
 <key>DTSDKBuild</key>
-<string>20B5044s</string>
+<string>20B5050f</string>
 <key>DTSDKName</key>
 <string>iphonesimulator16.1.internal</string>
 <key>DTXcode</key>

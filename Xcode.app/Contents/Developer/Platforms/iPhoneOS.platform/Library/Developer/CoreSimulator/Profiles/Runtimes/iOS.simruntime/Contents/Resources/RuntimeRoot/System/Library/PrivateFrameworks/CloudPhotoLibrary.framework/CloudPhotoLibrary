@@ -1,5 +1,5 @@
 MbP?
-?@(#)PROGRAM:CloudPhotoLibrary  PROJECT:CloudPhotoLibrary-510.0.210
+?@(#)PROGRAM:CloudPhotoLibrary  PROJECT:CloudPhotoLibrary-510.1.160
 Registering %@ for %@ argument #%lu
 Registering %@ for %@ argument #%lu of reply
 %@ has been deallocated
@@ -739,7 +739,6 @@ We should have a task to check for existing records here
 Changing extraction strategy from %@ to %@
 Will use extraction strategy %@
 Strategy steps: %@
-Discarding batch to push because we are in blacklisted mode: %@
 Discarding batch to push because %{public}@ is read-only (%@): %@
 Translating local batch to cloud batch: %@
 Cloud batch is: %@
@@ -751,17 +750,18 @@ Transport successfully uploaded in %.2fs (%lu resources uploaded) - cache: %{pub
 Can't create a transport upload task for %@
 Starting to upload %@%s
 Successfully generated derivatives for %lu records in %.2fs. Starting upload.
+It seems like %@ is not busy any more
 Uploading one batch to transport
 Looking for next batch in push repository
-%@ is deleted - ignoring it
-Will upload to %@/%@ concrete scopes: %@/%@
-Will upload to %@ concrete scope: %@
-Previous push-to-transport attempt for %@ failed because the scope was busy (%@)
-It seems like %@ is not busy any more
 We should have a batch to commit here
 Triggering deferred cancel
 System has not enough disk space to continue %@
 Committed
+Requesting retry immediately
+%@ is deleted - ignoring it
+Will upload to %@/%@ concrete scopes: %@/%@
+Will upload to %@ concrete scope: %@
+Previous push-to-transport attempt for %@ failed because the scope was busy (%@)
 Deferring cancellation due to upload task currently running foreground
 Upload finished (error: %@)
 Upload for %{public}@ failed because the scope is over quota. Will stop forced sync
@@ -1705,6 +1705,7 @@ com.apple.cpl.uploadrate
 com.apple.cpl.timingstatistic
 /Library/Caches/com.apple.xbs/Sources/Photos_Sim/workspaces/cloudphotolibrary/Engine/Storage/CPLEnginePushRepository.m
 %@ should be pushed with push context
+v32@?0@"NSString"8@?<v@?@"CPLRecordChange"@"CPLRecordPushContext">16^B24
 %@ should come with a push context
 Trying to reinject a resourceful change without an upload identifier
 Can't re-inject an extracted batch without a client cache identifier
@@ -1715,6 +1716,7 @@ Last strategy: %@
 Last approx. upload rate: %@/s - %@
 Batch max size: %@
 Timing stats:
+Observers: %@
 insignificant
 %@ for %lu records (%lu batches
  - %lu errors
@@ -1812,7 +1814,7 @@ The Photos Diagnostics may contain some of your personal information, including 
 This information is used by Apple in accordance with its privacy policy (www.apple.com/privacy) and is not shared with any other company. By using this tool and sending the results to Apple, you consent to Apple using the contents of these files to improve Apple products.
 engine
 engine.store
-CloudPhotoLibrary-510.0.210-GOLDILOCKS
+CloudPhotoLibrary-510.1.160-GOLDILOCKS
 BuildVersion
 ProductName
 ProductVersion
@@ -2856,7 +2858,7 @@ checking records on server
 existence-check
 We should have a task to check for existing records here
 test read-only mode
-blacklisted mode
+client version is too old
 scope has been deleted
 scope has been de-activated
 scope is read-only
@@ -2870,7 +2872,9 @@ v24@?0@"CPLRecordChange"8@"NSError"16
 preparing batch
 extracting batch
 We should have a batch to commit here
+Need to restart push-to-transport immediately
 Not enough disk space
+launching
 cleaning
 CPLFailSyncSessionOnScopeBusy
 invalid flags for additional scope: %@
@@ -3236,6 +3240,7 @@ Trying to compute changes for a delete change: %@
 Mismatched identifier between change (%@) and record (%@)
 Incorrectly trying to filter out derivatives change %@ from %@
 com.apple.changeproperties
+updateSharingContributorUserIdentifiers
 ======
 %@: {
   changeType: %@
@@ -5361,6 +5366,8 @@ discardChangeWithScopedIdentifier:error:
 extractionStrategy
 updateApproximativeUploadRate:
 updateTimingStatisticForKey:duration:recordCount:error:cancelled:
+addPushObserver:withIdentifier:
+removePushObserverWithIdentifier:
 _propertiesPerClass
 _extractionStrategy
 _lastStrategyName
@@ -5369,6 +5376,7 @@ _timingStatisticQueue
 _lastUploadRateUpdateDate
 _timingStatistics
 _lastApproximativeUploadRate
+_pushObservers
 T@"CPLBatchExtractionStrategy",&,N
 TQ,R,N
 stringForTimeInterval:
@@ -6079,13 +6087,14 @@ isFull
 setFull:
 shouldResetFromThisStepWithIncomingChange:
 stepsDescription
+maximumRecordCountPerBatch
 usualStrategyWithStorage:coveringScopeIdentifier:
 minglingStrategyWithStorage:coveringScopeIdentifier:maximumBatchSize:
+TQ,N
 extractBatch:maximumResourceSize:error:
 cplFullDescription
 strategyName
 storage
-maximumRecordCountPerBatch
 _steps
 _stepEnumerator
 _currentStep
@@ -6691,7 +6700,6 @@ _status
 _delegationProtocol
 _delegationSelector
 T@"NSDate",C,N
-TQ,N
 Tq,N
 T@"NSData",C,N
 upgradeSuggestedToAccessAllPhotos
@@ -7576,6 +7584,7 @@ _deferredCancel
 _highPriority
 TB,N,V_highPriority
 containsIndex:
+_extractAndUploadOneBatch
 shouldResetExceedingQuotaOnSuccessfulUpload
 notifyAttachedObjectsUploadTask:didFinishWithError:
 uploadIdentifiers
@@ -7595,6 +7604,7 @@ willUploadSomeResources
 setHighPriorityBackground:
 setAllowsFetchCache:
 setClientCacheIdentifier:
+_shouldUploadBatchesWithDropReason:shouldQuarantineRecords:inTransaction:
 addQuarantinedRecordWithScopedIdentifier:recordClass:reason:error:
 _clearUploadBatch
 _discardUploadedExtractedBatch:error:
@@ -7615,13 +7625,16 @@ recordsNeedingGeneratedDerivatives
 _uploadBatchWithFetchCache:
 initWithBatch:ruleGroups:provider:
 prepareBatchBeforeUploadWithError:
+_prepareTransportGroupForOneBatch
 _checkForRecordExistence
 _updateQuotaStrategyAfterSuccessInTransaction:
+_noteSuccessfulUpdateInTransaction:
 taskDidProgress:userInfo:
 _markUploadedTasksDidFinishWithError:transaction:error:
 notifyStatusForRecordHasChanged:persist:error:
 _extractBatchWithTransaction:andStore:
 _prepareUploadBatch
+_launch
 cancelIfBlocked
 forceSync
 _excludeScopeFromMingling
@@ -7657,6 +7670,7 @@ _startOfDerivativesGeneration
 _hasCachedShouldCheckResourcesAhead
 _shouldCheckResourcesAhead
 _shouldSetupEstimatedSize
+_storedTransportGroup
 _taskItem
 _hasPushedSomeChanges
 _isUsingOverQuotaStrategy
@@ -7666,6 +7680,8 @@ _currentTaskKey
 _taskStartDate
 _didExtractOneBatch
 _wasBusy
+_hasUploadedOneBatch
+_retryImmediately
 _identityImplementationClass
 alloc
 setResourceIdentityImplementation:
@@ -9299,7 +9315,6 @@ _fetchRewindSyncAnchorsInScopes:startSyncAnchor:error:
 _addPartnerScope:scopes:
 _fetchInitialSyncAnchor
 _checkServerFeatureVersionWithCompletionHandler:
-_launch
 _totalAssetCountForScope
 _endTaskError
 _partnerScopes
@@ -9669,6 +9684,7 @@ v48@0:8@16d24Q32B40B44
 B32@0:8^@16@24
 @32@0:8q16@24
 B40@0:8Q16^Q24^@32
+v32@0:8@?16@24
 @"CPLBatchExtractionStrategy"
 v40@0:8d16Q24B32B36
 v32@0:8@"CPLSyncSessionPredictor"16@"CPLSyncSessionPrediction"24
@@ -9882,6 +9898,7 @@ B32@0:8@"CPLScopedIdentifier"16^@24
 @"NSURL"40@0:8@"CPLResource"16@"CPLResource"24^@32
 B24@0:8@"CPLResource"16
 B24@0:8@"CPLScopedIdentifier"16
+B40@0:8^@16^B24@32
 @"CPLEngineTransport"
 @"CPLDerivativesFilter"
 @"CPLBeforeUploadCheckItems"
@@ -10056,7 +10073,7 @@ b7s77
 FFFF
 MM#MMMM#M
 /@_i
-)H@(#)PROGRAM:CloudPhotoLibrary  PROJECT:CloudPhotoLibrary-510.0.210
+)H@(#)PROGRAM:CloudPhotoLibrary  PROJECT:CloudPhotoLibrary-510.1.160
 Registering %@ for %@ argument #%lu
 Registering %@ for %@ argument #%lu of reply
 %@ has been deallocated
@@ -10797,7 +10814,6 @@ We should have a task to check for existing records here
 Changing extraction strategy from %@ to %@
 Will use extraction strategy %@
 Strategy steps: %@
-Discarding batch to push because we are in blacklisted mode: %@
 Discarding batch to push because %{public}@ is read-only (%@): %@
 Translating local batch to cloud batch: %@
 Cloud batch is: %@
@@ -10809,17 +10825,18 @@ Transport successfully uploaded in %.2fs (%lu resources uploaded) - cache: %{pub
 Can't create a transport upload task for %@
 Starting to upload %@%s
 Successfully generated derivatives for %lu records in %.2fs. Starting upload.
+It seems like %@ is not busy any more
 Uploading one batch to transport
 Looking for next batch in push repository
-%@ is deleted - ignoring it
-Will upload to %@/%@ concrete scopes: %@/%@
-Will upload to %@ concrete scope: %@
-Previous push-to-transport attempt for %@ failed because the scope was busy (%@)
-It seems like %@ is not busy any more
 We should have a batch to commit here
 Triggering deferred cancel
 System has not enough disk space to continue %@
 Committed
+Requesting retry immediately
+%@ is deleted - ignoring it
+Will upload to %@/%@ concrete scopes: %@/%@
+Will upload to %@ concrete scope: %@
+Previous push-to-transport attempt for %@ failed because the scope was busy (%@)
 Deferring cancellation due to upload task currently running foreground
 Upload finished (error: %@)
 Upload for %{public}@ failed because the scope is over quota. Will stop forced sync
@@ -11762,6 +11779,7 @@ com.apple.cpl.uploadrate
 com.apple.cpl.timingstatistic
 /Library/Caches/com.apple.xbs/Sources/Photos_Sim/workspaces/cloudphotolibrary/Engine/Storage/CPLEnginePushRepository.m
 %@ should be pushed with push context
+v32@?0@"NSString"8@?<v@?@"CPLRecordChange"@"CPLRecordPushContext">16^B24
 %@ should come with a push context
 Trying to reinject a resourceful change without an upload identifier
 Can't re-inject an extracted batch without a client cache identifier
@@ -11772,6 +11790,7 @@ Last strategy: %@
 Last approx. upload rate: %@/s - %@
 Batch max size: %@
 Timing stats:
+Observers: %@
 insignificant
 %@ for %lu records (%lu batches
  - %lu errors
@@ -11869,7 +11888,7 @@ The Photos Diagnostics may contain some of your personal information, including 
 This information is used by Apple in accordance with its privacy policy (www.apple.com/privacy) and is not shared with any other company. By using this tool and sending the results to Apple, you consent to Apple using the contents of these files to improve Apple products.
 engine
 engine.store
-CloudPhotoLibrary-510.0.210-GOLDILOCKS
+CloudPhotoLibrary-510.1.160-GOLDILOCKS
 BuildVersion
 ProductName
 ProductVersion
@@ -12913,7 +12932,7 @@ checking records on server
 existence-check
 We should have a task to check for existing records here
 test read-only mode
-blacklisted mode
+client version is too old
 scope has been deleted
 scope has been de-activated
 scope is read-only
@@ -12927,7 +12946,9 @@ v24@?0@"CPLRecordChange"8@"NSError"16
 preparing batch
 extracting batch
 We should have a batch to commit here
+Need to restart push-to-transport immediately
 Not enough disk space
+launching
 cleaning
 CPLFailSyncSessionOnScopeBusy
 invalid flags for additional scope: %@
@@ -13293,6 +13314,7 @@ Trying to compute changes for a delete change: %@
 Mismatched identifier between change (%@) and record (%@)
 Incorrectly trying to filter out derivatives change %@ from %@
 com.apple.changeproperties
+updateSharingContributorUserIdentifiers
 ======
 %@: {
   changeType: %@
@@ -14218,397 +14240,397 @@ CPLAlbumChange
 CPLFaceCropChange
 CPLScopeStatusCounts
 CPLSuggestionPerson
-removeObjectsForKeys:
-defaultWorkspace
-laterDate:
+airplaneMode
 setRemoteObjectInterface:
-becomeCurrentWithPendingUnitCount:
-removeObjectsAtIndexes:
-defaultTimeZone
-lastScopeChangeUpdateDateForScope:
+defaultWorkspace
 substringWithRange:
-engineLibrary:getStatusWithCompletionHandler:
-engineLibrary:noteClientIsInForeground:
-rangeOfString:
+becomeCurrentWithPendingUnitCount:
+laterDate:
+removeObjectsAtIndexes:
+lastScopeChangeUpdateDateForScope:
+defaultTimeZone
 whitespaceAndNewlineCharacterSet
-removeObjectForKey:
-substringToIndex:
 resourceTypesToUploadForUploadIdentifier:
+substringToIndex:
+engineLibrary:noteClientIsInForeground:
 setAllowsFetchCache:
+engineLibrary:getStatusWithCompletionHandler:
+rangeOfString:
+removeObjectForKey:
+substringFromIndex:
 rangeAtIndex:
 engineLibrary:getStatusDictionaryWithCompletionHandler:
 removeObjectAtIndex:
+weakObjectsHashTable
+UUIDString
 copy
 lastPathComponent
-substringFromIndex:
-engineLibrary:didStartUploadTask:
-coordinate
-weakObjectsHashTable
-removeObject:
 subarrayWithRange:
+engineLibrary:didStartUploadTask:
+setForcedTask:
+coordinate
+removeObject:
+UUID
 lastObject
 defaultManager
-setForcedTask:
 engineLibrary:didFailBackgroundDownloadOfResource:
-initWithPattern:options:error:
-removeLastObject
-engineLibrary:didDownloadResourceInBackground:
 setWithObjects:
-raise
 strongToStrongObjectsMapTable
-containsObject:
-containsIndex:
-fetchCache
-waitUntilDate:
+removeLastObject
+UTF8String
+URLWithString:
+initWithPattern:options:error:
 setWithObject:
+waitUntilDate:
+engineLibrary:didDownloadResourceInBackground:
+raise
+containsObject:
+fetchCache
+containsIndex:
+stringWithUTF8String:
 initWithObjects:count:
 removeItemAtURL:error:
-base64EncodedStringWithOptions:
-stringWithUTF8String:
-initWithObjects:
-defaultCenter
-removeIndex:
 stringWithString:
 unarchivedObjectOfClasses:fromData:error:
-URLByDeletingLastPathComponent
 setQueryItems:
+base64EncodedStringWithOptions:
+removeIndex:
+initWithObjects:
+defaultCenter
 unarchivedObjectOfClass:fromData:error:
-removeCachedResourceValueForKey:
 stringWithFormat:
-noteSyncSession:failedWithError:
-verticalAccuracy
 stringWithCapacity:
+verticalAccuracy
+removeCachedResourceValueForKey:
 sessionWithConfiguration:
+noteSyncSession:failedWithError:
 setValue:forKey:
+typeWithIdentifier:
 removeBackgroundDownloadTaskForResource:taskIdentifier:error:
 didProgress:userInfo:forState:
 addStatus:error:
-typeWithIdentifier:
-queryItemWithName:value:
-setFetchCache:
-performWriteTransaction:withBlock:completionHandler:
 stringFromByteCount:countStyle:
-characterAtIndex:
 typeWithFilenameExtension:
+setFetchCache:
 standardUserDefaults
+queryItemWithName:value:
+performWriteTransaction:withBlock:completionHandler:
+characterAtIndex:
 addScopeWithIdentifier:scopeType:error:
+stringForKey:
 initWithMachServiceName:options:
 conformsToType:
 removeAllObjects
 performReadTransaction:withBlock:
-stringForKey:
-initWithKeyOptions:valueOptions:capacity:
-getNewGeneration:error:
-remoteObjectProxyWithErrorHandler:
 stringByTrimmingCharactersInSet:
 resignCurrent
-URLForResource:withExtension:
+initWithKeyOptions:valueOptions:capacity:
+remoteObjectProxyWithErrorHandler:
+getNewGeneration:error:
 stringByReplacingOccurrencesOfString:withString:
-invoke
 stringByDeletingPathExtension
+invoke
+stringByAppendingString:
 host
 componentsWithString:
 invalidate
 dictionaryWithObjects:forKeys:count:
-stringByAppendingString:
 dictionaryWithObject:forKey:
-performBarrierTransaction:withBlock:
 createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-decodeCMTimeRangeForKey:
-releaseIdentity:lastReference:isTrackedOriginal:error:
-initWithIndexesInRange:
-horizontalAccuracy
+performBarrierTransaction:withBlock:
 stringByAppendingPathExtension:
 stringByAppendingFormat:
+decodeCMTimeRangeForKey:
+speed
+initWithIndexesInRange:
+releaseIdentity:lastReference:isTrackedOriginal:error:
+horizontalAccuracy
+stringByAbbreviatingWithTildeInPath
 initWithIndex:
 dictionaryWithContentsOfURL:
-speed
 componentsSeparatedByString:
-decodeArrayOfObjectsOfClass:forKey:
 performAsCurrentWithPendingUnitCount:usingBlock:
-stringByAbbreviatingWithTildeInPath
-componentsJoinedByString:
+decodeArrayOfObjectsOfClass:forKey:
 selector
-dictionary
+componentsJoinedByString:
 setExportedObject:
-encodeCMTimeRange:forKey:
 sortedArrayUsingSelector:
+dictionary
 setExportedInterface:
 sortedArrayUsingDescriptors:
+encodeCMTimeRange:forKey:
 completedUnitCount
 markForDeleteFileWithIdentity:error:
+sortedArrayUsingComparator:
 pathExtension
-URLByAppendingPathComponent:isDirectory:
 initWithFormat:arguments:
 markDatabaseAsDeactivatedWithError:
-addPartnerScope:mostCurrentSyncAnchor:
-sortedArrayUsingComparator:
-cancelIfBlocked
-dateWithTimeIntervalSinceReferenceDate:
-path
-markBackgroundDownloadTaskForResourceAsSuceeded:taskIdentifier:error:
-isUnsupportedOriginalFormatError:
-initWithFormat:
 sortUsingSelector:
-interfaceWithProtocol:
+addPartnerScope:mostCurrentSyncAnchor:
+URLByAppendingPathComponent:isDirectory:
 storedChangeSessionUpdate
-cancelDownloadTask:
-dateWithTimeIntervalSinceNow:
-generateDerivativeResourcesFromInputResource:withAdjustments:destinationDirectory:derivativesFilter:recordChangeType:includePosterFrameForVideo:completionHandler:
+cancelIfBlocked
+path
+dateWithTimeIntervalSinceReferenceDate:
+markBackgroundDownloadTaskForResourceAsSuceeded:taskIdentifier:error:
+initWithFormat:
+isUnsupportedOriginalFormatError:
 userInfo
+interfaceWithProtocol:
+cancelDownloadTask:
 setTransportGroup:
+generateDerivativeResourcesFromInputResource:withAdjustments:destinationDirectory:derivativesFilter:recordChangeType:includePosterFrameForVideo:completionHandler:
+dateWithTimeIntervalSinceNow:
+storeUploadTransportGroup:forScope:error:
 addObjectsFromArray:
 arrayWithObjects:count:
-UTF8String
 arrayWithObject:
-storeUploadTransportGroup:forScope:error:
 integerValue
 addObject:
 arrayWithContentsOfURL:
-dateByAddingTimeInterval:
 ownerNameForEngineLibrary:
-arrayForKey:
+dateByAddingTimeInterval:
 integerForKey:
+arrayForKey:
 isSubclassOfClass:
+uppercaseString
 intValue
 dataWithPropertyList:format:options:error:
 insertObject:atIndex:
-uppercaseString
 arrayByAddingObjectsFromArray:
-hasSuffix:
 dataUsingEncoding:
+hasSuffix:
 executePostOpenWithError:
 initialSyncDateForScope:
 dataTaskWithRequest:completionHandler:
 arrayByAddingObject:
 hasStoredChangeSessionUpdate
 addIndex:
+setDownloadTasks:
+storeScopeChange:forScope:scopeChangeHasBeenUpdated:error:
+URLByDeletingLastPathComponent
 array
 earlierDate:
 data
-setDownloadTasks:
-storeScopeChange:forScope:scopeChangeHasBeenUpdated:error:
 signal
+totalOriginalResourceSize
 exceptionWithName:reason:userInfo:
 makeObjectsPerformSelector:
-canGenerateImageDerivativesFromUTI:
-totalOriginalResourceSize
-code
 setObject:forKey:
+canGenerateImageDerivativesFromUTI:
+code
+storeResourceToUpload:withUploadIdentifier:error:
+setNewFormatsConfiguration:fromSource:
 mainBundle
 reinjectChange:dequeueOrder:discardedUploadIdentifier:overwrittenRecord:error:
-storeResourceToUpload:withUploadIdentifier:error:
-URLWithString:
-setNewFormatsConfiguration:fromSource:
+timeIntervalSinceReferenceDate
 lowercaseString
 initWithDomain:code:userInfo:
 addEntriesFromDictionary:
-propertyListWithData:options:format:error:
-timeIntervalSinceReferenceDate
+timeIntervalSinceNow
 currentThread
-longLongValue
 initWithUUIDString:
+longLongValue
+propertyListWithData:options:format:error:
 archivedDataWithRootObject:requiringSecureCoding:error:
 initWithUTF8String:
 lock
-timeIntervalSinceNow
+timeIntervalSinceDate:
 initWithDictionary:
 localizedDescription
-timeIntervalSinceDate:
 refresh
-UUIDString
 orPredicateWithSubpredicates:
-localeWithLocaleIdentifier:
 approximativeResourcesUploadRate
 threadDictionary
-initWithData:
+localeWithLocaleIdentifier:
 reenqueueBackgroundDownloadTaskForResource:taskIdentifier:bumpRetryCount:didDiscard:error:
-floatValue
-downloadTasks
 shouldStartSyncSessionFromState:
+initWithData:
+floatValue
 setDateFormat:
-initWithContentsOfURL:encoding:error:
+downloadTasks
 storeFileAtURL:identity:isOriginal:moveIfPossible:needsCommit:onNewFile:error:
+initWithContentsOfURL:encoding:error:
 bytes
 nextObject
+nextCleanupTaskScopeIndexOfType:
 initWithContentsOfURL:
 currentHandler
-isMovieUTI:
-nextCleanupTaskScopeIndexOfType:
 initWithTimeIntervalSinceReferenceDate:
 requestWithURL:
+isMovieUTI:
 updateSyncSessionPrediction:
 errorWithDomain:code:userInfo:
 progressWithTotalUnitCount:
-URLByAppendingPathComponent:
+storeDownloadTransportGroup:forScope:error:
 firstObject
+setLocale:
 openURL:configuration:completionHandler:
 bundleIdentifier
 firstMatchInString:options:range:
-storeDownloadTransportGroup:forScope:error:
 firstIndex
-doubleValue
-bundleForClass:
 addBarrierBlock:
-appendString:
-setLocale:
+doubleValue
+storeDisabledFeatures:error:
+bundleForClass:
 hasPrefix:
+appendString:
 ephemeralSessionConfiguration
 initWithString:
 cplDebugDescription
 bumpStableIndexForScopeWithIdentifier:error:
 doubleForKey:
-storeDisabledFeatures:error:
 processName
 newTaskIdentifier
+storeData:identity:isOriginal:needsCommit:onNewFile:error:
+setSharedScope:
 domain
 appendFormat:
 isLibraryManagerForEngineLibrary:
 processInfo
 objectsForKeys:notFoundMarker:
 closeFile
-setSharedScope:
-storeData:identity:isOriginal:needsCommit:onNewFile:error:
+storeClientIsNotInSyncWithClientCacheWithError:
 bumpLocalIndexForScopeWithIdentifier:error:
 appendBatch:alreadyMingled:error:
-storeClientIsNotInSyncWithClientCacheWithError:
 bumpCloudIndexForScopeWithIdentifier:error:
+storeClientCacheIdentifier:error:
 objectForKey:
 clientNeedsToPullTaskForScope:
 anyObject
-objectForInfoDictionaryKey:
 recordWithScopedIdentifier:isFinal:isConfirmed:
-storeClientCacheIdentifier:error:
+objectForInfoDictionaryKey:
 initWithCapacity:
-altitude
 acknowledgeChangedStatus:hasBeenDeleted:error:
+altitude
 objectEnumerator
-initWithCString:encoding:
-course
-enumeratorForScopesNeedingToBePulledByClientWithMaximumCount:
 setCompletedUnitCount:
+course
+storeChange:pushContext:discardedUploadIdentifier:error:
+initWithCString:encoding:
+enumeratorForScopesNeedingToBePulledByClientWithMaximumCount:
 libraryManager:uploadDidStartForResourceTransferTask:
 initWithSet:
 objectAtIndex:
-storeChange:pushContext:discardedUploadIdentifier:error:
 schedulePersistedSyncSessionIfAvailableWithCompletionHandler:
+setScopeType:forScope:error:
 numberWithUnsignedLongLong:
+numberWithUnsignedLong:
+scheduleNextSyncSessionAtDate:
 initWithBytesNoCopy:length:freeWhenDone:
 boolValue
 libraryManager:uploadDidFinishForResourceTransferTask:withError:
 prepareForClose
-numberWithUnsignedLong:
-setScopeType:forScope:error:
 allValues
-scheduleNextSyncSessionAtDate:
 boolForKey:
 numberWithUnsignedInteger:
-createNewClientCacheIdentifier
-numberWithUnsignedInt:
-UUID
-distantPast
-libraryManager:inMemoryDownloadDidFinishForResourceTransferTask:data:withError:
 shouldCoalesceServerChangesNotification
+numberWithUnsignedInt:
+createNewClientCacheIdentifier
 setClasses:forSelector:argumentIndex:ofReply:
-distantFuture
-displayableNameForEngineLibrary:
 runWithinSyncSession:
-numberWithLongLong:
+distantPast
 setClassNameOfRecordsForInitialQuery:forScope:error:
-libraryManager:downloadDidStartForResourceTransferTask:
+URLForResource:withExtension:
+libraryManager:inMemoryDownloadDidFinishForResourceTransferTask:data:withError:
+distantFuture
 runWithNoSyncSession
+numberWithLongLong:
+displayableNameForEngineLibrary:
+libraryManager:downloadDidStartForResourceTransferTask:
+synchronize
 numberWithLong:
 isFileURL
 preferredFilenameExtension
+replacementObjectForCoder:
+setInvalidationHandler:
 initWithArray:
 absoluteString
 deleteRecordsForScopeIndex:maxCount:deletedCount:discardedUploadIdentifiers:error:
 deleteRecordsForScopeIndex:maxCount:deletedCount:discardedResources:error:
-synchronize
-replacementObjectForCoder:
 numberWithInteger:
-setInvalidationHandler:
-libraryManager:downloadDidFinishForResourceTransferTask:finalResource:withError:
-numberWithInt:
 replaceOccurrencesOfString:withString:options:range:
 setInterruptionHandler:
-_addSubscriberForCategory:usingPublishingHandler:
+libraryManager:downloadDidFinishForResourceTransferTask:finalResource:withError:
+numberWithInt:
+replaceObjectAtIndex:withObject:
 enumerateObjectsUsingBlock:
 libraryManager:didFinishForceSyncTask:withErrors:
 predicateWithFormat:
+setCancellationHandler:
 numberWithFloat:
-replaceObjectAtIndex:withObject:
 isEqualToString:
 fileWatcherFileDidDisappear:
 libraryManager:backgroundDownloadDidFinishForResource:
 enumerateKeysAndObjectsUsingBlock:
-setCancellationHandler:
 numberWithDouble:
-isEqualToNumber:
 fileWatcherFileDidAppear:
+isEqualToNumber:
 isEqualToDictionary:
-numberWithBool:
 setByAddingObjectsFromSet:
+numberWithBool:
+syncAnchorForScope:isCommitted:
+setScope:hasCompletedClientNeedsToPullTask:error:
+unsignedLongLongValue
+setByAddingObject:
 allObjects
 null
-syncAnchorForScope:isCommitted:
-unsignedLongLongValue
-setScope:hasCompletedClientNeedsToPullTask:error:
-setByAddingObject:
-postNotificationName:object:
+_addSubscriberForCategory:usingPublishingHandler:
 reverseObjectEnumerator
-_setQueue:
-mutableCopy
 unsignedIntegerValue
-isDynamic
-setRoughCPLUploadEstimatedSize:
 writeToURL:atomically:encoding:error:
-allKeys
+setRoughCPLUploadEstimatedSize:
+postNotificationName:object:
 retainIdentity:isTrackedOriginal:error:
+mutableCopy
+isDynamic
 setRoughCPLRecordCount:
-fileSystemRepresentation
 writeToURL:atomically:
+allKeys
+_setQueue:
+setRoughCPLDownloadEstimatedSize:
+removeQuarantinedRecordWithScopedIdentifier:removed:error:
+fileSystemRepresentation
 indexesOfObjectsPassingTest:
 moveItemAtURL:toURL:error:
 deleteCleanupTaskForScopeWithIndex:error:
-setRoughCPLDownloadEstimatedSize:
-removeQuarantinedRecordWithScopedIdentifier:removed:error:
-indexOfObject:inSortedRange:options:usingComparator:
-deleteChangeWithScopedIdentifier:error:
 statusForRecordWithScopedIdentifier:
+indexOfObject:inSortedRange:options:usingComparator:
+unscheduleSyncSession:
+retainCountForIdentity:
+setHighPriorityBackground:
+deleteChangeWithScopedIdentifier:error:
 countForObject:
+unschedulePersistedSyncSession
 indexOfObject:
 engineLibraryHasStatusChanges:
-retainCountForIdentity:
-indexGreaterThanIndex:
-unscheduleSyncSession:
-setHighPriorityBackground:
+resume
 fileHandleForReadingFromURL:error:
 deleteChangeWithScopedIdentifier:discardedUploadIdentifier:error:
 deleteAllRecordsForScopeWithIdentifier:error:
-unschedulePersistedSyncSession
-engineLibraryHasChangesInPullQueue:
-resume
+indexGreaterThanIndex:
+URLByAppendingPathComponent:
 length
+setAttributes:ofItemAtPath:error:
+engineLibraryHasChangesInPullQueue:
 fileExistsAtPath:
 handleFailureInMethod:object:file:lineNumber:description:
 minusSet:
 popCloudScopedIdentifiersToCheck:otherScopeIndex:maxCount:deletedCount:error:
 engineLibrary:uploadTask:didProgress:
-setAttributes:ofItemAtPath:error:
+resourcesToUploadForUploadIdentifier:
 engineLibrary:uploadTask:didFinishWithError:
 classesForSelector:argumentIndex:ofReply:
 goodConditionsDescription
-resourcesToUploadForUploadIdentifier:
-fileDescriptor
-removeObjectsInRange:
-engineLibrary:sizeOfResourcesToUploadDidChangeToSize:sizeOfOriginalResourcesToUpload:numberOfImages:numberOfVideos:numberOfOtherItems:
 statusChangesMaximumCount:
-classNameOfRecordsForInitialQueryForScope:
-engineLibrary:pushAllChangesWithCompletionHandler:
-removeObjectsInArray:
 unlock
-airplaneMode
+fileDescriptor
+engineLibrary:sizeOfResourcesToUploadDidChangeToSize:sizeOfOriginalResourcesToUpload:numberOfImages:numberOfVideos:numberOfOtherItems:
+removeObjectsInRange:
+engineLibrary:pushAllChangesWithCompletionHandler:
+classNameOfRecordsForInitialQueryForScope:
+removeObjectsInArray:
+removeObjectsForKeys:
 connectWithCompletionHandler:
 openLibraryWithClientLibraryBaseURL:cloudLibraryStateStorageURL:cloudLibraryResourceStorageURL:libraryIdentifier:options:completionHandler:
 closeLibraryWithCompletionHandler:
@@ -15383,6 +15405,8 @@ getRelatedScopedIdentifier:forRecordWithScopedIdentifier:
 countPerFlagsForScopeWithIdentifier:
 scopedIdentifiersForChangesWithFlag:forScopeWithIdentifier:
 deleteSharingFlagsWithMaxCount:deletedCount:error:
+addPushObserver:withIdentifier:
+removePushObserverWithIdentifier:
 _propertiesPerClass
 _extractionStrategy
 _lastStrategyName
@@ -15391,6 +15415,7 @@ _timingStatisticQueue
 _lastUploadRateUpdateDate
 _timingStatistics
 _lastApproximativeUploadRate
+_pushObservers
 T@"CPLBatchExtractionStrategy",&,N
 TQ,R,N
 updateWithDuration:recordCount:error:cancelled:
@@ -16037,9 +16062,11 @@ T@"CPLScopeChange",C,N,V_stagedScopeChange
 T@"NSData",C,N,V_stagedTransportScope
 Tq,N,V_stagedScopeFlags
 setMaximumRecordCountPerBatch:
+maximumRecordCountPerBatch
 usualStrategyWithStorage:coveringScopeIdentifier:
 overQuotaStrategyWithStorage:coveringScopeIdentifier:
 minglingStrategyWithStorage:coveringScopeIdentifier:maximumBatchSize:
+TQ,N
 initWithName:storage:scopeIdentifier:steps:
 _hasChanges
 _computeNextStep
@@ -16051,7 +16078,6 @@ stepsDescription
 cplFullDescription
 strategyName
 storage
-maximumRecordCountPerBatch
 _steps
 _stepEnumerator
 _currentStep
@@ -16612,7 +16638,6 @@ _status
 _delegationProtocol
 _delegationSelector
 T@"NSDate",C,N
-TQ,N
 Tq,N
 T@"NSData",C,N
 upgradeSuggestedToAccessAllPhotos
@@ -17459,6 +17484,7 @@ knownCloudRecordWithScopedIdentifier:
 isCloudRecordWithScopedIdentifierShared:
 _didStartTaskWithKey:recordCount:
 _didFinishTaskWithKey:error:cancelled:
+_prepareTransportGroupForOneBatch
 _popNextBatchAndContinue
 _updateQuotaStrategyAfterSuccessInTransaction:
 _markUploadedTasksDidFinishWithError:transaction:error:
@@ -17466,12 +17492,16 @@ _discardUploadedExtractedBatch:error:
 _reenqueueExtractedBatchWithRejectedRecords:extractedBatch:error:
 _clearUploadBatch
 _checkForRecordExistence
+_shouldUploadBatchesWithDropReason:shouldQuarantineRecords:inTransaction:
 _extractBatchWithTransaction:andStore:
 _uploadBatchWithFetchCache:
 _deleteGeneratedResourcesAfterError:
 _generateDerivativesForNextRecord:usingDerivativesCache:fetchCache:
 _generateNeededDerivativesWithFetchCache:
 _prepareUploadBatch
+_noteSuccessfulUpdateInTransaction:
+_extractAndUploadOneBatch
+_launch
 _excludeScopeFromMingling
 _includeScopeInMingling
 _shouldNotTrustCloudCacheAfterError:
@@ -17497,6 +17527,7 @@ _startOfDerivativesGeneration
 _hasCachedShouldCheckResourcesAhead
 _shouldCheckResourcesAhead
 _shouldSetupEstimatedSize
+_storedTransportGroup
 _taskItem
 _hasPushedSomeChanges
 _isUsingOverQuotaStrategy
@@ -17506,6 +17537,8 @@ _currentTaskKey
 _taskStartDate
 _didExtractOneBatch
 _wasBusy
+_hasUploadedOneBatch
+_retryImmediately
 allocWithZone:
 alloc
 setResourceIdentityImplementation:
@@ -19323,7 +19356,6 @@ _launchPullTasksAndDisableQueries:
 _fetchInitialSyncAnchor
 _addPartnerScope:scopes:
 _checkServerFeatureVersionWithCompletionHandler:
-_launch
 _endTaskError
 _partnerScopes
 _syncAnchorsOfPartnerScopesThatMightNeedToPullChanges
@@ -19726,6 +19758,7 @@ v48@0:8@16d24Q32B40B44
 B32@0:8^@16@24
 @32@0:8q16@24
 B40@0:8Q16^Q24^@32
+v32@0:8@?16@24
 @"CPLBatchExtractionStrategy"
 v40@0:8d16Q24B32B36
 v32@0:8@"CPLSyncSessionPredictor"16@"CPLSyncSessionPrediction"24
@@ -19939,6 +19972,7 @@ B32@0:8@"CPLScopedIdentifier"16^@24
 @"NSURL"40@0:8@"CPLResource"16@"CPLResource"24^@32
 B24@0:8@"CPLResource"16
 B24@0:8@"CPLScopedIdentifier"16
+B40@0:8^@16^B24@32
 @"CPLEngineTransport"
 @"CPLDerivativesFilter"
 @"CPLBeforeUploadCheckItems"

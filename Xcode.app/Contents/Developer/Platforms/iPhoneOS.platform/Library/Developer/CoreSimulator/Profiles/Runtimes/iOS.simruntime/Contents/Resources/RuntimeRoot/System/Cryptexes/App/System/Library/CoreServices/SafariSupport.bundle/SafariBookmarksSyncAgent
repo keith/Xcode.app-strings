@@ -544,16 +544,19 @@ v32@?0@"CKShareMetadata"8@"CKShare"16@"NSError"24
 9999999
 @"NSString"32@?0@"CKRecordZoneID"8Q16^B24
 v24@?0@"CKRecordZoneID"8@"NSError"16
+@32@?0@"CKRecordID"8@"NSMutableSet"16^B24
+recordID
+recordID.ckShortDescription
+v32@?0@"CKRecordID"8@"NSMutableSet"16^B24
 B24@?0@"CKShareParticipant"8^B16
 @"WBBookmarkSyncData"24@?0@"WebBookmark"8@"WBBookmarkSyncData"16
-@distinctUnionOfSets.ckShortDescription
+v32@?0@"CKRecordZoneID"8@"CKServerChangeToken"16^B24
 v32@?0@"CKServerChangeToken"8@"NSArray"16@"NSError"24
 @"CKFetchRecordZoneChangesConfiguration"32@?0@"CKRecordZoneID"8Q16^B24
 v48@?0@"CKServerChangeToken"8@"NSArray"16@"NSArray"24@"NSArray"32@"NSError"40
 v16@?0@"WebBookmark"8
 v32@?0@"CKRecordID"8@"CKRecord"16@"NSError"24
 @"NSString"32@?0@"CKRecordZoneID"8@"NSError"16^B24
-v32@?0@"CKRecordZoneID"8@"CKServerChangeToken"16^B24
 Asset destination URL was not available.
 Sync Coordinator Saving Assets
 record.ckShortDescription
@@ -2686,6 +2689,8 @@ _saveNextMigrationRecordBatchInCollection:operationGroup:usingRecordBuilderBlock
 _migratedRecordForBookmarkID:inCollection:destinationRecordZoneID:
 _setUpSharingInRecordZoneWithID:collection:operationGroup:completionHandler:
 _performPostZoneMigrationSyncDownForRecordZoneID:shareRecord:inCollection:operationGroup:completionHandler:
+_prepareForSyncDown
+_didFinishSyncDownInCollection:isSuccessful:
 _performSyncDownForRecordZoneIDs:perRecordZoneConfigurations:inDatabase:collection:operationGroup:completionHandler:
 _nextMigrationRecordBatchInCollection:recordBuilderBlock:
 _saveUpdatedRecords:deletedRecordIDs:inDatabase:collection:operationGroup:completionHandler:
@@ -2765,6 +2770,7 @@ bookmarkIDWithSpecialID:
 setSyncPosition:incrementGeneration:
 moveBookmark:toFolderWithID:orderIndex:
 setParentRecordID:
+valueForKeyPath:
 acceptanceStatus
 shareRecord
 currentUserParticipant
@@ -2788,6 +2794,10 @@ clearModifiedAttributes
 lastReadGeneration
 setLastReadGeneration:
 safari_isCloudKitMissingZoneError
+_setUpRecordZoneIDsToPendingServerChangeTokens
+_setUpUnknownRecordIDsToPendingAuxiliaryRecordSets
+_clearUnknownRecordIDsToPendingAuxiliaryRecordSets
+_saveRecordZoneServerChangeTokensInCollection:ifSuccessful:
 _fetchRecordsToRefreshInCollection:operationGroup:completionHandler:
 _isExpiredChangeTokenError:
 _handleExpiredChangeTokenError:collection:operationGroup:completionHandler:
@@ -2797,7 +2807,6 @@ lastSharedDatabaseServerChangeToken
 setLastPrivateDatabaseServerChangeToken:
 setLastSharedDatabaseServerChangeToken:
 _notifyDelegateAboutIgnoredRecordZoneIDsIfNeeded:
-valueForKeyPath:
 _fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:operationGroup:completionHandler:
 _handleDeletedRecordZoneIDs:inCollection:
 safari_dictionaryByMappingObjectsAsKeysToObjectsUsingBlock:
@@ -2881,6 +2890,7 @@ _assetSavingQueue
 _observers
 _syncPhase
 _isSyncOperationPending
+_recordZoneIDsToPendingServerChangeTokens
 _numberOfMigrationRetryAttempts
 _unknownRecordIDsToPendingAuxiliaryRecordSets
 _recordIDsToRefresh
@@ -3536,6 +3546,7 @@ Saving record batch with %zu records and %zu deletes
 Bailing out from saving record batch due to deallocation
 Failed to save record batch due to missing zone: %{public}@
 Failed to save an individual record because the batch was too large and this one exceeded the limit.
+Save error needs merge %{public}@ but no server record is present
 Failed to delete an individual record ID because the batch was too large and this one exceeded the limit.
 Failed to delete record ID due to CloudKit error which could not be handled: %{public}@
 Batch record save operation completed but now retrying updated batch
@@ -3991,11 +4002,15 @@ Record with ID %{public}@ is neither in the default zone to become a tombstone o
 Attempting to accept share for shareURL %{sensitive, hash.mask}@
 Did fetch share metadata for shareURL %{sensitive, hash.mask}@, %{sensitive, mask.hash}@
 Failed to fetch CKShareMetadata record for URL %{sensitive, mask.hash}@
-Successfully accepted share for shareURL: %{sensitive, mask.hash}@
+Attempted to accept share in zoneID: %{public}@ even though it was created by this user, syncing down the zone instead.
+Did fail to perform sync down of zone %{public}@ shared by this user; error: %{public}@
+Successfully performed sync down for zone %{public}@ shared by this user
+Will begin accepting share with zoneID: %{public}@ for shareURL: %{sensitive, mask.hash}@
+Successfully accepted share with zoneID %{public}@ for shareURL: %{sensitive, mask.hash}@
 Will perform sync down of zone %{public}@
 Did fail to perform sync down of zone %{public}@ for shareURL %{sensitive, mask.hash}@
 Successfully performed sync down for zone %{public}@ of shareURL %{sensitive, mask.hash}@
-Failed to fetch CKShare record for metadata %{sensitive, mask.hash}@
+Failed to fetch accept share with zoneID %{public}@ for metadata %{sensitive, mask.hash}@; error: %{public}@
 Will load last known minimum OS version in circle cache.
 Cache for last known minimum OS version in circle is still valid. Should create placeholder tab: %@
 Cache for last known minimum OS versions in circle is no longer valid; fetching metadata.
@@ -4044,15 +4059,25 @@ Bookmark with server ID %{public}@ uses a more recent API version (%zu), then su
 Scoped bookmark changes should have a valid tab group.
 Shared tab group changes should have a valid parent bookmark.
 Parent bookmark with server ID %{public}@ not found, moving to recovered bookmarks
+Setting up _unknownRecordIDsToPendingAuxiliaryRecordSets
+_unknownRecordIDsToPendingAuxiliaryRecordSets is already set up with content %{public}@
+Clearing _unknownRecordIDsToPendingAuxiliaryRecordSets
+Found auxiliary records that do not have any associated main records
+Unknown recordID %{public}@ has %zd pending auxiliary records with IDs: %{public}@
 Auxiliary record %{public}@ does not have an associated main recordID.
+Adding pending auxiliary record with ID %{public}@ for unknown associated recordID: %{public}@
+Did find %zd pending auxiliary records for associated main recordID: %{public}@
+Handling pending auxiliary record %{public}@ for recordID: %{public}@
 Updating share record for zone: %{public}@
 Deleting share record for tab group: %{public}@
 Did receive presence record with ID %{public}@ for participant: %{public}@, tabRecordName: %{public}@, isExpired: %d
 Did receive presence record deletion with ID %{public}@
+Will prepare for sync down
+Did finish sync down successfully %{public}@
+Saving server change token for recordZoneID: %{public}@, token: %{public}@
 Will begin sync down
 Performing sync down with last server change token in private database: %{public}@
 Performing sync down with last server change token in shared database: %{public}@
-Expected records with IDs %{public}@ were not received during sync down, ignoring the following auxiliary records: %{public}@
 Primary record zone has disappeared, we need to migrate again.
 Found %lu zones deleted in database %{public}@, deleting local records.
 Found no zones to update in database %{public}@
@@ -4077,6 +4102,7 @@ Record with ID %{public}@ is in a zone that will be removed
 Marking record as Deleted with ID: %{public}@
 Record %{public}@ was changed remotely
 Record with ID %{public}@ locally moved to a different zone was modified by another device, don't attempt to delete it anymore.
+No remote record detected for local record %{public}@, skipping merge
 Creating new bookmark
 Will notify delegate that changes for some record zones were ignored with IDs: %{public}@
 Failure to get a collaboration highlight with error %{public}@ for the CKShare: %{public}@ %{private}@
@@ -4579,6 +4605,7 @@ B40@0:8@16@24@32
 </plist>
 !$'*
 u"A$
+b@M:::
  $'*-
 com.apple.SafariBookmarksSyncAgent.Push
 v8@?0
@@ -5126,16 +5153,19 @@ v32@?0@"CKShareMetadata"8@"CKShare"16@"NSError"24
 9999999
 @"NSString"32@?0@"CKRecordZoneID"8Q16^B24
 v24@?0@"CKRecordZoneID"8@"NSError"16
+@32@?0@"CKRecordID"8@"NSMutableSet"16^B24
+recordID
+recordID.ckShortDescription
+v32@?0@"CKRecordID"8@"NSMutableSet"16^B24
 B24@?0@"CKShareParticipant"8^B16
 @"WBBookmarkSyncData"24@?0@"WebBookmark"8@"WBBookmarkSyncData"16
-@distinctUnionOfSets.ckShortDescription
+v32@?0@"CKRecordZoneID"8@"CKServerChangeToken"16^B24
 v32@?0@"CKServerChangeToken"8@"NSArray"16@"NSError"24
 @"CKFetchRecordZoneChangesConfiguration"32@?0@"CKRecordZoneID"8Q16^B24
 v48@?0@"CKServerChangeToken"8@"NSArray"16@"NSArray"24@"NSArray"32@"NSError"40
 v16@?0@"WebBookmark"8
 v32@?0@"CKRecordID"8@"CKRecord"16@"NSError"24
 @"NSString"32@?0@"CKRecordZoneID"8@"NSError"16^B24
-v32@?0@"CKRecordZoneID"8@"CKServerChangeToken"16^B24
 Asset destination URL was not available.
 Sync Coordinator Saving Assets
 record.ckShortDescription
@@ -5148,111 +5178,167 @@ CloudBookmarks
 DiagnosticExtension
 KeyedArchiver
 SiriLink
-addItem:underFolderWithServerId:database:
+numberWithBool:
+setXpcActivity:
+scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+clearChangesForChangeRecords:lastSyncedRecordGeneration:
+fieldForAttribute:
+initWithConfiguration:openDatabase:
+containsObject:
+JSONObjectWithData:options:error:
+setWithObjects:
+applicationBundleIdentifierOverrideForPushTopicGeneration
+isEqualToString:
+fetchUserRecordIDWithCompletionHandler:
+name
+scheduledTimerWithTimeInterval:repeats:block:
+setName:
+isEqualToSet:
+URLByAppendingPathExtension:
+setWithObject:
+mutableCopy
+scheduleRetryIfNeededForError:usingBlock:
+refresh
+containerIdentifier
+setModifySubscriptionsCompletionBlock:
+isEqualToOrderedSet:
+updateDatabaseSyncDataUsingBlock:
+anyObject
+setWithArray:
+clearAllSyncDataWithDatabase:
+referenceAction
+setModifyRecordsCompletionBlock:
+setWantsNewInvitationToken:
+clearAllSyncData
+isEqualToDictionary:
+allocWithZone:
+safari_isCloudKitNonExistentRecordError
+updateContainsCKShareRecord
+recordZoneIDsToHashGenerators
+initWithCollectionType:storeOwner:
+safari_isCloudKitMissingZoneError
+setModifyRecordZonesCompletionBlock:
+clearAllReadingListArchives
+setUserIdentityLookupInfos:
+allValues
+isEqualToData:
+moveBookmark:toFolderWithID:orderIndex:
+allSyncingAttributesForBookmark:
+initWithCollectionType:
+setModifiedAttributes:item:
+clearAllLastServerChangeTokens
+updateAccountHash:
+setModifiedAttributeMask:
+modifiedSyncingAttributesForBookmark:
+allObjects
+unsignedIntegerValue
+clearAllGenerationsExceptState
+setMinimumSyncAPIVersion:
+componentsJoinedByString:
+isEnabledForDataclass:
+allKeys
+clearAllCKRecords
+savePerSiteSettingCloudKitRecordToDisk:completionHandler:
+unlockSync
+recordIDsToRefresh
+address
+setMinimumAPIVersion:
 compare:options:
 modifiedAttributes
-recordIDsToRefresh
-backgroundImageGeneration
-absoluteString
 safari_isCloudKitBatchTooLargeError
 ckShortDescription
 recordIDForTab:
 setTrackChanges:
 unionSet:
 modifiedAttributeMask
-aa_primaryAppleAccount
-backgroundImageExists
 ckBookmarkSyncFinishedWithResult:error:
 collectionType
-uncopiedDataAtIndex:
 recordID
 deleteBookmark:leaveTombstone:
+addParticipant:
+uncopiedDataAtIndex:
 modificationDate
-aa_altDSID
-backgroundImageAppearanceIsLight
-recordChangeTag
 isDeletingRecordZone
-auxiliaryRecordIDsToDelete
+recordChangeTag
 setTimeoutIntervalForRequest:
+addOperation:
 minusSet:
 unarchivedObjectOfClass:fromData:error:
 setLocalMigrationState:generateDeviceIdentifierIfNeeded:
 setTimeout:
-auxiliaryRecordIDs
+minimumSyncAPIVersion
 defaultManager
 safari_initWithEncodedRecordData:
-minimumSyncAPIVersion
+addObserver:selector:name:object:
 unableToSilentlyMigrateToCKBookmarksWithReason:
 collaborationHighlightForURL:error:
-auxiliaryRecordForKey:
 isDeleted
-saveDatabase:
 safari_hasOrContainsErrorWithCloudKitErrorCode:
+saveDatabase:
 defaultDatabaseURL
+addObjectsFromArray:
 minimumAPIVersion
+setTabCollection:
 setLocalCloudKitMigrationState:database:
 code
-setTabCollection:
 safari_hasAtLeastOneChangedField
 defaultCenter
+addObject:
 changedRowCount
-setLastSyncedRecordGeneration:
-authKitAccountWithAltDSID:
 migratorDeviceIdentifier
-attributesMarkedAsModified:
+setLastSyncedRecordGeneration:
 setSystemSharingUIDidStopSharingBlock:
 decodeObjectOfClasses:forKey:
-setLastSharedDatabaseServerChangeToken:
 changedKeys
+setLastSharedDatabaseServerChangeToken:
 propertyListWithData:options:format:error:
 setSystemSharingUIDidSaveShareBlock:
+addItem:underFolderWithServerId:database:
 decodeObjectOfClass:forKey:
 safari_folderTypeForRecordName:
 isCustomizationSyncEnabled
 changeTypeForChange:
 setLastServerChangeToken:forRecordZoneID:
-changeType
 processIdentifier
 setSyncState:
 dateWithTimeIntervalSinceReferenceDate:
+changeType
 safari_firstObjectPassingTest:
 isCancelled
-setLastSelectedChildID:
 topic
-arrayWithObjects:count:
+setLastSelectedChildID:
 setSyncPosition:incrementGeneration:
+addEntriesFromDictionary:
 safari_filterObjectsUsingBlock:
 dateWithTimeIntervalSinceNow:
-arrayWithObject:
 setLastReadGeneration:
-markSpecial:
 privateCloudDatabase
 setSyncKey:item:
-timeIntervalSinceReferenceDate
 dateByAddingTimeInterval:
+markSpecial:
 safari_errorWithDomain:code:privacyPreservingDescription:
-setLastPrivateDatabaseServerChangeToken:
+addDependency:
+timeIntervalSinceReferenceDate
 changeIsMoveChange:
-arrayWithCapacity:
+setLastPrivateDatabaseServerChangeToken:
 privacyPreservingDescription
-markChildrenInFolderAsRead:
 date
-changeIsDAVMoveChange:
+markChildrenInFolderAsRead:
 setSyncData:item:
-arrayByAddingObjectsFromArray:
+changeIsDAVMoveChange:
 timeIntervalSinceNow
 previousServerChangeToken
-markAttributesAsModified:
 setSyncData:forKey:
+markAttributesAsModified:
 invalidate
-array
-postNotificationName:object:userInfo:deliverImmediately:
 setInterface:forSelector:argumentIndex:ofReply:
+postNotificationName:object:userInfo:deliverImmediately:
+activeParticipantsDidUpdateInTabWithUUID:
 intersectsSet:
 databaseSyncDataInDatabase:databaseAccessor:
 safari_errorByAddingCloudKitPrivacyPreservingUserInfoForItemID:
 mainBundle
-archivedDataWithRootObject:requiringSecureCoding:error:
+cancel
 postNotificationName:object:userInfo:
 databaseSyncData
 fetch
@@ -5264,27 +5350,32 @@ postNotificationName:object:
 setSubscriptionsToSave:
 interfaceWithProtocol:
 safari_encryptedValues
-setHandler:
+accountInfoWithCompletionHandler:
+UUIDString
 safari_encodedSystemFieldsData
+setHandler:
 setSubscriptionIDsToDelete:
 databasePathForConfiguration:
 integerValue
+UUID
 lookupInfosWithEmails:
 expirationDate
-applicationBundleIdentifierOverrideForPushTopicGeneration
+intValue
 initRequiringSecureCoding:
 positionFromContentsOfData:
 setGroup:
-intValue
 safari_encodedRecordData
 setSubscriptionIDs:
+UTF8String
 saveBookmark:incrementGenerations:
 execute
 lookupInfo
 initReadingListBookmarkWithTitle:address:previewText:
+acceptanceStatus
 setGeneration:forKey:
 intAtIndex:
 safari_dictionaryForKey:
+URLWithString:
 setStoreOwner:
 lockSync
 saveBackupOfDatabase:withName:
@@ -5293,15 +5384,18 @@ errorWithDomain:code:userInfo:
 setGeneration:
 initForReadingFromData:error:
 int64AtIndex:
+URLByDeletingPathExtension
 safari_dictionaryByMappingObjectsToKeysUsingBlock:
 setStateChangeObserver:
 error
 initFolderWithParentID:subtype:deviceIdentifier:
-setFetchSubscriptionCompletionBlock:
 safari_dictionaryByMappingObjectsAsKeysToObjectsUsingBlock:
+setFetchSubscriptionCompletionBlock:
 insertObject:atIndex:
+URLByDeletingLastPathComponent
 localizedDescription
 enumerateKeysAndObjectsUsingBlock:
+boolValue
 initFolderWithParentID:
 positionForBookmarkWithRecordName:
 setFetchShareParticipantsCompletionBlock:
@@ -5311,13 +5405,16 @@ initWithZoneName:ownerName:
 setShouldSendContentAvailable:
 localTimeZone
 safari_tabGroupsRecordZoneID
+boolForKey:
 indexOfObjectPassingTest:
 setFetchShareMetadataCompletionBlock:
 positionDictionaryRepresentation
-localRecordGeneration
+absoluteString
 setShareURLs:
 dataWithJSONObject:options:error:
 initWithZoneID:subscriptionID:
+localRecordGeneration
+boolAtIndex:
 safari_tabGroupSecondaryRecordZoneIDWithRootRecordName:
 positionBetweenPosition:andPosition:withDeviceIdentifier:changeID:
 setFetchRecordsCompletionBlock:
@@ -5325,19 +5422,22 @@ indexOfObject:inSortedRange:options:usingComparator:
 setShareRecord:
 encryptedValues
 dataWithContentsOfURL:options:error:
+aa_primaryAppleAccount
 initWithZoneID:
 safari_tabGroupRootRecordName
 setFetchRecordZonesCompletionBlock:
 indexOfObject:
-safari_substringFromPrefix:
 setShareMetadatas:
 safari_descriptionWithoutSpaces
+safari_substringFromPrefix:
 dataUsingEncoding:
+aa_altDSID
 localCloudKitMigrationState:
 incrementedGenerationWithDeviceIdentifier:
 setFetchRecordZoneChangesCompletionBlock:
 safari_dateForKey:
 setShareInvitationTokensByShareURL:
+bookmarkWithUUID:
 dataForKey:
 initWithUUIDString:deviceOrCloseRequestDictionary:
 tabCollection
@@ -5346,12 +5446,13 @@ encodedData
 incrementGenerationIfNeeded
 setFetchDatabaseChangesCompletionBlock:
 initWithURL:queue:
-safari_stringByNormalizingVersionString
 dataAtIndex:
+safari_stringByNormalizingVersionString
 safari_dataByDecompressingData
 setServerId:item:
 syncableBookmarksIDsInFolderWithBookmarkID:
 encodedBookmarkSyncData
+bookmarkWithServerID:excludeDeletedBookmarks:
 incrementGenerationForKey:withDeviceIdentifier:
 setFetchAllChanges:
 performMaintenanceOnDatabase:afterVersion:
@@ -5359,31 +5460,35 @@ setServerID:forBookmark:
 data
 syncStringForKey:
 safari_dataByCompressingData
+bookmarkWithID:
 encodeObject:forKey:
 setExtraAttributesValue:forKey:
 performMaintenance
 inMemoryDatabaseURL
 initWithTitle:address:parentID:subtype:deviceIdentifier:
 setServerID:
-safari_startPageBackgroundImageFileURLForIdentifier:
 currentUserParticipant
 safari_containsCloudKitMissingZoneErrorForRecordZoneID:
+safari_startPageBackgroundImageFileURLForIdentifier:
 syncState
 enableWAL:
+bookmarkTypeWithBookmark:
 setExportedObject:
 initWithTitle:address:
 currentTabServerIDPresenceForParticipant:inTabGroupWithServerID:
-emailAddress
 safari_cloudTabsContainer
+emailAddress
+bookmarkTypeForChange:
 safari_startPageBackgroundImageFileURL
 syncSettingsUpDictionary
 length
 setExportedInterface:
 currentTabServerIDPresenceForParticipant:getTabGroupServerID:
 initWithTabCollection:
-safari_cloudSettingsContainer
 lastSyncedRecordGeneration
+safari_cloudSettingsContainer
 syncSetString:forKey:
+bookmarkType
 doubleValue
 identifier
 performDeduplicationWithDatabase:mode:
@@ -5396,74 +5501,72 @@ syncPosition
 doubleForKey:
 performDatabaseUpdatesWithTransaction:secureDelete:
 setExpectedSendSize:
-safari_setObject:
+bookmarkIDWithSpecialID:
 safari_cloudExtensionsContainer
 initWithSubscriptionIDs:
+syncDataWithContentsOfData:
+safari_setObject:
 doubleAtIndex:
 lastServerChangeTokenForRecordZoneID:
-syncDataWithContentsOfData:
-zoneName
 setExpectedReceiveSize:
+zoneName
 initWithSubscriptionID:
-lastSelectedChildID
+bookmarkIDForServerID:excludeDeletedBookmarks:
 setRole:
 safari_cloudBookmarksDefaults
+lastSelectedChildID
 syncDataForKey:
 domain
 path
 zoneID
 setResourceValue:forKey:error:
-lastReadGeneration
 initWithSharingInvitationData:shareURL:
 safari_cloudBookmarksContainer
+lastReadGeneration
 syncDataForBookmark:
 participantsDidUpdateInTabGroupWithUUID:
 writeToURL:options:error:
 hasSuffix:
 setEnabledTopics:ignoredTopics:opportunisticTopics:
-lastPrivateDatabaseServerChangeToken
 safari_browserDefaults
-didSuccessfullyMigrateToCKBookmarksAsPrimaryMigrator:
+lastPrivateDatabaseServerChangeToken
 participants:didLeaveSharedTabGroupWithUUID:
+didSuccessfullyMigrateToCKBookmarksAsPrimaryMigrator:
 writeToDatabase:databaseAccessor:
 hasPrefix:
 setDiscretionaryNetworkBehavior:
 initWithSet:
 safari_boolForKey:
 setRecordsToSave:
-URLByDeletingLastPathComponent
 lastPathComponent
 weakObjectsHashTable
 didStartMigratingToCKBookmarksAsPrimaryMigrator:localState:remoteState:
-UUIDString
 participants:didJoinSharedTabGroupWithUUID:
 hasGenerationForKey:
 setRecordZonesToSave:
 safari_bookmarksRecordZoneID
 didRemoveTabWithUUID:title:inSharedTabGroupWithUUID:byParticipantWithRecordID:
 lastObject
-UUID
 participants
 setDidReceiveNonRetryableError:
 safari_arrayForKey:
 setRecordZoneWithIDWasPurgedBlock:
 initWithRecordsToSave:recordIDsToDelete:
 lastModifiedUserRecordID
+bookmark
 didReceiveRemoteCloudSettingsUpdateWithRecord:
-UTF8String
 setDidNotSaveRecordsAfterMigration:
-cancel
 setRecordZoneWithIDWasDeletedDueToUserEncryptedDataResetBlock:
 initWithRecordZonesToSave:recordZoneIDsToDelete:
 safari_removeFileAtURL:error:
-URLWithString:
+bindString:atParameterIndex:
 wb_lockError
 setDidExceedRetryTimeout:
 createLegacyPlaceholderTabGroupBookmarksForSharedTabGroup:
 safari_SHA1Hash
 setRecordZoneWithIDWasDeletedBlock:
 initWithRecordZoneIDs:configurationsByRecordZoneID:
-URLByDeletingPathExtension
+bindInt:atParameterIndex:
 setDeviceIdentifier:
 parentID
 wb_databaseOpenError
@@ -5471,36 +5574,38 @@ initWithRecordZoneID:
 createFolderWithType:database:
 setRecordZoneWithIDChangedBlock:
 safariTabCollectionConfiguration
+bindInt64:atParameterIndex:
 didNotSaveRecordsAfterMigration
-setDeletedBookmarkSyncData:change:
 handle
+setDeletedBookmarkSyncData:change:
 initWithRecordType:zoneID:
 setRecordZoneIDsToDelete:
 createDatabaseWithoutLock
+bindDouble:atParameterIndex:
 lastErrorMessage
 didNavigateInTabWithUUID:title:inSharedTabGroupWithUUID:byParticipantWithRecordID:
-safari_privacyPreservingDescription
 supportsDeviceToDeviceEncryption
+safari_privacyPreservingDescription
 createDatabase
 setRecordZoneIDs:
-initWithRecordType:recordID:
 subtype
+initWithRecordType:recordID:
+bindData:atParameterIndex:
 setDefaultConfiguration:
 getSyncDataForPreference:domain:completionHandler:
+didFetchRecentlyAcceptedSharedTabGroupWithUUID:acceptedShareDate:
 initWithRecordName:zoneID:
 setRecordZoneFetchCompletionBlock:
-didFetchRecentlyAcceptedSharedTabGroupWithUUID:acceptedShareDate:
 setDateLastViewed:
 keyID
 orderedSetWithObject:
 getSyncDataForPreference:completionHandler:
 initWithRecordID:action:
 setRecordWithIDWasDeletedBlock:
-setDateAdded:
 didFailToMigrateToCKBookmarksAsPrimaryMigrator:error:
+setDateAdded:
 subscriptionID
 orderedSetWithArray:
-boolValue
 initWithRecord:action:
 setRecordWasChangedBlock:
 resume
@@ -5509,38 +5614,35 @@ subarrayWithRange:
 orderedSet
 getDeletedCloudKitSyncDataForRecordName:completionHandler:
 setDatabase:
-boolForKey:
 setRecordIDsToDelete:
 createBookmarkWithType:database:
 initWithPreviousServerChangeToken:
-setContainsCKShareRecord:
 strongToStrongObjectsMapTable
-orderIndexOfBookmark:withSyncPosition:inFolderWithID:
 safari_numberForKey:
-boolAtIndex:
+setContainsCKShareRecord:
+orderIndexOfBookmark:withSyncPosition:inFolderWithID:
 setRecordIDs:
 countByEnumeratingWithState:objects:count:
-valueForKeyPath:
 didChangeScopedFavoritesInSharedTabGroupWithUUID:byParticipantWithRecordID:
+valueForKeyPath:
 itemTypeWithItem:
 safari_normalizedVersion
 stringWithFormat:
 setContainer:
 options
 initWithOwner:handlingQueue:
+didChangeBackgroundImageInSharedTabGroupWithUUID:byParticipantWithRecordID:
 setRecordChangedBlock:
 count
-didChangeBackgroundImageInSharedTabGroupWithUUID:byParticipantWithRecordID:
 stringFromDate:timeZone:formatOptions:
-setConfigurationsByRecordZoneID:
 safari_minimumUsingComparator:
 itemTypeForChange:
+setConfigurationsByRecordZoneID:
 valueForKey:
 operations
 copyValueForKey:item:
-setRecord:
-bookmarkWithUUID:
 didAddTabWithUUID:title:inSharedTabGroupWithUUID:byParticipantWithRecordID:
+setRecord:
 stringForKey:
 setConfiguration:
 valueForEntitlement:
@@ -5548,76 +5650,66 @@ getAllPreferenceInformationForPreference:completionHandler:
 setReadingListIconURL:
 resetDeviceIdentifierForCloudKitWithCollectionType:
 copySyncKeyWithItem:
-openWithAccessType:error:
 dictionaryWithObjects:forKeys:count:
 stringByAppendingString:
-bookmarkWithServerID:excludeDeletedBookmarks:
+openWithAccessType:error:
 value
 initWithMigrationState:migratorDeviceIdentifier:serverModificationDate:
 copySyncDataWithItem:
 resetDeviceIdentifier
 setQualityOfService:
-generationKeyForField:
 stringByAppendingPathComponent:
+generationKeyForField:
 itemErrorFromError:forID:
-bookmarkWithID:
 uuid
 reset
 copyServerIdsInFolderWithServerId:database:
+_postNoticeForHighlightEvent:
 initWithMachServiceName:
 setPreviousServerChangeToken:
 stringAtIndex:
-bookmarkTypeWithBookmark:
-generationForKey:
 setClasses:forSelector:argumentIndex:ofReply:
 openDatabase:
+generationForKey:
 setPreviewText:
-initWithKey:keyID:
 copyServerIdWithItem:
+initWithKey:keyID:
 storeOwner
 safari_matchesErrorDomainsAndCodes:
 dictionary
-bookmarkTypeForChange:
+username
 generation
 setChildrenOrder:forFolderWithServerId:database:
-username
 reportErrorWithCode:statement:error:
 copyServerIdWithChange:
-JSONObjectWithData:options:error:
 isValidJSONObject:
 safari_mapObjectsUsingBlock:
 staticSyncablePerSiteSettings
 generatePositionsForChildRecordNamesGroupedByParentFolders:
-bookmarkType
-anyObject
 initWithHighlight:type:
 setPresenceInTabWithServerID:tabGroupWithServerID:forParticipant:
 removeUnusedPresenceRecords
 copyServerIdInFolderBeforeServerId:database:
-generatePositionBeforeFirstRecordInParentWithServerID:
 statement
-setAuxiliaryRecordIDsToDelete:
+beginMergingChangesWithDatabase:
 safari_mapAndFilterObjectsUsingBlock:
 isValid
+generatePositionBeforeFirstRecordInParentWithServerID:
+setAuxiliaryRecordIDsToDelete:
 objectsPassingTest:
-allocWithZone:
 initWithFirst:second:
-userRecordID
+deviceIdentifierForCloudKitWithCollectionType:generateIfNeeded:
 copyServerIdInFolderAfterServerId:database:
 removeTombstoneWithRecordName:completionHandler:
 setPositionDictionaryRepresentation:
-bookmarkIDWithSpecialID:
-deviceIdentifierForCloudKitWithCollectionType:generateIfNeeded:
 safari_mapAndFilterKeysUsingBlock:
+userRecordID
 setAuxiliaryRecord:forKey:
-allValues
 objectForKeyedSubscript:
 removePresenceForParticipant:inTabGroupWithServerID:
 copySaveURLForAssetWithKey:item:
-allSyncingAttributesForBookmark:
-initWithFileURL:
 safari_mapAndFilterKeysAndObjectsUsingBlock:
-bookmarkIDForServerID:excludeDeletedBookmarks:
+initWithFileURL:
 generateHashWithComponents:
 objectForKey:
 setAutomaticallyRetryNetworkFailures:
@@ -5625,211 +5717,149 @@ userInfo
 setPinned:title:address:
 removePreferenceValueWithRecordName:completionHandler:
 copyParentServerIdWithItem:
+backgroundImageGeneration
 initWithEnvironmentName:namedDelegatePort:queue:
-objectAtIndexedSubscript:
 deviceCount
 safari_logDescription
+objectAtIndexedSubscript:
 isStartPageSettingSyncEnabled
 userIdentity
 setAtomic:
 generateHashStringWithComponents:
-allObjects
 removeParticipant:
-setAddress:
 setPermission:
 copyModifiedAttributesWithChange:
 safari_isVersionStringGreaterThanVersionString:
+setAddress:
+backgroundImageExists
 standardUserDefaults
 determineManateeStateWithCompletion:
 numberWithUnsignedInteger:
-allKeys
 setPerShareParticipantCompletionBlock:
-address
+isSelectedFavoritesFolder
 removeObserver:name:object:
 copyLocalIDsInFolderWithLocalID:database:
-isSelectedFavoritesFolder
 sortedArrayUsingSelector:
 safari_isVersionStringBetweenVersionString:andVersionString:
+backgroundImageAppearanceIsLight
 setAccountHash:database:
 numberWithInteger:
 setPerShareMetadataBlock:
 copyLastServerIdInFolderWithServerId:database:
 removeObjectsInRange:
 initWithDeviceIdentifier:generation:
-numberWithInt:
+auxiliaryRecordIDsToDelete
 sortUsingComparator:
+numberWithInt:
 folderTypeWithFolder:
 initWithDelegate:
-setPerShareCompletionBlock:
-copyItemWithServerId:database:
-removeObjectForKey:
 isReadingListItem
-bookmark
+setPerShareCompletionBlock:
+removeObjectForKey:
+copyItemWithServerId:database:
+auxiliaryRecordIDs
 size
 dependencies
 safari_isUnrecoverableCloudKitError
 setAcceptSharesCompletionBlock:
-addParticipant:
 folderTypeForChange:
-numberWithBool:
+isExpired
 setPerRecordZoneDeleteBlock:
+isReadingListFolder
 copyItemWithLocalID:database:
 removeObjectAtIndex:
-isReadingListFolder
-bindString:atParameterIndex:
+auxiliaryRecordForKey:
 shouldUpdatePresence
 safari_isTabGroupSecondaryRecordZoneID
 folderType
-addOperation:
-URLByAppendingPathExtension:
 setPerRecordSaveBlock:
-fixRecoveredBookmarksIfNeeded
 copyItemAtURL:toURL:error:
 removeObject:
-bindInt:atParameterIndex:
 isReadableFileAtPath:
+fixRecoveredBookmarksIfNeeded
 safari_isOrContainsCloudKitMissingZoneError
+authKitAccountWithAltDSID:
 serverModificationDate
-addObserver:selector:name:object:
 copyFirstServerIdInFolderWithServerId:database:
+attributesMarkedAsModified:
 setPerRecordDeleteBlock:
 initWithDatabaseURL:
-bindInt64:atParameterIndex:
 isPreferenceSyncable:
 sharedLogger
 null
 serverIDsInFolderWithServerID:excludeDeletedBookmarks:
 firstObject
-addObjectsFromArray:
 removeItemWithServerId:database:
 copyDeviceIdentifier
 setPerRecordCompletionBlock:
-bindDouble:atParameterIndex:
 sharedInstance
 first
 closeDatabase:shouldSave:
-addObject:
 setParticipantSelfRemovalBehavior:
-updateSyncDataForBookmarkWithRecordName:excludeDeletedBookmarks:usingBlock:
 removeItemAtURL:error:
 copyDeletedBookmarkSyncDataWithChange:
-serverID
-close
+updateSyncDataForBookmarkWithRecordName:excludeDeletedBookmarks:usingBlock:
 sharedCloudDatabase
 isPerSiteSettingSyncEnabled
-bindData:atParameterIndex:
+arrayWithObjects:count:
+serverID
+close
 notifyForSaveOfAssetWithKey:item:
 fire
 setParentRecordID:
 initWithDatabase:query:error:
-updateSyncDataForBookmark:usingBlock:
+shareRecord
 copyChangesWithDatabase:changeToken:
 removeAllSyncData
-shareRecord
-clearlAllLocalBookmarksForAutomatedTestingWithDatabase:
 isMainThread
+updateSyncDataForBookmark:usingBlock:
 safari_isInPrivateDatabase
-setMinimumAPIVersion:
+arrayWithObject:
+clearlAllLocalBookmarksForAutomatedTestingWithDatabase:
 finishMergingChangesWithDatabase:
 notificationFromRemoteNotificationDictionary:
 initWithDatabase:query:
-updateSelectedFavoritesFolderWithBookmarkID:wasFavoritesFolder:isFavoritesFolder:
 copyChangedItemWithChange:
 removeAllObjects
 setPageZoomSyncData:forRecordName:completionHandler:
 shareDidUpdateForTabGroupWithUUID:
 isInternalInstall
 safari_isInCloudKitErrorDomain
+updateSelectedFavoritesFolderWithBookmarkID:wasFavoritesFolder:isFavoritesFolder:
+arrayWithCapacity:
 finishDecoding
 securityLevelForAccount:
 copyChangeTokenWithDatabase:
-clearReadingListArchiveWithUUID:
+isInserted
 setOwnerDidDeallocateBlock:
 removeAllCloudKitRecordsWithCompletionHandler:
-isInserted
-secondaryZoneNameForBookmark:
 share
-addEntriesFromDictionary:
+clearReadingListArchiveWithUUID:
+arrayByAddingObjectsFromArray:
+secondaryZoneNameForBookmark:
 fileURLWithPath:isDirectory:
 remoteObjectProxyWithErrorHandler:
-clearModifiedAttributes
 copyAttributesWithItem:
 setObject:forKeyedSubscript:
+clearModifiedAttributes
+array
 nextChangeID
-addDependency:
 initWithData:encoding:
-nextChangeAfterLocalRecordGeneration:
 copyAccountHashWithDatabase:
 setObject:forKey:
 registeredStateCollectorWithLogLabel:payloadProvider:
+nextChangeAfterLocalRecordGeneration:
+archivedDataWithRootObject:requiringSecureCoding:error:
 second
 fileExistsAtPath:isDirectory:
-fields
 initWithContainerIdentifier:appleAccountInformationProvider:
 setNotificationInfo:
 copy
+fields
+isFolder
 needsSyncUpdate
 scheme
-isFolder
 clearChangesWithChangeToken:database:
-clearChangesForChangeRecords:lastSyncedRecordGeneration:
-fieldForAttribute:
-setXpcActivity:
-isExpired
-activeParticipantsDidUpdateInTabWithUUID:
-scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
-_postNoticeForHighlightEvent:
-initWithConfiguration:openDatabase:
-containsObject:
-setWithObjects:
-fetchUserRecordIDWithCompletionHandler:
-isEqualToString:
-name
-scheduledTimerWithTimeInterval:repeats:block:
-setName:
-isEqualToSet:
-setWithObject:
-mutableCopy
-accountInfoWithCompletionHandler:
-scheduleRetryIfNeededForError:usingBlock:
-refresh
-containerIdentifier
-setModifySubscriptionsCompletionBlock:
-updateDatabaseSyncDataUsingBlock:
-isEqualToOrderedSet:
-setWithArray:
-clearAllSyncDataWithDatabase:
-referenceAction
-setModifyRecordsCompletionBlock:
-clearAllSyncData
-setWantsNewInvitationToken:
-isEqualToDictionary:
-updateContainsCKShareRecord
-safari_isCloudKitNonExistentRecordError
-clearAllReadingListArchives
-recordZoneIDsToHashGenerators
-acceptanceStatus
-initWithCollectionType:storeOwner:
-setModifyRecordZonesCompletionBlock:
-safari_isCloudKitMissingZoneError
-moveBookmark:toFolderWithID:orderIndex:
-setUserIdentityLookupInfos:
-isEqualToData:
-clearAllLastServerChangeTokens
-initWithCollectionType:
-setModifiedAttributes:item:
-beginMergingChangesWithDatabase:
-updateAccountHash:
-modifiedSyncingAttributesForBookmark:
-setModifiedAttributeMask:
-unsignedIntegerValue
-clearAllGenerationsExceptState
-setMinimumSyncAPIVersion:
-componentsJoinedByString:
-isEnabledForDataclass:
-clearAllCKRecords
-savePerSiteSettingCloudKitRecordToDisk:completionHandler:
-unlockSync
 init
 isEqual:
 class
@@ -7391,6 +7421,8 @@ _deleteNextBatchOfAuxiliaryRecordsInCollection:operationGroup:completionHandler:
 _didFetchRecord:collection:shouldGenerateUpdatedRecord:
 _didFetchBookmarkRecord:collection:
 _setPositionDictionaryRepresentation:inParentWithRecordID:forBookmark:syncData:inCollection:
+_setUpUnknownRecordIDsToPendingAuxiliaryRecordSets
+_clearUnknownRecordIDsToPendingAuxiliaryRecordSets
 _auxiliaryRecordKeyForRecordType:
 _addAuxiliaryRecord:forUnknownRecordWithID:
 _handlePendingAuxiliaryRecordsIfNeededForMainRecordID:inCollection:
@@ -7408,6 +7440,10 @@ _handleDeletedTabGroupParticipantPositionRecord:inCollection:
 _handleUpdatedTabParticipantStatusRecord:inCollection:
 _handleDeletedTabParticipantStatusRecord:inCollection:
 _isExpiredChangeTokenError:
+_prepareForSyncDown
+_didFinishSyncDownInCollection:isSuccessful:
+_setUpRecordZoneIDsToPendingServerChangeTokens
+_saveRecordZoneServerChangeTokensInCollection:ifSuccessful:
 _performSyncDownAfterProcessingChangesInCollection:operationGroup:completionHandler:
 _performSyncDownInCollection:operationGroup:completionHandler:
 _fetchChangedRecordZonesSinceServerChangeToken:inDatabase:collection:operationGroup:completionHandler:
@@ -7462,6 +7498,7 @@ _assetSavingQueue
 _observers
 _syncPhase
 _isSyncOperationPending
+_recordZoneIDsToPendingServerChangeTokens
 _numberOfMigrationRetryAttempts
 _unknownRecordIDsToPendingAuxiliaryRecordSets
 _recordIDsToRefresh
@@ -8118,6 +8155,7 @@ Saving record batch with %zu records and %zu deletes
 Bailing out from saving record batch due to deallocation
 Failed to save record batch due to missing zone: %{public}@
 Failed to save an individual record because the batch was too large and this one exceeded the limit.
+Save error needs merge %{public}@ but no server record is present
 Failed to delete an individual record ID because the batch was too large and this one exceeded the limit.
 Failed to delete record ID due to CloudKit error which could not be handled: %{public}@
 Batch record save operation completed but now retrying updated batch
@@ -8573,11 +8611,15 @@ Record with ID %{public}@ is neither in the default zone to become a tombstone o
 Attempting to accept share for shareURL %{sensitive, hash.mask}@
 Did fetch share metadata for shareURL %{sensitive, hash.mask}@, %{sensitive, mask.hash}@
 Failed to fetch CKShareMetadata record for URL %{sensitive, mask.hash}@
-Successfully accepted share for shareURL: %{sensitive, mask.hash}@
+Attempted to accept share in zoneID: %{public}@ even though it was created by this user, syncing down the zone instead.
+Did fail to perform sync down of zone %{public}@ shared by this user; error: %{public}@
+Successfully performed sync down for zone %{public}@ shared by this user
+Will begin accepting share with zoneID: %{public}@ for shareURL: %{sensitive, mask.hash}@
+Successfully accepted share with zoneID %{public}@ for shareURL: %{sensitive, mask.hash}@
 Will perform sync down of zone %{public}@
 Did fail to perform sync down of zone %{public}@ for shareURL %{sensitive, mask.hash}@
 Successfully performed sync down for zone %{public}@ of shareURL %{sensitive, mask.hash}@
-Failed to fetch CKShare record for metadata %{sensitive, mask.hash}@
+Failed to fetch accept share with zoneID %{public}@ for metadata %{sensitive, mask.hash}@; error: %{public}@
 Will load last known minimum OS version in circle cache.
 Cache for last known minimum OS version in circle is still valid. Should create placeholder tab: %@
 Cache for last known minimum OS versions in circle is no longer valid; fetching metadata.
@@ -8626,15 +8668,25 @@ Bookmark with server ID %{public}@ uses a more recent API version (%zu), then su
 Scoped bookmark changes should have a valid tab group.
 Shared tab group changes should have a valid parent bookmark.
 Parent bookmark with server ID %{public}@ not found, moving to recovered bookmarks
+Setting up _unknownRecordIDsToPendingAuxiliaryRecordSets
+_unknownRecordIDsToPendingAuxiliaryRecordSets is already set up with content %{public}@
+Clearing _unknownRecordIDsToPendingAuxiliaryRecordSets
+Found auxiliary records that do not have any associated main records
+Unknown recordID %{public}@ has %zd pending auxiliary records with IDs: %{public}@
 Auxiliary record %{public}@ does not have an associated main recordID.
+Adding pending auxiliary record with ID %{public}@ for unknown associated recordID: %{public}@
+Did find %zd pending auxiliary records for associated main recordID: %{public}@
+Handling pending auxiliary record %{public}@ for recordID: %{public}@
 Updating share record for zone: %{public}@
 Deleting share record for tab group: %{public}@
 Did receive presence record with ID %{public}@ for participant: %{public}@, tabRecordName: %{public}@, isExpired: %d
 Did receive presence record deletion with ID %{public}@
+Will prepare for sync down
+Did finish sync down successfully %{public}@
+Saving server change token for recordZoneID: %{public}@, token: %{public}@
 Will begin sync down
 Performing sync down with last server change token in private database: %{public}@
 Performing sync down with last server change token in shared database: %{public}@
-Expected records with IDs %{public}@ were not received during sync down, ignoring the following auxiliary records: %{public}@
 Primary record zone has disappeared, we need to migrate again.
 Found %lu zones deleted in database %{public}@, deleting local records.
 Found no zones to update in database %{public}@
@@ -8659,6 +8711,7 @@ Record with ID %{public}@ is in a zone that will be removed
 Marking record as Deleted with ID: %{public}@
 Record %{public}@ was changed remotely
 Record with ID %{public}@ locally moved to a different zone was modified by another device, don't attempt to delete it anymore.
+No remote record detected for local record %{public}@, skipping merge
 Creating new bookmark
 Will notify delegate that changes for some record zones were ignored with IDs: %{public}@
 Failure to get a collaboration highlight with error %{public}@ for the CKShare: %{public}@ %{private}@
