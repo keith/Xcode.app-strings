@@ -401,6 +401,7 @@ TVPVideoResolutionClassHD
 TVPVideoResolutionClassSD
 TVPVideoRangeUnknown
 TVPVideoRangeHDR
+TVPVideoRangeHDR10Plus
 TVPVideoRangeSDR
 TVPVideoRangeDolbyVision
 Atmos
@@ -870,6 +871,7 @@ Unable to create loader objects because certificate URL is nil
 Unable to create loader objects because key data URL is nil
 Not failing request %lu since it has been cancelled
 Setting state to %@
+Posting error on start since startError is present
 Task [%@] for media item [%@] will download to [%@]
 Download task [%@] for media item [%@] will download variants %@
 Download termination background task with identifier %lu expired.  This is not expected to ever happen.  Ending background task
@@ -885,6 +887,8 @@ Unable to begin download initiation background task since identifier is UIBackgr
 Beginning download initiation background task with identifier %lu, name: %@
 Not beginning download initiation background task since one already exists.  This is not expected to ever happen.
 Unable to create media item loader
+Download task already exists but is suspended.  Resuming
+Calling URLSession:task:didCompleteWithError: since download task is already completed
 Key params are available, will attempt to prefetch playback keys prior to starting download task
 Finished key prefetch attempt
 No key params are available, will not prefetch playback keys prior to starting download task
@@ -906,7 +910,8 @@ Will prefer SDH subtitles: %@
 preferredMediaSelection does not exist
 Will download media selection: %@
 Created download task %@
-Download has already completed; posting [%@] event immediately
+Download task already exists, but there shouldn't be one yet.  This isn't supposed to happen
+Received task did complete while in an invalid state.  Posting error event.  This is never expected to happen.
 Task is now completed.  Delaying failure to give task a chance to clean up
 Task exists and is completed.  Delaying download termination to give task a chance to clean up
 Task exists but is not completed.  Cancelling task and waiting for didCompleteWithError
@@ -1085,10 +1090,12 @@ Stopping due to error
 Changing to %@ media item due to error
 Attempting to rebuild %lu downloading media item(s)
 Found %lu existing download task(s)
-For previously downloading media item %@, found existing download task %@ with AVAsset %@
-Not using existing task since its AVAsset's URL is nil.  Download likely failed.
+For previously downloading media item %@, found existing download task %@
+Download task's AVAsset is %@
+Weird, download task isn't of type AVAssetDownloadTask.  This shouldn't happen.  Allowing download to continue anyway.
 No download task exists for media item %@
-Failing download since does no download task exists
+No saved download task identifier exists for media item %@
+Will fail download when started since does no download task exists
 Found %lu task(s) that don't belong to any media items
 Cancelling leftover task %@
 Unable to register task for download since a task is already registered
@@ -2173,6 +2180,7 @@ downloadTask
 progress
 fractionCompleted
 lastDownloadProgressFractionCompleted
+startError
 download:willDownloadToURL:
 downloadTerminationBackgroundTask
 sharedApplication
@@ -2197,10 +2205,12 @@ maximumAverageBitrateForAVC
 setState:
 download:didChangeStateTo:
 reportingSession
+setReportingSession:
 addedProgressObserver
 setAddedProgressObserver:
-setDownloadIsComplete:
 setDownloadTask:
+addedMediaItemLoaderStateObserver
+setAddedMediaItemLoaderStateObserver:
 cleanupIfNecessary
 setMediaItemLoader:
 downloadSession
@@ -2208,7 +2218,6 @@ unregisterDownloadTaskForDownload:
 setStorageSettingsImageData:
 downloadInitiationBackgroundTask
 setDownloadInitiationBackgroundTask:
-setReportingSession:
 loaderForMediaItem:
 URLAsset
 setExistingAVAsset:
@@ -2217,6 +2226,8 @@ setAllowsCellularUsage:
 performKeyFetchOnly
 loadIfNecessary
 state
+resume
+URLSession:task:didCompleteWithError:
 AVAsset
 download:didDetermineMaximumResolution:maximumVideoRange:
 loadFairPlayStreamingKeyRequests:
@@ -2255,8 +2266,6 @@ setAuxiliaryContentConfigurations:
 assetDownloadTaskWithConfiguration:
 download:didReceiveTaskIdentifier:
 taskIdentifier
-downloadIsComplete
-resume
 cancel
 URLSession:didBecomeInvalidWithError:
 URLSession:didReceiveChallenge:completionHandler:
@@ -2269,7 +2278,6 @@ URLSession:task:didReceiveChallenge:completionHandler:
 URLSession:task:needNewBodyStream:
 URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:
 URLSession:task:didFinishCollectingMetrics:
-URLSession:task:didCompleteWithError:
 URLSession:assetDownloadTask:didFinishDownloadingToURL:
 URLSession:assetDownloadTask:didLoadTimeRange:totalTimeRangesLoaded:timeRangeExpectedToLoad:
 URLSession:assetDownloadTask:didResolveMediaSelection:
@@ -2324,6 +2332,7 @@ setAllowHDR:
 setStateMachine:
 setDownloadSession:
 setDelegates:
+setStartError:
 _performKeyFetchOnly
 _allowCellularUsage
 _preferMostCompatibleRendition
@@ -2335,7 +2344,7 @@ _includeOriginalAudio
 _includeDeviceLanguageAudio
 _includesAllSubtitles
 _allowHDR
-_downloadIsComplete
+_addedMediaItemLoaderStateObserver
 _addedProgressObserver
 _state
 _maximumPresentationWidth
@@ -2363,19 +2372,21 @@ _lastDownloadProgressFractionCompleted
 _downloadInitiationBackgroundTask
 _downloadTerminationBackgroundTask
 _reportingSession
+_startError
 _minimumRequiredPresentationSize
 Tq,N,V_state
 T@"TVPStateMachine",&,N,V_stateMachine
 T@"TVPMediaItemLoader",&,N,V_mediaItemLoader
 T@"TVPDownloadSession",W,N,V_downloadSession
 T@"AVAssetDownloadTask",&,N,V_downloadTask
-TB,N,V_downloadIsComplete
 T@"NSPointerArray",&,N,V_delegates
 Td,N,V_lastDownloadProgressFractionCompleted
 TQ,N,V_downloadInitiationBackgroundTask
 TQ,N,V_downloadTerminationBackgroundTask
 T@"TVPReportingSession",&,N,V_reportingSession
+TB,N,V_addedMediaItemLoaderStateObserver
 TB,N,V_addedProgressObserver
+T@"NSError",&,N,V_startError
 TB,N,V_performKeyFetchOnly
 TB,N,V_allowCellularUsage
 TB,N,V_preferMostCompatibleRendition
@@ -2527,6 +2538,7 @@ _preferVideoDescriptionsSettingDidChange
 _subtitleSettingsDidChange
 _mediaItemLoader:stateDidChangeTo:
 _playlistEndActionDidChange
+_playerMutedDidChange
 playlist
 _playlistCurrentMediaItemWillChangeWithContext:
 null
@@ -3327,8 +3339,8 @@ initializeWithDownloadingMediaItems:
 downloadForMediaItem:
 setTaskIDsToDownloads:
 _taskIDsToDownloads
-T@"AVAssetDownloadURLSession",&,N,V_downloadSession
 T@"NSMutableDictionary",&,N,V_taskIDsToDownloads
+T@"AVAssetDownloadURLSession",&,N,V_downloadSession
 T@"<TVPDownloadSessionDelegate>",W,N,V_delegate
 currentCalendar
 components:fromDate:
@@ -4667,6 +4679,7 @@ TVPVideoResolutionClassHD
 TVPVideoResolutionClassSD
 TVPVideoRangeUnknown
 TVPVideoRangeHDR
+TVPVideoRangeHDR10Plus
 TVPVideoRangeSDR
 TVPVideoRangeDolbyVision
 Atmos
@@ -5136,6 +5149,7 @@ Unable to create loader objects because certificate URL is nil
 Unable to create loader objects because key data URL is nil
 Not failing request %lu since it has been cancelled
 Setting state to %@
+Posting error on start since startError is present
 Task [%@] for media item [%@] will download to [%@]
 Download task [%@] for media item [%@] will download variants %@
 Download termination background task with identifier %lu expired.  This is not expected to ever happen.  Ending background task
@@ -5151,6 +5165,8 @@ Unable to begin download initiation background task since identifier is UIBackgr
 Beginning download initiation background task with identifier %lu, name: %@
 Not beginning download initiation background task since one already exists.  This is not expected to ever happen.
 Unable to create media item loader
+Download task already exists but is suspended.  Resuming
+Calling URLSession:task:didCompleteWithError: since download task is already completed
 Key params are available, will attempt to prefetch playback keys prior to starting download task
 Finished key prefetch attempt
 No key params are available, will not prefetch playback keys prior to starting download task
@@ -5172,7 +5188,8 @@ Will prefer SDH subtitles: %@
 preferredMediaSelection does not exist
 Will download media selection: %@
 Created download task %@
-Download has already completed; posting [%@] event immediately
+Download task already exists, but there shouldn't be one yet.  This isn't supposed to happen
+Received task did complete while in an invalid state.  Posting error event.  This is never expected to happen.
 Task is now completed.  Delaying failure to give task a chance to clean up
 Task exists and is completed.  Delaying download termination to give task a chance to clean up
 Task exists but is not completed.  Cancelling task and waiting for didCompleteWithError
@@ -5351,10 +5368,12 @@ Stopping due to error
 Changing to %@ media item due to error
 Attempting to rebuild %lu downloading media item(s)
 Found %lu existing download task(s)
-For previously downloading media item %@, found existing download task %@ with AVAsset %@
-Not using existing task since its AVAsset's URL is nil.  Download likely failed.
+For previously downloading media item %@, found existing download task %@
+Download task's AVAsset is %@
+Weird, download task isn't of type AVAssetDownloadTask.  This shouldn't happen.  Allowing download to continue anyway.
 No download task exists for media item %@
-Failing download since does no download task exists
+No saved download task identifier exists for media item %@
+Will fail download when started since does no download task exists
 Found %lu task(s) that don't belong to any media items
 Cancelling leftover task %@
 Unable to register task for download since a task is already registered
@@ -5538,457 +5557,458 @@ TVPMediaItemLoader
 AVAssetResourceLoaderDelegate
 TVPContentKeySession
 AVContentKeySessionDelegate
+layer
+exchangeObjectAtIndex:withObjectAtIndex:
+predicateForChannelCount:mediaSelectionOption:operatorType:
+setValue:forHTTPHeaderField:
+setAutomaticallyHandlesInterstitialEvents:
+executablePath
+setAutoresizingMask:
+unsignedLongValue
+null
+ams_cookies
+length
+setVariantQualifiers:
+setSecond:
+components:fromDate:
+predicateForPresentationWidth:operatorType:
+bounds
+persistableContentKeyFromKeyVendorResponse:options:error:
+invalidatePersistableContentKey:options:completionHandler:
+componentsJoinedByString:
+setAuxiliaryContentConfigurations:
+ams_iTunesAccountWithDSID:
 _setAncillaryPerformanceInformationForDisplay:
 bundleIdentifier
-setAuxiliaryContentConfigurations:
-null
-ams_sharedAccountStore
-length
-andPredicateWithSubpredicates:
-currentTime
-tracks
-bytes
-predicateForPresentationWidth:operatorType:
-absoluteString
-persistableContentKeyFromKeyVendorResponse:options:error:
-downloadConfigurationWithAsset:title:
-setBackgroundColor:
-invalidatePersistableContentKey:options:completionHandler:
-setPreferredFramesPerSecond:
-appendFormat:
 setGaplessInfo:
-cStringUsingEncoding:
-tracksWithMediaType:
-dataRequest
-predicateWithFormat:
 persistentContentKeyFromKeyVendorResponse:options:error:
-extendedLanguageTag
+predicateWithFormat:
+absoluteString
+componentsSeparatedByString:
+setBackgroundColor:
+ams_sharedAccountStore
+andPredicateWithSubpredicates:
+setMaximumTrailingBufferDuration:
+currentTime
+bytes
+invokeWithTarget:
+downloadConfigurationWithAsset:title:
+setHTTPBody:
 _setLimitsBandwidthForCellularAccess:
+extendedLanguageTag
+appendFormat:
+initWithObject:imageLoader:groupType:
+numberOfMatchesInString:options:range:
+playbackCoordinator
+cStringUsingEncoding:
+regularExpressionWithPattern:options:error:
+load
+setHTTPMethod:
+imageType
+numberWithBool:
+dataRequest
 array
 dataUsingEncoding:
-setHTTPBody:
-invokeWithTarget:
-initWithObject:imageLoader:groupType:
-setWillNeverSeekBackwardsHint:
+initWithObjects:
+setPreferredFramesPerSecond:
 addBoundaryTimeObserverForTimes:queue:usingBlock:
+imageURLWithDescription:
+numberWithDouble:
+removeAllItems
+tracks
 dataWithBytes:length:
-setHTTPMethod:
-setWithArray:
+isEnabled
 conformsToType:
-setMediaKind:
+preferredFramesPerSecond
+externalMetadata
 arrayByAddingObject:
-playbackCoordinator
-numberOfMatchesInString:options:range:
-setWithObjects:
-numberWithBool:
-load
-regularExpressionWithPattern:options:error:
-imageType
+setByAddingObject:
+removeAllObjects
+numberWithFloat:
 arrayWithArray:
 dataWithJSONObject:options:error:
-initWithObjects:
-setMediaSelectionCriteria:forMediaCharacteristic:
-externalMetadata
-setSoundCheckVolumeNormalization:
-setPreferredPeakBitRate:
-setByAddingObject:
-numberWithDouble:
-imageURLWithDescription:
-sharedApplication
-setMediaSelections:
-arrayWithObjects:count:
-downloadSession:didAddRestoredDownloads:
-removeAllItems
-setPreferredRange:
-preferredFramesPerSecond
-isEnabled
-date
-streamingContentKeyRequestDataForApp:contentIdentifier:options:error:
-removeAllObjects
-addContentKeyRecipient:
-sharedBagLoadingController
-setMinRateForAudioPlayback:
-asset
-setPreventsDisplaySleepDuringVideoPlayback:
-preferredLanguages
-numberWithFloat:
+tracksWithMediaType:
 seekToDate:completionHandler:
-initWithPreferredLanguages:preferredMediaCharacteristics:
+preferredLanguages
+downloadSession:didAddRestoredDownloads:
+setMediaKind:
+addContentKeyRecipient:
 numberWithInteger:
-containsIndex:
 isEqualToDate:
-valueForKey:
-string
+initWithPreferredLanguages:preferredMediaCharacteristics:
+arrayWithObjects:count:
+setWillNeverSeekBackwardsHint:
 resourceConservationLevelWhilePaused
+setSoundCheckVolumeNormalization:
 seekToTime:toleranceBefore:toleranceAfter:completionHandler:
+setPreferredPeakBitRate:
+setWithArray:
 initWithPrincipalMediaCharacteristics:preferredLanguages:preferredMediaCharacteristics:
-drawAtPoint:
-setMinute:
-setIFramePrefetchTargetDimensions:
-sharedNetworkObserver
-containsObject:
 removeFromSuperview
-stringByAppendingString:
-valueWithCMTime:
+setMediaSelectionCriteria:forMediaCharacteristic:
+setWithObjects:
+setIFramePrefetchTargetDimensions:
 numberWithLongLong:
-calendarWithIdentifier:
-stringForKey:
-dateByAddingComponents:toDate:options:
-canPlayFastForward
+date
+setMediaSelections:
 fetchReportingStatesWithUserInfo:fetchComplete:
-isEqualToString:
+asset
+setPreferredRange:
 numberWithUnsignedInt:
-addEntriesFromDictionary:
+isEqualToString:
+containsIndex:
+drawAtPoint:
+removeItem:
+sharedApplication
 resourceLoader
-dateByAddingTimeInterval:
-stringValue
 setITunesStoreRequest:
 preferredMediaCharacteristics
-setDataType:
-removeItem:
+setMinRateForAudioPlayback:
 numberWithUnsignedInteger:
-addIndex:
-CMTimeRangeValue
-canPlayFastReverse
-stringWithFormat:
+containsObject:
+addEntriesFromDictionary:
+sharedBagLoadingController
+setPreventsDisplaySleepDuringVideoPlayback:
+setDataType:
+calendarWithIdentifier:
+dateByAddingComponents:toDate:options:
 initWithSessionInfo:userInfo:frameworksToCheck:
 preferredMediaSelection
 setImage:
-canPlayReverse
-numberWithUnsignedShort:
-stringWithUTF8String:
 removeItemAtURL:error:
+setMinute:
+canPlayFastForward
+numberWithUnsignedShort:
+addIndex:
+dateByAddingTimeInterval:
+streamingContentKeyRequestDataForApp:contentIdentifier:options:error:
 loadValuesAsynchronouslyForKeys:completionHandler:
-player:shouldChangeMediaInDirection:
 respondByRequestingPersistableContentKeyRequestAndReturnError:
-assetTrack
-setCalendar:
-setRate:withVolumeRampDuration:
+player:shouldChangeMediaInDirection:
 selectedMediaOptionInMediaSelectionGroup:
+canPlayFastReverse
 finishLoading
-canPlaySlowForward
-setDateFormat:
 initWithSize:format:
-addNetworkReachableObserver:selector:
 object
 respondWithData:
 preferredSoundCheckVolumeNormalization
-addMediaDataCollector:
 isMainThread
-size
-defaultCenter
+string
 indexOfObject:
-setNanosecond:
-assetVariantQualifierWithPredicate:
+sharedNetworkObserver
+setCalendar:
+valueForKey:
 resume
-contentInformationRequest
 player:shouldChangeMediaInDirection:completion:
-setDay:
-stringWithValidatedFormat:validFormatSpecifiers:error:
-addObject:
+addMediaDataCollector:
 objectAtIndex:
+addNetworkReachableObserver:selector:
 removeNetworkReachableObserver:
-setCanUseNetworkResourcesForLiveStreamingWhilePaused:
-canPlaySlowReverse
-substringToIndex:
+setDateFormat:
+canPlayReverse
 indexOfObject:inSortedRange:options:usingComparator:
-associatedMediaSelectionOptionInMediaSelectionGroup:
+player:shouldChangeToMediaAtIndex:
+stringByAppendingString:
+valueWithCMTime:
+canPlaySlowForward
+assetTrack
+stringForKey:
+addObject:
 objectAtIndexedSubscript:
 removeObject:
-addObjectsFromArray:
-player:shouldChangeToMediaAtIndex:
-sortUsingComparator:
-defaultManager
+setDay:
 isMuted
+defaultCenter
 indexSetWithIndex:
-player:shouldChangeToMediaAtIndex:completion:
 selector
+setCanUseNetworkResourcesForLiveStreamingWhilePaused:
+assetVariantQualifierWithPredicate:
 sendMessageWithDictionary:error:
-defaultOption
-setRedirect:
-contentKeyRecipients
-removeObjectAtIndex:
-sortedArrayUsingComparator:
 mediaSelectionGroupForMediaCharacteristic:
-setObject:forKey:
+contentInformationRequest
+stringValue
+canPlaySlowReverse
+addObjectsFromArray:
+removeObjectAtIndex:
+player:shouldChangeToMediaAtIndex:completion:
 firstObject
-setDelegate:queue:
-addObserver:forKeyPath:options:context:
-indexSetWithIndexesInRange:
-player:shouldPauseWithCompletion:
-initWithTimeIntervalSince1970:
+setRate:withVolumeRampDuration:
 objectEnumerator
+indexSetWithIndexesInRange:
+CMTimeRangeValue
+associatedMediaSelectionOptionInMediaSelectionGroup:
+player:shouldPauseWithCompletion:
+stringWithFormat:
+initWithTimeIntervalSince1970:
+setNanosecond:
 objectForKey:
-setObject:forKeyedSubscript:
 removeObjectForKey:
-sortedArrayUsingSelector:
-mediaSelectionGroupForPropertyList:mediaSelectionOption:
-addObserver:selector:name:object:
-cancelPendingSeeks
-weakObjectsHashTable
-CMTimeValue
-player:shouldPlayFromTime:completion:
+addObserver:forKeyPath:options:context:
 floatValue
-indexesOfObjectsPassingTest:
 isPlaybackBufferEmpty
-cancelPreviousPerformRequestsWithTarget:selector:object:
+CMTimeValue
+mediaSelectionGroupForPropertyList:mediaSelectionOption:
+defaultManager
+defaultOption
+stringWithUTF8String:
+setDelegate:queue:
+size
+player:shouldPlayFromTime:completion:
+contentKeyRecipients
 objectForKeyedSubscript:
 removeObjectsAtIndexes:
 mediaSelectionOptionWithPropertyList:
-copy
-contentKeySessionWithKeySystem:
-weakObjectsPointerArray
+addObserver:selector:name:object:
 setInitialDate:
 isPlaybackBufferFull
-attributesOfFileSystemForPath:error:
+indexesOfObjectsPassingTest:
 formatDescriptions
 serializableRepresentation
-standardUserDefaults
-mediaSelectionOptionsFromArray:filteredAndSortedAccordingToPreferredLanguages:
 indicatedAverageBitrate
-removeObjectsInRange:
-startConfigurationWithCompletionHandler:
+mediaSelectionOptionsFromArray:filteredAndSortedAccordingToPreferredLanguages:
 JPEGDataWithCompressionQuality:actions:
-willChangeValueForKey:
-addObserver:selector:name:object:suspensionBehavior:
-player:shouldScanAtRate:
+removeObjectsInRange:
+cancelPendingSeeks
 isPlaybackLikelyToKeepUp
+player:shouldScanAtRate:
+setObject:forKey:
+sortUsingComparator:
 JSONObjectWithData:options:error:
+setRedirect:
 locale
-mediaSelectionOptionsFromArray:withMediaCharacteristics:
 objectsAtIndexes:
+stringWithValidatedFormat:validFormatSpecifiers:error:
+substringToIndex:
+mediaSelectionOptionsFromArray:withMediaCharacteristics:
+addObserver:selector:name:object:suspensionBehavior:
 indicatedBitrate
-addOperation:
-countByEnumeratingWithState:objects:count:
+cancelPreviousPerformRequestsWithTarget:selector:object:
 player:shouldScanAtRate:completion:
+contentKeySessionWithKeySystem:
+copy
 fractionCompleted
-sessionWithConfiguration:assetDownloadDelegate:delegateQueue:
-localeIdentifier
 removeObserver:
-addPeriodicTimeObserverForInterval:queue:usingBlock:
+localeIdentifier
+setObject:forKeyedSubscript:
+sortedArrayUsingComparator:
+sessionWithConfiguration:assetDownloadDelegate:delegateQueue:
+attributesOfFileSystemForPath:error:
 initWithURL:
-localeWithLocaleIdentifier:
-endBackgroundTask:
 observedBitrate
+localeWithLocaleIdentifier:
+addOperation:
+addPeriodicTimeObserverForInterval:queue:usingBlock:
 initUrlWithProperties:imageSize:focusSizeIncrease:cropCode:urlFormat:
+removeObserver:forKeyPath:context:
 mediaSelectionOptionsFromArray:withoutMediaCharacteristics:
 PNGDataWithActions:
+sortedArrayUsingSelector:
 player:shouldSeekToDate:completion:
-countOfIndexesInRange:
-removeObserver:forKeyPath:context:
-addPointer:
-deviceGUID
-taskIdentifier
-setTextStyleRules:
-player:shouldSeekToTime:completion:
-year
 initWithURL:headers:identifier:decrypter:
-generateStreamingContentKeyRequestDataAsynchronouslyForApp:contentIdentifier:options:completionHandler:
+player:shouldSeekToTime:completion:
+endBackgroundTask:
 localizedCaseInsensitiveCompare:
+generateStreamingContentKeyRequestDataAsynchronouslyForApp:contentIdentifier:options:completionHandler:
 mediaType
-removeObserver:name:object:
-setClipsToBounds:
+countByEnumeratingWithState:objects:count:
+addPointer:
 primaryContentConfiguration
-SHA1Digest
+removeObserver:name:object:
 _isProbablyBeingRecorded
-dictionary
 getAllTasksWithCompletionHandler:
-_protocolClassForRequest:
+weakObjectsHashTable
+SHA1Digest
 principalMediaCharacteristics
-setOutputBlock:
 initWithURL:options:
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-removePointerAtIndex:
-getValue:size:
+standardUserDefaults
+countOfIndexesInRange:
 player:shouldSeekToTime:playbackDate:
+removePointerAtIndex:
+setClipsToBounds:
+getValue:size:
+startConfigurationWithCompletionHandler:
 initWithURL:resolvingAgainstBaseURL:
+deviceGUID
+_protocolClassForRequest:
+weakObjectsPointerArray
+URLAsset
 initWithURLBagDictionary:
 isWiFiEnabled
-setCompletionHandler:
-currentCalendar
-dictionaryWithDictionary:
 initWithArray:
-setPath:
+willChangeValueForKey:
+dictionary
+_isStreaming
 metadata
 metadataItemsFromArray:filteredAndSortedAccordingToPreferredLanguages:
-_isStreaming
-textStyleRulesFromPropertyList:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
 processContentKeyRequestWithIdentifier:initializationData:options:
-setTimeToPauseBuffering:
 items
-addSubview:
-initWithURLRequest:
 removeTimeObserver:
+hasMediaCharacteristic:
+setTextStyleRules:
+initWithURLRequest:
+setCompletionHandler:
 mainBundle
 scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
-dictionaryWithObject:forKey:
 URLByAppendingPathComponent:isDirectory:
-hasMediaCharacteristic:
 processContentKeyResponseError:
-availableChapterLocales
-addToRunLoop:forMode:
-currentDate
-dictionaryWithObjects:forKeys:count:
-availableMediaCharacteristicsWithMediaSelectionOptions
-setTimeToPausePlayback:
-URLByDeletingLastPathComponent
+addSubview:
 setActionAtItemEnd:
-metadataItemsFromArray:withKey:keySpace:
+setOutputBlock:
+dictionaryWithDictionary:
+currentCalendar
 metadataItemsFromArray:filteredByIdentifier:
-setActive:error:
+URLByDeletingLastPathComponent
+taskIdentifier
 mainQueue
 hasPrefix:
+metadataItemsFromArray:withKey:keySpace:
 removeWiFiObserver:
+addToRunLoop:forMode:
+year
+setActive:error:
 scheme
-URLResponse
-availableVideoDynamicRanges
-dictionaryWithObjectsAndKeys:
-setTimeZone:
+dictionaryWithObject:forKey:
 initWithBase64EncodedString:options:
 mainRunLoop
+URLResponse
+availableChapterLocales
 hasSuffix:
-addWiFiObserver:selector:
 metadataItemsFromArray:withLocale:
+options
 propertyList
 second
-options
-didChangeValueForKey:
-setTimeoutInterval:
-currentEstimatedDate
-enumerateIndexesUsingBlock:
-averageAudioBitrate
-setContentMode:
+dictionaryWithObjects:forKeys:count:
+currentDate
+setPath:
+availableMediaCharacteristicsWithMediaSelectionOptions
+addWiFiObserver:selector:
+setTimeToPauseBuffering:
+hasVideo
 insertItem:afterItem:
 initWithCapacity:
+availableVideoDynamicRanges
+dictionaryWithObjectsAndKeys:
 makeStreamingContentKeyRequestDataForApp:contentIdentifier:options:completionHandler:
-timeControlStatus
-hasVideo
-enumerateKeysAndObjectsUsingBlock:
-averageVideoBitrate
+enumerateIndexesUsingBlock:
 playerShouldPause:
 pastisCertificateURL
-timeIntervalSinceDate:
+setContentMode:
+didChangeValueForKey:
+textStyleRulesFromPropertyList:
+setTimeToPausePlayback:
+currentEstimatedDate
 minute
-advanceToNextItem
-setResourceConservationLevelWhilePaused:
-playerShouldPlay:timeFromWhichToPlay:
-enumerateObjectsUsingBlock:
-setContentType:
 raise:format:
+enumerateKeysAndObjectsUsingBlock:
 setLanczosFilterDownscaleFactor:
-backgroundSessionConfigurationWithIdentifier:
-allHeaderFields
+averageAudioBitrate
 pastisKeyServerURL
-base64EncodedStringWithOptions:
-chapterMetadataGroupsBestMatchingPreferredLanguages:
+playerShouldPlay:timeFromWhichToPlay:
+insertObject:atIndex:
+enumerateObjectsUsingBlock:
+setTimeZone:
+averageVideoBitrate
+rangeOfString:
+setLanczosFilterDownscalingEnabled:
+URLWithString:
+setContentType:
+advanceToNextItem
+setTimeoutInterval:
+path
+backgroundSessionConfigurationWithIdentifier:
+insertObjects:atIndexes:
+setContinuesPlayingDuringPrerollForSeek:
 setAllowedAudioSpatializationFormats:
 enumerateObjectsWithOptions:usingBlock:
-rangeOfString:
-URLWithString:
-insertObject:atIndex:
-timeIntervalSinceNow
-setContinuesPlayingDuringPrerollForSeek:
-setLanczosFilterDownscalingEnabled:
-setResponse:
-allKeys
-displayLinkWithTarget:selector:
-timeIntervalSinceReferenceDate
-currentLocale
-chapterMetadataGroupsWithTitleLocale:containingItemsWithCommonKeys:
-setRestrictsAutomaticMediaSelectionToAvailableOfflineOptions:
-insertObjects:atIndexes:
-enumerateRangesUsingBlock:
-path
-allObjects
 URLsForDirectory:inDomains:
+allHeaderFields
 initWithDictionary:
 UTF8String
-typeWithIdentifier:
-beginBackgroundTaskWithName:expirationHandler:
+chapterMetadataGroupsBestMatchingPreferredLanguages:
+base64EncodedStringWithOptions:
+month
+enumerateRangesUsingBlock:
 replaceObjectAtIndex:withObject:
 insertSubview:aboveSubview:
-setPlaybackLikelyToKeepUpTrigger:
-month
-displayName
-allValues
+allKeys
+setResourceConservationLevelWhilePaused:
 initWithDomain:code:userInfo:
+displayLinkWithTarget:selector:
 pointerAtIndex:
-uiImage
-UUID
-beginSuspensionForReason:
 mutableCopy
 intValue
-setReversePlaybackEndTime:
-timeZoneForSecondsFromGMT:
-setAllowsLegibleFallbackForAllAudibleMediaSelections:
+currentLocale
+UUID
+chapterMetadataGroupsWithTitleLocale:containingItemsWithCommonKeys:
+timeControlStatus
+allObjects
 host
-displayNameForKey:value:
 maximumVideoResolution
 initWithFormat:
-blackColor
+beginBackgroundTaskWithName:expirationHandler:
+setResponse:
+timeIntervalSinceDate:
 integerValue
-displayNameWithLocale:
-unsignedIntegerValue
-status
 setLegibleFallbackMediaSelectionCriteria:
+displayName
+setAllowsLegibleFallbackForAllAudibleMediaSelections:
+allValues
+setRestrictsAutomaticMediaSelectionToAvailableOfflineOptions:
 UUIDString
-doesNotRecognizeSelector:
-setAllowsOutOfBandTextTrackRendering:
-setArtworkData:
-statusCode
+beginSuspensionForReason:
+displayNameForKey:value:
 reasonForWaitingToPlay
-errorWithDomain:code:userInfo:
+setAllowsOutOfBandTextTrackRendering:
+setPlaybackLikelyToKeepUpTrigger:
 initWithIndexesInRange:
-domain
-setUsesExternalPlaybackWhileExternalScreenIsActive:
-code
-unsignedLongLongValue
+blackColor
+timeIntervalSinceNow
+timeIntervalSinceReferenceDate
+setArtworkData:
+errorWithDomain:code:userInfo:
 setExtendedLanguageTag:
-allowedContentTypes
+displayNameWithLocale:
 intersectsSet:
-statusOfValueForKey:error:
+setReversePlaybackEndTime:
+doesNotRecognizeSelector:
 nanosecond
-doubleValue
-unsignedLongValue
 lastObject
+typeWithIdentifier:
 lastPathComponent
-currentMediaSelection
-commonMetadata
-setValue:forHTTPHeaderField:
-setVariantQualifiers:
+uiImage
+domain
+code
+allowedContentTypes
 setExternalMetadata:
-boolForKey:
-boolValue
+doubleValue
 postNotification:
-events
+timeZoneForSecondsFromGMT:
 newHierarchyTokenFromParentToken:
-exceptionWithName:reason:userInfo:
-setForceSoundCheck:error:
 setLoudnessInfo:
-postNotificationName:object:
-setSecond:
+events
+currentMediaSelection
+setForceSoundCheck:error:
+unsignedIntegerValue
 regeneratePersistentIdentifierForDNU:
-ams_cookies
-requestAccessToBagUsingBlock:
-components:fromDate:
+setUsesExternalPlaybackWhileExternalScreenIsActive:
+postNotificationName:object:
+commonMetadata
+status
+exceptionWithName:reason:userInfo:
+boolForKey:
 performSelector:withObject:afterDelay:
-exchangeObjectAtIndex:withObjectAtIndex:
+requestAccessToBagUsingBlock:
+statusCode
 setFormatterBehavior:
 postNotificationName:object:userInfo:
-setMaxConcurrentOperationCount:
 laterDate:
-setAutomaticallyHandlesInterstitialEvents:
-setMaximumTrailingBufferDuration:
-executablePath
-ams_iTunesAccountWithDSID:
+boolValue
+unsignedLongLongValue
 notificationWithName:object:userInfo:
-componentsJoinedByString:
-bounds
-layer
+setMaxConcurrentOperationCount:
 setForwardPlaybackEndTime:
-setAutoresizingMask:
-predicateForChannelCount:mediaSelectionOption:operatorType:
-componentsSeparatedByString:
+statusOfValueForKey:error:
 init
 initialize
 initWithMediaItem:
@@ -6815,8 +6835,6 @@ downloadSession
 setDownloadSession:
 downloadTask
 setDownloadTask:
-downloadIsComplete
-setDownloadIsComplete:
 delegates
 setDelegates:
 lastDownloadProgressFractionCompleted
@@ -6827,8 +6845,12 @@ downloadTerminationBackgroundTask
 setDownloadTerminationBackgroundTask:
 reportingSession
 setReportingSession:
+addedMediaItemLoaderStateObserver
+setAddedMediaItemLoaderStateObserver:
 addedProgressObserver
 setAddedProgressObserver:
+startError
+setStartError:
 _performKeyFetchOnly
 _allowCellularUsage
 _preferMostCompatibleRendition
@@ -6840,7 +6862,7 @@ _includeOriginalAudio
 _includeDeviceLanguageAudio
 _includesAllSubtitles
 _allowHDR
-_downloadIsComplete
+_addedMediaItemLoaderStateObserver
 _addedProgressObserver
 _state
 _maximumPresentationWidth
@@ -6868,19 +6890,21 @@ _lastDownloadProgressFractionCompleted
 _downloadInitiationBackgroundTask
 _downloadTerminationBackgroundTask
 _reportingSession
+_startError
 _minimumRequiredPresentationSize
 Tq,N,V_state
 T@"TVPStateMachine",&,N,V_stateMachine
 T@"TVPMediaItemLoader",&,N,V_mediaItemLoader
 T@"TVPDownloadSession",W,N,V_downloadSession
 T@"AVAssetDownloadTask",&,N,V_downloadTask
-TB,N,V_downloadIsComplete
 T@"NSPointerArray",&,N,V_delegates
 Td,N,V_lastDownloadProgressFractionCompleted
 TQ,N,V_downloadInitiationBackgroundTask
 TQ,N,V_downloadTerminationBackgroundTask
 T@"TVPReportingSession",&,N,V_reportingSession
+TB,N,V_addedMediaItemLoaderStateObserver
 TB,N,V_addedProgressObserver
+T@"NSError",&,N,V_startError
 TB,N,V_performKeyFetchOnly
 TB,N,V_allowCellularUsage
 TB,N,V_preferMostCompatibleRendition
@@ -7205,6 +7229,7 @@ allowsConstrainedNetworkUsage
 externalPlaybackType
 _preferVideoDescriptionsSettingDidChange
 _subtitleSettingsDidChange
+_playerMutedDidChange
 _addObserversForMediaItemLoader:
 _removeObserversForMediaItemLoader:
 _addObserversToAVQueuePlayer:
@@ -7635,7 +7660,6 @@ _imageUrlStringFormat
 T@"NSString",&,N,V_localizedInfoString
 T@"NSNumber",&,N,V_duration
 T@"NSString",&,N,V_imageUrlStringFormat
-URLAsset
 initializeWithDownloadingMediaItems:
 downloadForMediaItem:
 assetDownloadTaskWithConfiguration:
@@ -7644,8 +7668,8 @@ unregisterDownloadTaskForDownload:
 taskIDsToDownloads
 setTaskIDsToDownloads:
 _taskIDsToDownloads
-T@"AVAssetDownloadURLSession",&,N,V_downloadSession
 T@"NSMutableDictionary",&,N,V_taskIDsToDownloads
+T@"AVAssetDownloadURLSession",&,N,V_downloadSession
 T@"<TVPDownloadSessionDelegate>",W,N,V_delegate
 tvp_dateFlooredToNearestMinute:
 tvp_dateCeiledToNearestMinute:

@@ -83,9 +83,6 @@ messageGUID
 attachmentGUID
 com.apple.MobileSMS.MessagesTranscriptExtension
 com.apple.MobileSMS
-Interstellar
-Development
-Livability
 sms://open?message-guid=%@&overlay=1
 v24@?0@"BSProcessHandle"8@"NSError"16
 v16@?0@"<NSCopying>"8
@@ -246,6 +243,9 @@ v32@?0Q8@"UISSlotStyle"16@?<B@?@"<UISSlotAnyContent>">24
 @"NSProgress"24@?0@"<SLDCollaborationSigningService>"8@"SLGracePeriodTimer"16
 com.apple.SocialLayer.SLCollaborationSigningController
 -[SLCollaborationSigningController signSourceProcessWithMetadata:timeout:completion:]
+-[SLSyndicationController _sendCurrentRemovalsToDaemonAndDisconnect]
+-[SLSyndicationController _disconnectSyndicationServiceConnectionIfNecessary]_block_invoke
+com.apple.SocialLayer.SLSyndicationProcessingQueue
 isGroupConversation
 recipientDrawingMetadata
 groupPhotoFileURL
@@ -264,8 +264,10 @@ SLCollaborationHighlight Init error. Invalid or nil fileProviderID defaulting to
 SLCollaborationHighlight Init error. Invalid or nil localIdentity defaulting to nil.
 SLCollaborationHighlight Init failed. Invalid or nil localIdentityProof defaulting to nil.
 highlights
-com.apple.SocialLayer.HighlightArrayQueue
+com.apple.SocialLayer.PropertyQueue
+com.apple.SocialLayer.InitialFetchWaitingQueue
 com.apple.SocialLayer.HighlightFetchQueue
+-[SLHighlightsCache runAfterInitialFetch:onQueue:]_block_invoke
 com.apple.spotlight.SyndicatedContentRefreshed
 com.apple.ScreenTime.ConversationDidObserveChangesNotification
 -[SLHighlightsCache updateHighlights]
@@ -349,6 +351,8 @@ com.apple.sociallayerd
 slContextMenu
 slReplyMenuItem
 slHideMenuItem
+Interstellar
+Development
 0 SLAttributions
 chevron.left
 chevron.right
@@ -410,6 +414,8 @@ metadata
 com.apple.SocialLayer.SLRemoteTaskManager
 XPC connection error. sociallayerd may have crashed
 XPC connection error. We were unable to retrieve a connection to the handshake service in sociallayerd
+-[SLDSyndicationService removeMessageGUIDFromSyndication:reply:]
+IMSPIRemoveMessageGUIDFromSyndication
 MainSection
 @"NSCollectionLayoutSection"24@?0q8@"<NSCollectionLayoutEnvironment>"16
 [SLAttributionDisambiguationViewController: %p] Tried to add an attribution to our map (%@), but it does not have a unique identifier!
@@ -808,7 +814,11 @@ DaemonHighlightPillRenderInContext
 [%@] SLDHighlightPillRenderer Failed to get avatar image from IMSPI. Trying with groupPhotoFileURL.
 %s fileURL: %@ sandboxTokenData: %@
 [SLDCloudDocsService: %p] invalid fileURL/sandboxTokenData passed in: %@, %@
-[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file, but that file is not known by FileProvider, or the client connection is not entitled to access this file. We'll attempt to release this handle now before returning an error: %llu
+[%p] _acquireSandboxHandleForData: failed to consume sandbox token for file: %@
+[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file (%@), but the xpc connection (%@) does not have permission to access the file. Releasing sandbox handle.
+[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file (%@), but could not find a valid FPItem for that file. This file
+might not be managed by a FileProvider. Releasing sandbox handle. FileProvider error: %@
+[%p] _acquireSandboxHandleForData: acquired a new handle: %llu for file: %@
 [%p] _releaseSandboxHandle: unable to release sandbox extension handle: %llu. Sandbox extensions are a limited resource and this should be investigated!
 [%p] _releaseSandboxHandle: released handle: %llu
 [SLRemoteView: %p] Updating remote content with NEW max width: [%f]
@@ -821,6 +831,11 @@ DaemonHighlightPillRenderInContext
 [SLCollaborationSigningController] signSourceProcessWithMetadata: returned nil for request UUID: %@. This will prevent verification of the source process for collaboration identifier: %@, error: %@
 [SLCollaborationSigningController] signSourceProcessWithMetadata: received response for request UUID: %@, error: %@
 [SLCollaborationSigningController] signSourceProcessWithMetadata: request with UUID timed out: %@
+%s: Not currently connected to syndication service. We'll wait for the connection to finish posting pending removals.
+%s: hideContextMenu invoked. Calling remove for message guid: %@
+Unsuccessful sending remove for message with guid: '%@'
+Received success for removal for message with guid: '%@'
+%s: No more message GUIDS to remove, disconnecting from syndication service proxy.
 Could not unarchive SWPersonIdentity from -[PPSocialCollaboration localIdentity]: %@
 Could not unarchive SWPersonIdentityProof from -[PPSocialCollaboration localIdentityProof]: %@
 Could not unarchive handleToIdentityMap from -[PPSocialCollaboration handleToIdentityMap]: %@
@@ -834,6 +849,9 @@ SLCH dictionary collaborationIdentifier was nil defaulting to identifier.
 SLCH fileName was nil. Failing dictionary serialization.
 SLCH creationDate was nil. Failing dictionary serialization.
 SLCH contentType was nil. Failing dictionary serialization.
+%s Waiting on initial fetch group before running target block.
+%s Finished waiting on initial fetch group, and invoking target block. didTimeout: %@
+%s Initial fetch has already completed, running target block.
 Adding SLHighlightCacheDelegate: %@
 Removing SLHighlightCacheDelegate: %@
 Initializing Highlights cache with applicationIdentifier: %@
@@ -849,6 +867,7 @@ Fetching highlights with limit: %lu
 Got %tu results from InteractionHandler
 in completion block
 Failed to obtain results due to %@. Limit: %lu, Variant: %@
+Leaving initial fetch group to invoke callbacks waiting on the first fetch.
 SLHighlightsConsumer: Dealloc called. Canceling listening to highlight change notifcations
 SLHighlightsConsumer: Dealloc called. Canceling listening to screentime change notifications
 SLHighlightsConsumer: Dealloc called. Canceling listening to highlight delete notifcations
@@ -938,8 +957,6 @@ _personIdentitiesForHandles: cannot generate identities without a document ident
 _personIdentitiesForHandles invoking SLPersonIdentityGenerator to generate identity hashes
 Received a different number of identities than expected. This may mean some recipients are on older software versions that do not support collaboration. Expected: %lu Actual: %lu
 _personIdentitiesForHandles received hashes from SLPersonIdentityGenerator
-[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file, but that file is not known by FileProvider. We'll attempt to release this handle now before returning an error: %llu
-[%p] _acquireSandboxHandleForData: acquired a new handle: %llu
 DaemonHighlightDisambiguationPillRenderInContext
 Received activeCallViewDidLoadNewRemoteContent for %@, but activeCallView (%@) and representedObject (%@) didn't match.
 Application launch succeeded for bundle identifier: %@
@@ -1069,6 +1086,10 @@ Error loading the requested content representation on the given scene: %@ regist
 Can not present new message compose view for shareable content on macOS
 [SLDActiveCallService: %p] 0.0 was provided for the max width of the requested view. This is undefined behavior and should be sanitized before invoking this xpc interface!
 [%p] initWithDelegate: %@ targetSerialQueue: %@ synchronous: %@
+%s messageGUID: %@
+%s: invalid messageGUID passed in: %@
+%s: IMSPIRemoveMessageGUIDFromSyndication is unavailable.
+%s: Calling remove message guid: %@
 [SLDCollaborationAttributionViewService: %p] 0.0 was provided for the max width of the requested view. This is undefined behavior and should be sanitized before invoking this xpc interface!
 [SLDCollaborationAttributionViewService: %p] Not generating collaboration attribution view remote content because there were no attributions for the given attribution IDs. This could be because the highlight center failed to fetch the corresponding attributions. attributionIDs: %@
 [SLDCollaborationAttributionViewService: %p] No attribution IDs were given. This is a client-side bug and appropriate checks should be in place to prevent this. Not generating collaboration attribution view remote content
@@ -1078,6 +1099,7 @@ softlink:o:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/Frameworks/MessageUI.framework/MessageUI
 softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/PrivateFrameworks/IMSharedUtilities.framework/IMSharedUtilities
+softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 ySS_yptG
 $sSY
@@ -1317,6 +1339,7 @@ SLRemoteView
 SLDServiceProxyDelegate
 SLCollaborationSigningController
 SLDisambiguationCompositionalLayout
+SLSyndicationController
 SLCollaborationAttributionConversationDrawingMetadata
 SLCollaborationHighlight
 SLMessageComposeViewControllerDelegateAdapter
@@ -1386,6 +1409,8 @@ _UISceneComponentProviding
 SLShareableContentMetadata
 BSXPCSecureCoding
 SLRemoteTaskManager
+SLDSyndicationServiceProcotol
+SLDSyndicationService
 SLShareableContentActionResponse
 SLDisambiguationCollectionViewController
 SLDActiveCallViewDrawing
@@ -1397,6 +1422,7 @@ viewWillDisappear:
 isBeingDismissed
 currentDevice
 userInterfaceIdiom
+currentConnection
 deviceIsiPad
 stringWithFormat:
 URLWithString:
@@ -1589,6 +1615,7 @@ highlightCenter:didRemoveHighlights:
 _fetchHighlightsWithLimit:completionBlock:
 variant
 fetchHighlightsWithLimit:variant:completionBlock:
+runAfterInitialFetch:onQueue:
 attributions
 identifier
 arrayWithCapacity:
@@ -1895,7 +1922,6 @@ drawingWithStyle:tag:forRemote:
 footerViewForModel:style:maxWidth:layerContextID:reply:
 initWithSlotDrawer:options:
 footerViewSlotMachine
-currentConnection
 resolvedStyleForStyle:
 _viewIDForStyle:tag:
 _connection:onlyNeedsViewWithIdentifier:
@@ -2377,9 +2403,10 @@ T^{__CTFont=},N,V_font
 T@"NSArray",&,N,V_contactImages
 shareURLForFileURL:sandboxTokenData:reply:
 _acquireSandboxHandleData:ForFileProviderDocumentURL:clientConnection:error:
-_releaseSandboxHandle:
-isFileURL
 _connection:hasPermissionForFileURL:
+_releaseSandboxHandle:
+_fileURLHasFileProvider:error:
+isFileURL
 _contentProviderForCurrentConfiguration
 _setSlotAnyContentProvider:
 setUserInteractionEnabled:
@@ -2422,6 +2449,22 @@ signSourceProcessWithMetadata:timeout:completion:
 initialLayoutAttributesForAppearingItemAtIndexPath:
 setAlpha:
 finalLayoutAttributesForDisappearingItemAtIndexPath:
+pendingmessageGUIDsToRemove
+syndicationServiceProxy
+_sendCurrentRemovalsToDaemonAndDisconnect
+syndicationProcessingQueue
+removeObject:
+removeMessageGUIDFromSyndication:reply:
+_disconnectSyndicationServiceConnectionIfNecessary
+sharedController
+T@"NSObject<OS_dispatch_queue>",R,N
+removeMessageGUIDFromSyndication:
+setSyndicationServiceProxy:
+setPendingmessageGUIDsToRemove:
+_syndicationServiceProxy
+_pendingmessageGUIDsToRemove
+T@"SLDServiceProxy",&,N,V_syndicationServiceProxy
+T@"NSMutableSet",&,N,V_pendingmessageGUIDsToRemove
 initWithGroupPhotoFileURL:recipientDrawingMetadata:groupID:
 initWithRecipientDrawingMetadata:
 _groupPhotoFileURL
@@ -2495,31 +2538,39 @@ initWithSceneIdentifier:requestedTypeIdentifier:responseHandler:
 _requestedTypeIdentifier
 T@"NSString",R,C,N,V_requestedTypeIdentifier
 weakObjectsHashTable
-removeObject:
+initialFetchWaitingQueue
+initialFetchGroup
 highlightFetchQueue
+updateHighlightsBlock
 delegates
+setUpdateHighlightsBlock:
 _notifyDelegatesWithNotificationType:withHighlights:
 initWithCapacity:
 allKeys
-highlightArrayQueue
+threadSafePropertyQueue
 fetchInteractionsWithLimit:variant:error:
 setHighlights:
+_leaveInitialFetchGroupIfNecessary
+setInitialFetchGroup:
 setDelegates:
-updateHighlightsBlock
-setUpdateHighlightsBlock:
+setInitialFetchWaitingQueue:
 notificationTokenRefreshHighlights
 notificationTokenScreenTimeChange
 notificationTokenDeleteHighlights
 _notificationTokenRefreshHighlights
 _notificationTokenScreenTimeChange
 _notificationTokenDeleteHighlights
-_delegates
-_highlightArrayQueue
+_initialFetchGroup
 _updateHighlightsBlock
+_delegates
+_threadSafePropertyQueue
+_initialFetchWaitingQueue
 T@"NSMutableDictionary",&,N,V_highlightsCache
 T@"NSHashTable",&,N,V_delegates
-T@"NSObject<OS_dispatch_queue>",R,N,V_highlightArrayQueue
+T@"NSObject<OS_dispatch_queue>",R,N,V_threadSafePropertyQueue
 T@?,C,N,V_updateHighlightsBlock
+T@"NSObject<OS_dispatch_group>",&,N,V_initialFetchGroup
+T@"NSObject<OS_dispatch_queue>",&,N,V_initialFetchWaitingQueue
 Ti,R,N,V_notificationTokenRefreshHighlights
 Ti,R,N,V_notificationTokenScreenTimeChange
 Ti,R,N,V_notificationTokenDeleteHighlights
@@ -2606,8 +2657,6 @@ removeObjectsForKeys:
 objectForKeyedSubscript:
 generateLocalIdentityForDocumentIdentifier:completionHandler:
 generatePersonIdentitiesForHandles:documentIdentifier:completionHandler:
-defaultManager
-itemForURL:error:
 setProcessVerifier:
 setActionDispatcher:
 _processVerifier
@@ -3117,6 +3166,8 @@ phoneNumbers
 stringValue
 emailAddresses
 feedbackForAttributionIdentifier:type:client:variant:completion:
+entitlements
+objectForKey:ofClass:
 T@"SLDCollaborationAttributionViewSlotTag",&,N,V_tag
 resolvedStyleForStyle:tag:
 authenticationMessageContextForStyle:tag:
@@ -3416,6 +3467,7 @@ v24@0:8@"NSArray"16
 @32@0:8@16@24
 d16@0:8
 v32@0:8Q16@?24
+v32@0:8@?16@24
 v32@0:8@16Q24
 v40@0:8@16Q24@?32
 @"NSArray"
@@ -3546,6 +3598,7 @@ v40@0:8@"NSURL"16@"NSData"24@?<v@?@"NSURL">32
 v32@0:8@"SLHighlightCenter"16@"NSArray"24
 v24@0:8@"SLHighlightCenter"16
 Q48@0:8@16@24@32^@40
+B32@0:8@16^@24
 B32@0:8@16@24
 v24@0:8@"SLDServiceProxy"16
 @32@0:8#16d24
@@ -3553,6 +3606,7 @@ v40@0:8Q16@24@?32
 @"<UISSlotAnyContent>"
 @"SLDServiceProxy"
 @"_UISlotView"
+@"NSMutableSet"
 @40@0:8@16@24@32
 @"SWPersonIdentity"
 @"_SWPersonIdentityProof"
@@ -3562,6 +3616,7 @@ v32@0:8@"MFMessageComposeViewController"16q24
 @"NSData"
 v32@0:8q16@24
 @"NSMutableDictionary"
+@"NSObject<OS_dispatch_group>"
 @"NSHashTable"
 @32@0:8@16q24
 @"CNContact"
@@ -3666,6 +3721,7 @@ v24@0:8@"<BSXPCEncoding>"16
 @"LPLinkMetadata"
 v48@0:8@?16d24@?32@?40
 @"<SLRemoteTaskManagerDelegate>"
+v32@0:8@"NSString"16@?<v@?B>24
 @48@0:8@16Q24d32d40
 @"UICollectionViewDiffableDataSource"
 @"NSDiffableDataSourceSnapshot"
@@ -3761,9 +3817,6 @@ messageGUID
 attachmentGUID
 com.apple.MobileSMS.MessagesTranscriptExtension
 com.apple.MobileSMS
-Interstellar
-Development
-Livability
 sms://open?message-guid=%@&overlay=1
 v24@?0@"BSProcessHandle"8@"NSError"16
 v16@?0@"<NSCopying>"8
@@ -3924,6 +3977,9 @@ v32@?0Q8@"UISSlotStyle"16@?<B@?@"<UISSlotAnyContent>">24
 @"NSProgress"24@?0@"<SLDCollaborationSigningService>"8@"SLGracePeriodTimer"16
 com.apple.SocialLayer.SLCollaborationSigningController
 -[SLCollaborationSigningController signSourceProcessWithMetadata:timeout:completion:]
+-[SLSyndicationController _sendCurrentRemovalsToDaemonAndDisconnect]
+-[SLSyndicationController _disconnectSyndicationServiceConnectionIfNecessary]_block_invoke
+com.apple.SocialLayer.SLSyndicationProcessingQueue
 isGroupConversation
 recipientDrawingMetadata
 groupPhotoFileURL
@@ -3942,8 +3998,11 @@ SLCollaborationHighlight Init error. Invalid or nil fileProviderID defaulting to
 SLCollaborationHighlight Init error. Invalid or nil localIdentity defaulting to nil.
 SLCollaborationHighlight Init failed. Invalid or nil localIdentityProof defaulting to nil.
 highlights
-com.apple.SocialLayer.HighlightArrayQueue
+com.apple.SocialLayer.PropertyQueue
+com.apple.SocialLayer.InitialFetchWaitingQueue
 com.apple.SocialLayer.HighlightFetchQueue
+-[SLHighlightsCache runAfterInitialFetch:onQueue:]_block_invoke
+-[SLHighlightsCache runAfterInitialFetch:onQueue:]_block_invoke_2
 com.apple.spotlight.SyndicatedContentRefreshed
 com.apple.ScreenTime.ConversationDidObserveChangesNotification
 -[SLHighlightsCache updateHighlights]
@@ -4027,6 +4086,8 @@ com.apple.sociallayerd
 slContextMenu
 slReplyMenuItem
 slHideMenuItem
+Interstellar
+Development
 0 SLAttributions
 chevron.left
 chevron.right
@@ -4088,6 +4149,8 @@ metadata
 com.apple.SocialLayer.SLRemoteTaskManager
 XPC connection error. sociallayerd may have crashed
 XPC connection error. We were unable to retrieve a connection to the handshake service in sociallayerd
+-[SLDSyndicationService removeMessageGUIDFromSyndication:reply:]
+IMSPIRemoveMessageGUIDFromSyndication
 MainSection
 @"NSCollectionLayoutSection"24@?0q8@"<NSCollectionLayoutEnvironment>"16
 [SLAttributionDisambiguationViewController: %p] Tried to add an attribution to our map (%@), but it does not have a unique identifier!
@@ -4486,7 +4549,11 @@ DaemonHighlightPillRenderInContext
 [%@] SLDHighlightPillRenderer Failed to get avatar image from IMSPI. Trying with groupPhotoFileURL.
 %s fileURL: %@ sandboxTokenData: %@
 [SLDCloudDocsService: %p] invalid fileURL/sandboxTokenData passed in: %@, %@
-[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file, but that file is not known by FileProvider, or the client connection is not entitled to access this file. We'll attempt to release this handle now before returning an error: %llu
+[%p] _acquireSandboxHandleForData: failed to consume sandbox token for file: %@
+[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file (%@), but the xpc connection (%@) does not have permission to access the file. Releasing sandbox handle.
+[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file (%@), but could not find a valid FPItem for that file. This file
+might not be managed by a FileProvider. Releasing sandbox handle. FileProvider error: %@
+[%p] _acquireSandboxHandleForData: acquired a new handle: %llu for file: %@
 [%p] _releaseSandboxHandle: unable to release sandbox extension handle: %llu. Sandbox extensions are a limited resource and this should be investigated!
 [%p] _releaseSandboxHandle: released handle: %llu
 [SLRemoteView: %p] Updating remote content with NEW max width: [%f]
@@ -4499,6 +4566,11 @@ DaemonHighlightPillRenderInContext
 [SLCollaborationSigningController] signSourceProcessWithMetadata: returned nil for request UUID: %@. This will prevent verification of the source process for collaboration identifier: %@, error: %@
 [SLCollaborationSigningController] signSourceProcessWithMetadata: received response for request UUID: %@, error: %@
 [SLCollaborationSigningController] signSourceProcessWithMetadata: request with UUID timed out: %@
+%s: Not currently connected to syndication service. We'll wait for the connection to finish posting pending removals.
+%s: hideContextMenu invoked. Calling remove for message guid: %@
+Unsuccessful sending remove for message with guid: '%@'
+Received success for removal for message with guid: '%@'
+%s: No more message GUIDS to remove, disconnecting from syndication service proxy.
 Could not unarchive SWPersonIdentity from -[PPSocialCollaboration localIdentity]: %@
 Could not unarchive SWPersonIdentityProof from -[PPSocialCollaboration localIdentityProof]: %@
 Could not unarchive handleToIdentityMap from -[PPSocialCollaboration handleToIdentityMap]: %@
@@ -4512,6 +4584,9 @@ SLCH dictionary collaborationIdentifier was nil defaulting to identifier.
 SLCH fileName was nil. Failing dictionary serialization.
 SLCH creationDate was nil. Failing dictionary serialization.
 SLCH contentType was nil. Failing dictionary serialization.
+%s Waiting on initial fetch group before running target block.
+%s Finished waiting on initial fetch group, and invoking target block. didTimeout: %@
+%s Initial fetch has already completed, running target block.
 Adding SLHighlightCacheDelegate: %@
 Removing SLHighlightCacheDelegate: %@
 Initializing Highlights cache with applicationIdentifier: %@
@@ -4527,6 +4602,7 @@ Fetching highlights with limit: %lu
 Got %tu results from InteractionHandler
 in completion block
 Failed to obtain results due to %@. Limit: %lu, Variant: %@
+Leaving initial fetch group to invoke callbacks waiting on the first fetch.
 SLHighlightsConsumer: Dealloc called. Canceling listening to highlight change notifcations
 SLHighlightsConsumer: Dealloc called. Canceling listening to screentime change notifications
 SLHighlightsConsumer: Dealloc called. Canceling listening to highlight delete notifcations
@@ -4616,8 +4692,6 @@ _personIdentitiesForHandles: cannot generate identities without a document ident
 _personIdentitiesForHandles invoking SLPersonIdentityGenerator to generate identity hashes
 Received a different number of identities than expected. This may mean some recipients are on older software versions that do not support collaboration. Expected: %lu Actual: %lu
 _personIdentitiesForHandles received hashes from SLPersonIdentityGenerator
-[%p] _acquireSandboxHandleForData: acquired a sandbox handle for a file, but that file is not known by FileProvider. We'll attempt to release this handle now before returning an error: %llu
-[%p] _acquireSandboxHandleForData: acquired a new handle: %llu
 DaemonHighlightDisambiguationPillRenderInContext
 Received activeCallViewDidLoadNewRemoteContent for %@, but activeCallView (%@) and representedObject (%@) didn't match.
 Application launch succeeded for bundle identifier: %@
@@ -4747,6 +4821,10 @@ Error loading the requested content representation on the given scene: %@ regist
 Can not present new message compose view for shareable content on macOS
 [SLDActiveCallService: %p] 0.0 was provided for the max width of the requested view. This is undefined behavior and should be sanitized before invoking this xpc interface!
 [%p] initWithDelegate: %@ targetSerialQueue: %@ synchronous: %@
+%s messageGUID: %@
+%s: invalid messageGUID passed in: %@
+%s: IMSPIRemoveMessageGUIDFromSyndication is unavailable.
+%s: Calling remove message guid: %@
 [SLDCollaborationAttributionViewService: %p] 0.0 was provided for the max width of the requested view. This is undefined behavior and should be sanitized before invoking this xpc interface!
 [SLDCollaborationAttributionViewService: %p] Not generating collaboration attribution view remote content because there were no attributions for the given attribution IDs. This could be because the highlight center failed to fetch the corresponding attributions. attributionIDs: %@
 [SLDCollaborationAttributionViewService: %p] No attribution IDs were given. This is a client-side bug and appropriate checks should be in place to prevent this. Not generating collaboration attribution view remote content
@@ -4756,6 +4834,7 @@ softlink:o:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/Frameworks/MessageUI.framework/MessageUI
 softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/PrivateFrameworks/IMSharedUtilities.framework/IMSharedUtilities
+softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 softlink:r:path:/System/Library/PrivateFrameworks/IMCore.framework/IMCore
 ySS_yptG
 $sSY
@@ -4995,6 +5074,7 @@ SLRemoteView
 SLDServiceProxyDelegate
 SLCollaborationSigningController
 SLDisambiguationCompositionalLayout
+SLSyndicationController
 SLCollaborationAttributionConversationDrawingMetadata
 SLCollaborationHighlight
 SLMessageComposeViewControllerDelegateAdapter
@@ -5064,449 +5144,451 @@ _UISceneComponentProviding
 SLShareableContentMetadata
 BSXPCSecureCoding
 SLRemoteTaskManager
+SLDSyndicationServiceProcotol
+SLDSyndicationService
 SLShareableContentActionResponse
 SLDisambiguationCollectionViewController
 SLDActiveCallViewDrawing
 SLDActiveCallViewSlotDrawer
 SLSendShareableContentAction
-setContentsScale:
-setVideoEnabled:
-filename
-allKeys
-isBeingDismissed
-initWithRemoteMembers:
-ownerIdentifier
-_continuousCornerRadius
-launchAppForJoinRequest:
-decodeDoubleForKey:
-setContextMenuInteractionEnabled:
-contentDisplayName
-allKeysForObject:
-setVisiblePath:
-encodeCollection:forKey:
-auditToken
-filteredArrayUsingPredicate:
-path
-decodeIntegerForKey:
-messagesGroupPhotoData
-encodeDouble:forKey:
-allObjects
-systemBlueColor
-initWithDelegate:
-_viewControllerForAncestor
-contentInsets
-isCancelled
-decodeObjectOfClass:forKey:
-authorAddresses
-setControlFlags:
-clearColor
-layer
-systemImageNamed:
-decodeObjectOfClasses:forKey:
-authorNames
-encodeInteger:forKey:
-encodeObject:forKey:
-systemImageNamed:withConfiguration:
-setPrefetchingEnabled:
-firstAttribute
-setLineBreakStrategy:
-absoluteDimension:
-allValues
-defaultManager
-initWithSectionProvider:
-setProvider:
-absoluteString
-queryItemWithName:value:
-contentURL
-initWithDuration:timingParameters:
-slotStyleWithAccessibilityButtonShapes:accessibilityContrast:displayRange:displayScale:layoutDirection:legibilityWeight:localization:preferredContentSizeCategory:tintColor:userInterfaceIdiom:userInterfaceStyle:
-setCornerRadius:
 setQueryItems:
-setWithArray:
-queryItems
-minusSet:
-defaultSearchableIndex
-setDamping:
-accessibilityButtonShapes
-endpoint
-alternateNames
-initWithEffect:
-serviceWithDefaultShellEndpoint
-userInterfaceLayoutDirection
-contentView
-CGImage
-accessibilityContrast
-initWithSlotDrawer:options:
-layoutMarginsGuide
-setMask:
-animateKeyframesWithDuration:delay:options:animations:completion:
-setAccessibilityIdentifier:
-isEqualToArray:
-setWithCapacity:
-rangeOfString:
-initWithExplanation:target:attributes:
-setRemoteObjectInterface:
-setWithObject:
-slowFetchAttributes:protectionClass:bundleID:identifiers:completionHandler:
-base64EncodedStringWithOptions:
-phoneNumberWithStringValue:
-animateWithDuration:animations:
-isEqualToData:
-leadingAnchor
-setWithObjects:
-mutableCopy
-controlFlags
-firstObject
-dequeueReusableCellWithReuseIdentifier:forIndexPath:
-accountIdentifier
-enumerateObjectsUsingBlock:
-anonymousListener
 isEqualToNumber:
-acquireWithError:
-rasterizeImageUsingScaleFactor:forTargetSize:
-phoneNumbers
-error
-isEqualToString:
-sortedArrayUsingDescriptors:
-descriptorForRequiredKeysForStyle:
-valueForCustomKey:
-fixedSpacing:
-bezierPathWithRoundedRect:cornerRadius:
+UUID
+systemImageNamed:
+_extensionContextForUUID:
 apiAdapterHighlightsDidChange:
+bezierPathWithRoundedRect:cornerRadius:
 namedVectorGlyphWithName:scaleFactor:deviceIdiom:layoutDirection:glyphSize:glyphWeight:glyphPointSize:appearanceName:
-setEffect:
-initWithFrame:collectionViewLayout:
-_effectForBlurEffect:vibrancyStyle:
-setAlpha:
-valueForEntitlement:
-recipientAddresses
-isEquivalentToHandle:
-setEmailAddresses:
-needsUpdateConstraints
-sourceBSAction
-setMessageComposeDelegate:
 dictionary
+isEqualToString:
+setAccessibilityIdentifier:
+slotStyleWithAccessibilityButtonShapes:accessibilityContrast:displayRange:displayScale:layoutDirection:legibilityWeight:localization:preferredContentSizeCategory:tintColor:userInterfaceIdiom:userInterfaceStyle:
+setWithArray:
+rasterizeImageUsingScaleFactor:forTargetSize:
+systemImageNamed:withConfiguration:
+phoneNumbers
+UUIDString
+setMask:
 boolForKey:
 collectionView
-setAttribute:forKey:
-isFileURL
-URLWithString:
-sharedApplication
+needsUpdateConstraints
+isEquivalentToHandle:
 fontWithDescriptor:size:
-valueForKey:
-isFinished
-sourceProcessData
+setRemoteObjectInterface:
+_FBSScene
+setWithCapacity:
 footerViewContentsDidChange:
 colorWithAlphaComponent:
-UTF8String
-conversationManager
+isFileURL
 colorWithName:displayGamut:deviceIdiom:appearanceName:
-_extensionContextForUUID:
-recipientNames
-setMessagesGroupName:
-targetWithPid:
-actionWithMetadata:
-convertRect:toView:
+conversationManager
 dictionaryWithDictionary:
-errorWithDomain:code:userInfo:
+recipientAddresses
+actionWithMetadata:
+slowFetchAttributes:protectionClass:bundleID:identifiers:completionHandler:
+initWithHandles:
+dictionaryWithObjects:forKeys:count:
+setWithObject:
+isFinished
+convertRect:toView:
 bottomAnchor
-UUID
-standardUserDefaults
+errorWithDomain:code:userInfo:
+setWithObjects:
 copy
 actionWithMetadata:addedIdentities:removedIdentites:
-initWithHandles:
-setExportedInterface:
-setMessagesGroupUUID:
-setRequestInterruptionBlock:
-dictionaryWithObjects:forKeys:count:
-compare:
+setEffect:
 appendFormat:
-setExportedObject:
-redColor
+compare:
+setAlpha:
+recipientNames
+setEmailAddresses:
 count
+userInterfaceLayoutDirection
+initWithTarget:action:
 actionWithTitle:image:identifier:handler:
-setAutoresizingMask:
-UUIDString
+didMoveToParentViewController:
+sortedArrayUsingDescriptors:
 loadDataRepresentationForTypeIdentifier:completionHandler:
-view
-appendItemsWithIdentifiers:intoSectionWithIdentifier:
-isHighlighted
 activateConstraints:
 localIdentifier
-countByEnumeratingWithState:objects:count:
 componentsWithURL:resolvingAgainstBaseURL:
-setModalPresentationStyle:
-initWithTarget:action:
-didMoveToParentViewController:
-tertiarySystemFillColor
+appendItemsWithIdentifiers:intoSectionWithIdentifier:
+setAttribute:forKey:
+countByEnumeratingWithState:objects:count:
+setMessageComposeDelegate:
 bundle
+isHighlighted
 appendSectionsWithIdentifiers:
-_FBSScene
-setResponseHandlerBlock:
 activateWithCompletion:
-setFetchAttributes:
 fractionalHeightDimension:
-setAvMode:
 executeFetchRequest:error:
-responderWithHandler:
+redColor
 configurationWithFont:scale:
-setModalTransitionStyle:
-bundleID
+sourceBSAction
+_activityItemsConfiguration
 appendString:
-registerClass:forCellWithReuseIdentifier:
+bundleID
+sharedApplication
 fractionalWidthDimension:
-setBackgroundColor:
-configurationWithIdentifier:previewProvider:actionProvider:
-applicationIdentifier
-timeIntervalSinceReferenceDate
-relatedPeople
 disconnectFromDaemon
-applySettings:
-expanseProvider
-responseForError:
 identity
-isLocal
 dismissViewControllerAnimated:completion:
+setExportedInterface:
+sourceProcessData
+applicationIdentifier
+configurationWithIdentifier:previewProvider:actionProvider:
 initWithIdentifier:resourceURL:timestamp:attributionIdentifiers:supplementaryData:score:
+setMessagesGroupName:
+expanseProvider
+applySettings:
+setExportedObject:
+setMessagesGroupUUID:
+setRequestInterruptionBlock:
+setAutoresizingMask:
+registerClass:forCellWithReuseIdentifier:
+valueForCustomKey:
 localizedDescription
-setNeedsUpdateConstraints
-bundleRecordForAuditToken:error:
-initWithIdentifier:sourceAppDisplayName:conversationIdentifier:groupPhotoPath:groupDisplayName:relatedPeople:sender:timestamp:
-applySnapshot:animatingDifferences:
+standardUserDefaults
 initWithUUIDString:
+initWithIdentifier:sourceAppDisplayName:conversationIdentifier:groupPhotoPath:groupDisplayName:relatedPeople:sender:timestamp:
+isLocal
+responderWithHandler:
+valueForEntitlement:
+applySnapshot:animatingDifferences:
+bundleRecordForAuditToken:error:
+relatedPeople
+setFetchAttributes:
+setAvMode:
+initWithInfo:responder:
+initWithUniqueIdentifier:domainIdentifier:attributeSet:
 null
 croppedImageDataAvailableForContact:
-localizedFailureReason
-responseWithInfo:
-remoteContentForLayerContextWithId:style:tag:
-_activityItemsConfiguration
-localizedStringForKey:value:table:
-setCallerID:
-initWithInfo:responder:
-bundleRecordForCurrentProcess
-isMainThread
-initWithUniqueIdentifier:domainIdentifier:attributeSet:
-stiffness
-connectedScenes
-croppedImageDataForContact:
 imageForAvatarImages:badgeImages:badgeTypes:rect:itemCount:scope:
-setObject:atIndexedSubscript:
-visibleCells
-setCancellationHandler:
+setModalPresentationStyle:
+targetWithPid:
+setResponseHandlerBlock:
+localizedFailureReason
+localizedStringForKey:value:table:
+valueForKey:
+setBackgroundColor:
+bundleRecordForCurrentProcess
+croppedImageDataForContact:
+responseForError:
+setModalTransitionStyle:
+connectedScenes
+imageNamed:inBundle:compatibleWithTraitCollection:
 extensionWithIdentifier:error:
 numberOfItems
 localizedStringFromPersonNameComponents:style:options:
-setObject:forKey:
-array
-numberWithBool:
 bundleWithIdentifier:
 currentConnection
-stringByAppendingString:
-imageNamed:inBundle:compatibleWithTraitCollection:
+array
+isMainThread
+numberWithBool:
+initWithVectorGlyph:tintColor:
+initWithKey:ascending:
+imageWithName:scaleFactor:
+remoteContentForLayerContextWithId:style:tag:
 bundleWithPath:
 activeConversations
-setShouldLaunchBackgroundInCallUI:
 activeDevices
-weakObjectsHashTable
-setHandleToIdentityMap:
-resume
-initWithVectorGlyph:tintColor:
-arrayWithArray:
-setObject:forKeyedSubscript:
-initWithKey:ascending:
-numberWithDouble:
-imageWithName:scaleFactor:
-predicateForContactsMatchingEmailAddress:
-stringFromContact:style:
-setShouldSuppressInCallUI:
-remoteObjectProxyWithErrorHandler:
-widthAnchor
 initWithKeyName:
-arrayWithCapacity:
-lowercaseString
-setObject:forSetting:
-currentLayout
-numberWithFloat:
+arrayWithArray:
+numberWithDouble:
 distantPast
-topAnchor
+tertiarySystemFillColor
+responseWithInfo:
 initWithView:parameters:
-predicateForContactsMatchingPhoneNumber:
-setClasses:forSelector:argumentIndex:ofReply:
-stringValue
 imageWithRenderingMode:
+lowercaseString
 initWithKeysToFetch:
+arrayWithCapacity:
+setNeedsUpdateConstraints
+domainIdentifier
+currentLayout
+setCallerID:
+numberWithFloat:
+view
+initWithListenerEndpoint:
 buttonWithType:
-stringWithFormat:
 numberWithInt:
-setHidden:
 customAttributeDictionary
 feedbackForAttributionIdentifier:type:client:variant:completion:
-reverseObjectEnumerator
-bytes
-trailingAnchor
-domainIdentifier
-setStiffness:
-arrayWithObject:
-setClipsToBounds:
-initWithListenerEndpoint:
-numberWithUnsignedInteger:
-scale
 indexOfSectionIdentifier:
-strongToStrongObjectsMapTable
 doubleValue
-activityItemsConfigurationMetadataForKey:
+bytes
+setCancellationHandler:
+remoteObjectProxyWithErrorHandler:
+arrayWithObject:
 info
+predicateForContactsMatchingEmailAddress:
+initWithMachServiceName:
+resume
+numberWithUnsignedInteger:
+setObject:atIndexedSubscript:
+predicateForContactsMatchingPhoneNumber:
+timeIntervalSinceReferenceDate
+activityItemsConfigurationMetadataForKey:
 addChildViewController:
 customGroupWithLayoutSize:itemProvider:
-predicateForMeContact
 constant
-arrayWithObjects:count:
 _setContinuousCornerRadius:
-initiatorHandle
-initWithMachServiceName:
+setHandleToIdentityMap:
+setObject:forKey:
+arrayWithObjects:count:
+initWithMachServiceName:options:
 objectAtIndex:
-translatesAutoresizingMaskIntoConstraints
-predicateMatchingIdentity:
+stiffness
 mainScreen
 customItemWithFrame:zIndex:
-isSubclassOfClass:
+setShouldLaunchBackgroundInCallUI:
 constraintEqualToAnchor:
 feedbackForHighlightIdentifier:type:client:variant:completion:
-removeAllAnimations
+reverseObjectEnumerator
 objectAtIndexedSubscript:
 _setGroupName:
-initiatorNameComponents
-_setHostsLayoutEngine:
-initWithMachServiceName:options:
-damping
-styleWithEffect:shape:
-window
-setIdentifier:
-predicateWithFormat:
-constraintEqualToAnchor:constant:
-setOverrideUserInterfaceStyle:
 initWithMass:stiffness:damping:initialVelocity:
-subarrayWithRange:
-objectForKey:
+initiatorHandle
+stringByAppendingString:
+setObject:forKeyedSubscript:
+_setHostsLayoutEngine:
+predicateForMeContact
+damping
+setClasses:forSelector:argumentIndex:ofReply:
+constraintEqualToAnchor:constant:
+isSubclassOfClass:
 addEntriesFromDictionary:
-unarchivedObjectOfClass:fromData:error:
-removeAllObjects
-isUIApplicationElement
-insertSubview:above:
+setObject:forSetting:
+setShouldSuppressInCallUI:
+initiatorNameComponents
+objectForKey:
+predicateMatchingIdentity:
+setHidden:
+stringFromContact:style:
 _setQueue:
-setText:
-setImage:
-handleForIdentifier:error:
-setCollectionView:
-addGestureRecognizer:
-setPhoneNumbers:
-constraintEqualToAnchor:multiplier:
-objectForKeyedSubscript:
-_setSlotAnyContentProvider:
-unarchivedObjectOfClasses:fromData:error:
-removeContentForStyle:tag:
-setTextColor:
+removeAllAnimations
+setClipsToBounds:
 initWithArray:
+handleForIdentifier:error:
+scale
+insertSubview:above:
+addGestureRecognizer:
+constraintEqualToAnchor:multiplier:
+stringValue
+setStiffness:
+_setSlotAnyContentProvider:
+objectForKey:ofClass:
+isUIApplicationElement
 constraintEqualToConstant:
-cancel
+predicateWithFormat:
+stringWithFormat:
 handleForPredicate:error:
-setCollectionViewLayout:withAnimator:
-assetDeviceIdiom
-objectForSetting:
+cancel
 addInteraction:
-instancesRespondToSelector:
+assetDeviceIdiom
+objectForKeyedSubscript:
 cancelExtensionRequestWithIdentifier:
-setImage:forState:
-unifiedContactsMatchingPredicate:keysToFetch:error:
-itemForURL:error:
+removeAllObjects
+initWithBytes:length:
+visibleCells
 constraintGreaterThanOrEqualToAnchor:
 addKeyframeWithRelativeStartTime:relativeDuration:animations:
-instantiateViewControllerWithInputItems:connectionHandler:
-openApplication:withOptions:completion:
 dataUsingEncoding:
-removeFromSuperview
-success
-initWithBytes:length:
-addObject:
-setInstanceTransform:
-itemProvidersForActivityItemsConfiguration
 initWithName:fromBundle:error:
-openURL:options:completionHandler:
+objectForSetting:
+instancesRespondToSelector:
+strongToStrongObjectsMapTable
+removeContentForStyle:tag:
+effectForBlurEffect:style:
+addObject:
+itemProvidersForActivityItemsConfiguration
+setIdentifier:
+openApplication:withOptions:completion:
+instantiateViewControllerWithInputItems:connectionHandler:
 attributeSet
 mass
-dataWithBytesNoCopy:length:freeWhenDone:
-handles
-removeObject:
 centerXAnchor
-superview
-setTotalUnitCount:
+weakObjectsHashTable
+dataWithBytesNoCopy:length:freeWhenDone:
+topAnchor
+handles
 maxContacts
-effectForBlurEffect:style:
-removeObjectForKey:
-addObjectsFromArray:
+effectWithPreview:
+widthAnchor
+setCollectionView:
+openURL:options:completionHandler:
 dataWithContentsOfURL:options:error:
 itemWithLayoutSize:
+removeFromSuperview
+setOverrideUserInterfaceStyle:
 attributeWithDomain:name:
+setImage:
 centerYAnchor
-setInterItemSpacing:
-interactions
-setConstant:
-setInvalidationHandler:
-size
-effectWithPreview:
-removeObjectsForKeys:
-optionsWithDictionary:
-date
-iterRankedHighlightsWithLimit:client:variant:error:block:
-interfaceWithProtocol:
-setUserInfo:
-cgColor
-hasDirectoryPath
+trailingAnchor
+addObjectsFromArray:
 effectWithStyle:
-sectionWithGroup:
-setInvitationPreferences:
-deactivateConstraints:
-setContentInsets:
-sizeToFit
-container
-setUserInteractionEnabled:
+styleWithEffect:shape:
+setText:
+iterRankedHighlightsWithLimit:client:variant:error:block:
+subarrayWithRange:
+date
+setCollectionViewLayout:withAnimator:
+hasDirectoryPath
+setPhoneNumbers:
+cgColor
 initWithCapacity:
+setImage:forState:
+interactions
 elements
+setTextColor:
+optionsWithDictionary:
+removeObject:
+deactivateConstraints:
+interfaceWithProtocol:
+translatesAutoresizingMaskIntoConstraints
+container
 addSubview:
 decayInterval
-setContentMode:
-hasPrefix:
-attributionForIdentifier:error:
-sizeWithWidthDimension:heightDimension:
-containsObject:
-fileSystemRepresentation
 emailAddresses
-synchronousRemoteObjectProxyWithErrorHandler:
+removeObjectForKey:
+hasPrefix:
+_continuousCornerRadius
+containsObject:
+setInstanceTransform:
+fileSystemRepresentation
+attributionForIdentifier:error:
+removeObjectsForKeys:
+initWithCollectionView:cellProvider:
 decodeBoolForKey:
+setConstant:
 addTarget:action:forControlEvents:
-presentViewController:animated:completion:
-setContents:
-setValue:forCustomKey:
+unarchivedObjectOfClass:fromData:error:
+success
+window
 labeledValueWithLabel:value:
 containsString:
-sendResponse:
-initWithCollectionView:cellProvider:
-invitationPreferencesForAllHandlesWithStyles:
-sendSubviewToBack:
+setTotalUnitCount:
+superview
 decodeCollectionOfClass:containingClass:forKey:
-setContentsCenter:
-fileURLWithPath:
-renderingScopeWithPointSize:scale:rightToLeft:style:color:
-setPredicate:
-isActive
-menuWithTitle:image:identifier:options:children:
-heightAnchor
 encodeBool:forKey:
+unarchivedObjectOfClasses:fromData:error:
+setInterItemSpacing:
 initWithContactStore:
-updatedMetadata
-processIdentifier
+sectionWithGroup:
+fileURLWithPath:
+setInvalidationHandler:
+heightAnchor
+setContentInsets:
 decodeDictionaryWithKeysOfClass:objectsOfClass:forKey:
+initWithRemoteMembers:
+invitationPreferencesForAllHandlesWithStyles:
+presentViewController:animated:completion:
+unifiedContactsMatchingPredicate:keysToFetch:error:
+menuWithTitle:image:identifier:options:children:
 contentCreationDate
+size
+setContentMode:
+filename
+isActive
+encodeCollection:forKey:
+allKeys
+setInvitationPreferences:
+setUserInfo:
+decodeDoubleForKey:
+launchAppForJoinRequest:
+contentDisplayName
+encodeDouble:forKey:
+allKeysForObject:
+initWithDelegate:
+sizeToFit
+isBeingDismissed
+filteredArrayUsingPredicate:
+auditToken
+ownerIdentifier
+processIdentifier
+setContents:
+messagesGroupPhotoData
+sendResponse:
+decodeIntegerForKey:
+setUserInteractionEnabled:
+renderingScopeWithPointSize:scale:rightToLeft:style:color:
+allObjects
+encodeInteger:forKey:
+path
+decodeObjectOfClass:forKey:
+authorAddresses
+_viewControllerForAncestor
+contentInsets
+clearColor
+sizeWithWidthDimension:heightDimension:
+sendSubviewToBack:
+encodeObject:forKey:
+layer
+setContentsCenter:
+synchronousRemoteObjectProxyWithErrorHandler:
+isCancelled
+decodeObjectOfClasses:forKey:
+initWithSectionProvider:
+authorNames
+setContentsScale:
+setValue:forCustomKey:
+initWithDuration:timingParameters:
+firstAttribute
+allValues
+absoluteDimension:
+defaultSearchableIndex
+setPredicate:
+absoluteString
+contentURL
+endpoint
+setContextMenuInteractionEnabled:
+initWithEffect:
+minusSet:
+accessibilityButtonShapes
+setVideoEnabled:
+initWithSlotDrawer:options:
+alternateNames
+contentView
+setControlFlags:
+queryItemWithName:value:
+initWithExplanation:target:attributes:
+accessibilityContrast
+CGImage
+layoutMarginsGuide
+animateKeyframesWithDuration:delay:options:animations:completion:
+setVisiblePath:
+queryItems
+animateWithDuration:animations:
+dequeueReusableCellWithReuseIdentifier:forIndexPath:
+_effectForBlurEffect:vibrancyStyle:
+entitlements
+isEqualToArray:
+base64EncodedStringWithOptions:
+URLWithString:
+leadingAnchor
+accountIdentifier
+enumerateObjectsUsingBlock:
+mutableCopy
+controlFlags
+firstObject
+setPrefetchingEnabled:
+setLineBreakStrategy:
+setCornerRadius:
+descriptorForRequiredKeysForStyle:
+anonymousListener
+setProvider:
+setDamping:
+error
+isEqualToData:
+updatedMetadata
+rangeOfString:
+systemBlueColor
+UTF8String
+acquireWithError:
+phoneNumberWithStringValue:
+serviceWithDefaultShellEndpoint
+initWithFrame:collectionViewLayout:
+fixedSpacing:
 dealloc
 viewWillDisappear:
 isEqual:
@@ -5639,6 +5721,7 @@ _legacyNotifyDelegateDidRemoveHighlights:
 fetchHighlights:
 fetchHighlightsWithLimit:completionBlock:
 _fetchHighlightsWithLimit:completionBlock:
+runAfterInitialFetch:onQueue:
 fetchAttributionsForHighlight:
 fetchAttributionForAttributionIdentifier:
 feedbackForHighlight:withType:
@@ -6193,6 +6276,7 @@ T^{__CTFont=},N,V_font
 T@"NSArray",&,N,V_contactImages
 shareURLForFileURL:sandboxTokenData:reply:
 _acquireSandboxHandleData:ForFileProviderDocumentURL:clientConnection:error:
+_fileURLHasFileProvider:error:
 _connection:hasPermissionForFileURL:
 _releaseSandboxHandle:
 serviceProxyDidConnect:
@@ -6235,6 +6319,21 @@ signData:forCollaborationIdentifier:trackingPreventionSalt:timeout:completion:
 signSourceProcessWithMetadata:timeout:completion:
 initialLayoutAttributesForAppearingItemAtIndexPath:
 finalLayoutAttributesForDisappearingItemAtIndexPath:
+removeMessageGUIDFromSyndication:reply:
+sharedController
+syndicationProcessingQueue
+T@"NSObject<OS_dispatch_queue>",R,N
+removeMessageGUIDFromSyndication:
+_sendCurrentRemovalsToDaemonAndDisconnect
+_disconnectSyndicationServiceConnectionIfNecessary
+pendingmessageGUIDsToRemove
+syndicationServiceProxy
+setSyndicationServiceProxy:
+setPendingmessageGUIDsToRemove:
+_syndicationServiceProxy
+_pendingmessageGUIDsToRemove
+T@"SLDServiceProxy",&,N,V_syndicationServiceProxy
+T@"NSMutableSet",&,N,V_pendingmessageGUIDsToRemove
 initWithRecipientDrawingMetadata:
 initWithGroupPhotoFileURL:recipientDrawingMetadata:groupID:
 groupPhotoFileURL
@@ -6308,26 +6407,35 @@ removeDelegate:
 didDeleteHighlightsOrAttributions
 appIdentifier
 _notifyDelegatesWithNotificationType:withHighlights:
-setHighlights:
-fetchHighlightsWithLimit:variant:completionBlock:
-delegates
-setDelegates:
-highlightArrayQueue
+initialFetchGroup
+setInitialFetchGroup:
 updateHighlightsBlock
 setUpdateHighlightsBlock:
+setHighlights:
+fetchHighlightsWithLimit:variant:completionBlock:
+_leaveInitialFetchGroupIfNecessary
+delegates
+setDelegates:
+threadSafePropertyQueue
+initialFetchWaitingQueue
+setInitialFetchWaitingQueue:
 notificationTokenRefreshHighlights
 notificationTokenScreenTimeChange
 notificationTokenDeleteHighlights
 _notificationTokenRefreshHighlights
 _notificationTokenScreenTimeChange
 _notificationTokenDeleteHighlights
-_delegates
-_highlightArrayQueue
+_initialFetchGroup
 _updateHighlightsBlock
+_delegates
+_threadSafePropertyQueue
+_initialFetchWaitingQueue
 T@"NSMutableDictionary",&,N,V_highlightsCache
 T@"NSHashTable",&,N,V_delegates
-T@"NSObject<OS_dispatch_queue>",R,N,V_highlightArrayQueue
+T@"NSObject<OS_dispatch_queue>",R,N,V_threadSafePropertyQueue
 T@?,C,N,V_updateHighlightsBlock
+T@"NSObject<OS_dispatch_group>",&,N,V_initialFetchGroup
+T@"NSObject<OS_dispatch_queue>",&,N,V_initialFetchWaitingQueue
 Ti,R,N,V_notificationTokenRefreshHighlights
 Ti,R,N,V_notificationTokenScreenTimeChange
 Ti,R,N,V_notificationTokenDeleteHighlights
@@ -7094,6 +7202,7 @@ v24@0:8@"NSArray"16
 @32@0:8@16@24
 d16@0:8
 v32@0:8Q16@?24
+v32@0:8@?16@24
 v32@0:8@16Q24
 v40@0:8@16Q24@?32
 @"NSArray"
@@ -7224,6 +7333,7 @@ v40@0:8@"NSURL"16@"NSData"24@?<v@?@"NSURL">32
 v32@0:8@"SLHighlightCenter"16@"NSArray"24
 v24@0:8@"SLHighlightCenter"16
 Q48@0:8@16@24@32^@40
+B32@0:8@16^@24
 B32@0:8@16@24
 v24@0:8@"SLDServiceProxy"16
 @32@0:8#16d24
@@ -7231,6 +7341,7 @@ v40@0:8Q16@24@?32
 @"<UISSlotAnyContent>"
 @"SLDServiceProxy"
 @"_UISlotView"
+@"NSMutableSet"
 @40@0:8@16@24@32
 @"SWPersonIdentity"
 @"_SWPersonIdentityProof"
@@ -7240,6 +7351,7 @@ v32@0:8@"MFMessageComposeViewController"16q24
 @"NSData"
 v32@0:8q16@24
 @"NSMutableDictionary"
+@"NSObject<OS_dispatch_group>"
 @"NSHashTable"
 @32@0:8@16q24
 @"CNContact"
@@ -7344,6 +7456,7 @@ v24@0:8@"<BSXPCEncoding>"16
 @"LPLinkMetadata"
 v48@0:8@?16d24@?32@?40
 @"<SLRemoteTaskManagerDelegate>"
+v32@0:8@"NSString"16@?<v@?B>24
 @48@0:8@16Q24d32d40
 @"UICollectionViewDiffableDataSource"
 @"NSDiffableDataSourceSnapshot"

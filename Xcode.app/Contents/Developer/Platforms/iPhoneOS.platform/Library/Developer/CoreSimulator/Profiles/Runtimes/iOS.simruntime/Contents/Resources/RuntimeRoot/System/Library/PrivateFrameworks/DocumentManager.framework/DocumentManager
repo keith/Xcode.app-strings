@@ -1,4 +1,4 @@
-@(#)PROGRAM:DocumentManager  PROJECT:DocumentManager-280.2.3
+@(#)PROGRAM:DocumentManager  PROJECT:DocumentManager-280.2.7
 33333
 333333
 DOCErrorDomain
@@ -155,22 +155,25 @@ com.apple.DocumentManager.DOCSmartFolderManager.workingQueue
 bad type for file name hit
 bad type for file type hit
 nil db connection
-SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames WHERE fp_folder_id = %@
-SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames
-SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes
+SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames WHERE fp_folder_id = %@ ORDER BY last_hit_date DESC LIMIT 500
+SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames ORDER BY last_hit_date DESC LIMIT 500
+SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes ORDER BY last_hit_date DESC LIMIT 500
 INSERT INTO hotfolders(app_bundle_id, fp_folder_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@, %@)
 UPDATE hotfolders SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@ AND event_type = %@;
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id <> %@;
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@ AND event_type = %@ ORDER BY last_hit_date DESC LIMIT 500;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id <> %@ ORDER BY last_hit_date DESC LIMIT 500;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ ORDER BY last_hit_date DESC LIMIT 500;
 DELETE FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@
 DELETE FROM filenames WHERE fp_folder_id = %@
 DELETE FROM filetypes WHERE fp_folder_id = %@
+DELETE FROM hotfolders WHERE last_hit_date < %@
+DELETE FROM filenames WHERE last_hit_date < %@
+DELETE FROM filetypes WHERE last_hit_date < %@
 INSERT INTO filenames(fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@)
 UPDATE filenames SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
 INSERT INTO filetypes(fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@)
 UPDATE filetypes SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
-SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes WHERE fp_folder_id = %@ AND file_type = %@
+SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes WHERE fp_folder_id = %@ AND file_type = %@ ORDER BY last_hit_date DESC LIMIT 500
 B16@?0@"PQLConnection"8
 v32@?0@"PQLConnection"8@"PQLStatement"16@"NSError"24
 SmartFolder Database
@@ -184,10 +187,13 @@ DOCSmartFolderDatabase.m
 (connection.userVersion.unsignedIntValue >= DOCSmartFolderDatabaseVersionMax) || !result
 CREATE TABLE filenames( fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, file_name TEXT NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX filename_index ON filenames (fp_folder_id)
+CREATE INDEX filename_last_hit_date_index ON filenames (last_hit_date)
 CREATE TABLE filetypes( fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, file_type TEXT NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX filetype_index ON filetypes (fp_folder_id)
+CREATE INDEX filetype_last_hit_date_index ON filetypes (last_hit_date)
 CREATE TABLE hotfolders( app_bundle_id TEXT NOT NULL, fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, event_type INTEGER NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX app_identifier ON hotfolders (app_bundle_id)
+CREATE INDEX _last_hit_date_index ON hotfolders (last_hit_date)
 Try again
 v16@?0@"UIAction"8
 -[DOCUserInterfaceStateStore interfaceStateForConfiguration:]
@@ -432,7 +438,8 @@ prepareForMode: _presentActivityViewControllerForItemBookmarks with usingBookmar
 prepareForMode: _didTriggerCustomActionWithIdentifier with usingBookmark == NO
 tried to perform an action that does not exist anymore
 prepareForMode: _didPickItemBookmarks with usingBookmark == %@
-tried to call delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
+Calling delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
+Tried to call delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
 Completion block for document creation called with url %@ mode %lu.
 Cannot create urlWrapper for url %@. error %@.
 prepareForMode: _didImportDocumentAtURL with usingBookmark == YES
@@ -483,6 +490,13 @@ Successfully delete filenames events for folderID %@.
 Could not delete filenames events for folderID %@ : %@.
 Successfully delete filetypes events for folderID %@.
 Could not delete filetypes events for folderID %@ : %@.
+Can't purge Hot/SmartFolders because connection is nil.
+Successfully delete hotfolders events older than 3 months.
+Could not delete hotfolders events older than 3 months: %@.
+Successfully delete filenames events older than 3 months.
+Could not delete filenames events older than 3 months: %@.
+Successfully delete filetypes events older than 3 months.
+Could not delete filetypes events older than 3 months: %@.
 Can't archive folder (%@) to register hit: %@.
 Successfully registered saving %@ into folderID %@ at date %@ with frecencyScore %@.
 Could not register saving %@ into folderID %@ at date %@ with frecencyScore %@: %@.
@@ -991,6 +1005,7 @@ prepareItemBookmarks:usingBookmark:completionBlock:
 objectAtIndexedSubscript:
 resolvedHandler
 _delegateRespondsToSelector:
+forSavingDocuments
 documentManagerWasCancelled:
 CGRectValue
 trackingViewForUUID:
@@ -1484,6 +1499,7 @@ defaultManager
 containerURLForSecurityApplicationGroupIdentifier:
 URLByAppendingPathComponent:isDirectory:
 initWithURL:
+purgeOldEntries
 connection
 _existingFileNameHitsSimilarToHit:
 _registerHit:
@@ -1507,6 +1523,7 @@ numberWithDouble:
 execute:
 lastError
 unsignedIntegerAtIndex:
+dateWithTimeIntervalSinceNow:
 _openConnectionToDatabaseAtURL:
 _createDatabaseIfNeededAtURL:error:
 removeItemAtURL:error:
@@ -2245,7 +2262,7 @@ v24@0:8@"UITextInputPasswordRules"16
 @"<DOCTargetSelectionBrowserViewControllerDelegate>"
 @"UIViewController<DOCRemoteAppearanceInterface>"
 @"<DOCServiceTargetSelectionBrowserViewControllerProxy>"
-@(#)PROGRAM:DocumentManager  PROJECT:DocumentManager-280.2.3
+@(#)PROGRAM:DocumentManager  PROJECT:DocumentManager-280.2.7
 33333
 333333
 DOCErrorDomain
@@ -2402,22 +2419,25 @@ com.apple.DocumentManager.DOCSmartFolderManager.workingQueue
 bad type for file name hit
 bad type for file type hit
 nil db connection
-SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames WHERE fp_folder_id = %@
-SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames
-SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes
+SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames WHERE fp_folder_id = %@ ORDER BY last_hit_date DESC LIMIT 500
+SELECT rowid, fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date FROM filenames ORDER BY last_hit_date DESC LIMIT 500
+SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes ORDER BY last_hit_date DESC LIMIT 500
 INSERT INTO hotfolders(app_bundle_id, fp_folder_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@, %@)
 UPDATE hotfolders SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@ AND event_type = %@;
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id <> %@;
-SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@ AND event_type = %@ ORDER BY last_hit_date DESC LIMIT 500;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id <> %@ ORDER BY last_hit_date DESC LIMIT 500;
+SELECT rowid, app_bundle_id, fp_folder_item, event_type, last_hit_date, frecency_at_last_hit_date FROM hotfolders WHERE app_bundle_id = %@ ORDER BY last_hit_date DESC LIMIT 500;
 DELETE FROM hotfolders WHERE app_bundle_id = %@ AND fp_folder_id = %@
 DELETE FROM filenames WHERE fp_folder_id = %@
 DELETE FROM filetypes WHERE fp_folder_id = %@
+DELETE FROM hotfolders WHERE last_hit_date < %@
+DELETE FROM filenames WHERE last_hit_date < %@
+DELETE FROM filetypes WHERE last_hit_date < %@
 INSERT INTO filenames(fp_folder_id, fp_folder_item, file_name, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@)
 UPDATE filenames SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
 INSERT INTO filetypes(fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date) VALUES (%@, %@, %@, %@, %@)
 UPDATE filetypes SET last_hit_date = %@, frecency_at_last_hit_date = %@ WHERE rowid = %@
-SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes WHERE fp_folder_id = %@ AND file_type = %@
+SELECT rowid, fp_folder_id, fp_folder_item, file_type, last_hit_date, frecency_at_last_hit_date FROM filetypes WHERE fp_folder_id = %@ AND file_type = %@ ORDER BY last_hit_date DESC LIMIT 500
 B16@?0@"PQLConnection"8
 v32@?0@"PQLConnection"8@"PQLStatement"16@"NSError"24
 SmartFolder Database
@@ -2431,10 +2451,13 @@ DOCSmartFolderDatabase.m
 (connection.userVersion.unsignedIntValue >= DOCSmartFolderDatabaseVersionMax) || !result
 CREATE TABLE filenames( fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, file_name TEXT NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX filename_index ON filenames (fp_folder_id)
+CREATE INDEX filename_last_hit_date_index ON filenames (last_hit_date)
 CREATE TABLE filetypes( fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, file_type TEXT NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX filetype_index ON filetypes (fp_folder_id)
+CREATE INDEX filetype_last_hit_date_index ON filetypes (last_hit_date)
 CREATE TABLE hotfolders( app_bundle_id TEXT NOT NULL, fp_folder_id TEXT NOT NULL, fp_folder_item BLOB NOT NULL, event_type INTEGER NOT NULL, last_hit_date DOUBLE NOT NULL, frecency_at_last_hit_date DOUBLE NOT NULL)
 CREATE INDEX app_identifier ON hotfolders (app_bundle_id)
+CREATE INDEX _last_hit_date_index ON hotfolders (last_hit_date)
 Try again
 v16@?0@"UIAction"8
 -[DOCUserInterfaceStateStore interfaceStateForConfiguration:]
@@ -2679,7 +2702,8 @@ prepareForMode: _presentActivityViewControllerForItemBookmarks with usingBookmar
 prepareForMode: _didTriggerCustomActionWithIdentifier with usingBookmark == NO
 tried to perform an action that does not exist anymore
 prepareForMode: _didPickItemBookmarks with usingBookmark == %@
-tried to call delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
+Calling delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
+Tried to call delegate -documentBrowser:didPickDocumentURLs: with an empty array of items. This indicates the items failed to be prepared and materialized on disk: %@
 Completion block for document creation called with url %@ mode %lu.
 Cannot create urlWrapper for url %@. error %@.
 prepareForMode: _didImportDocumentAtURL with usingBookmark == YES
@@ -2730,6 +2754,13 @@ Successfully delete filenames events for folderID %@.
 Could not delete filenames events for folderID %@ : %@.
 Successfully delete filetypes events for folderID %@.
 Could not delete filetypes events for folderID %@ : %@.
+Can't purge Hot/SmartFolders because connection is nil.
+Successfully delete hotfolders events older than 3 months.
+Could not delete hotfolders events older than 3 months: %@.
+Successfully delete filenames events older than 3 months.
+Could not delete filenames events older than 3 months: %@.
+Successfully delete filetypes events older than 3 months.
+Could not delete filetypes events older than 3 months: %@.
 Can't archive folder (%@) to register hit: %@.
 Successfully registered saving %@ into folderID %@ at date %@ with frecencyScore %@.
 Could not register saving %@ into folderID %@ at date %@ with frecencyScore %@: %@.
@@ -2884,469 +2915,471 @@ DOCActivity
 DOCDestructiveActivity
 UserInterfaceStyle
 DOCTargetSelectionBrowserViewController
-configurationWithTextStyle:scale:
-removePointerAtIndex:
-_applicationIconImageForBundleIdentifier:format:scale:
-isSystemItem
-systemItem
-preferredContentSizeCategory
-distantPast
-setHostIdentifier:
-associateThumbnailsForDocumentAtURL:withImmutableDocument:atURL:error:
-dataAtIndex:
-setBorderWidth:
-setWithObjects:
-hasPrefix:
-actionWithHandler:
-isRootItem
-compact
-enumerateObjectsUsingBlock:
-removeObserver:name:object:
-systemBlueColor
-_animateUsingSpringWithDuration:delay:options:mass:stiffness:damping:initialVelocity:animations:completion:
-arrayWithObjects:count:
-preferredContentSize
-setWithObject:
-modifierFlags
-setBorderColor:
-hasDifferentColorAppearanceComparedToTraitCollection:
-removeObserver:forKeyPath:
-enumerateKeysAndObjectsUsingBlock:
-_performBlockAfterCATransactionCommits:
-displayScale
-predicateWithValue:
-arrayWithCapacity:
-systemBackgroundColor
-currentProcess
-setWillBeginBatchingHook:
-model
-handleFailureInMethod:object:file:lineNumber:description:
-commandWithTitle:image:action:input:modifierFlags:propertyList:alternates:
-removeObjectsForKeys:
-predicateWithBlock:
-isPickerUI
-setPreferredContentSize:
-initWithObjects:
-synchronousRemoteObjectProxyWithErrorHandler:
-arrayWithArray:
-menuWithTitle:image:identifier:options:children:
-setBaseForegroundColor:
-setWidth:
-isMainThread
-handleFailureInFunction:file:lineNumber:description:
-action
-currentHandler
-setPreferredAction:
-commandWithTitle:image:action:input:modifierFlags:propertyList:
-removeObjectForKey:
-unsignedIntegerValue
-displayMode
-URLByAppendingPathComponent:
-possibleTitles
-symbolForTypeIdentifier:error:
-arrayByAddingObject:
-acquireWithError:
-CGImage
-currentDevice
-setWantsPriorityOverSystemBehavior:
-unsignedIntegerAtIndex:
-colorWithRed:green:blue:alpha:
-setPossibleTitles:
-isIndeterminate
-removeObject:
-endMonitoringProviderDomainChanges:
-array
-setViewControllers:
-currentCalendar
-accessibilityLabel
-endDelayingDisplayOfRemoteController
-menuRepresentation
-colorWithDynamicProvider:
-removeMenuForIdentifier:
-unsignedIntValue
-isInKeyWindow
-archivedDataWithRootObject:requiringSecureCoding:error:
-initWithImage:style:target:action:
-UUIDString
-popoverPresentationController
-setFrame:
-createTargetSelectionBrowserViewControllerWithHostProxy:configuration:completionHandler:
-menuForIdentifier:
-accessibilityHint
-setView:
-removeItemAtURL:error:
-encodeUIEdgeInsets:forKey:
-isHidden
-UUID
-initWithImage:landscapeImagePhone:style:target:action:
-supportsEnumeration
-pointerAtIndex:
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-setValue:forKey:
-acceptsKeyboardFocus
-isFolder
-setAutoresizingMask:
-unarchivedObjectOfClasses:fromData:error:
-encodeObject:forKey:
-pointSize
-setOverrideUserInterfaceStyle:
-removeFromSuperview
-code
-setFont:
-initWithImage:
-animateWithDuration:animations:completion:
-URLWithString:
-dismissViewControllerAnimated:completion:
-setAttributes:
-mainScreen
-encodeNodeWithCoder:
-absoluteString
-countByEnumeratingWithState:objects:count:
-close:
-unarchivedObjectOfClass:fromData:error:
-setOverrideTraitCollection:
-isFilesApp
-removeFromParentViewController
-plainButtonConfiguration
-animateAlongsideTransition:completion:
-genericApplicationIcon
-setUserVersion:
-CGColor
-absoluteFrame
-mainBundle
-count
-ui_scheduleForCleanup
-encodeInteger:forKey:
-discoverabilityTitle
-subviews
-persistentIdentifier
-ui_incomingDirectory:
-setAlpha:
-encodeFloat:forKey:
-setOpaque:
-isEqualToString:
-clearColor
-alternates
-initWithFrame:
 setObject:forKeyedSubscript:
-setUnderlyingQueue:
-classForKeyedUnarchiver
-remoteObjectProxyWithErrorHandler:
-encodeBool:forKey:
-alternateWithTitle:action:modifierFlags:
-subarrayWithRange:
-initWithExplanation:target:attributes:
-performWithFlags:action:
-setExcludedActivityTypes:
-localizedStringWithValidatedFormat:validFormatSpecifiers:error:
-copyItemAtURL:toURL:error:
-setTranslatesAutoresizingMaskIntoConstraints:
-typeWithIdentifier:
-isEnterpriseDomain
-childViewControllers
-setObject:forKey:
-initWithCapacity:
-frame
-copy
-localizedStringForKey:value:table:
-typeWithFilenameExtension:
-setNumberOfLines:
-checkResourceIsReachableAndReturnError:
-isEnabled
-initWithBundleIdentifier:
-localizedRecoverySuggestion
-stringWithUTF8String:
-coordinateReadingItemAtURL:options:writingItemAtURL:options:error:byAccessor:
-setActive:
-fractionCompleted
-wrapperWithURL:readonly:error:
-doubleAtIndex:
-checkPromisedItemIsReachableAndReturnError:
-isEditing
-initWithBarButtonSystemItem:target:action:
-setEnabled:
-allowedConversions
-stringWithFormat:
-fpfs_fpItem
-coordinateReadingItemAtURL:options:error:byAccessor:
-setTransform:
-localizedRecoveryOptions
-windows
-isDownloaded
-centerYAnchor
-stringByReplacingOccurrencesOfString:withString:
-pathExtension
-localizedFailureReason
-allocWithZone:
-setAction:
-convertRect:toView:
-windowScene
-domainDisplayName
-centerXAnchor
-CGRectValue
-setNeedsStatusBarAppearanceUpdate
-stringByDeletingPathExtension
-path
-initWithArray:copyItems:
-allValues
-setEditing:
-didMoveToParentViewController:
-setTextColor:
-setAccessibilityLabel:
-isCollapsed
-_typeOfCurrentDevice
-localizedDescription
-window
-center
-_extensionContextForUUID:
-setNeedsLayout
-domain
-stringByAppendingPathExtension:
-overrideUserInterfaceStyle
-initWithActivityItems:applicationActivities:
 allObjects
-dictionaryWithObjects:forKeys:count:
-setTextAlignment:
-setAccessibilityIgnoresInvertColors:
-isCloudItem
-willMoveToParentViewController:
-forPickingFolders
-redColor
-setDrawBorder:
-allKeys
-_systemImageNamed:withConfiguration:
-stringByAppendingFormat:
-dictionaryWithDictionary:
-containsString:
-setText:
-widthAnchor
-setNavigationBarHidden:animated:
-setAccessibilityHint:
-forPickingDownloadsFolder
-recoveryAttempter
-dictionary
-stringAtIndex:
 orderedSetWithCapacity:
-loadViewIfNeeded
-width
-containsObject:
-forPickingDocuments
-canHostAppPerformAction:fileProviderDomain:
-traitCollectionWithUserInterfaceStyle:
-fontWithDescriptor:size:
-openAtURL:sharedCache:error:
 stopAccessingSecurityScopedResource
 session
 traitCollectionWithUserInterfaceIdiom:
 weakObjectsPointerArray
-containingBundleRecord
-canDisconnect
+loadViewIfNeeded
+forPickingDownloadsFolder
 setModalPresentationStyle:
-invalidate
-delayDisplayOfRemoteController
-fontDescriptorWithSymbolicTraits:
 setDiscoverabilityTitle:
-objectForKeyedSubscript:
-length
+dictionary
+_systemImageNamed:withConfiguration:
+allKeys
+openAtURL:sharedCache:error:
+containsString:
 setSynchronousMode:
-viewIfLoaded
 traitCollectionWithTraitsFromCollections:
-containerViewWillLayoutSubviews
-canCopySourceIsContentManaged:
-interfaceWithProtocol:
-alertControllerWithTitle:message:preferredStyle:
+forPickingDocuments
+viewIfLoaded
+invalidate
+CGColor
 stateIdentifier
-infoDictionary
-objectForKey:ofClass:valuesOfClass:
-layer
+objectForKeyedSubscript:
+fontWithDescriptor:size:
+length
 viewForKey:
 traitCollectionWithPreferredContentSizeCategory:
-containerView
+containsObject:
 setSuspended:
 setMenuRepresentation:
-providerID
-interactionModeForPreparing
+canHostAppPerformAction:fileProviderDomain:
+interfaceWithProtocol:
+delayDisplayOfRemoteController
 setDidFinishBatchingHook:
-firstResponder
+fontDescriptorWithSymbolicTraits:
+infoDictionary
+objectForKey:ofClass:valuesOfClass:
+containingBundleRecord
+layer
+viewControllerForKey:
+providerID
+setSupportsRemovableFileProviders:
+canDisconnect
+traitCollection
+interactionModeForPreparing
+setMaxConcurrentOperationCount:
 objectForKey:
 indexOfObjectPassingTest:
-addSubview:
-containerURLForSecurityApplicationGroupIdentifier:
 providerDomainWithID:error:
-viewControllerForKey:
-setSupportsRemovableFileProviders:
-buttonWithConfiguration:primaryAction:
-traitCollection
-setMaxConcurrentOperationCount:
-interactionMode
-addPointer:
-lastUpdatedDate
-objectForInfoDictionaryKey:
-inProcess
-constraintEqualToAnchor:constant:
-integerValue
+containerViewWillLayoutSubviews
 view
-firstObject
-providerDomainID
-bundleIdentifier
-objectAtIndexedSubscript:
-defaultPermission
-lastPathComponent
-addOperationWithBlock:
+canCopySourceIsContentManaged:
+interactionMode
+alertControllerWithTitle:message:preferredStyle:
+firstResponder
+objectForInfoDictionaryKey:
 startAccessingSecurityScopedResource
-bundleForClass:
+inProcess
+lastUpdatedDate
+integerValue
+containerView
+providerDomainID
 topLevelBundleIdentifier
-instantiateWithExtension:completion:
+CGImage
 standardUserDefaults
-numberWithUnsignedLong:
-defaultManager
+objectAtIndexedSubscript:
 valueForKeyPath:
-lastObject
-filteredArrayUsingPredicate:
+addSubview:
+lastPathComponent
 secondarySystemBackgroundColor
 setSqliteErrorHandler:
-conformsToType:
-bumpLastUpdatedDate
+containerURLForSecurityApplicationGroupIdentifier:
+firstObject
+buttonWithConfiguration:primaryAction:
 topAnchor
-imageWithConfiguration:
+instantiateWithExtension:completion:
 splitViewController
-numberWithUnsignedInteger:
-fileURLWithPath:
-defaultFileProviderForAppBundle:
-addObserver:selector:name:object:
+numberWithUnsignedLong:
+addPointer:
+lastObject
+defaultPermission
 secondaryLabelColor
-lastError
+constraintEqualToAnchor:constant:
 valueForKey:
 setSourceView:
+bundleIdentifier
+imageWithConfiguration:
+numberWithUnsignedInteger:
+defaultManager
+filteredArrayUsingPredicate:
+setCornerRadius:
+addOperationWithBlock:
+sourceView
+lastError
+setSourceRect:
+bundleForClass:
 promisedItemResourceValuesForKeys:error:
 imageWithCGImage:scale:orientation:
 numberWithInteger:
-setCornerRadius:
-addObserver:forKeyPath:options:context:
-sourceView
-setSourceRect:
-bounds
-numberWithDouble:
 setCornerCurve:
-addObjectsFromArray:
+defaultFileProviderForAppBundle:
 sourceRect
+fileURLWithPath:
+scale
+bumpLastUpdatedDate
+conformsToType:
+timeIntervalSinceDate:
+numberWithDouble:
+addObserver:selector:name:object:
+presentingViewController
+text
+insertSubview:belowSubview:
+numberAtIndex:
+setContentMode:
+userVersion
+imageInsets
+addObserver:forKeyPath:options:context:
 defaultCenter
 fileSystemRepresentation
-presentingViewController
-scale
-bottomAnchor
-insertSubview:belowSubview:
-timeIntervalSinceDate:
-numberAtIndex:
-decodeUIEdgeInsetsForKey:
-imageInsets
-errorWithDomain:code:userInfo:
-addObject:
 landscapeImagePhoneInsets
 insertSiblingMenu:afterMenuForIdentifier:
-text
-presentedViewController
-boolValue
-addKeyCommand:
-imageDescriptorNamed:
-configurationWithScale:
-null
-setContentMode:
-decodeObjectOfClasses:forKey:
-userVersion
-landscapeImagePhone
-insertChildMenu:atStartOfMenuForIdentifier:
 tertiaryLabelColor
 setLandscapeImagePhoneInsets:
-boolForKey:
-presentationController
+bounds
+presentedViewController
+imageDescriptorNamed:
+null
 snapshotViewAfterScreenUpdates:
-decodeObjectOfClass:forKey:
-configurationWithPointSize:
-fileExistsAtPath:isDirectory:
-keysSortedByValueUsingComparator:
+decodeUIEdgeInsetsForKey:
+addObjectsFromArray:
+landscapeImagePhone
 userInterfaceStyle
 targetWindow
 rootViewController
-insertChildMenu:atEndOfMenuForIdentifier:
+insertChildMenu:atStartOfMenuForIdentifier:
+bottomAnchor
 setLabel:
-beginMonitoringProviderDomainChangesWithHandler:
+presentationController
+decodeObjectOfClasses:forKey:
+configurationWithTextStyle:scale:
+addObject:
 userInterfaceIdiom
-addChildViewController:
-decodeObjectForKey:
 roleIdentifier
-fetch:
-keyboardFocusEngine
-input
-URLByAppendingPathComponent:isDirectory:
-becomeKeyboardFocused
-addAction:
-next
-decodeIntegerForKey:
+keysSortedByValueUsingComparator:
+insertChildMenu:atEndOfMenuForIdentifier:
+boolValue
+addKeyCommand:
+decodeObjectOfClass:forKey:
+configurationWithScale:
 setCompletionWithItemsHandler:
-configurationForOpeningDocumentsOfApplicationWithBundleIdentifier:
+fileExistsAtPath:isDirectory:
+keyboardFocusEngine
 userInfo
-URLByDeletingLastPathComponent
-useSerialQueueWithTarget:
+input
+boolForKey:
+next
+configurationWithPointSize:
 shouldIgnoreInteractionMode
-newDocumentPicker
-decodeIntForKey:
+decodeObjectForKey:
+useSerialQueueWithTarget:
 setResourceValue:forKey:error:
-keyCommandWithInput:modifierFlags:action:
+fetch:
 resolvedColorWithTraitCollection:
-configurationForImportingDocumentContentTypes:mode:
+beginMonitoringProviderDomainChangesWithHandler:
+setIsContentManaged:
+decodeIntegerForKey:
+addChildViewController:
+useBatchingWithDelay:changeCount:
+newDocumentPicker
+keyCommandWithInput:modifierFlags:action:
 prepareImageForDescriptor:
 initWithURL:error:
-setIsContentManaged:
-decodeFloatForKey:
-useBatchingWithDelay:changeCount:
-extensionWithIdentifier:error:
-doc_identifiersForContentTypes:
+becomeKeyboardFocused
 setInterface:forSelector:argumentIndex:ofReply:
+addAction:
 setClipsToBounds:
 shouldConvert
-decodeBoolForKey:
-itemIdentifier
-extensionBundleURL
-initWithTitle:style:target:action:
+decodeIntForKey:
+configurationForOpeningDocumentsOfApplicationWithBundleIdentifier:
 setImageInsets:
-doc_contentTypesForIdentifiers:
-activityDidFinish:
-name
-extensionBundleIdentifier
-hostIdentifier
+decodeFloatForKey:
+CGRectValue
 setClasses:forSelector:argumentIndex:ofReply:
-components:fromDate:toDate:options:
-isiCloudDriveProvider
+itemIdentifier
+extensionWithIdentifier:error:
 tags
-preferredFontForTextStyle:
-_auxiliaryConnection
-activeKeyboard
+configurationForImportingDocumentContentTypes:mode:
+initWithTitle:style:target:action:
+doc_identifiersForContentTypes:
 sharedDefaultEvaluator
-dateAtIndex:
 setCenter:
-mutableCopy
-execute:
-preferredFontDescriptorWithTextStyle:compatibleWithTraitCollection:
-completeTransition:
-isViewLoaded
-attributes
-initWithSuiteName:
-actions
-hostBundleTitle
-compare:
+name
+hostIdentifier
+decodeBoolForKey:
+preferredFontForTextStyle:
+isiCloudDriveProvider
+extensionBundleURL
+doc_contentTypesForIdentifiers:
+extensionBundleIdentifier
 setupPragmas
-date
-isTrashed
-excludedActivityTypes
+mutableCopy
+preferredFontDescriptorWithTextStyle:compatibleWithTraitCollection:
+isViewLoaded
 setRecentDocumentsContentTypes:
-preferredFilenameExtension
-attributeWithDomain:name:
-initWithStyle:
-actionWithTitle:style:handler:
-moveItemAtURL:toURL:error:
-dataOwnerStateForBundleIdentifier:
+initWithSuiteName:
+activityDidFinish:
+hostBundleTitle
+dateWithTimeIntervalSinceNow:
 set_alwaysAllowsSystemPreferredContentSize:
+removePointerAtIndex:
+isTrashed
+components:fromDate:toDate:options:
+execute:
+initWithStyle:
+setHostIdentifier:
+_auxiliaryConnection
+preferredFilenameExtension
+systemItem
+activeKeyboard
+dateAtIndex:
+setBorderWidth:
+setWithObjects:
+moveItemAtURL:toURL:error:
+isSystemItem
+completeTransition:
+excludedActivityTypes
+attributes
+removeObserver:name:object:
+systemBlueColor
+preferredContentSizeCategory
+actions
+setWithObject:
+setBorderColor:
+isRootItem
+hasPrefix:
+date
+compare:
+attributeWithDomain:name:
+removeObserver:forKeyPath:
+errorWithDomain:code:userInfo:
+distantPast
+preferredContentSize
+systemBackgroundColor
+actionWithTitle:style:handler:
+modifierFlags
+setWillBeginBatchingHook:
+dataOwnerStateForBundleIdentifier:
+hasDifferentColorAppearanceComparedToTraitCollection:
+removeObjectsForKeys:
+enumerateObjectsUsingBlock:
+setPreferredContentSize:
+_applicationIconImageForBundleIdentifier:format:scale:
+associateThumbnailsForDocumentAtURL:withImmutableDocument:atURL:error:
+predicateWithValue:
+synchronousRemoteObjectProxyWithErrorHandler:
+setBaseForegroundColor:
+actionWithHandler:
+dataAtIndex:
+setPreferredAction:
+setWidth:
+model
+handleFailureInMethod:object:file:lineNumber:description:
+removeObjectForKey:
+unsignedIntegerValue
+enumerateKeysAndObjectsUsingBlock:
+compact
+isPickerUI
+predicateWithBlock:
+initWithObjects:
+displayScale
+_animateUsingSpringWithDuration:delay:options:mass:stiffness:damping:initialVelocity:animations:completion:
+symbolForTypeIdentifier:error:
+arrayWithObjects:count:
+menuWithTitle:image:identifier:options:children:
+handleFailureInFunction:file:lineNumber:description:
+isMainThread
+setWantsPriorityOverSystemBehavior:
+unsignedIntegerAtIndex:
+setPossibleTitles:
+removeObject:
+_performBlockAfterCATransactionCommits:
+possibleTitles
+arrayWithCapacity:
+setViewControllers:
+currentProcess
+removeMenuForIdentifier:
+commandWithTitle:image:action:input:modifierFlags:propertyList:alternates:
+unsignedIntValue
+displayMode
+isIndeterminate
+arrayWithArray:
+setFrame:
+menuRepresentation
+commandWithTitle:image:action:input:modifierFlags:propertyList:
+action
+setView:
+currentHandler
+removeItemAtURL:error:
+endMonitoringProviderDomainChanges:
+isInKeyWindow
+initWithImage:style:target:action:
+supportsEnumeration
+arrayByAddingObject:
+popoverPresentationController
+menuForIdentifier:
+acquireWithError:
+currentDevice
+endDelayingDisplayOfRemoteController
+setValue:forKey:
+setAutoresizingMask:
+unarchivedObjectOfClasses:fromData:error:
+colorWithRed:green:blue:alpha:
+isHidden
+setOverrideUserInterfaceStyle:
+removeFromSuperview
+setFont:
+initWithImage:landscapeImagePhone:style:target:action:
+pointerAtIndex:
+array
+setAttributes:
+currentCalendar
+colorWithDynamicProvider:
+accessibilityLabel
+isFolder
+unarchivedObjectOfClass:fromData:error:
+pointSize
+encodeUIEdgeInsets:forKey:
+setOverrideTraitCollection:
+removeFromParentViewController
+archivedDataWithRootObject:requiringSecureCoding:error:
+initWithImage:
+UUIDString
+createTargetSelectionBrowserViewControllerWithHostProxy:configuration:completionHandler:
+setUserVersion:
+mainScreen
+accessibilityHint
+ui_scheduleForCleanup
+encodeObject:forKey:
+isFilesApp
+plainButtonConfiguration
+UUID
+subviews
+dismissViewControllerAnimated:completion:
+genericApplicationIcon
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+encodeNodeWithCoder:
+setAlpha:
+mainBundle
+acceptsKeyboardFocus
+ui_incomingDirectory:
+setOpaque:
+code
+animateWithDuration:animations:completion:
+URLWithString:
+persistentIdentifier
+dictionaryWithDictionary:
+setUnderlyingQueue:
+absoluteString
+countByEnumeratingWithState:objects:count:
+close:
+remoteObjectProxyWithErrorHandler:
+discoverabilityTitle
+encodeInteger:forKey:
+isEqualToString:
+subarrayWithRange:
+URLByDeletingLastPathComponent
+setExcludedActivityTypes:
+animateAlongsideTransition:completion:
+initWithFrame:
+setTranslatesAutoresizingMaskIntoConstraints:
+absoluteFrame
+count
+typeWithIdentifier:
+encodeFloat:forKey:
+setObject:forKey:
+initWithExplanation:target:attributes:
+performWithFlags:action:
+URLByAppendingPathComponent:isDirectory:
+localizedStringWithValidatedFormat:validFormatSpecifiers:error:
+typeWithFilenameExtension:
+setNumberOfLines:
+isEnterpriseDomain
+URLByAppendingPathComponent:
+clearColor
+encodeBool:forKey:
+alternates
+stringWithUTF8String:
+initWithCapacity:
+setActive:
+frame
+wrapperWithURL:readonly:error:
+localizedStringForKey:value:table:
+classForKeyedUnarchiver
+isEnabled
+initWithBundleIdentifier:
+alternateWithTitle:action:modifierFlags:
+localizedRecoverySuggestion
+setEnabled:
+stringWithFormat:
+copyItemAtURL:toURL:error:
+setTransform:
+fractionCompleted
+windows
+isEditing
+childViewControllers
+stringByReplacingOccurrencesOfString:withString:
+initWithBarButtonSystemItem:target:action:
+fpfs_fpItem
+setAction:
+copy
+windowScene
+localizedRecoveryOptions
+isDownloaded
+checkResourceIsReachableAndReturnError:
+doubleAtIndex:
+setNeedsStatusBarAppearanceUpdate
+stringByDeletingPathExtension
+pathExtension
+localizedFailureReason
+setEditing:
+coordinateReadingItemAtURL:options:writingItemAtURL:options:error:byAccessor:
+setTextColor:
+setAccessibilityLabel:
+window
+setNeedsLayout
+checkPromisedItemIsReachableAndReturnError:
+stringByAppendingPathExtension:
+path
+initWithArray:copyItems:
+allowedConversions
+coordinateReadingItemAtURL:options:error:byAccessor:
+setTextAlignment:
+isCollapsed
+setAccessibilityIgnoresInvertColors:
+localizedDescription
+willMoveToParentViewController:
+domainDisplayName
+centerYAnchor
+redColor
+setDrawBorder:
+allocWithZone:
+overrideUserInterfaceStyle
+initWithActivityItems:applicationActivities:
+didMoveToParentViewController:
+stringByAppendingFormat:
+setText:
+widthAnchor
+setAccessibilityHint:
+setNavigationBarHidden:animated:
+convertRect:toView:
+forSavingDocuments
+isCloudItem
+centerXAnchor
+recoveryAttempter
+domain
+stringAtIndex:
+allValues
+dictionaryWithObjects:forKeys:count:
+width
+_typeOfCurrentDevice
+forPickingFolders
+center
+_extensionContextForUUID:
+traitCollectionWithUserInterfaceStyle:
 augmentedErrorForError:
 _augmentedErrorForError:localizedDescription:recoverySuggestion:
 isEqual:
@@ -3901,6 +3934,7 @@ registerEvent:
 _existingEventSimilarToEvent:
 previousEventsForAppBundleIdentifier:excluding:
 deleteFolderWithIdentifier:appBundleIdentifier:
+purgeOldEntries
 _registerSavingFile:inFolder:atDate:withFrecencyScore:rowId:
 _registerSavingFileType:inFolder:atDate:withFrecencyScore:rowId:
 _existingFiletypeHitSimilarToHit:

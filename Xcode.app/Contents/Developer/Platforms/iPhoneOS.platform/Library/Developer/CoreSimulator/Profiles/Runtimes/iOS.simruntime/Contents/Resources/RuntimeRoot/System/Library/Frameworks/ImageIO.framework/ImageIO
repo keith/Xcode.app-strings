@@ -2066,6 +2066,7 @@ axr_type_get_name
 axr_type_get_size
 axr_introspect_data
 axr_data_create
+axr_data_create_logical_image_list
 axr_data_get_channel_count
 axr_data_get_channel_info
 axr_data_get_layer_count
@@ -2086,10 +2087,14 @@ axr_decoder_get_channel_count
 axr_decoder_get_channel_info
 axr_decoder_get_data
 axr_decoder_get_info
+axr_decoder_get_read_pixels_info
+axr_decoder_get_read_planes_info
+axr_decoder_get_read_rgba_pixels_info
 axr_decoder_translate_channel_index
 axr_decoder_set_subregion
 axr_decoder_read_pixels
 axr_decoder_read_planes
+axr_decoder_read_rgba_pixels
 axr_encoder_append_part
 axr_encoder_compress
 axr_encoder_create
@@ -2099,6 +2104,18 @@ axr_part_create
 axr_part_set_preview
 axr_part_set_chromaticities
 axr_part_create_colorspace
+axr_logical_image_list_create_decoder
+axr_logical_image_list_deserialize
+axr_logical_image_list_get_default_image_index
+axr_logical_image_list_get_default_view_index
+axr_logical_image_list_get_image_count
+axr_logical_image_list_get_image_info
+axr_logical_image_list_get_image_name
+axr_logical_image_list_get_serialized_size
+axr_logical_image_list_get_view_count
+axr_logical_image_list_get_view_name
+axr_logical_image_list_is_equal
+axr_logical_image_list_serialize
 .ico.
 .cur.
 .jpg.jpeg.jpe.jfif.jps.
@@ -4230,7 +4247,6 @@ File not open for writing
 Can not write tiles to a striped image
 Can not write scanlines to a tiled image
 Must set "ImageWidth" before writing data
-Must set "PlanarConfiguration" before writing data
 No space for %s arrays
 tile
 strip
@@ -4409,8 +4425,10 @@ TIFFWriteDirectoryTagCheckedIfd8Array
 tif->tif_flags&TIFF_BIGTIFF
 TIFFWriteDirectoryTagCheckedSshortArray
 TIFFWriteDirectoryTagCheckedSlongArray
+Attempt to write unsigned long value %llu larger than 0xFFFFFFFF for tag %d in Classic TIFF file. TIFF file writing aborted
+Attempt to write signed long value %lli larger than 0x7FFFFFFF (2147483647) for tag %d in Classic TIFF file. TIFF writing to file aborted
+Attempt to write signed long value %lli smaller than 0x80000000 (-2147483648) for tag %d in Classic TIFF file. TIFF writing to file aborted
 TIFFWriteDirectoryTagCheckedSlong8Array
-SLONG8 not allowed for ClassicTIFF
 TIFFLib: DoubleToSrational()
  Num or Denom exceeds LONG: val=%14.6f, num=%12llu, denom=%12llu | num2=%12llu, denom2=%12llu
 DoubleToSrational
@@ -4475,7 +4493,11 @@ fip->field_writecount==TIFF_VARIABLE2
 %s: Too long string value for "%s". Maximum supported is 2147483647 bytes
 %s: Null count for "%s" (type %d, writecount %d, passcount %d)
 custom tag binary object
+%s: Bad LONG8 value %llu at %d. array position for "%s" tag %d in ClassicTIFF. Tag won't be written to file
+%s: Bad SLONG8 value %lli at %d. array position for "%s" tag %d in ClassicTIFF. Tag won't be written to file
 tv->count == 1
+%s: Bad LONG8 or IFD8 value %llu for "%s" tag %d in ClassicTIFF. Tag won't be written to file
+%s: Bad SLONG8 value %lli for "%s" tag %d in ClassicTIFF. Tag won't be written to file
 TIFFLib: _TIFFVSetField()
 %s: Bad value %u for "%s" tag
 %s: Bad value %f for "%s" tag
@@ -6875,12 +6897,26 @@ name
 view
 screenWindowWidth
 screenWindowCenter
+updatePropertyInfo
+[%2d,%2d]:  name: %s
+          type: %s
+          size: %d
 HALF
 FLOAT
 bits
 channels
 ImageIOXPCReadPlugin_Data_EXR
 Failed to read IMAGEIO_READPLUGIN_DATA_EXR
+ unknown
+ red
+ green
+ blue
+ alpha
+ alpha_red
+ alpha_green
+ alpha_blue
+ distance
+ distance_back
 png_set_filler is invalid for low bit depth gray output
 png_set_filler: inappropriate color type
 mj2.cpp
@@ -7556,7 +7592,6 @@ IIOCreateExifFromMetadata
 *** ERROR: no image provided - cannot embed thumbnail
 Adobe RGB (1998)
 sRGB IEC61966-2.1
-*** channel '%s' not handled
 DecodeBlockAppleEXR
 *** axr_decoder_create failed
 *** axr_decoder_read_pixels failed: %s (%d)
@@ -7778,7 +7813,7 @@ Improper JPEG sampling factors %d,%d
 Apparently should be %hu,%hu.
 Improper JPEG sampling factors
 TIFFReadScanline
-scanline oriented access is not supported for downsampled JPEG compressed images, consider enabling TIFF_JPEGCOLORMODE as JPEGCOLORMODE_RGB.
+scanline oriented access is not supported for downsampled JPEG compressed images, consider enabling TIFFTAG_JPEGCOLORMODE as JPEGCOLORMODE_RGB.
 JPEGDecodeRaw
 application buffer not large enough for all data.
 application buffer not large enough for all data, possible subsampling issue
@@ -10073,6 +10108,8 @@ TIFFWriteDirectoryTagSampleformatArray
 TIFFWriteDirectoryTagCheckedRationalArray
 TIFFWriteDirectoryTagTransferfunction
 TIFFWriteDirectoryTagSubifd
+TIFFWriteDirectoryTagLong8Array
+TIFFWriteDirectoryTagSlong8Array
 TIFFWriteDirectoryTagCheckedRationalDoubleArray
 TIFFWriteDirectoryTagCheckedSrationalDoubleArray
 TIFFWriteDirectoryTagCheckedSrationalArray
@@ -10362,7 +10399,7 @@ Exif
 http://ns.adobe.com/xmp/extension/
 Photoshop 3.0
 ICC_PROFILE
-13EXRReadPlugin
+?13EXRReadPlugin
 3$_0
 13TGAReadPlugin
 >14ASTCReadPlugin
@@ -11177,13 +11214,16 @@ TIFFWriteDirectoryTagSampleformatArray
 TIFFWriteDirectoryTagCheckedRationalArray
 TIFFWriteDirectoryTagTransferfunction
 TIFFWriteDirectoryTagSubifd
+TIFFWriteDirectoryTagLong8Array
+TIFFWriteDirectoryTagSlong8Array
 TIFFWriteDirectoryTagCheckedRationalDoubleArray
 TIFFWriteDirectoryTagCheckedSrationalDoubleArray
 TIFFWriteDirectoryTagCheckedSrationalArray
 TIFFWriteDirectoryTagIfdIfd8Array
 TIFFLinkDirectory
 ?13ATXReadPlugin
-  l
+qSEK
+SEKvMEqqY
 *"$,("
 _TIFFVSetField
 setExtraSamples
@@ -13919,6 +13959,7 @@ axr_type_get_name
 axr_type_get_size
 axr_introspect_data
 axr_data_create
+axr_data_create_logical_image_list
 axr_data_get_channel_count
 axr_data_get_channel_info
 axr_data_get_layer_count
@@ -13939,10 +13980,14 @@ axr_decoder_get_channel_count
 axr_decoder_get_channel_info
 axr_decoder_get_data
 axr_decoder_get_info
+axr_decoder_get_read_pixels_info
+axr_decoder_get_read_planes_info
+axr_decoder_get_read_rgba_pixels_info
 axr_decoder_translate_channel_index
 axr_decoder_set_subregion
 axr_decoder_read_pixels
 axr_decoder_read_planes
+axr_decoder_read_rgba_pixels
 axr_encoder_append_part
 axr_encoder_compress
 axr_encoder_create
@@ -13952,6 +13997,18 @@ axr_part_create
 axr_part_set_preview
 axr_part_set_chromaticities
 axr_part_create_colorspace
+axr_logical_image_list_create_decoder
+axr_logical_image_list_deserialize
+axr_logical_image_list_get_default_image_index
+axr_logical_image_list_get_default_view_index
+axr_logical_image_list_get_image_count
+axr_logical_image_list_get_image_info
+axr_logical_image_list_get_image_name
+axr_logical_image_list_get_serialized_size
+axr_logical_image_list_get_view_count
+axr_logical_image_list_get_view_name
+axr_logical_image_list_is_equal
+axr_logical_image_list_serialize
 .ico.
 .cur.
 .jpg.jpeg.jpe.jfif.jps.
@@ -16091,7 +16148,6 @@ File not open for writing
 Can not write tiles to a striped image
 Can not write scanlines to a tiled image
 Must set "ImageWidth" before writing data
-Must set "PlanarConfiguration" before writing data
 No space for %s arrays
 tile
 strip
@@ -16268,8 +16324,10 @@ TIFFWriteDirectoryTagCheckedIfd8Array
 tif->tif_flags&TIFF_BIGTIFF
 TIFFWriteDirectoryTagCheckedSshortArray
 TIFFWriteDirectoryTagCheckedSlongArray
+Attempt to write unsigned long value %llu larger than 0xFFFFFFFF for tag %d in Classic TIFF file. TIFF file writing aborted
+Attempt to write signed long value %lli larger than 0x7FFFFFFF (2147483647) for tag %d in Classic TIFF file. TIFF writing to file aborted
+Attempt to write signed long value %lli smaller than 0x80000000 (-2147483648) for tag %d in Classic TIFF file. TIFF writing to file aborted
 TIFFWriteDirectoryTagCheckedSlong8Array
-SLONG8 not allowed for ClassicTIFF
 TIFFLib: DoubleToSrational()
  Num or Denom exceeds LONG: val=%14.6f, num=%12llu, denom=%12llu | num2=%12llu, denom2=%12llu
 DoubleToSrational
@@ -16334,7 +16392,11 @@ fip->field_writecount==TIFF_VARIABLE2
 %s: Too long string value for "%s". Maximum supported is 2147483647 bytes
 %s: Null count for "%s" (type %d, writecount %d, passcount %d)
 custom tag binary object
+%s: Bad LONG8 value %llu at %d. array position for "%s" tag %d in ClassicTIFF. Tag won't be written to file
+%s: Bad SLONG8 value %lli at %d. array position for "%s" tag %d in ClassicTIFF. Tag won't be written to file
 tv->count == 1
+%s: Bad LONG8 or IFD8 value %llu for "%s" tag %d in ClassicTIFF. Tag won't be written to file
+%s: Bad SLONG8 value %lli for "%s" tag %d in ClassicTIFF. Tag won't be written to file
 TIFFLib: _TIFFVSetField()
 %s: Bad value %u for "%s" tag
 %s: Bad value %f for "%s" tag
@@ -18727,12 +18789,26 @@ name
 view
 screenWindowWidth
 screenWindowCenter
+updatePropertyInfo
+[%2d,%2d]:  name: %s
+          type: %s
+          size: %d
 HALF
 FLOAT
 bits
 channels
 ImageIOXPCReadPlugin_Data_EXR
 Failed to read IMAGEIO_READPLUGIN_DATA_EXR
+ unknown
+ red
+ green
+ blue
+ alpha
+ alpha_red
+ alpha_green
+ alpha_blue
+ distance
+ distance_back
 png_set_filler is invalid for low bit depth gray output
 png_set_filler: inappropriate color type
 mj2.cpp
@@ -19406,7 +19482,6 @@ IIOCreateExifFromMetadata
 *** ERROR: no image provided - cannot embed thumbnail
 Adobe RGB (1998)
 sRGB IEC61966-2.1
-*** channel '%s' not handled
 DecodeBlockAppleEXR
 *** axr_decoder_create failed
 *** axr_decoder_read_pixels failed: %s (%d)
@@ -19628,7 +19703,7 @@ Improper JPEG sampling factors %d,%d
 Apparently should be %hu,%hu.
 Improper JPEG sampling factors
 TIFFReadScanline
-scanline oriented access is not supported for downsampled JPEG compressed images, consider enabling TIFF_JPEGCOLORMODE as JPEGCOLORMODE_RGB.
+scanline oriented access is not supported for downsampled JPEG compressed images, consider enabling TIFFTAG_JPEGCOLORMODE as JPEGCOLORMODE_RGB.
 JPEGDecodeRaw
 application buffer not large enough for all data.
 application buffer not large enough for all data, possible subsampling issue
@@ -21691,34 +21766,34 @@ Q.cp2x
 Q.cp2y
 %{public}s
 wiSO
-3(D
+3hB
 IIO_CXMLParser
 NSXMLParserDelegate
 NSObject
+userInfo
 array
+objectForKeyedSubscript:
 objectForKey:
 exceptionWithName:reason:userInfo:
-objectForKeyedSubscript:
-initWithContentsOfURL:
 setDelegate:
-whitespaceAndNewlineCharacterSet
 lastObject
 hasPrefix:
-addEntriesFromDictionary:
 count
+addEntriesFromDictionary:
 setObject:forKey:
-length
+whitespaceAndNewlineCharacterSet
+addObject:
+stringByTrimmingCharactersInSet:
 initWithData:
+length
 dictionary
 parse
-stringByTrimmingCharactersInSet:
-addObject:
-abortParsing
-removeLastObject
 appendString:
-userInfo
 substringFromIndex:
+removeLastObject
+abortParsing
 objectAtIndex:
+initWithContentsOfURL:
 init
 dictionaryForXMLData:error:
 isEqual:
@@ -21932,5 +22007,5 @@ km8s#sci
 #mci
 50ci
 40ci
-lEateMqrsailAtcs{
+lEateMqrsailAtcs
 parWtkPo  tkPoRmtcapmoCucinonaCudaPbmhTeneLtcxEu tamroFo lEateMohsaHFDRognidocnenaidnEgb  neLdap

@@ -16,7 +16,7 @@ B16@?0@"LSApplicationRecord"8
 %0.3f secs: update app info
 %0.3f secs: compute categories
 %0.3f secs total load time
--[STStorageAppsMonitor _updateApps]
+-[STStorageAppsMonitor updateApps]
 q24@?0@"STStorageApp"8@"STStorageApp"16
 q24@?0@"NSNumber"8@"NSNumber"16
 B16@?0@"STStorageApp"8
@@ -56,6 +56,8 @@ com.apple.DocumentsApp
 /private/var/mobile/Library/Notes/
 /private/var/mobile/Media/Downloads/
 /private/var/mobile/Media/iTunes_Control/iTunes/Artwork/
+/private/var/mobile/Library/SMS/Attachments/
+/private/var/mobile/Media/PhotoData/UBF/scopes/syndication/
 com.apple.iBooks
 com.apple.mobileslideshow
 com.apple.VideosUsage
@@ -179,7 +181,7 @@ Failed to get name for directory item %llu in %@; not counting its children
 Failed to create path to child directory by appending "%s" to %@
 Skipping empty directory at %@/%s
 Skipping hardlinked file at %@/%s
-result for %@: %llu bytes, %llu files (time = %lf ms)
+result for %@: %llu files, %@ total, %@ purgeable, took %lf ms)
 continuous
 B16@?0@"CacheManagementAsset"8
 PurgeableAssets: %@
@@ -250,6 +252,7 @@ Classification
 Other Bug
 Reproducibility
 Always
+v24@?0@"NSDictionary"8@"NSError"16
 com.apple.storagedatad
 v16@?0@"NSError"8
 v16@?0@"NSDictionary"8
@@ -269,6 +272,7 @@ media monitor monitoring calls are unbalanced
 -[STStorageMediaMonitor loadingComplete:]
 %s:%d Media library change detected
 -[STStorageMediaMonitor mpLibraryChanged:]
+SIMULATOR_ROOT
 /System/Library/UsageBundles
 /AppleInternal/Library/UsageBundles
 /System/Cryptexes/App/System/Library/UsageBundles
@@ -295,7 +299,9 @@ v32@?0@"NSString"8@"NSArray"16^B24
 %0.3f secs: add file providers
 %0.3f secs: add system updates
 %0.3f secs: add pseudo apps
+%0.3f secs: apply fixes
 %0.3f secs: load apps total
+fix applied: message/photos: %u shared clones using %@
 /System/Library/PreferenceBundles/StoragePlugins/CKStoragePlugin.bundle
 _kMDItemExternalID
 _kMDItemApplicationLastLaunchedDate
@@ -359,6 +365,7 @@ ext-purgeable
 Error retrieving the total attributes list for %{public}s : %{errno}d
 STVolumeSize: %{public}s volume: %lld
 Error retrieving the total and available attributes list for %{public}s : %{errno}d
+Failed to retrieve storage telemetry: %@
 Connecting to StorageDataService
 Error connecting to StorageDataService: %@
 softlink:r:path:/System/Library/PrivateFrameworks/CacheDelete.framework/CacheDelete
@@ -493,15 +500,15 @@ setAppSizer:
 appSizer
 setDelegate:
 setUsageBundles:
-loadUsageSemaphore
-setLoadUsageSemaphore:
-addOperationWithBlock:
+blockOperationWithBlock:
+addOperation:
 stopMonitor
 dealloc
 startMonitor
 defaultWorkspace
 addObserver:
 startSizer
+addOperationWithBlock:
 updateApps
 defaultCenter
 refreshApps:
@@ -543,12 +550,9 @@ lock
 unlock
 logAppSizes
 notifyAppsChanged
+isFinished
 loadApps
-initWithTarget:selector:object:
-addOperation:
-_updateApps
-cancelPreviousPerformRequestsWithTarget:selector:object:
-performSelector:withObject:afterDelay:
+addDependency:
 arrayWithCapacity:
 objectForKeyedSubscript:
 addObject:
@@ -583,6 +587,7 @@ addTimestampToDict:
 addDeviceInfoToDict:
 setObject:forKeyedSubscript:
 infoDict
+waitUntilFinished
 writeCacheToPref
 totalSize
 stringWithFormat:
@@ -599,6 +604,8 @@ externalPurgeableSize
 sizeOfPluginKitContainers
 cacheDeleteDict
 _logAppSizes:
+cancelPreviousPerformRequestsWithTarget:selector:object:
+performSelector:withObject:afterDelay:
 class
 self
 performSelector:
@@ -669,6 +676,8 @@ _appsLock
 _allApps
 _appsByID
 _childAppsByParentID
+_updateAppsOperation
+_initialLoadOperation
 _pkContainers
 _sharedContainers
 _sharedContainerClass
@@ -682,11 +691,9 @@ _currentSoftwareUpdateSize
 _categorySizes
 _usageBundles
 _appSizer
-_loadUsageSemaphore
 _prevApps
 T@"STUsageBundleRegistry",&,V_usageBundles
 T@"STMSizer",&,V_appSizer
-T@"NSObject<OS_dispatch_semaphore>",&,V_loadUsageSemaphore
 T@"NSArray",&,V_prevApps
 T@"NSArray",R,V_allApps
 T@"NSArray",R
@@ -987,11 +994,13 @@ _len
 T*,R,V_path
 Ti,R,V_len
 fileExistsAtPath:
+initWithCapacity:
 bundleRecordWithBundleIdentifier:allowPlaceholder:error:
 objectAtIndex:
 containsObject:
 containsIndex:
 addIndex:
+stringFromByteCount:countStyle:
 UIBackgroundModes
 purgeabilityScoreAtUrgency:
 addSize:toKey:
@@ -1019,7 +1028,6 @@ itemPath
 _writeCache
 _flushCache:
 calculateSize
-blockOperationWithBlock:
 notifySizesChanged:
 flushCacheToPref
 setCompletionBlock:
@@ -1098,6 +1106,8 @@ setScheme:
 setHost:
 queryItemWithName:value:
 setQueryItems:
+retrieveTelemetryWithCompletionHandler:
+errorWithDomain:code:userInfo:
 connection
 initWithMachServiceName:options:
 storageInfoDict:
@@ -1174,6 +1184,7 @@ T@"NSArray",C,N,V_usedDataClasses
 T@,&,N,V_photosLibToken
 loadReporters
 loadBundlesForReporters:
+fileURLWithPathComponents:
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
 arrayByAddingObjectsFromArray:
 pathExtension
@@ -1210,6 +1221,7 @@ applicationRecords
 computeBundleRemappings:
 getLocalAppId:foreignAppId:
 sharedContainersFor:
+fixClonesInPhotosAndMessages:
 initWithBundleIdentifierOfSystemPlaceholder:error:
 externDataSizeForApp:
 loadAndReturnError:
@@ -1354,11 +1366,11 @@ v40@0:8q16@24@32
 @"NSOperationQueue"
 @"NSLock"
 @"NSDictionary"
+@"NSOperation"
 @"SUDownload"
 @"STSizeDict"
 @"STUsageBundleRegistry"
 @"STMSizer"
-@"NSObject<OS_dispatch_semaphore>"
 @32@0:8@16@24
 @"NSString"
 i16@0:8
@@ -1412,7 +1424,7 @@ Q24@0:8^@16
 ^{container_object_s=}
 @"NSURL"
 @(#)PROGRAM:StorageData  PROJECT:StorageSettings-1
-?#99)
+A#99)
 @"NSNumber"24@?0@8^@16
 v8@?0
 fixed
@@ -1430,7 +1442,7 @@ B16@?0@"LSApplicationRecord"8
 %0.3f secs: update app info
 %0.3f secs: compute categories
 %0.3f secs total load time
--[STStorageAppsMonitor _updateApps]
+-[STStorageAppsMonitor updateApps]
 q24@?0@"STStorageApp"8@"STStorageApp"16
 q24@?0@"NSNumber"8@"NSNumber"16
 B16@?0@"STStorageApp"8
@@ -1470,6 +1482,8 @@ com.apple.DocumentsApp
 /private/var/mobile/Library/Notes/
 /private/var/mobile/Media/Downloads/
 /private/var/mobile/Media/iTunes_Control/iTunes/Artwork/
+/private/var/mobile/Library/SMS/Attachments/
+/private/var/mobile/Media/PhotoData/UBF/scopes/syndication/
 com.apple.iBooks
 com.apple.mobileslideshow
 com.apple.VideosUsage
@@ -1593,7 +1607,7 @@ Failed to get name for directory item %llu in %@; not counting its children
 Failed to create path to child directory by appending "%s" to %@
 Skipping empty directory at %@/%s
 Skipping hardlinked file at %@/%s
-result for %@: %llu bytes, %llu files (time = %lf ms)
+result for %@: %llu files, %@ total, %@ purgeable, took %lf ms)
 continuous
 B16@?0@"CacheManagementAsset"8
 PurgeableAssets: %@
@@ -1664,6 +1678,7 @@ Classification
 Other Bug
 Reproducibility
 Always
+v24@?0@"NSDictionary"8@"NSError"16
 com.apple.storagedatad
 v16@?0@"NSError"8
 v16@?0@"NSDictionary"8
@@ -1683,6 +1698,7 @@ media monitor monitoring calls are unbalanced
 -[STStorageMediaMonitor loadingComplete:]
 %s:%d Media library change detected
 -[STStorageMediaMonitor mpLibraryChanged:]
+SIMULATOR_ROOT
 /System/Library/UsageBundles
 /AppleInternal/Library/UsageBundles
 /System/Cryptexes/App/System/Library/UsageBundles
@@ -1709,7 +1725,9 @@ v32@?0@"NSString"8@"NSArray"16^B24
 %0.3f secs: add file providers
 %0.3f secs: add system updates
 %0.3f secs: add pseudo apps
+%0.3f secs: apply fixes
 %0.3f secs: load apps total
+fix applied: message/photos: %u shared clones using %@
 /System/Library/PreferenceBundles/StoragePlugins/CKStoragePlugin.bundle
 _kMDItemExternalID
 _kMDItemApplicationLastLaunchedDate
@@ -1773,6 +1791,7 @@ ext-purgeable
 Error retrieving the total attributes list for %{public}s : %{errno}d
 STVolumeSize: %{public}s volume: %lld
 Error retrieving the total and available attributes list for %{public}s : %{errno}d
+Failed to retrieve storage telemetry: %@
 Connecting to StorageDataService
 Error connecting to StorageDataService: %@
 softlink:r:path:/System/Library/PrivateFrameworks/CacheDelete.framework/CacheDelete
@@ -1818,190 +1837,196 @@ STStorageSpace
 STStorageDiskMonitor
 STContainer
 STStorageDataNotifier
-setValue:forKey:
-setFetchAttributes:
-start
-performSelector:withObject:afterDelay:
-isPlaceholder
-floatValue
-linkedParentApplication
-installType
-arrayByAddingObject:
-timeIntervalSinceNow
-sortedArrayUsingComparator:
-synchronousRemoteObjectProxyWithErrorHandler:
-defaultMediaLibrary
-array
-setUsageBundleStorageReporter:
-level
-bundleWithURL:
-sortUsingComparator:
-defaultManager
-length
-enumeratorWithOptions:
-pathExtension
-bundleRecordWithBundleIdentifier:allowPlaceholder:error:
-skipDescendants
-queryItemWithName:value:
-isFileSharingEnabled
-supportsOpenInPlace
-defaultCenter
-resume
-enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
-setUnderlyingQueue:
-mutableCopy
-initWithTarget:selector:object:
-isEqualToString:
-laterDate:
-applicationState
-stringWithUTF8String:
-initWithQueryString:context:
-setObject:forKeyedSubscript:
-decodeInt64ForKey:
-enumerateKeysAndObjectsUsingBlock:
-bundleForClass:
-setTimeStyle:
-UIBackgroundModes
-date
-stringWithFormat:
-setObject:forKey:
-endGeneratingLibraryChangeNotifications
-bundleContainerURL
-removeObserver:name:object:
-longLongValue
-isEqualToData:
-lastPathComponent
-addOperations:waitUntilFinished:
-setDoesRelativeDateFormatting:
-firstObject
-purgeabilityScoreAtUrgency:
-stringValue
-applicationIdentifier
-usageBundleAppForBundleWithIdentifier:withTotalSize:
-initWithPersistentIdentifier:
-boolValue
-removeObserver:
-encodeInt64:forKey:
-addOperationWithBlock:
-keysSortedByValueUsingSelector:
-blockOperationWithBlock:
-appendFormat:
-stringFromDate:
-setMaxConcurrentOperationCount:
-removeObjectForKey:
-lock
-fileURLWithPath:isDirectory:
-isDowngraded
-addOperation:
-beginGeneratingLibraryChangeNotifications
-stringByReplacingCharactersInRange:withString:
-removeObjectAtIndex:
-componentsSeparatedByString:
-localizedStringWithFormat:
-shortVersionString
-fileURLWithPath:
-setDateStyle:
-addObserver:selector:name:object:
-dataContainerURL
-iTunesMetadata
-stringByAppendingString:
-componentsJoinedByString:
-initWithMachServiceName:options:
-UTF8String
-localizedStringForKey:value:table:
-removeObject:
-fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
-objectForKeyedSubscript:
-addObserver:
-hasSuffix:
-removeLastObject
-stringByAppendingPathComponent:
-attributeSet
-isDeletableSystemApplication
-localizedName
-compatibilityObject
-fileSystemRepresentation
-addObjectsFromArray:
-objectForKey:
-hasPrefix:
-currentQueue
-principalClass
-attributeForKey:
-setCompletionHandler:
-initWithFormat:arguments:
-localizedCaseInsensitiveCompare:
-commonPrefixWithString:options:
-fileExistsAtPath:isDirectory:
-objectAtIndexedSubscript:
 addObject:
-itemName
-counterpartIdentifiers
-remoteObjectProxyWithErrorHandler:
-setScheme:
-setCompletionBlock:
-objectAtIndex:
+commonPrefixWithString:options:
 fileExistsAtPath:
-isContainerized
-setInternal:
+isAppStoreVendable
+postNotificationName:object:
+isValid
+counterpartIdentifiers
+setFormattingContext:
+initWithCapacity:
+sharedConnection
+unsignedLongLongValue
+isAppRemovalAllowed
 code
-groupContainerURLs
-initWithDomain:code:userInfo:
+numberWithInt:
+isSystemPlaceholder
 countByEnumeratingWithState:objects:count:
-postNotificationName:object:userInfo:
-numberWithUnsignedLongLong:
-getResourceValue:forKey:error:
-setRemoteObjectInterface:
+loadAndReturnError:
+initWithBundleIdentifierOfSystemPlaceholder:error:
+invalidate
+setQueryItems:
+unlock
+waitUntilFinished
+isSystemAppRemovalAllowed
+setProtectionClasses:
 count
+setWithCapacity:
 artistName
 dictionaryWithObjects:forKeys:count:
 addIndex:
-isAppStoreVendable
-numberWithLongLong:
-setHost:
-postNotificationName:object:
+isRestricted
 dictionaryWithObject:forKey:
-setBundleIDs:
-arrayWithObjects:count:
-isAppRemovalAllowed
-addEntriesFromDictionary:
-setFoundItemsHandler:
-cancelPreviousPerformRequestsWithTarget:selector:object:
-numberWithInt:
-appClipMetadata
-initWithBundleIdentifierOfSystemPlaceholder:error:
-isValid
-copy
 externDataSizeForApp:
+initWithBundleIdentifier:allowPlaceholder:error:
+interfaceWithProtocol:
+arrayWithObjects:count:
+addEntriesFromDictionary:
+setFetchAttributes:
+cancelPreviousPerformRequestsWithTarget:selector:object:
+appClipMetadata
+UTF8String
+copy
 arrayWithObjects:
+timeIntervalSinceNow
+setValue:forKey:
 dictionaryWithCapacity:
-invalidate
-sharedConnection
+intValue
+start
 contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-isSystemPlaceholder
-loadAndReturnError:
-setFormattingContext:
-setQueryItems:
-unsignedLongLongValue
+persistentIdentifier
+synchronousRemoteObjectProxyWithErrorHandler:
+isPlaceholder
+linkedParentApplication
 arrayWithObject:
 containsObject:
-setProtectionClasses:
-isSystemAppRemovalAllowed
+addDependency:
 allValues
-initWithBundleIdentifier:allowPlaceholder:error:
+sortedArrayUsingComparator:
+floatValue
+performSelector:withObject:afterDelay:
+level
 arrayWithCapacity:
-unlock
-interfaceWithProtocol:
-setWithCapacity:
+setUsageBundleStorageReporter:
+installType
 allObjects
 containsIndex:
-isRestricted
+sortUsingComparator:
+supportsOpenInPlace
 arrayWithArray:
+length
 developerType
-intValue
-persistentIdentifier
-allKeys
 arrayByAddingObjectsFromArray:
+skipDescendants
+allKeys
+isFinished
+queryItemWithName:value:
+stringWithUTF8String:
 defaultWorkspace
+resume
+setUnderlyingQueue:
+pathExtension
+isFileSharingEnabled
+laterDate:
+initWithQueryString:context:
+stringWithFormat:
+setObject:forKeyedSubscript:
+arrayByAddingObject:
+errorWithDomain:code:userInfo:
+setTimeStyle:
+mutableCopy
+setDoesRelativeDateFormatting:
+isEqualToString:
+stringValue
+usageBundleAppForBundleWithIdentifier:withTotalSize:
+setObject:forKey:
+bundleWithURL:
+defaultMediaLibrary
+array
+removeObserver:name:object:
+stringFromDate:
+enumeratorWithOptions:
+lastPathComponent
+defaultManager
+bundleRecordWithBundleIdentifier:allowPlaceholder:error:
+initWithPersistentIdentifier:
+removeObserver:
+longLongValue
+isEqualToData:
+keysSortedByValueUsingSelector:
+purgeabilityScoreAtUrgency:
+stringFromByteCount:countStyle:
+removeObjectForKey:
+defaultCenter
+setMaxConcurrentOperationCount:
+enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
+setDateStyle:
+firstObject
+stringByReplacingCharactersInRange:withString:
+applicationState
+decodeInt64ForKey:
+enumerateKeysAndObjectsUsingBlock:
+bundleForClass:
+removeObjectAtIndex:
+lock
+shortVersionString
+isDowngraded
+date
+stringByAppendingString:
+endGeneratingLibraryChangeNotifications
+initWithMachServiceName:options:
+fileURLWithPathComponents:
+bundleContainerURL
+localizedStringWithFormat:
+removeObject:
+addOperations:waitUntilFinished:
+stringByAppendingPathComponent:
+iTunesMetadata
+removeLastObject
+applicationIdentifier
+encodeInt64:forKey:
+setCompletionHandler:
+boolValue
+localizedStringForKey:value:table:
+fileURLWithPath:isDirectory:
+addOperationWithBlock:
+objectForKeyedSubscript:
+appendFormat:
+hasSuffix:
+localizedName
+blockOperationWithBlock:
+initWithFormat:arguments:
+setCompletionBlock:
+isDeletableSystemApplication
+objectForKey:
+setInternal:
+addOperation:
+fileURLWithPath:
+principalClass
+beginGeneratingLibraryChangeNotifications
+remoteObjectProxyWithErrorHandler:
+hasPrefix:
+itemName
+setScheme:
+UIBackgroundModes
+fileURLWithFileSystemRepresentation:isDirectory:relativeToURL:
+localizedCaseInsensitiveCompare:
+componentsSeparatedByString:
+objectAtIndexedSubscript:
+addObserver:selector:name:object:
+dataContainerURL
+initWithDomain:code:userInfo:
+componentsJoinedByString:
+objectAtIndex:
+isContainerized
+groupContainerURLs
+fileSystemRepresentation
+addObserver:
+setHost:
+attributeSet
+setBundleIDs:
+setRemoteObjectInterface:
+fileExistsAtPath:isDirectory:
+postNotificationName:object:userInfo:
+compatibilityObject
+setFoundItemsHandler:
+addObjectsFromArray:
+numberWithUnsignedLongLong:
+getResourceValue:forKey:error:
+attributeForKey:
+currentQueue
+numberWithLongLong:
 initWithContainer:
 init
 zero
@@ -2071,8 +2096,6 @@ dealloc
 refreshApps:
 appsStateChanged:
 mediaSizesChanged:
-loadApps
-_updateApps
 _logAppSizes:
 sharedMonitor
 class
@@ -2125,6 +2148,7 @@ databaseWasRebuilt
 startMonitor
 stopMonitor
 usageBundleForIdentifier:
+loadApps
 updateApps
 notifyAppsChanged
 filteredApps:sortedUsingBlock:
@@ -2157,8 +2181,6 @@ usageBundles
 setUsageBundles:
 appSizer
 setAppSizer:
-loadUsageSemaphore
-setLoadUsageSemaphore:
 prevApps
 setPrevApps:
 _serialQueue
@@ -2166,6 +2188,8 @@ _appsLock
 _allApps
 _appsByID
 _childAppsByParentID
+_updateAppsOperation
+_initialLoadOperation
 _pkContainers
 _sharedContainers
 _sharedContainerClass
@@ -2179,11 +2203,9 @@ _currentSoftwareUpdateSize
 _categorySizes
 _usageBundles
 _appSizer
-_loadUsageSemaphore
 _prevApps
 T@"STUsageBundleRegistry",&,V_usageBundles
 T@"STMSizer",&,V_appSizer
-T@"NSObject<OS_dispatch_semaphore>",&,V_loadUsageSemaphore
 T@"NSArray",&,V_prevApps
 T@"NSArray",R,V_allApps
 T@"NSArray",R
@@ -2525,6 +2547,7 @@ sizeForURL:
 updatedSizeForURL:
 storageInfoDict:
 getTelemetry:
+retrieveTelemetryWithCompletionHandler:
 stopService
 connection
 setConnection:
@@ -2618,6 +2641,7 @@ computeCategoriesForApps:
 computeBundleRemappings:
 getLocalAppId:foreignAppId:
 updateAppsWithPrevious:usageBundles:skipAppRecordBlock:
+fixClonesInPhotosAndMessages:
 externDataSizeAppIdentifiers
 _writeDatesPref:
 sharedDates
@@ -2768,11 +2792,11 @@ v40@0:8q16@24@32
 @"NSOperationQueue"
 @"NSLock"
 @"NSDictionary"
+@"NSOperation"
 @"SUDownload"
 @"STSizeDict"
 @"STUsageBundleRegistry"
 @"STMSizer"
-@"NSObject<OS_dispatch_semaphore>"
 @32@0:8@16@24
 @"NSString"
 i16@0:8

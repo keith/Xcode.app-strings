@@ -24,10 +24,15 @@ Result of renewing credentials for family details request: %ld. Error: %@
 %s: successfully updated family circle cache.
 %s: failed to update family circle cache. Error: %@
 %@: Error in server response - %@
+store front is nil!!! default to deviceCountryCode %@.
+store front is nil!!! setting unknown code %@.
+store front is %@.
 No current presets, dsid == nil
 Fetching presets from screentime client
 Invalid FAFamilyMember age (%@) falling back to passed in age (%@)
 Expected Preset is nil
+Fetching available presets from cache.
+Fetching current preset from FACachedPresetsProvider is not available
 Checking in XPC activities..
 Handling account addition.
 Handling account deletion.
@@ -63,8 +68,6 @@ APS connection status changed! isConnected: %@
 APS connection reconnected.
 Fetching available presets from icss.
 raw age presets `%@`
-store front is nil!!! default to %@.
-store front is %@.
 Push received for user (dsid %@, altDSID %@) but there is no matching account on the device.
 Push received for user (dsid %@, altDSID %@) is logged in as non-primary account.
 Push missing some required info.
@@ -114,6 +117,11 @@ Error updating photo cache for member %@
 Updated photo cache for member %@
 Error finding cache photo directory %@
 Photo cache cleared
+Call to fetch URL for presets cache provided error: %@
+Error updating presets cache for url %@
+Updated presets cache for url %@
+Error finding cache presets directory %@
+presets cache cleared
 CacheUpdate:Processing family event push
 Failed to fetch family push details with error: %@
 CacheUpdate:Push detail response: %@
@@ -185,6 +193,8 @@ status
 v24@?0@8@"NSError"16
 status-message
 FAFetchFamilyCircleErrorDomain
+AppStore
+countryCode
 inviteUrl
 requestParameters
 ClientProcess
@@ -202,6 +212,10 @@ B16@?0@"FASettingsPreset"8
 @16@?0@"NSArray"8
 @"AAFPromise"16@?0@"NSArray"8
 @"FASettingsPresetsResponse"16@?0@"NSArray"8
+X-Mme-Country
+@"AAFPromise"16@?0@"NSString"8
+@"AAFPromise"16@?0@"NSURLRequest"8
+@16@?0@"NSDictionary"8
 v16@?0q8
 com.apple.family/cachedObjects
 v8@?0
@@ -218,7 +232,6 @@ com.apple.family.heartbeat
 updateMemberFlag
 @"AAFPromise"16@?0@"ACAccount"8
 @"NSURLRequest"16@?0@"NSURLRequest"8
-@"AAFPromise"16@?0@"NSURLRequest"8
 @"NSNumber"16@?0@8
 memberId
 flagType
@@ -236,23 +249,15 @@ com.apple.family.aps_queue
 com.apple.familycircled
 com.apple.family.notifier
 v24@?0@"AAURLConfiguration"8@"NSError"16
-X-Mme-Country
-@"AAFPromise"16@?0@"NSString"8
-@"NSArray"16@?0@"FAHTTPResponse"8
 SettingsPresets
-@16@?0@"NSDictionary"8
+@"NSArray"16@?0@"FAHTTPResponse"8
 v24@?0@"STPresetsConfiguration"8@"NSError"16
-AppStore
-countryCode
 STPresetsClient
 Unable to find class %s
 STUserID
 event
 dsid
 fetchFamilyFollowups
-settingsPresets
-setup
-v28@?0@"NSArray"8B16@"NSError"20
 FAFetchFamilyPhotoOperationKeyPrefix
 @16@?0@"NSData"8
 @16@?0@"FAFamilyMember"8
@@ -306,6 +311,9 @@ STManagementState
 FACoalescedRequest Queue
 FamilyCircle/Images
 FAFamilyPhotoCache Queue
+FamilyCircle/Presets
+peset_cache.json
+FASettingPresetsCache Queue
 f_delete
 f_member_upd
 f_child_transfer_apr
@@ -542,6 +550,12 @@ TQ,V_cachePolicy
 T@"NSString",C,V_clientProcess
 T@"NSString",C,V_context
 TB,V_promptUserToResolveAuthenticatonFailure
+bagForProfile:profileVersion:
+stringForKey:
+currentLocale
+uppercaseString
+valueWithError:
+fetchCurrentStoreFront
 inviteCode
 requestUrl
 standardPlistRequestWithUrl:method:plistBody:
@@ -557,8 +571,11 @@ Tq,R,V_inviteStatus
 urlConfiguration
 urlForEndpoint:
 deleteFamily
+initWithFamilyCircleProvider:fetchFromCache:
 sharedSession
 initWithAccount:deviceInfo:urlProvider:urlSession:
+initWithNetworkService:cache:storeFrontProvider:
+initWithNetworkService:storeFrontProvider:
 initWithFamilyCircleProvider:presetsProvider:
 dsid
 presetsProvider
@@ -590,6 +607,19 @@ _familyCircleProvider
 _presetsProvider
 T@?,C,N,V_familyCircleProvider
 T@"<FAPresetsProviderProtocol>",&,N,V_presetsProvider
+storeFrontProvider
+signedRequestWithEndpoint:method:headers:plistBody:
+cache
+loadForURL:
+fa_map:
+setNetworkService:
+setCache:
+setStoreFrontProvider:
+_networkService
+_storeFrontProvider
+T@"FANetworkService",&,N,V_networkService
+T@"FASettingPresetsCache",&,N,V_cache
+T@"FAStoreFrontProvider",&,N,V_storeFrontProvider
 checkin
 checkinXPCActivities
 performHeartbeatCheckinWithCompletion:
@@ -747,16 +777,11 @@ _eventPushHandler
 _familyNotifier
 T@"FAFamilyNotifier",&,N,V_familyNotifier
 T@"FAFamilyFetchActivityScheduler",&,N
-_fetchCurrentStoreFront
-signedRequestWithEndpoint:method:headers:plistBody:
 serverRequest:toFormat:
 body
-fa_map:
+updateWithPresets:requestURL:
 stPresetsClient
 currentConfigurationForUserID:completionHandler:
-bagForProfile:profileVersion:
-stringForKey:
-valueWithError:
 setStPresetsClient:
 _stPresetsClient
 T@"STPresetsClient",&,N,V_stPresetsClient
@@ -780,10 +805,7 @@ T@"ACAccount",R
 valid
 TB,R,GisValid
 standardPlistRequestWithEndpoint:
-_networkService
 T@"FANetworkService",R,N,V_networkService
-arrayForKey:
-valueWithCompletion:
 familyMemberMatchingDSID
 contact
 thumbnailImageData
@@ -807,15 +829,13 @@ runFetchFamilyCircleOperation:
 isEqualToNumber:
 hashedDSID
 initWithAltDSID:
-setCache:
 initWithAppleAccount:grandSlamAccount:accountStore:
 setFamilyMemberDSID:
 photoData
-cache
-updateWithData:
 cropRect
 getValue:size:
 circularImageData:withDiameter:crop:
+updateWithData:
 runAAFamilyMemberPhotoRequest:withCompletionHandler:
 setContactType:
 setGivenName:
@@ -940,8 +960,8 @@ fetchFollowupsWithAltDSID:options:replyBlock:
 runHeartbeatWithOptions:replyBlock:
 didAddAccount:replyBlock:
 didDeleteAccount:replyBlock:
-fetchSettingsPresetsForMemberWithAltDSID:options:replyBlock:
-fetchSettingsPresetsForAge:options:replyBlock:
+fetchSettingsPresetsForMemberWithAltDSID:fromCache:options:replyBlock:
+fetchSettingsPresetsForAge:fromCache:options:replyBlock:
 updateFamilyInviteStatusWith:inviteCode:requestUrl:options:replyBlock:
 cancelInvitationWith:familyID:options:replyBlock:
 cacheObjectSettings:dsid:options:replyBlock:
@@ -1017,6 +1037,8 @@ _isCacheDate:pastDuration:
 thenOnQueue
 setAltDSID:
 T@"NSString",&,N,V_altDSID
+JSONObjectWithData:options:error:
+absoluteString
 containsObject:
 setPushTopic:
 isSuccess
@@ -1041,7 +1063,6 @@ plistWithResponse:
 HTTPResponse
 initWithHTTPResponse:body:
 _convertServerResponse:toFormat:
-JSONObjectWithData:options:error:
 signedRequestWithURL:
 serverResponse:toFormat:
 _urlSession
@@ -1143,9 +1164,13 @@ FAPresetsConfiguration
 FAPresetsConfigurationProtocol
 NSObject
 FAFetchFamilyCircleOperation
+FAStoreFrontProvider
+FAStoreFrontProviderProtocol
 FAUpdateFamilyInviteStatusOperation
 FADeleteFamilyOperation
 FAFetchSettingsPresetsOperation
+FACachedPresetsProvider
+FAPresetsProviderProtocol
 FAActivityManager
 FAScreenTimeSettingsCacheOperation
 FAFollowupPushHandler
@@ -1157,11 +1182,9 @@ FAPushDetailRequest
 FAPushHelperService
 APSConnectionDelegate
 FAICSSPresetsProvider
-FAPresetsProviderProtocol
 FAPushMessage
 FAFetchFollowupOperation
 FANetworkClient
-FAPresetsProvider
 FAFetchFamilyPhotoOperation
 FAFamilyCircleCache
 FAUpdateFamilyMemberFlagsOperation
@@ -1176,6 +1199,8 @@ NSXPCListenerDelegate
 FARequestCoalescer
 FAFamilyCircleCacheResponse
 FAFamilyPhotoCache
+FASettingPresetsCache
+FASettingPresetsCacheProtocol
 FAEventPushHandler
 FANetworkService
 FAPushDetailResponse
@@ -1221,13 +1246,20 @@ v24@0:8Q16
 @"FAFamilyFetchActivityScheduler"
 @"FAMarqueeUpdateHandler"
 @"NSString"
+@"AAFPromise"16@0:8
 @48@0:8@16@24q32@40
 q16@0:8
 @"NSURL"
 @32@0:8@?16@24
 @24@0:8@?16
+@28@0:8@?16B24
 @"<FAPresetsProviderProtocol>"
 v32@0:8@16@?24
+v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
+@40@0:8@16@24@32
+@"FANetworkService"
+@"FASettingPresetsCache"
+@"FAStoreFrontProvider"
 @"FAHeartbeatActivity"
 @24@0:8^@16
 B24@0:8@"FAPushMessage"16
@@ -1260,10 +1292,7 @@ v32@0:8@"APSConnection"16@"NSArray"24
 @"NSArray"
 @"FAEventPushHandler"
 @"FAFamilyNotifier"
-@"AAFPromise"16@0:8
-v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
 @"STPresetsClient"
-@"FANetworkService"
 @76@0:8@16@24@32q40B48@52@60@?68
 d16@0:8
 v24@0:8q16
@@ -1272,11 +1301,11 @@ v24@0:8d16
 @"FAFamilyPhotoCache"
 B32@0:8@16d24
 @"ACAccount"
-@40@0:8@16@24@32
 v52@0:8Q16B24@28@36@?44
 v40@0:8@16@24@?32
 v60@0:8@16@24q32B40@44@?52
 v44@0:8@16@24B32@?36
+v44@0:8@16B24@28@?36
 v56@0:8q16@24@32@40@?48
 v48@0:8@16@24@32@?40
 v52@0:8Q16B24@"NSString"28@"NSDictionary"36@?<v@?@"NSDictionary"@"FAFamilyCircle"@"NSError">44
@@ -1294,8 +1323,8 @@ v40@0:8@"NSString"16@"NSString"24@?<v@?Q@"NSError">32
 v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSError">32
 v32@0:8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSError">24
 v32@0:8@"ACAccount"16@?<v@?B>24
-v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"FASettingsPresetsResponse"@"NSError">32
-v40@0:8@"NSNumber"16@"NSDictionary"24@?<v@?@"FASettingsPresetsResponse"@"NSError">32
+v44@0:8@"NSString"16B24@"NSDictionary"28@?<v@?@"FASettingsPresetsResponse"@"NSError">36
+v44@0:8@"NSNumber"16B24@"NSDictionary"28@?<v@?@"FASettingsPresetsResponse"@"NSError">36
 v56@0:8q16@"NSString"24@"NSURL"32@"NSDictionary"40@?<v@?B@"NSError">48
 v48@0:8@"NSString"16@"NSString"24@"NSDictionary"32@?<v@?@@"NSError">40
 v48@0:8@"FAScreentimeSettingsObjectCache"16@"NSNumber"24@"NSDictionary"32@?<v@?B@"NSError">40
@@ -1308,6 +1337,8 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSMutableDictionary"
 @48@0:8@16@24@32d40
 @"NSDate"
+@"AAFPromise"24@0:8@"NSURL"16
+@"AAFPromise"32@0:8@"NSArray"16@"NSURL"24
 @48@0:8@16@24@32@40
 @56@0:8@16@24@32@40q48
 @32@0:8@16q24
@@ -1325,7 +1356,6 @@ v32@0:8@"SBSRemoteAlertHandle"16@"NSError"24
 v32@0:8@"FAFamilyMemberPhotoRequest"16@?<v@?@"AARequest"@"AAResponse"@"NSError">24
 @"AAFPromise"24@0:8@"FAFetchFamilyCircleOperation"16
 @"FAEligibilityRequirements"
-softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
 softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
 softlink:r:path:/System/Library/Frameworks/UIKit.framework/UIKit
 softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
@@ -1420,10 +1450,15 @@ Result of renewing credentials for family details request: %ld. Error: %@
 %s: successfully updated family circle cache.
 %s: failed to update family circle cache. Error: %@
 %@: Error in server response - %@
+store front is nil!!! default to deviceCountryCode %@.
+store front is nil!!! setting unknown code %@.
+store front is %@.
 No current presets, dsid == nil
 Fetching presets from screentime client
 Invalid FAFamilyMember age (%@) falling back to passed in age (%@)
 Expected Preset is nil
+Fetching available presets from cache.
+Fetching current preset from FACachedPresetsProvider is not available
 Checking in XPC activities..
 Handling account addition.
 Handling account deletion.
@@ -1459,8 +1494,6 @@ APS connection status changed! isConnected: %@
 APS connection reconnected.
 Fetching available presets from icss.
 raw age presets `%@`
-store front is nil!!! default to %@.
-store front is %@.
 Push received for user (dsid %@, altDSID %@) but there is no matching account on the device.
 Push received for user (dsid %@, altDSID %@) is logged in as non-primary account.
 Push missing some required info.
@@ -1510,6 +1543,11 @@ Error updating photo cache for member %@
 Updated photo cache for member %@
 Error finding cache photo directory %@
 Photo cache cleared
+Call to fetch URL for presets cache provided error: %@
+Error updating presets cache for url %@
+Updated presets cache for url %@
+Error finding cache presets directory %@
+presets cache cleared
 CacheUpdate:Processing family event push
 Failed to fetch family push details with error: %@
 CacheUpdate:Push detail response: %@
@@ -1581,6 +1619,8 @@ status
 v24@?0@8@"NSError"16
 status-message
 FAFetchFamilyCircleErrorDomain
+AppStore
+countryCode
 inviteUrl
 requestParameters
 ClientProcess
@@ -1598,6 +1638,10 @@ B16@?0@"FASettingsPreset"8
 @16@?0@"NSArray"8
 @"AAFPromise"16@?0@"NSArray"8
 @"FASettingsPresetsResponse"16@?0@"NSArray"8
+X-Mme-Country
+@"AAFPromise"16@?0@"NSString"8
+@"AAFPromise"16@?0@"NSURLRequest"8
+@16@?0@"NSDictionary"8
 v16@?0q8
 com.apple.family/cachedObjects
 v8@?0
@@ -1614,7 +1658,6 @@ com.apple.family.heartbeat
 updateMemberFlag
 @"AAFPromise"16@?0@"ACAccount"8
 @"NSURLRequest"16@?0@"NSURLRequest"8
-@"AAFPromise"16@?0@"NSURLRequest"8
 @"NSNumber"16@?0@8
 memberId
 flagType
@@ -1632,23 +1675,15 @@ com.apple.family.aps_queue
 com.apple.familycircled
 com.apple.family.notifier
 v24@?0@"AAURLConfiguration"8@"NSError"16
-X-Mme-Country
-@"AAFPromise"16@?0@"NSString"8
-@"NSArray"16@?0@"FAHTTPResponse"8
 SettingsPresets
-@16@?0@"NSDictionary"8
+@"NSArray"16@?0@"FAHTTPResponse"8
 v24@?0@"STPresetsConfiguration"8@"NSError"16
-AppStore
-countryCode
 STPresetsClient
 Unable to find class %s
 STUserID
 event
 dsid
 fetchFamilyFollowups
-settingsPresets
-setup
-v28@?0@"NSArray"8B16@"NSError"20
 FAFetchFamilyPhotoOperationKeyPrefix
 @16@?0@"NSData"8
 @16@?0@"FAFamilyMember"8
@@ -1702,6 +1737,9 @@ STManagementState
 FACoalescedRequest Queue
 FamilyCircle/Images
 FAFamilyPhotoCache Queue
+FamilyCircle/Presets
+peset_cache.json
+FASettingPresetsCache Queue
 f_delete
 f_member_upd
 f_child_transfer_apr
@@ -1765,9 +1803,13 @@ FAPresetsConfiguration
 FAPresetsConfigurationProtocol
 NSObject
 FAFetchFamilyCircleOperation
+FAStoreFrontProvider
+FAStoreFrontProviderProtocol
 FAUpdateFamilyInviteStatusOperation
 FADeleteFamilyOperation
 FAFetchSettingsPresetsOperation
+FACachedPresetsProvider
+FAPresetsProviderProtocol
 FAActivityManager
 FAScreenTimeSettingsCacheOperation
 FAFollowupPushHandler
@@ -1779,11 +1821,9 @@ FAPushDetailRequest
 FAPushHelperService
 APSConnectionDelegate
 FAICSSPresetsProvider
-FAPresetsProviderProtocol
 FAPushMessage
 FAFetchFollowupOperation
 FANetworkClient
-FAPresetsProvider
 FAFetchFamilyPhotoOperation
 FAFamilyCircleCache
 FAUpdateFamilyMemberFlagsOperation
@@ -1798,6 +1838,8 @@ NSXPCListenerDelegate
 FARequestCoalescer
 FAFamilyCircleCacheResponse
 FAFamilyPhotoCache
+FASettingPresetsCache
+FASettingPresetsCacheProtocol
 FAEventPushHandler
 FANetworkService
 FAPushDetailResponse
@@ -1810,257 +1852,258 @@ FARemotePresenter
 SBSRemoteAlertHandleObserver
 FAFetchFamilyPhotoOperationContext
 FAEligibilityEvaluator
-initWithBlock:
-stringByAppendingFormat:
-aa_grandSlamAccountForiCloudAccount:
-numberWithLong:
-URLByAppendingPathComponent:isDirectory:
-setContactType:
-familyName
-setObject:forKey:
-getFamilyPushDetailsURL
-requestWithURL:
-dataRepresentation
-allHeaderFields
-attributesOfItemAtPath:error:
-HTTPResponse
-eligibilityRequirements
-URLByAppendingPathComponent:
-initWithAvailablePresets:expectedPreset:currentPreset:
-getBytes:length:
-aa_appleAccountWithPersonID:
-numberWithInteger:
-introductionModel
-setObject:atIndexedSubscript:
-currentConfigurationForUserID:completionHandler:
-allHTTPHeaderFields
-initWithAppleAccount:grandSlamAccount:accountStore:
-setClass:forSelector:argumentIndex:ofReply:
-sharedSession
-arrayWithObjects:count:
-length
-aa_appleAccountWithAltDSID:
-currentConfigurationForUser:error:
-initWithName:value:
-numberWithInt:
-statusCode
-interfaceWithProtocol:
-photoData
-all:
-doubleValue
-lastObject
-arrayWithObjects:
-aa_addLoggedInAppleIDHeaderWithAccount:
-firstObject
-numberWithBool:
-ak_addInternalBuildHeader
-integerValue
-setInteger:forKey:
-performRequestWithSession:withHandler:
-setXpcEndpoint:
-arrayWithCapacity:
-lastName
-initWithAccountStore:grandSlamAccount:appTokenID:
-renewCredentialsForAccount:options:completion:
-domain
-setInformativeText:
-aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
-intValue
-checkResourceIsReachableAndReturnError:
-null
-JSONObjectWithData:options:error:
-performRequestWithHandler:
-cropRect
-firstName
-ak_addDeviceUDIDHeader
-arrayForKey:
-isValidEnvironment:
-setWithObjects:
-newHandleWithDefinition:configurationContext:
-removeObjectForKey:
-dictionaryWithObjects:forKeys:count:
-setIdentifier:
-setBool:forKey:
-catch
-uniqueIdentifier
-initWithMachServiceName:
-standardUserDefaults
-ak_addClientInfoHeader
-initWithValue:
-fileExistsAtPath:
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-setValue:forHTTPHeaderField:
-dictionary
-initWithLoadSuccess:error:userInfo:
-setUserInfo:
-ak_addAnisetteHeaders
-initWithURL:resolvingAgainstBaseURL:
-setHeaderFieldKey:
-countByEnumeratingWithState:objects:count:
-removeItemAtURL:error:
-setArgument:atIndex:
-writeToURL:options:error:
-initWithString:
-initWithIdentifier:machServiceName:
-mutableCopy
-pendingFollowUpItems:
-aida_accountForiCloudAccount:
-setHTTPMethod:
-count
-apsEnvironment
-initWithHTTPResponse:body:familyRefreshTriggered:
-values
-setAllHTTPHeaderFields:
-initWithServiceName:viewControllerClassName:
-monogramForContact:diameter:scale:
-fa_map:
-deliverNotification:
-setHTTPBody:
-applyUpdatedConfiguration:error:
-copy
-valueWithError:
 setActivateActionURL:
-setURL:
-identifier
-initWithHTTPResponse:body:
-timeIntervalSinceNow
+initWithServiceName:viewControllerClassName:
+aa_addBasicAuthorizationHeaderWithAccount:preferUsingPassword:
 minAge
-fa_firstObjectMatching:
-setGivenName:
-addValue:forHTTPHeaderField:
+checkResourceIsReachableAndReturnError:
+ak_addClientInfoHeader
+timeIntervalSince1970
 setTitle:
 path
-initWithServerResponse:
-valueWithCompletion:
+setGivenName:
+cropRect
+dictionary
 methodSignatureForSelector:
-httpResponse
-isParent
-_setEnabledTopics:
-fetchFamilyMemberSuggestions
-fa_familyErrorWithCode:
-addObserver:
-containsObject:
-appendFormat:
-timeIntervalSince1970
-setTarget:
-userInfo
-isMe
-defaultWorkspace
-_serverResponse
-addObject:
-hasRecommendedMembers
-contact
-anonymousListener
+initWithIdentifier:machServiceName:
+catch
 thumbnailImageData
-propertyListWithData:options:format:error:
-serverEligibility
-defaultStore
-expectedMediaAltDSID
-initWithFamilyCircleFetchBlock:cacheLoadBlock:
-sources
+ak_addAnisetteHeaders
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+initWithServerResponse:
+setTarget:
+isParent
+HTTPResponse
+initWithHTTPResponse:body:familyRefreshTriggered:
 thenOnQueue
+aida_accountForiCloudAccount:
+propertyListWithData:options:format:error:
+countByEnumeratingWithState:objects:count:
+apsEnvironment
+serverEligibility
+identifier
+isMe
+initWithHTTPResponse:body:
+fa_map:
+sources
 members
-configurationWithUpdatedScreenTimeState:error:
-ams_sharedAccountStore
 setShouldPersistWhenActivated:
-addFresnoPayloadToRequest:additionalPayload:
-defaultManager
-isEqualToString:
-activeBundleIDs
-screenTimeState
-memberForAltDSID:
-ams_altDSID
-setFamilyName:
-configuration
+deliverNotification:
 then
-openURL:configuration:completionHandler:
+count
+applyUpdatedConfiguration:error:
+urlForEndpoint:
+httpResponse
+screenTimeState
+fetchFamilyMemberSuggestions
+memberForAltDSID:
+fa_firstObjectMatching:
 setSelector:
-processName
-isEqualToNumber:
-activateWithContext:
-initWithError:
-errorWithDomain:code:userInfo:
-openSensitiveURL:withOptions:
-ams_activeiTunesAccount
-setFamilyMemberDSID:
-componentsSeparatedByString:
+setFamilyName:
+addValue:forHTTPHeaderField:
 systemTimeZone
-dateByAddingTimeInterval:
+copy
+openURL:configuration:completionHandler:
+processName
+isEqualToString:
+urlConfiguration
+addObserver:
+fa_familyErrorWithCode:
+openSensitiveURL:withOptions:
+hasRecommendedMembers
+setFamilyMemberDSID:
+appendFormat:
+synchronizeFollowupWithPayload:altDSID:
 processInfo
+isEqualToNumber:
 setQueryItems:
-broadcastServicesChangedNotification
-XPCInterface
+defaultWorkspace
+containsObject:
+initWithFamilyCircleFetchBlock:cacheLoadBlock:
 scale
 onComplete:onQueue:
-initWithEnvironmentName:namedDelegatePort:queue:
+_setEnabledTopics:
+anonymousListener
 setExportedObject:
-componentsJoinedByString:
-synchronizeFollowupWithPayload:altDSID:
-date
-mainScreen
-urlForEndpoint:
-UUIDString
-broadcastFamilyChangedNotification
-compare:
-error
-setExportedInterface:
-abbreviation
-onComplete:
+addObject:
 stringWithFormat:
-urlConfiguration
-lowercaseString
-boolValue
+expectedMediaAltDSID
+defaultStore
+uppercaseString
+_serverResponse
 stringWithCapacity:
-enumerateObjectsUsingBlock:
-UUID
-initWithData:encoding:
-invoke
-fetchAAURLConfigurationWithCompletion:
-aa_setBodyWithParameters:
+mainScreen
+ams_sharedAccountStore
+setExportedInterface:
+addFresnoPayloadToRequest:additionalPayload:
+contact
+onComplete:
+lowercaseString
+defaultManager
+initWithError:
+activeBundleIDs
+configurationWithUpdatedScreenTimeState:error:
+ams_altDSID
+stringValue
 objectWithData:
-code
-dataWithPropertyList:format:options:error:
-_faCircularImageDataWithDiameter:
+initWithEnvironmentName:namedDelegatePort:queue:
+activateWithContext:
 signURLRequest:
 longLongValue
-familyRefreshTriggered
+errorWithDomain:code:userInfo:
 resume
-boolForKey:
-aa_primaryAppleAccount
-stringValue
+ams_activeiTunesAccount
+configuration
+stringForKey:
 objectForKeyedSubscript:
 setDelegate:
-URLWithString:
-_endpoint
-invocationWithMethodSignature:
+dateByAddingTimeInterval:
+invoke
 localizedDescription
-dataWithJSONObject:options:error:
-initWithClientIdentifier:
-URLForEndpoint:
-body
+XPCInterface
 shutdown
 responseDictionary
-stringForKey:
-aa_personID
+componentsSeparatedByString:
+invocationWithMethodSignature:
+stringByDeletingLastPathComponent
 objectForKey:
 setCustomHeaders:
+broadcastServicesChangedNotification
+date
+UUIDString
+initWithData:encoding:
+absoluteString
+error
+reschedule
+componentsJoinedByString:
+stringByAppendingFormat:
+preferredLanguages
+objectAtIndexedSubscript:
+setObject:forKeyedSubscript:
+requirementsForPropertyName:
+enumerateObjectsUsingBlock:
+UUID
+compare:
+broadcastFamilyChangedNotification
+setContactType:
+fetchAAURLConfigurationWithCompletion:
+abbreviation
+numberWithLong:
+requestWithURL:
+setObject:forKey:
+dataWithPropertyList:format:options:error:
+JSONObjectWithData:options:error:
+_faCircularImageDataWithDiameter:
+boolValue
+initWithClientIdentifier:
+familyRefreshTriggered
+_endpoint
+aa_setBodyWithParameters:
+numberWithInteger:
+URLWithString:
+code
+setObject:atIndexedSubscript:
 givenName
+dataWithJSONObject:options:error:
+sharedSession
+URLForEndpoint:
+boolForKey:
+setClass:forSelector:argumentIndex:ofReply:
+aa_primaryAppleAccount
+introductionModel
+numberWithInt:
+statusCode
+getValue:size:
+photoData
 endpoint
 allObjects
 dataWithContentsOfFile:options:error:
-bagForProfile:profileVersion:
-reschedule
+body
+length
+initWithBlock:
 dataTaskWithRequest:completion:
-circularImageData:withDiameter:crop:
-aa_isAccountClass:
-stringByDeletingLastPathComponent
 URLForDirectory:inDomain:appropriateForURL:create:error:
-objectAtIndexedSubscript:
+numberWithBool:
+aa_personID
+interfaceWithProtocol:
 allKeys
-getValue:size:
-requirementsForPropertyName:
-preferredLanguages
-setObject:forKeyedSubscript:
+getFamilyPushDetailsURL
+setXpcEndpoint:
+performRequestWithSession:withHandler:
+setInteger:forKey:
+circularImageData:withDiameter:crop:
+lastObject
+bagForProfile:profileVersion:
+renewCredentialsForAccount:options:completion:
+initWithAvailablePresets:expectedPreset:currentPreset:
+familyName
+getBytes:length:
+aa_isAccountClass:
+URLByAppendingPathComponent:isDirectory:
+setInformativeText:
+null
+performRequestWithHandler:
+eligibilityRequirements
+uniqueIdentifier
+integerValue
+initWithAppleAccount:grandSlamAccount:accountStore:
+allHeaderFields
+dataRepresentation
+lastName
+newHandleWithDefinition:configurationContext:
+setWithObjects:
+removeObjectForKey:
+writeToURL:options:error:
+URLByAppendingPathComponent:
+setIdentifier:
+initWithName:value:
+intValue
+aa_grandSlamAccountForiCloudAccount:
+standardUserDefaults
+setBool:forKey:
+attributesOfItemAtPath:error:
+currentLocale
+allHTTPHeaderFields
+isValidEnvironment:
+setValue:forHTTPHeaderField:
+values
+firstObject
+currentConfigurationForUserID:completionHandler:
+aa_appleAccountWithPersonID:
+setHeaderFieldKey:
+setUserInfo:
+initWithValue:
+all:
+doubleValue
+initWithAccountStore:grandSlamAccount:appTokenID:
+setArgument:atIndex:
+removeItemAtURL:error:
+valueWithError:
+arrayWithObjects:count:
+aa_appleAccountWithAltDSID:
+mutableCopy
+currentConfigurationForUser:error:
+pendingFollowUpItems:
+firstName
+ak_addInternalBuildHeader
+initWithURL:resolvingAgainstBaseURL:
+setHTTPMethod:
+setAllHTTPHeaderFields:
+arrayWithObjects:
+userInfo
+domain
+initWithString:
+monogramForContact:diameter:scale:
+aa_addLoggedInAppleIDHeaderWithAccount:
+timeIntervalSinceNow
+initWithMachServiceName:
+setHTTPBody:
+ak_addDeviceUDIDHeader
+fileExistsAtPath:
+arrayWithCapacity:
+setURL:
+initWithLoadSuccess:error:userInfo:
+dictionaryWithObjects:forKeys:count:
 updateMarqueeCache
 updateMarqueeCacheIfMigrationNeeded
 initWithNetworkService:
@@ -2166,6 +2209,7 @@ TQ,V_cachePolicy
 T@"NSString",C,V_clientProcess
 T@"NSString",C,V_context
 TB,V_promptUserToResolveAuthenticatonFailure
+fetchCurrentStoreFront
 initWithNetworkService:inviteCode:inviteStatus:requestUrl:
 updateInviteStatus
 inviteCode
@@ -2180,6 +2224,7 @@ Tq,R,V_inviteStatus
 deleteFamily
 initWithFamilyCircleProvider:presetsProvider:
 initWithFamilyCircleProvider:
+initWithFamilyCircleProvider:fetchFromCache:
 _currentPresets:expectedPreset:
 _presetsWithCurrentConfiguration:expectedPreset:
 presetsForMemberWithAltDSID:
@@ -2192,6 +2237,20 @@ _familyCircleProvider
 _presetsProvider
 T@?,C,N,V_familyCircleProvider
 T@"<FAPresetsProviderProtocol>",&,N,V_presetsProvider
+availablePresets
+currentConfigurationForDSID:completion:
+initWithNetworkService:cache:storeFrontProvider:
+networkService
+setNetworkService:
+cache
+setCache:
+storeFrontProvider
+setStoreFrontProvider:
+_networkService
+_storeFrontProvider
+T@"FANetworkService",&,N,V_networkService
+T@"FASettingPresetsCache",&,N,V_cache
+T@"FAStoreFrontProvider",&,N,V_storeFrontProvider
 initWithQueueProvider:
 checkinXPCActivities
 handleAccountAddition:completion:
@@ -2287,9 +2346,7 @@ _eventPushHandler
 _familyNotifier
 T@"FAFamilyNotifier",&,N,V_familyNotifier
 T@"FAFamilyFetchActivityScheduler",&,N
-availablePresets
-currentConfigurationForDSID:completion:
-_fetchCurrentStoreFront
+initWithNetworkService:storeFrontProvider:
 stPresetsClient
 setStPresetsClient:
 _stPresetsClient
@@ -2317,8 +2374,6 @@ T@"ACAccount",R
 valid
 TB,R,GisValid
 fetchFollowUps
-networkService
-_networkService
 T@"FANetworkService",R,N,V_networkService
 initWithNetworkService:memberDSID:memberHashedDSID:size:localFallback:context:requestCoalescer:fetchFamilyFactory:
 fetchPhoto
@@ -2348,8 +2403,6 @@ phoneNumber
 setPhoneNumber:
 fetchFamilyFactory
 setFetchFamilyFactory:
-cache
-setCache:
 requestCoalescer
 setRequestCoalescer:
 _localFallback
@@ -2430,8 +2483,8 @@ fetchFollowupsWithAltDSID:options:replyBlock:
 runHeartbeatWithOptions:replyBlock:
 didAddAccount:replyBlock:
 didDeleteAccount:replyBlock:
-fetchSettingsPresetsForMemberWithAltDSID:options:replyBlock:
-fetchSettingsPresetsForAge:options:replyBlock:
+fetchSettingsPresetsForMemberWithAltDSID:fromCache:options:replyBlock:
+fetchSettingsPresetsForAge:fromCache:options:replyBlock:
 updateFamilyInviteStatusWith:inviteCode:requestUrl:options:replyBlock:
 cancelInvitationWith:familyID:options:replyBlock:
 cacheObjectSettings:dsid:options:replyBlock:
@@ -2487,6 +2540,8 @@ updateWithData:
 invalidateFamilyPhotos
 setAltDSID:
 T@"NSString",&,N,V_altDSID
+loadForURL:
+updateWithPresets:requestURL:
 _deliverNotificationWithResponse:payload:
 _events
 initWithAccount:deviceInfo:urlProvider:urlSession:
@@ -2617,13 +2672,20 @@ v24@0:8Q16
 @"FAFamilyFetchActivityScheduler"
 @"FAMarqueeUpdateHandler"
 @"NSString"
+@"AAFPromise"16@0:8
 @48@0:8@16@24q32@40
 q16@0:8
 @"NSURL"
 @32@0:8@?16@24
 @24@0:8@?16
+@28@0:8@?16B24
 @"<FAPresetsProviderProtocol>"
 v32@0:8@16@?24
+v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
+@40@0:8@16@24@32
+@"FANetworkService"
+@"FASettingPresetsCache"
+@"FAStoreFrontProvider"
 @"FAHeartbeatActivity"
 @24@0:8^@16
 B24@0:8@"FAPushMessage"16
@@ -2656,10 +2718,7 @@ v32@0:8@"APSConnection"16@"NSArray"24
 @"NSArray"
 @"FAEventPushHandler"
 @"FAFamilyNotifier"
-@"AAFPromise"16@0:8
-v32@0:8@"NSNumber"16@?<v@?@"<FAPresetsConfigurationProtocol>"@"NSError">24
 @"STPresetsClient"
-@"FANetworkService"
 @76@0:8@16@24@32q40B48@52@60@?68
 d16@0:8
 v24@0:8q16
@@ -2668,11 +2727,11 @@ v24@0:8d16
 @"FAFamilyPhotoCache"
 B32@0:8@16d24
 @"ACAccount"
-@40@0:8@16@24@32
 v52@0:8Q16B24@28@36@?44
 v40@0:8@16@24@?32
 v60@0:8@16@24q32B40@44@?52
 v44@0:8@16@24B32@?36
+v44@0:8@16B24@28@?36
 v56@0:8q16@24@32@40@?48
 v48@0:8@16@24@32@?40
 v52@0:8Q16B24@"NSString"28@"NSDictionary"36@?<v@?@"NSDictionary"@"FAFamilyCircle"@"NSError">44
@@ -2690,8 +2749,8 @@ v40@0:8@"NSString"16@"NSString"24@?<v@?Q@"NSError">32
 v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"NSDictionary"@"NSError">32
 v32@0:8@"NSDictionary"16@?<v@?@"NSDictionary"@"NSError">24
 v32@0:8@"ACAccount"16@?<v@?B>24
-v40@0:8@"NSString"16@"NSDictionary"24@?<v@?@"FASettingsPresetsResponse"@"NSError">32
-v40@0:8@"NSNumber"16@"NSDictionary"24@?<v@?@"FASettingsPresetsResponse"@"NSError">32
+v44@0:8@"NSString"16B24@"NSDictionary"28@?<v@?@"FASettingsPresetsResponse"@"NSError">36
+v44@0:8@"NSNumber"16B24@"NSDictionary"28@?<v@?@"FASettingsPresetsResponse"@"NSError">36
 v56@0:8q16@"NSString"24@"NSURL"32@"NSDictionary"40@?<v@?B@"NSError">48
 v48@0:8@"NSString"16@"NSString"24@"NSDictionary"32@?<v@?@@"NSError">40
 v48@0:8@"FAScreentimeSettingsObjectCache"16@"NSNumber"24@"NSDictionary"32@?<v@?B@"NSError">40
@@ -2704,6 +2763,8 @@ B32@0:8@"NSXPCListener"16@"NSXPCConnection"24
 @"NSMutableDictionary"
 @48@0:8@16@24@32d40
 @"NSDate"
+@"AAFPromise"24@0:8@"NSURL"16
+@"AAFPromise"32@0:8@"NSArray"16@"NSURL"24
 @48@0:8@16@24@32@40
 @56@0:8@16@24@32@40q48
 @32@0:8@16q24
@@ -2721,7 +2782,6 @@ v32@0:8@"SBSRemoteAlertHandle"16@"NSError"24
 v32@0:8@"FAFamilyMemberPhotoRequest"16@?<v@?@"AARequest"@"AAResponse"@"NSError">24
 @"AAFPromise"24@0:8@"FAFetchFamilyCircleOperation"16
 @"FAEligibilityRequirements"
-softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
 softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
 softlink:r:path:/System/Library/Frameworks/UIKit.framework/UIKit
 softlink:r:path:/System/Library/PrivateFrameworks/ScreenTimeCore.framework/ScreenTimeCore
