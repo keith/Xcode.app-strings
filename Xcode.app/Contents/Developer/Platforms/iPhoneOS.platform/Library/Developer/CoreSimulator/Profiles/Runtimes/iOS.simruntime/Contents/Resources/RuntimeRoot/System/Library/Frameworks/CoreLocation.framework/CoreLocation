@@ -1,8 +1,9 @@
-@(#)PROGRAM:CoreLocation  PROJECT:CoreLocation-2780.0.17.0.2
+@(#)PROGRAM:CoreLocation  PROJECT:CoreLocation-2780.0.27
 NSt3__120__shared_ptr_emplaceI19CLConnectionMessageNS_9allocatorIS1_EEEE
 @<@A
 TXAH
 MbP?
+u@-C
 A@15CLNameValuePair
 @10BasicMutex
 5Mutex
@@ -43,8 +44,8 @@ Location callback block not executed in a timely manner!
 Discarding message for event %{private}d because of too many unprocessed messages
 received client will resign active notification
 received client did become active notification
-Missing UsageDescription key for requested authorization: %{public}d
 Invalid requested authorization: %{public}d
+Missing UsageDescription key for requested authorization: %{public}d
 CL: CLClientIsLocationServicesEnabled
 {"msg%{public}.0s":"CLClientIsLocationServicesEnabled", "event":%{public, location:escape_only}s}
 This method can cause UI unresponsiveness if invoked on the main thread. Instead, consider waiting for the `-locationManagerDidChangeAuthorization:` callback and checking `authorizationStatus` first.
@@ -375,6 +376,7 @@ CLRR,convertRouteDataToMatrix,input data array is empty
 CLRR,convertRouteDataToMatrix,input data point is null at index,%{public}d
 CLRR,convertRouteDataToMatrix,invalid coordinates,lat,%{private}.7lf,lon,%{private}.7lf,at index,%{public}d
 CLRR,convertRouteDataToMatrix,invalid reference point,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,at index,%{public}d
+CLRR,convertRouteDataToMatrix,raceStartLineProximityIndex,%{public}d
 CLRR,convertRouteDataToMatrix,boxRows,%{public}d,boxColumns,%{public}d,boxMinLat,%{private}.7lf,boxMaxLat,%{private}.7lf,boxMinLon,%{private}.7lf,boxMaxLon,%{private}.7lf
 CLRR,convertRouteDataToMatrix,time,%{public}.1lf,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,odom,%{public}.2lf,signalEnv,%{public}d,pointCount,%{public}d
 CLRR,convertRouteDataToMatrix,invalid index for location,lat,%{private}.7lf,lon,%{private}.7lf
@@ -405,8 +407,9 @@ CLRR,processLocationPoint,processing matrix cell index,%{public}d
 CLRR,processLocationPoint,no points within the accepted distance in matrix cell index,%{public}d
 CLRR,processLocationPoint,no matched point is found in the current or neighboring cells.Skip this point.
 CLRR,processLocationPoint,index exceeded buffer range,last matched index,%{public}d,buffer size,%{public}d
+CLRR,processLocationPoint,invalid raceStartLineProximityIndex,%{public}d
+CLRR,processLocationPoint,user joined the race at a wrong location,lastMatchedPointIndex,%{public}d,raceStartLineProximityIndex,%{public}d
 CLRR,processLocationPoint,invalid prematureRaceEndIndex,%{public}d
-CLRR,processLocationPoint,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CLRR,processLocationPoint,race start point already detected,most recent matched point jumped from head to tail of the reference route,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CLRR,processLocationPoint,pointType,%{public}d,last matched index,%{public}d
 CLRR,processLocationPoint,reached end of reference route
@@ -604,6 +607,8 @@ Coarse MetaData cannot be decoded while reverse geocoding location, error, %@
 #Spi,RouteHintError, Exceeded max number of route hint road segments (%{public}d > %{public}d)
 #Spi,RouteHint,LocationInternal,Received route hint road segments,%{public}d,routeType,%{public}d,stepType,%{public}d
 #Spi,RouteHintError,Couldn't set map-matching route hint!
+#Spi,CLTR,CLTrackRunHint received,framework side
+#Spi,CLTR,TrackRunHintError,Couldn't set track run hint!
 #Spi,getAccessoryTypeBitSet,failed
 #Spi,getAccessoryTypeBitSet,%d
 #Spi,getAccessoryPASCDTransmissionState,failed
@@ -676,6 +681,9 @@ RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d,stepType,%d
 CL: CLSetRouteHintsForMapMatching
 {"msg%{public}.0s":"CLSetRouteHintsForMapMatching", "event":%{public, location:escape_only}s}
 RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d
+CL: CLSetTrackRunHint
+{"msg%{public}.0s":"CLSetTrackRunHint", "event":%{public, location:escape_only}s}
+TrackRunHint,CLSetTrackRunHint,received,MCTime,%{public}.1lf,lane,%{private}d,notification,%{private}d
 CLGetAccessoryTypeBitSet
 CLGetAccessoryPASCDTransmissionState
 CLGetOdometryBatchedLocations
@@ -820,9 +828,10 @@ void CLClientHandleDidBecomeActiveNotification(CFNotificationCenterRef, void *, 
 CoreLocation: received client did become active notification
 kCLConnectionMessagePurposeKey
 kCLConnectionMessagePurpose
-void CLClientRequestAuthorization(CLClientRef, CLClientAuthorizationStatus)
-CoreLocation: Missing UsageDescription key for requested authorization: %{public}d
+kCLConnectionMessagePurposeIdentifierKey
+void CLClientRequestAuthorization(CLClientRef, CLClientAuthorizationStatus, CLNameValuePair &)
 CoreLocation: Invalid requested authorization: %{public}d
+CoreLocation: Missing UsageDescription key for requested authorization: %{public}d
 kCLConnectionMessageStatusKey
 kCLConnectionMessageRequestAuthorization
 kCLConnectionMessagePurposeIdentifierKey
@@ -931,6 +940,7 @@ kCLConnectionMessageAuthorizedForWidgetUpdatesKey
 kCLConnectionMessageMatchInfoEnabled
 kCLConnectionMessageGroundAltitudeEnabled
 kCLConnectionMessageFusionInfoEnabled
+kCLConnectionMessageTrackRunInfoEnabled
 kCLConnectionMessageAllowsLocationPrompts
 kCLConnectionMessageShowLocationPrompt
 kCLConnectionMessageMarkAsHavingReceivedLocation
@@ -983,6 +993,7 @@ com.apple.locationd.Core
 Client
 Generic
 ClientsCohortWorkLoop
+/System/Library/LocationBundles/RemindersAlerts.bundle
 kCLConnectionMessageCompensatedLocation
 kCLClientEventKey
 void _CLClientHandleMessage(CLClientRef, std::shared_ptr<CLConnectionMessage>)
@@ -1065,6 +1076,7 @@ groundAltitudeEnabled
 fusionInfoEnabled
 courtesyPromptNeeded
 isAuthorizedForWidgetUpdates
+trackRunInfoEnabled
 -[CLLocationManagerStateTracker updateState:]
 allStates
 _CLLocationManagerStateTrackerState
@@ -1198,6 +1210,7 @@ CoreLocation: could not get updated vehicle speed
 CoreLocation: could not get updated vehicle heading
 kCLConnectionMessageSignificantLocationVisitKey
 kCLConnectionMessageSignificantLocationVisitStateKey
+purposeKey
 handler
 +[CLLocationManager dumpDiagnosticFilesWithHandler:]
 CoreLocation: dumpDiagnosticFiles called, trying to make an xpc call
@@ -1254,6 +1267,7 @@ NSLocationAlwaysUsageDescription
 NSLocationWhenInUseUsageDescription
 NSLocationAlwaysAndWhenInUseUsageDescription
 NSLocationTemporaryUsageDescriptionDictionary
+NSLocationAuthorizationPurposeDescriptionDictionary
 NSLocationWildernessSafetyUsageDescriptionDictionary
 NSLocationDefaultAccuracyReduced
 NSLocationInterestZones
@@ -1379,6 +1393,22 @@ private.HomeKit.scene.homeName
 private.MicroLocation.truthtag.identifier
 private.MicroLocation.forced.recordingRequest
 private.MicroLocation.recordingTriggerUUID
+trackRunLapCount
+trackRunCurrentLapStartTime
+trackRunCurrentLapDurationInSeconds
+trackRunCurrentLapDistanceInMeters
+trackRunPreviousLapDurationInSeconds
+trackRunPreviousLapDistanceInMeters
+trackRunPreviousLapPositionAtCompletionInDegreesLatitude
+trackRunPreviousLapPositionAtCompletionInDegreesLongitude
+trackRunCurrentTrackRunSessionDurationInSeconds
+trackRunCurrentTrackRunSessionDistanceInMeters
+trackRunLaneNumber
+trackRunLaneCount
+trackRunTrackId
+trackRunEstimatedLaneNumber
+trackRunEstimatedLaneConfidence
+trackRunTrackProximity
 UTDisableReasonBTOff
 UTDisableReasonLocationServicesOff
 UTDisableReasonTrackingNotificationsDisallowed
@@ -1510,6 +1540,11 @@ DurianManagement/PerformAggressiveScanForTrackingAvoidance
 DurianManagement/PerformHELEScanForTrackingAvoidance
 DurianManagement/PerformAggressiveScanForDurianService
 DurianManagement/FetchStatusOfUTEnablementRequirements
+macAddress
+DurianManagement/FetchAISForTAUnknownBeacon
+type
+DurianManagement/StageTADetection
+DurianManagement/ForceSurfaceStagedDetections
 -[CLFindMyAccessoryManager initRangingOnDevice:macAddress:]
 CoreLocation: Init Ranging on device: %@
 -[CLFindMyAccessoryManager deinitRangingOnDevice:]
@@ -1615,6 +1650,7 @@ CoreLocation: CLRR,convertRouteDataToMatrix,input data array is empty
 CoreLocation: CLRR,convertRouteDataToMatrix,input data point is null at index,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid coordinates,lat,%{private}.7lf,lon,%{private}.7lf,at index,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid reference point,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,at index,%{public}d
+CoreLocation: CLRR,convertRouteDataToMatrix,raceStartLineProximityIndex,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,boxRows,%{public}d,boxColumns,%{public}d,boxMinLat,%{private}.7lf,boxMaxLat,%{private}.7lf,boxMinLon,%{private}.7lf,boxMaxLon,%{private}.7lf
 CoreLocation: CLRR,convertRouteDataToMatrix,time,%{public}.1lf,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,odom,%{public}.2lf,signalEnv,%{public}d,pointCount,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid index for location,lat,%{private}.7lf,lon,%{private}.7lf
@@ -1652,8 +1688,9 @@ CoreLocation: CLRR,processLocationPoint,processing matrix cell index,%{public}d
 CoreLocation: CLRR,processLocationPoint,no points within the accepted distance in matrix cell index,%{public}d
 CoreLocation: CLRR,processLocationPoint,no matched point is found in the current or neighboring cells.Skip this point.
 CoreLocation: CLRR,processLocationPoint,index exceeded buffer range,last matched index,%{public}d,buffer size,%{public}d
+CoreLocation: CLRR,processLocationPoint,invalid raceStartLineProximityIndex,%{public}d
+CoreLocation: CLRR,processLocationPoint,user joined the race at a wrong location,lastMatchedPointIndex,%{public}d,raceStartLineProximityIndex,%{public}d
 CoreLocation: CLRR,processLocationPoint,invalid prematureRaceEndIndex,%{public}d
-CoreLocation: CLRR,processLocationPoint,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CoreLocation: CLRR,processLocationPoint,race start point already detected,most recent matched point jumped from head to tail of the reference route,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CoreLocation: CLRR,processLocationPoint,pointType,%{public}d,last matched index,%{public}d
 CoreLocation: CLRR,processLocationPoint,reached end of reference route
@@ -2111,8 +2148,8 @@ Unplugged!
 void CLLog::logHeader()
 CoreLocation-%s
 locationd was compiled on %s at %s
-Oct  6 2022
-19:49:23
+Nov 10 2022
+00:21:28
 %s @ system model %s / version %s
 /usr/libexec/locationd @ system model %s / version %s
 IOPlatformSerialNumber: %s
@@ -2284,6 +2321,10 @@ CoreLocation: #Spi,RouteHintError, Exceeded max number of route hint road segmen
 CoreLocation: #Spi,RouteHint,LocationInternal,Received route hint road segments,%{public}d,routeType,%{public}d,stepType,%{public}d
 -[CLLocationInternalClient setMapMatchingRouteHint:count:routingType:stepType:]_block_invoke
 CoreLocation: #Spi,RouteHintError,Couldn't set map-matching route hint!
+-[CLLocationInternalClient setTrackRunHint:]
+CoreLocation: #Spi,CLTR,CLTrackRunHint received,framework side
+-[CLLocationInternalClient setTrackRunHint:]_block_invoke
+CoreLocation: #Spi,CLTR,TrackRunHintError,Couldn't set track run hint!
 -[CLLocationInternalClient getAccessoryTypeBitSet]_block_invoke
 CoreLocation: #Spi,getAccessoryTypeBitSet,failed
 -[CLLocationInternalClient getAccessoryTypeBitSet]
@@ -2309,6 +2350,8 @@ void CLSetMapMatchingRouteHint(CLClientLocationRouteHintType, CLClientLocationRo
 CoreLocation: RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d,stepType,%d
 void CLSetRouteHintsForMapMatching(CLClientLocationRouteHintType, CLMapsRouteHint *, int)
 CoreLocation: RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d
+void CLSetTrackRunHint(CLTrackRunHint *)
+CoreLocation: TrackRunHint,CLSetTrackRunHint,received,MCTime,%{public}.1lf,lane,%{private}d,notification,%{private}d
 int32_t CLGetAccessoryTypeBitSet()
 CoreLocation: CLGetAccessoryTypeBitSet
 CLClientPASCDTransmissionState CLGetAccessoryPASCDTransmissionState()
@@ -2464,6 +2507,7 @@ Registered
 CLBundleKeyValueCache
 CLSystemService
 CLIsFindMyiPhone
+CLLaunchTarget
 CLIsCoreRoutine
 CLEmergencyService
 CLPlaceInference.m
@@ -2561,6 +2605,7 @@ kCLLocationCodingKeyFromExternalAccessory
 kCLLocationCodingKeyIntegrity
 kCLLocationCodingKeyGroundAltitude
 kCLLocationCodingKeyFusionInfo
+kCLLocationCodingKeyTrackRunInfo
 kCLLocationCodingKeyRawCoordinateLatitude
 kCLLocationCodingKeyRawCoordinateLongitude
 kCLLocationCodingKeyRawHorizontalAccuracy
@@ -2580,7 +2625,6 @@ kCLLocationCodingKeyGnssOdometerInfo
 suitability
 speed
 lifespan
-type
 rawLatitude
 rawLongitude
 rawReferenceFrame
@@ -2715,7 +2759,6 @@ Logs
 CrashReporter
 CLRangingPeer.m
 (macAddress & 0xFFFF000000000000) == 0
-macAddress
 [aDecoder allowsKeyedCoding]
 [aCoder allowsKeyedCoding]
 Peer:%@ hasKey:%s
@@ -2864,6 +2907,7 @@ VehicleData
 MatchInfo
 GroundAltitude
 FusionInfo
+TrackRunInfo
 CLVisitExtensions
 _CLPlaceInferenceExtensions
 _CLEstimatedLocationExtensions
@@ -2881,6 +2925,7 @@ CLLocationMatchInfo
 CLFindMyAccessoryRangingManager
 CLLocationPushServiceExtensionHostContext
 CLLocationPushServiceExtensionHostXPCInterface
+CLLocationTrackRunInfo
 CLFindMyAccessoryManager
 CLRegulatoryConfig
 CLClientTypesPrivate
@@ -2977,9 +3022,12 @@ CLFindMyAccessoryFragmentAccumulator
 _CLVLLocalizationDebugInfo
 initWithCurrentRunLoopAndIdentifier:
 UTF8String
+containsObject:
 async:
 mainBundle
 objectForInfoDictionaryKey:
+objectForKey:
+stringWithFormat:
 dictionary
 setObject:forKeyedSubscript:
 errorWithDomain:code:userInfo:
@@ -2997,7 +3045,6 @@ initWithCapacity:
 addObject:
 archivedDataWithRootObject:requiringSecureCoding:error:
 length
-objectForKey:
 intValue
 stringWithUTF8String:
 initWithUUIDString:
@@ -3107,7 +3154,6 @@ T@"NSXPCConnection",&,N,V_connection
 T@,N,V_delegate
 T@"CLLocationManagerRoutine",N,V_locationManagerRoutine
 TB,N,V_updating
-stringWithFormat:
 initWithQueue:
 locationManagerRoutineProxy
 setLocationManagerRoutineProxy:
@@ -3211,6 +3257,8 @@ courtesyPromptNeeded
 setCourtesyPromptNeeded:
 isAuthorizedForWidgetUpdates
 setIsAuthorizedForWidgetUpdates:
+trackRunInfoEnabled
+setTrackRunInfoEnabled:
 updateState:
 dumpState:withSize:hints:
 _state
@@ -3362,7 +3410,6 @@ sortDescriptorWithKey:ascending:
 arrayWithObjects:
 sortUsingDescriptors:
 beaconIdentityConstraint
-containsObject:
 initForReadingFromData:error:
 decodeObjectOfClasses:forKey:
 finishDecoding
@@ -3539,6 +3586,7 @@ technologiesInUse
 _zAxisStatistics
 isAuthorizedForPreciseLocation
 requestWhenInUseAuthorizationWithPrompt
+requestWhenInUseAuthorizationWithPurposeKey:
 requestAlwaysAuthorization
 _requestTemporaryFullAccuracyWithUsageDescription:
 requestTemporaryPreciseLocationAuthorizationWithPurposeKey:
@@ -3580,6 +3628,8 @@ _groundAltitudeEnabled
 TB,N,G_isGroundAltitudeEnabled,S_setGroundAltitudeEnabled:
 _isFusionInfoEnabled
 _setFusionInfoEnabled:
+isTrackRunInfoEnabled
+TB,N,GisTrackRunInfoEnabled,SsetTrackRunInfoEnabled:
 startMonitoringVisits
 stopMonitoringVisits
 _startLeechingVisits
@@ -3747,6 +3797,28 @@ initWithCalendarIdentifier:
 dateFromComponents:
 components:fromDate:toDate:options:
 year
+initWithLapInfo:laneNumber:laneCount:trackId:estimatedLaneNumber:estimatedLaneConfidence:trackProximity:
+lapInfo
+laneNumber
+laneCount
+trackId
+estimatedLaneNumber
+estimatedLaneConfidence
+trackProximity
+_estimatedLaneConfidence
+_trackProximity
+_laneNumber
+_laneCount
+_trackId
+_estimatedLaneNumber
+_lapInfo
+T{?=iddddd{?=dd}dd},R,N,V_lapInfo
+Tq,R,N,V_laneNumber
+Tq,R,N,V_laneCount
+T@"NSNumber",R,N,V_trackId
+Tq,R,N,V_estimatedLaneNumber
+Ti,R,N,V_estimatedLaneConfidence
+Ti,R,N,V_trackProximity
 initWithMaxBytesPerUUID:
 initAccumulator
 convertDataStatusToString:
@@ -3887,6 +3959,9 @@ performAggressiveScanForTrackingAvoidance
 performHELEScanForTrackingAvoidance
 performAggressiveScanForDurianService
 fetchStatusOfUTEnablementRequirements
+fetchAISForTAUnknownBeacon:macAddress:deviceType:
+stageTADetection:deviceType:
+forceSurfaceStagedDetections:deviceType:
 initRangingOnDevice:macAddress:
 deinitRangingOnDevice:
 configureRangingOnDevice:macAddress:countryCode:uwbChannel:acqPreamble:trackingPreamble:interval:
@@ -3924,8 +3999,8 @@ defaultCLClientLocationPrivate
 latitude_deg
 longitude_deg
 altitude_m
-timestamp_s
 odometer_m
+timestamp_s
 signalEnvironmentType
 mutableCopy
 removeObjectsInRange:
@@ -4444,6 +4519,7 @@ setStatusBarIconEnabledForEntityClass:enabled:replyBlock:
 getStatusBarIconEnabledForEntityClass:replyBlock:
 getStatusBarIconState:
 setMapMatchingRouteHint:routingType:stepType:replyBlock:
+setTrackRunHint:replyBlock:
 getAccessoryTypeBitSetWithReplyBlock:
 getAccessoryPASCDTransmissionStateWithReplyBlock:
 getOdometryBatchedLocationsWithReplyBlock:
@@ -4508,6 +4584,7 @@ deleteInterestZoneWithId:registeredForBundleId:orBundlePath:error:
 getLocationForBundleID:orBundlePath:dynamicAccuracyReductionEnabled:allowsAlteredAccessoryLocations:location:
 getGroundAltitudeForBundleID:orBundlePath:location:groundAltitude:
 setMapMatchingRouteHint:count:routingType:stepType:
+setTrackRunHint:
 getAccessoryTypeBitSet
 getAccessoryPASCDTransmissionState
 getOdometryBatchedLocations
@@ -4809,15 +4886,17 @@ _keyRollInterval
 TI,R,V_keyRollInterval
 TS,R,V_keysRemaining
 TS,R,V_keyCount
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:
+initWithUnsignedLongLong:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:
 initWithClientLocation:clientLocationPrivate:
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:coarseMetaData:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:coarseMetaData:
 initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:
 fMatchInfo
 fGroundAltitude
 fTrustedTimestamp
 fCoarseMetaData
 fFusionInfo
+fTrackRunInfo
 fRawHorizontalAccuracy
 fRawAltitude
 fRawVerticalAccuracy
@@ -4862,7 +4941,7 @@ floor
 snapToResolution:
 propagateLocationToTime:
 iso6709Notation
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawCourseAccuracy:coarseMetaData:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawCourseAccuracy:coarseMetaData:
 T{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB},R,N
 T@"NSString",R,N
 T@"NSData",R,N
@@ -4881,6 +4960,8 @@ _fusionInfo
 T@"_CLLocationFusionInfo",R,N
 gnssOdometerInfo
 T@"CLLocationGnssOdometerInfo",R,N
+trackRunInfo
+T@"CLLocationTrackRunInfo",R,N
 valueWithCLLocationCoordinate2D:
 vuncCheckRequiredForUsability
 altitudeStitchingEnabled
@@ -5283,7 +5364,7 @@ v24@0:8q16
 v24@0:8@?16
 B40@0:8^v16Q24^{os_state_hints_s=I*II}32
 ^v16@0:8
-{_CLLocationManagerStateTrackerState="distanceFilter"d"desiredAccuracy"d"updatingLocation"B"requestingLocation"B"requestingRanging"B"updatingRanging"B"updatingHeading"B"headingFilter"d"allowsLocationPrompts"B"allowsAlteredAccessoryLocations"B"dynamicAccuracyReductionEnabled"B"previousAuthorizationStatusValid"B"previousAuthorizationStatus"i"limitsPrecision"B"activityType"q"pausesLocationUpdatesAutomatically"i"paused"B"allowsBackgroundLocationUpdates"B"showsBackgroundLocationIndicator"B"allowsMapCorrection"B"batchingLocation"B"updatingVehicleSpeed"B"updatingVehicleHeading"B"matchInfoEnabled"B"groundAltitudeEnabled"B"fusionInfoEnabled"B"courtesyPromptNeeded"B"isAuthorizedForWidgetUpdates"B}
+{_CLLocationManagerStateTrackerState="distanceFilter"d"desiredAccuracy"d"updatingLocation"B"requestingLocation"B"requestingRanging"B"updatingRanging"B"updatingHeading"B"headingFilter"d"allowsLocationPrompts"B"allowsAlteredAccessoryLocations"B"dynamicAccuracyReductionEnabled"B"previousAuthorizationStatusValid"B"previousAuthorizationStatus"i"limitsPrecision"B"activityType"q"pausesLocationUpdatesAutomatically"i"paused"B"allowsBackgroundLocationUpdates"B"showsBackgroundLocationIndicator"B"allowsMapCorrection"B"batchingLocation"B"updatingVehicleSpeed"B"updatingVehicleHeading"B"matchInfoEnabled"B"groundAltitudeEnabled"B"fusionInfoEnabled"B"courtesyPromptNeeded"B"isAuthorizedForWidgetUpdates"B"trackRunInfoEnabled"B}
 @64@0:8@16@24@32@40@48@56
 ^{__CLClient=}
 @"<CLLocationManagerDelegate>"
@@ -5361,6 +5442,9 @@ v20@0:8S16
 v32@0:8{shared_ptr<CLConnectionMessage>=^{CLConnectionMessage}^{__shared_weak_count}}16
 @"<CLFindMyAccessoryRangingManagerDelegate>"
 {unique_ptr<CLConnectionClient, std::default_delete<CLConnectionClient>>="__ptr_"{__compressed_pair<CLConnectionClient *, std::default_delete<CLConnectionClient>>="__value_"^{CLConnectionClient}}}
+@136@0:8{?=iddddd{?=dd}dd}16q96q104@112q120i128i132
+{?=iddddd{?=dd}dd}16@0:8
+{?="lapCount"i"currentLapStartTime"d"currentLapDurationInSeconds"d"currentLapDistanceInMeters"d"previousLapDurationInSeconds"d"previousLapDistanceInMeters"d"previousLapPositionAtCompletionInDegrees"{?="latitude"d"longitude"d}"currentTrackRunSessionDurationInSeconds"d"currentTrackRunSessionDistanceInMeters"d}
 @24@0:8Q16
 @48@0:8@16{basic_string<char, std::char_traits<char>, std::allocator<char>>={__compressed_pair<std::basic_string<char>::__rep, std::allocator<char>>={__rep=(?={__long=QQ*}{__short=(?=Cc)[23c]}{__raw=[3Q]})}}}24
 v32@0:8r*16@24
@@ -5371,6 +5455,7 @@ v28@0:8C16@20
 v28@0:8I16@20
 v28@0:8@16I24
 v32@0:8I16I20@24
+v40@0:8@16@24@32
 v52@0:8@16@24C32C36C40C44S48
 v28@0:8@16S24
 @"<CLFindMyAccessoryManagerDelegate>"
@@ -5378,7 +5463,7 @@ v28@0:8@16S24
 B40@0:8@16@24^@32
 B24@0:8B16i20
 {unique_ptr<CLRegulatoryConfigInternal, std::default_delete<CLRegulatoryConfigInternal>>="__ptr_"{__compressed_pair<CLRegulatoryConfigInternal *, std::default_delete<CLRegulatoryConfigInternal>>="__value_"^{CLRegulatoryConfigInternal}}}
-{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}16@0:8
+{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}16@0:8
 d24@0:8@16
 d24@0:8d16
 @104@0:8{?=ddddddddddi}16
@@ -5449,7 +5534,6 @@ v36@0:8@16B24@?28
 v40@0:8@16d24@?32
 v44@0:8@16d24B32@?36
 v52@0:8@16@24d32B40@?44
-v40@0:8@16@24@32
 @"CLGeocoderInternal"
 @24@0:8r^{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16
 v200@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@?192
@@ -5503,6 +5587,7 @@ v24@0:8@?<v@?@"NSError"@"NSData">16
 v32@0:8I16B20@?<v@?@"NSError">24
 v28@0:8I16@?<v@?@"NSError"B>20
 v40@0:8@"NSData"16i24i28@?<v@?@"NSError">32
+v32@0:8@"NSData"16@?<v@?@"NSError">24
 v84@0:8B16@"NSString"20@"NSString"28{?=[8I]}36B68B72@?<v@?@"NSError">76
 v28@0:8i16@?<v@?@"NSError">20
 v44@0:8i16@"NSString"20@"NSString"28@?<v@?@"NSError">36
@@ -5535,6 +5620,7 @@ B48@0:8@16@24@32^@40
 C48@0:8r^{__CFString=}16r^{__CFString=}24C32C36^{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}40
 C48@0:8r^{__CFString=}16r^{__CFString=}24@32^{?=dddi}40
 v36@0:8^{?=Qdddd}16i24i28i32
+v24@0:8^{?=dii}16
 C24@0:8B16I20
 C28@0:8^B16I24
 C76@0:8C16r^{__CFString=}20r^{__CFString=}28{?=[8I]}36C68C72
@@ -5584,14 +5670,15 @@ v48@0:8@16@24@32@40
 @36@0:8@16I24S28S32
 @192@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16
 @200@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192
-@592@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192
-@600@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192@592
+@720@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192
+@728@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192@720
 @216@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208
-@284@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232d240d248i256d260d268@276
-@292@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232d240d248i256d260d268@276@284
+@292@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240d248d256i264d268d276@284
+@300@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240d248d256i264d268d276@284@292
 @"CLLocationMatchInfo"
 @"_CLLocationGroundAltitude"
 @"_CLLocationFusionInfo"
+@"CLLocationTrackRunInfo"
 @"CLLocationGnssOdometerInfo"
 @24@0:8q16
 @24@0:8B16B20
@@ -5602,7 +5689,7 @@ v48@0:8@16@24@32@40
 @104@0:8{CLLocationCoordinate2D=dd}16d32d40d48d56d64d72d80@88@96
 {?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@0:8
 @24@0:8d16
-@248@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232@240
+@256@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240@248
 @208@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200
 @28@0:8q16B24
 @"CLEmergencyLocationUsabilityCriteria"
@@ -5630,7 +5717,7 @@ v32@0:8Q16C24S28
 @"NSMutableData"
 @60@0:8d16d24d32d40d48i56
 Q40@0:8Q16Q24Q32
-{CLRacingRoute="fDistanceCalculator"{CLDistanceCalc="fM"d"fN"d"fRefLatRads"d"fRefLatDegs"d"fCosRefLat"d}"fSignalEnvironmentType"i"fWorkoutActivity"i"fRoutePoints"@"NSMutableArray""fRouteBoundingBox"{RouteBoundingBox="fMinLatitude_deg"d"fMaxLatitude_deg"d"fMinLongitude_deg"d"fMaxLongitude_deg"d"fRows"i"fColumns"i}"fRouteMatrixIndexVec"{vector<std::vector<std::pair<int, int>>, std::allocator<std::vector<std::pair<int, int>>>>="__begin_"^v"__end_"^v"__end_cap_"{__compressed_pair<std::vector<std::pair<int, int>> *, std::allocator<std::vector<std::pair<int, int>>>>="__value_"^v}}"fRaceStartPointOnCurrentRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRaceStartPointOnReferenceRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastOnRouteDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastProjectedDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRoutePointsArrayInitialized"B"fRecoveryMode"B"fRaceStartPointDetected"B"fRaceEndPointDetected"B"fUserIsOffRoute"B"fProjectedOnNearestPoint"B"fRaceSessionExpired"B"fRollingBufferReachedEndOfReferenceRoute"B"fRouteConfigurationSuccessful"B"fRacingRouteAnalyticsSent"B"fPrematureRaceEndDetected"B"fReferenceRouteTotalLengthDetermined"B"fLocationPointIsOutsideOfAcceptedRange"B"fLocationPointNotMatched"B"fRoutePointsBufferSize"i"fNumberOfRoutePointsToAdd"i"fOffRouteGraceDuration_s"i"fMatchedPointCounter"i"fReferenceRouteDataPointCounter"i"fCurrentRouteDataPointCounter"i"fOffRouteDataPointCounter"i"fInutileDataPointCounter"i"fRollingBufferUpdateCounter"i"fLastMatchedPointIndex"i"fLastMatchedPointIndexOnReferenceRoute"i"fRollingBufferStartIndexOnReferenceRoute"i"fMatrixCellIndexForLastMatchedPoint"i"fReferenceRouteTotalLength_m"d"fTimestampOfLastMatchedPointOnReferenceRoute_s"d"fRegisteredTimeAtThresholdDistance_s"d"fEndOfRaceTimeThreshold_s"d"fNearestNeighborMaximumAcceptedDistance_m"d}
+{CLRacingRoute="fDistanceCalculator"{CLDistanceCalc="fM"d"fN"d"fRefLatRads"d"fRefLatDegs"d"fCosRefLat"d}"fSignalEnvironmentType"i"fWorkoutActivity"i"fRoutePoints"@"NSMutableArray""fRouteBoundingBox"{RouteBoundingBox="fMinLatitude_deg"d"fMaxLatitude_deg"d"fMinLongitude_deg"d"fMaxLongitude_deg"d"fRows"i"fColumns"i}"fRouteMatrixIndexVec"{vector<std::vector<std::pair<int, int>>, std::allocator<std::vector<std::pair<int, int>>>>="__begin_"^v"__end_"^v"__end_cap_"{__compressed_pair<std::vector<std::pair<int, int>> *, std::allocator<std::vector<std::pair<int, int>>>>="__value_"^v}}"fRaceStartPointOnCurrentRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRaceStartPointOnReferenceRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastOnRouteDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastProjectedDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRoutePointsArrayInitialized"B"fRecoveryMode"B"fRaceStartPointDetected"B"fRaceEndPointDetected"B"fUserIsOffRoute"B"fProjectedOnNearestPoint"B"fRaceSessionExpired"B"fRollingBufferReachedEndOfReferenceRoute"B"fRouteConfigurationSuccessful"B"fRacingRouteAnalyticsSent"B"fPrematureRaceEndDetected"B"fReferenceRouteTotalLengthDetermined"B"fLocationPointIsOutsideOfAcceptedRange"B"fLocationPointNotMatched"B"fRoutePointsBufferSize"i"fNumberOfRoutePointsToAdd"i"fOffRouteGraceDuration_s"i"fMatchedPointCounter"i"fReferenceRouteDataPointCounter"i"fCurrentRouteDataPointCounter"i"fOffRouteDataPointCounter"i"fInutileDataPointCounter"i"fRollingBufferUpdateCounter"i"fLastMatchedPointIndex"i"fLastMatchedPointIndexOnReferenceRoute"i"fRollingBufferStartIndexOnReferenceRoute"i"fMatrixCellIndexForLastMatchedPoint"i"fRaceStartLineProximityIndex"i"fReferenceRouteTotalLength_m"d"fTimestampOfLastMatchedPointOnReferenceRoute_s"d"fRegisteredTimeAtThresholdDistance_s"d"fEndOfRaceTimeThreshold_s"d"fNearestNeighborMaximumAcceptedDistance_m"d}
 @56@0:8@16@24@32@40B48B52
 @"_CLRangingPeer"
 @52@0:8@16@24@32@40B48
@@ -5668,10 +5755,11 @@ v32@0:8{CGSize=dd}16
 {?="covarianceSizeInBytes"Q"covarianceSize"C"orientationCovOffset"C"orientationDof"C"gyroBiasCovOffset"C"gyroBiasDof"C"velocityCovOffset"C"velocityDof"C"accelBiasCovOffset"C"accelBiasDof"C"positionCovOffset"C"positionDof"C}
 @"NSMutableDictionary"
 @"_CLVLLocalizationMaps488Details"
-@(#)PROGRAM:CoreLocation  PROJECT:CoreLocation-2780.0.17.0.2
+@(#)PROGRAM:CoreLocation  PROJECT:CoreLocation-2780.0.27
 NSt3__120__shared_ptr_emplaceI19CLConnectionMessageNS_9allocatorIS1_EEEE
 @<@A
 MbP?=
+u@-C
 A@15CLNameValuePair
 @10BasicMutex
 5Mutex
@@ -5713,8 +5801,8 @@ Location callback block not executed in a timely manner!
 Discarding message for event %{private}d because of too many unprocessed messages
 received client will resign active notification
 received client did become active notification
-Missing UsageDescription key for requested authorization: %{public}d
 Invalid requested authorization: %{public}d
+Missing UsageDescription key for requested authorization: %{public}d
 CL: CLClientIsLocationServicesEnabled
 {"msg%{public}.0s":"CLClientIsLocationServicesEnabled", "event":%{public, location:escape_only}s}
 This method can cause UI unresponsiveness if invoked on the main thread. Instead, consider waiting for the `-locationManagerDidChangeAuthorization:` callback and checking `authorizationStatus` first.
@@ -6045,6 +6133,7 @@ CLRR,convertRouteDataToMatrix,input data array is empty
 CLRR,convertRouteDataToMatrix,input data point is null at index,%{public}d
 CLRR,convertRouteDataToMatrix,invalid coordinates,lat,%{private}.7lf,lon,%{private}.7lf,at index,%{public}d
 CLRR,convertRouteDataToMatrix,invalid reference point,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,at index,%{public}d
+CLRR,convertRouteDataToMatrix,raceStartLineProximityIndex,%{public}d
 CLRR,convertRouteDataToMatrix,boxRows,%{public}d,boxColumns,%{public}d,boxMinLat,%{private}.7lf,boxMaxLat,%{private}.7lf,boxMinLon,%{private}.7lf,boxMaxLon,%{private}.7lf
 CLRR,convertRouteDataToMatrix,time,%{public}.1lf,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,odom,%{public}.2lf,signalEnv,%{public}d,pointCount,%{public}d
 CLRR,convertRouteDataToMatrix,invalid index for location,lat,%{private}.7lf,lon,%{private}.7lf
@@ -6075,8 +6164,9 @@ CLRR,processLocationPoint,processing matrix cell index,%{public}d
 CLRR,processLocationPoint,no points within the accepted distance in matrix cell index,%{public}d
 CLRR,processLocationPoint,no matched point is found in the current or neighboring cells.Skip this point.
 CLRR,processLocationPoint,index exceeded buffer range,last matched index,%{public}d,buffer size,%{public}d
+CLRR,processLocationPoint,invalid raceStartLineProximityIndex,%{public}d
+CLRR,processLocationPoint,user joined the race at a wrong location,lastMatchedPointIndex,%{public}d,raceStartLineProximityIndex,%{public}d
 CLRR,processLocationPoint,invalid prematureRaceEndIndex,%{public}d
-CLRR,processLocationPoint,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CLRR,processLocationPoint,race start point already detected,most recent matched point jumped from head to tail of the reference route,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CLRR,processLocationPoint,pointType,%{public}d,last matched index,%{public}d
 CLRR,processLocationPoint,reached end of reference route
@@ -6274,6 +6364,8 @@ Coarse MetaData cannot be decoded while reverse geocoding location, error, %@
 #Spi,RouteHintError, Exceeded max number of route hint road segments (%{public}d > %{public}d)
 #Spi,RouteHint,LocationInternal,Received route hint road segments,%{public}d,routeType,%{public}d,stepType,%{public}d
 #Spi,RouteHintError,Couldn't set map-matching route hint!
+#Spi,CLTR,CLTrackRunHint received,framework side
+#Spi,CLTR,TrackRunHintError,Couldn't set track run hint!
 #Spi,getAccessoryTypeBitSet,failed
 #Spi,getAccessoryTypeBitSet,%d
 #Spi,getAccessoryPASCDTransmissionState,failed
@@ -6346,6 +6438,9 @@ RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d,stepType,%d
 CL: CLSetRouteHintsForMapMatching
 {"msg%{public}.0s":"CLSetRouteHintsForMapMatching", "event":%{public, location:escape_only}s}
 RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d
+CL: CLSetTrackRunHint
+{"msg%{public}.0s":"CLSetTrackRunHint", "event":%{public, location:escape_only}s}
+TrackRunHint,CLSetTrackRunHint,received,MCTime,%{public}.1lf,lane,%{private}d,notification,%{private}d
 CLGetAccessoryTypeBitSet
 CLGetAccessoryPASCDTransmissionState
 CLGetOdometryBatchedLocations
@@ -6490,9 +6585,10 @@ void CLClientHandleDidBecomeActiveNotification(CFNotificationCenterRef, void *, 
 CoreLocation: received client did become active notification
 kCLConnectionMessagePurposeKey
 kCLConnectionMessagePurpose
-void CLClientRequestAuthorization(CLClientRef, CLClientAuthorizationStatus)
-CoreLocation: Missing UsageDescription key for requested authorization: %{public}d
+kCLConnectionMessagePurposeIdentifierKey
+void CLClientRequestAuthorization(CLClientRef, CLClientAuthorizationStatus, CLNameValuePair &)
 CoreLocation: Invalid requested authorization: %{public}d
+CoreLocation: Missing UsageDescription key for requested authorization: %{public}d
 kCLConnectionMessageStatusKey
 kCLConnectionMessageRequestAuthorization
 kCLConnectionMessagePurposeIdentifierKey
@@ -6601,6 +6697,7 @@ kCLConnectionMessageAuthorizedForWidgetUpdatesKey
 kCLConnectionMessageMatchInfoEnabled
 kCLConnectionMessageGroundAltitudeEnabled
 kCLConnectionMessageFusionInfoEnabled
+kCLConnectionMessageTrackRunInfoEnabled
 kCLConnectionMessageAllowsLocationPrompts
 kCLConnectionMessageShowLocationPrompt
 kCLConnectionMessageMarkAsHavingReceivedLocation
@@ -6653,6 +6750,7 @@ com.apple.locationd.Core
 Client
 Generic
 ClientsCohortWorkLoop
+/System/Library/LocationBundles/RemindersAlerts.bundle
 kCLConnectionMessageCompensatedLocation
 kCLClientEventKey
 void _CLClientHandleMessage(CLClientRef, std::shared_ptr<CLConnectionMessage>)
@@ -6735,6 +6833,7 @@ groundAltitudeEnabled
 fusionInfoEnabled
 courtesyPromptNeeded
 isAuthorizedForWidgetUpdates
+trackRunInfoEnabled
 -[CLLocationManagerStateTracker updateState:]
 allStates
 _CLLocationManagerStateTrackerState
@@ -6868,6 +6967,7 @@ CoreLocation: could not get updated vehicle speed
 CoreLocation: could not get updated vehicle heading
 kCLConnectionMessageSignificantLocationVisitKey
 kCLConnectionMessageSignificantLocationVisitStateKey
+purposeKey
 handler
 +[CLLocationManager dumpDiagnosticFilesWithHandler:]
 CoreLocation: dumpDiagnosticFiles called, trying to make an xpc call
@@ -6924,6 +7024,7 @@ NSLocationAlwaysUsageDescription
 NSLocationWhenInUseUsageDescription
 NSLocationAlwaysAndWhenInUseUsageDescription
 NSLocationTemporaryUsageDescriptionDictionary
+NSLocationAuthorizationPurposeDescriptionDictionary
 NSLocationWildernessSafetyUsageDescriptionDictionary
 NSLocationDefaultAccuracyReduced
 NSLocationInterestZones
@@ -7050,6 +7151,22 @@ private.HomeKit.scene.homeName
 private.MicroLocation.truthtag.identifier
 private.MicroLocation.forced.recordingRequest
 private.MicroLocation.recordingTriggerUUID
+trackRunLapCount
+trackRunCurrentLapStartTime
+trackRunCurrentLapDurationInSeconds
+trackRunCurrentLapDistanceInMeters
+trackRunPreviousLapDurationInSeconds
+trackRunPreviousLapDistanceInMeters
+trackRunPreviousLapPositionAtCompletionInDegreesLatitude
+trackRunPreviousLapPositionAtCompletionInDegreesLongitude
+trackRunCurrentTrackRunSessionDurationInSeconds
+trackRunCurrentTrackRunSessionDistanceInMeters
+trackRunLaneNumber
+trackRunLaneCount
+trackRunTrackId
+trackRunEstimatedLaneNumber
+trackRunEstimatedLaneConfidence
+trackRunTrackProximity
 UTDisableReasonBTOff
 UTDisableReasonLocationServicesOff
 UTDisableReasonTrackingNotificationsDisallowed
@@ -7181,6 +7298,11 @@ DurianManagement/PerformAggressiveScanForTrackingAvoidance
 DurianManagement/PerformHELEScanForTrackingAvoidance
 DurianManagement/PerformAggressiveScanForDurianService
 DurianManagement/FetchStatusOfUTEnablementRequirements
+macAddress
+DurianManagement/FetchAISForTAUnknownBeacon
+type
+DurianManagement/StageTADetection
+DurianManagement/ForceSurfaceStagedDetections
 -[CLFindMyAccessoryManager initRangingOnDevice:macAddress:]
 CoreLocation: Init Ranging on device: %@
 -[CLFindMyAccessoryManager deinitRangingOnDevice:]
@@ -7286,6 +7408,7 @@ CoreLocation: CLRR,convertRouteDataToMatrix,input data array is empty
 CoreLocation: CLRR,convertRouteDataToMatrix,input data point is null at index,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid coordinates,lat,%{private}.7lf,lon,%{private}.7lf,at index,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid reference point,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,at index,%{public}d
+CoreLocation: CLRR,convertRouteDataToMatrix,raceStartLineProximityIndex,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,boxRows,%{public}d,boxColumns,%{public}d,boxMinLat,%{private}.7lf,boxMaxLat,%{private}.7lf,boxMinLon,%{private}.7lf,boxMaxLon,%{private}.7lf
 CoreLocation: CLRR,convertRouteDataToMatrix,time,%{public}.1lf,lat,%{private}.7lf,lon,%{private}.7lf,alt,%{private}.2lf,odom,%{public}.2lf,signalEnv,%{public}d,pointCount,%{public}d
 CoreLocation: CLRR,convertRouteDataToMatrix,invalid index for location,lat,%{private}.7lf,lon,%{private}.7lf
@@ -7323,8 +7446,9 @@ CoreLocation: CLRR,processLocationPoint,processing matrix cell index,%{public}d
 CoreLocation: CLRR,processLocationPoint,no points within the accepted distance in matrix cell index,%{public}d
 CoreLocation: CLRR,processLocationPoint,no matched point is found in the current or neighboring cells.Skip this point.
 CoreLocation: CLRR,processLocationPoint,index exceeded buffer range,last matched index,%{public}d,buffer size,%{public}d
+CoreLocation: CLRR,processLocationPoint,invalid raceStartLineProximityIndex,%{public}d
+CoreLocation: CLRR,processLocationPoint,user joined the race at a wrong location,lastMatchedPointIndex,%{public}d,raceStartLineProximityIndex,%{public}d
 CoreLocation: CLRR,processLocationPoint,invalid prematureRaceEndIndex,%{public}d
-CoreLocation: CLRR,processLocationPoint,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CoreLocation: CLRR,processLocationPoint,race start point already detected,most recent matched point jumped from head to tail of the reference route,skip this data point to avoid premature race ending,reference route count,%{public}lu,premature race ending index,%{public}d,last matched index,%{public}d,matched index before update,%{public}d
 CoreLocation: CLRR,processLocationPoint,pointType,%{public}d,last matched index,%{public}d
 CoreLocation: CLRR,processLocationPoint,reached end of reference route
@@ -7782,8 +7906,8 @@ Unplugged!
 void CLLog::logHeader()
 CoreLocation-%s
 locationd was compiled on %s at %s
-Oct  6 2022
-19:50:27
+Nov 10 2022
+00:22:46
 %s @ system model %s / version %s
 /usr/libexec/locationd @ system model %s / version %s
 IOPlatformSerialNumber: %s
@@ -7955,6 +8079,10 @@ CoreLocation: #Spi,RouteHintError, Exceeded max number of route hint road segmen
 CoreLocation: #Spi,RouteHint,LocationInternal,Received route hint road segments,%{public}d,routeType,%{public}d,stepType,%{public}d
 -[CLLocationInternalClient setMapMatchingRouteHint:count:routingType:stepType:]_block_invoke
 CoreLocation: #Spi,RouteHintError,Couldn't set map-matching route hint!
+-[CLLocationInternalClient setTrackRunHint:]
+CoreLocation: #Spi,CLTR,CLTrackRunHint received,framework side
+-[CLLocationInternalClient setTrackRunHint:]_block_invoke
+CoreLocation: #Spi,CLTR,TrackRunHintError,Couldn't set track run hint!
 -[CLLocationInternalClient getAccessoryTypeBitSet]_block_invoke
 CoreLocation: #Spi,getAccessoryTypeBitSet,failed
 -[CLLocationInternalClient getAccessoryTypeBitSet]
@@ -7980,6 +8108,8 @@ void CLSetMapMatchingRouteHint(CLClientLocationRouteHintType, CLClientLocationRo
 CoreLocation: RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d,stepType,%d
 void CLSetRouteHintsForMapMatching(CLClientLocationRouteHintType, CLMapsRouteHint *, int)
 CoreLocation: RouteHints,CLSetRouteHintsForMapMatching,received,%lu,routeType,%d
+void CLSetTrackRunHint(CLTrackRunHint *)
+CoreLocation: TrackRunHint,CLSetTrackRunHint,received,MCTime,%{public}.1lf,lane,%{private}d,notification,%{private}d
 int32_t CLGetAccessoryTypeBitSet()
 CoreLocation: CLGetAccessoryTypeBitSet
 CLClientPASCDTransmissionState CLGetAccessoryPASCDTransmissionState()
@@ -8135,6 +8265,7 @@ Registered
 CLBundleKeyValueCache
 CLSystemService
 CLIsFindMyiPhone
+CLLaunchTarget
 CLIsCoreRoutine
 CLEmergencyService
 CLPlaceInference.m
@@ -8232,6 +8363,7 @@ kCLLocationCodingKeyFromExternalAccessory
 kCLLocationCodingKeyIntegrity
 kCLLocationCodingKeyGroundAltitude
 kCLLocationCodingKeyFusionInfo
+kCLLocationCodingKeyTrackRunInfo
 kCLLocationCodingKeyRawCoordinateLatitude
 kCLLocationCodingKeyRawCoordinateLongitude
 kCLLocationCodingKeyRawHorizontalAccuracy
@@ -8251,7 +8383,6 @@ kCLLocationCodingKeyGnssOdometerInfo
 suitability
 speed
 lifespan
-type
 rawLatitude
 rawLongitude
 rawReferenceFrame
@@ -8386,7 +8517,6 @@ Logs
 CrashReporter
 CLRangingPeer.m
 (macAddress & 0xFFFF000000000000) == 0
-macAddress
 [aDecoder allowsKeyedCoding]
 [aCoder allowsKeyedCoding]
 Peer:%@ hasKey:%s
@@ -8535,6 +8665,7 @@ VehicleData
 MatchInfo
 GroundAltitude
 FusionInfo
+TrackRunInfo
 CLVisitExtensions
 _CLPlaceInferenceExtensions
 _CLEstimatedLocationExtensions
@@ -8552,6 +8683,7 @@ CLLocationMatchInfo
 CLFindMyAccessoryRangingManager
 CLLocationPushServiceExtensionHostContext
 CLLocationPushServiceExtensionHostXPCInterface
+CLLocationTrackRunInfo
 CLFindMyAccessoryManager
 CLRegulatoryConfig
 CLClientTypesPrivate
@@ -8646,292 +8778,293 @@ _CLMicroLocationSourcesStatisticsResult
 _CLVIOEstimation
 CLFindMyAccessoryFragmentAccumulator
 _CLVLLocalizationDebugInfo
-setWithObject:
-makeObjectsPerformSelector:
-containsObject:
-processInfo
-numberWithDouble:
-dateFromComponents:
-setWithObjects:
-setExportedObject:
-geoFenceMapRegion
-containsString:
-addObject:
-numberWithInt:
-processName
-dateWithTimeIntervalSinceReferenceDate:
-findMyAccessoryFirmwareUpdateManager:didFailWithError:forDevice:
-isEqualToNumber:
-initWithCurrentRunLoopAndIdentifier:
-locationManager:didSmoothLocations:ofType:
-UTF8String
-geoMapItemHandle
-initWithSet:copyItems:
-sharedInstance
+setWithArray:
 mapItem
+boolValue
 numberWithInteger:
-unarchivedArrayOfObjectsOfClass:fromData:error:
-containsValueForKey:
 setObject:forKey:
-findMyAccessoryFirmwareUpdateManager:didFetchWhetherLocalFirmwareAssetIsInUseForProductGroup:andProductNumber:withResult:
-initWithCurrentRunLoopAndIdentifier:bePermissive:
+decodeBoolForKey:
+findMyAccessoryFirmwareUpdateManager:personalizationRequestForDevice:completedWithInfo:andError:
+initWithDictionary:copyItems:
+setWithObject:
 setFormatterBehavior:
-sharedService
-contentsOfDirectoryAtPath:error:
-street
+bundleIdentifier
+distantPast
 propertyListWithData:options:format:error:
 mapItemStorageForGEOMapItem:
 setObject:forKeyedSubscript:
-addObserver:selector:name:object:
 isEqualToString:
-findMyAccessoryFirmwareUpdateManager:firmwareUpdateRequestForDevice:completedWithError:
-numberWithUnsignedChar:
-boolValue
-unarchivedObjectOfClass:fromData:error:
-resolveMapItemLocallyFromHandle:completionHandler:
-UUIDString
-distantFuture
-stringByAppendingPathComponent:
-decodeBoolForKey:
-numberWithUnsignedInt:
-isFileURL
-findMyAccessoryFirmwareUpdateManager:personalizationRequestForDevice:completedWithInfo:andError:
-initWithDictionary:copyItems:
-bundleIdentifier
-shortValue
-distantPast
-stringByAppendingPathExtension:
-numberWithUnsignedInteger:
 findMyAccessoryFirmwareUpdateManager:useDefaultAssetRequestForProductGroup:andProductNumber:completedWithError:
-showCalibrationAlert
+numberWithUnsignedChar:
+resolveMapItemLocallyFromHandle:completionHandler:
+setWithObjects:
 bundlePath
 doesNotRecognizeSelector:
-decodeBytesForKey:returnedLength:
 initWithDomain:code:userInfo:
+decodeBytesForKey:returnedLength:
 copy
-queue
-stringByAppendingString:
 decodeDoubleForKey:
-numberWithUnsignedShort:
-domain
+numberWithUnsignedInt:
 findMyAccessoryFirmwareUpdateManager:useLocalAssetRequestForProductGroup:andProductNumber:completedWithError:
+isFileURL
+domain
+sharedInstance
 bundleWithPath:
-resume
 decodeFloatForKey:
-unionSet:
-stringByDeletingPathExtension
+numberWithUnsignedInteger:
 bytes
-stringFromDate:
-objCType
 doubleValue
-objectAtIndex:
+queue
+sharedService
+street
+unarchivedArrayOfObjectsOfClass:fromData:error:
 decodeInt32ForKey:
-uniqueIdentifier
-stringWithFormat:
+numberWithUnsignedShort:
 allKeys
-setHandler:
-objectAtIndexedSubscript:
-_cl_ticketForForwardGeocodeAddressDictionary:maxResults:traits:
+resume
 initForReadingFromData:error:
-unsignedIntValue
+stringByAppendingPathComponent:
 allObjects
-path
+_cl_ticketForForwardGeocodeAddressDictionary:maxResults:traits:
+unarchivedObjectOfClass:fromData:error:
 decodeInt64ForKey:
-setHeading:
+shortValue
+objCType
+stringByAppendingPathExtension:
 _cl_ticketForForwardGeocodeString:maxResults:traits:
+objectAtIndex:
 decodeIntForKey:
 allocWithZone:
-unsignedIntegerValue
-stringWithString:
-pathExtension
-isValid
-stringWithUTF8String:
-objectForInfoDictionaryKey:
-reverseObjectEnumerator
+showCalibrationAlert
+setHandler:
+stringByAppendingString:
+objectAtIndexedSubscript:
 _cl_ticketForReverseGeocodeLocation:traits:
 decodeIntegerForKey:
-unsignedLongLongValue
-iso3166CountryCode
-objectForKey:
-unsignedLongValue
+path
+stringByDeletingPathExtension
+setHeading:
 decodeObject
-unsignedShortValue
-objectForKeyedSubscript:
+isValid
+pathExtension
+stringFromDate:
+objectForInfoDictionaryKey:
+reverseObjectEnumerator
 initWithArray:
+iso3166CountryCode
 initWithGEOCoordinate:
-decodeObjectForKey:
 cancel
+unionSet:
+stringWithFormat:
+decodeObjectForKey:
 eastLng
-setRemoteObjectInterface:
 decodeObjectOfClass:forKey:
-lastObject
+objectForKey:
 allowsKeyedCoding
-initWithUUIDString:
+uniqueIdentifier
+objectForKeyedSubscript:
 decodeObjectOfClasses:forKey:
-subdataWithRange:
-initWithUnderlyingQueue:bePermissive:
-lastPathComponent
+stringWithString:
+unsignedIntValue
+stringWithUTF8String:
+initWithUUIDString:
+setRemoteObjectInterface:
+lastObject
 decodeValueOfObjCType:at:
-setInterruptionHandler:
-submitWithHandler:networkActivity:
+unsignedIntegerValue
+initWithUnderlyingQueue:bePermissive:
 defaultCenter
 encodeBool:forKey:
+unsignedLongLongValue
 canonicalLanguageIdentifierFromString:
-setInvalidationHandler:
 getUUIDBytes:
-laterDate:
-submitWithRefinedHandler:networkActivity:
+lastPathComponent
+initWithUnsignedLongLong:
+unsignedLongValue
 defaultManager
 count
+setInterruptionHandler:
 encodeBytes:length:forKey:
 initWithCalendarIdentifier:
-getValue:
+unsignedShortValue
 encodeDouble:forKey:
-defaultTraits
+getValue:
 charValue
+defaultTraits
 countByEnumeratingWithState:objects:count:
-appendBytes:length:
+setInvalidationHandler:
 initWithCapacity:
+laterDate:
+subdataWithRange:
 encodeFloat:forKey:
-synchronousRemoteObjectProxyWithErrorHandler:
-length
-setSouthLat:
+appendBytes:length:
+ISOCountryCode
 encodeInt32:forKey:
-value:withObjCType:
 appendData:
 countryCode
-valueWithBytes:objCType:
+submitWithHandler:networkActivity:
+encodeInt64:forKey:
+submitWithRefinedHandler:networkActivity:
+length
+encodeInt:forKey:
+setSouthLat:
+getBytes:length:
+city
+handleFailureInFunction:file:lineNumber:description:
 lengthOfBytesUsingEncoding:
+clearDeviceDisplayLanguages
+findMyAccessoryRangingManager:didFailWithError:forDevice:
+encodeInteger:forKey:
 setByAddingObjectsFromArray:
 setSpeed:
 insertObject:atIndex:
-ticketForReverseGeocodeLocation:placeTypeLimit:traits:
-encodeInt64:forKey:
-encodeInt:forKey:
-getBytes:length:
-city
-instancesRespondToSelector:
-setClass:forSelector:argumentIndex:ofReply:
-timeIntervalSince1970
-handleFailureInFunction:file:lineNumber:description:
-findMyAccessoryRangingManager:didFailWithError:forDevice:
-setClasses:forSelector:argumentIndex:ofReply:
-encodeInteger:forKey:
-clearDeviceDisplayLanguages
-intValue
-mutableCopy
-appendString:
 handleFailureInMethod:object:file:lineNumber:description:
+appendString:
 getCharacters:range:
-timeIntervalSinceDate:
 finishDecoding
-sortDescriptorWithKey:ascending:
 encodeObject:
-localeIdentifier
-setCoarseMetadata:
-integerValue
-timeIntervalSinceReferenceDate
-locationSelectorDidSelectLocation:
+setClass:forSelector:argumentIndex:ofReply:
+instancesRespondToSelector:
+synchronousRemoteObjectProxyWithErrorHandler:
 fireInterval
-initWithMachServiceName:options:
+setClasses:forSelector:argumentIndex:ofReply:
 encodeObject:forKey:
-sortUsingDescriptors:
-localizedStringFromDate:dateStyle:timeStyle:
+mutableCopy
+intValue
+initWithMachServiceName:options:
+localeIdentifier
 encodeValueOfObjCType:at:
-westLng
-sortedArrayUsingDescriptors:
+setCoarseMetadata:
 currentCalendar
+integerValue
+value:withObjCType:
+locationSelectorDidSelectLocation:
 archivedDataWithRootObject:requiringSecureCoding:error:
-writeToURL:options:error:
-intendToSyncServiceWithName:
-source
-setCourse:
-scanHexInt:
-remoteObjectProxy
-interestedPartyIso3166CountryCodes
-year
-setTimeStyle:
+valueWithBytes:objCType:
+ticketForReverseGeocodeLocation:placeTypeLimit:traits:
+timeIntervalSince1970
+localizedStringFromDate:dateStyle:timeStyle:
 currentHandler
-scannerWithString:
-interfaceWithProtocol:
-remoteObjectProxyWithErrorHandler:
+timeIntervalSinceDate:
 array
+intendToSyncServiceWithName:
 _principalObject
+sortDescriptorWithKey:ascending:
 enumerateObjectsUsingBlock:
-setDateFormat:
-initWithName:
-removeObject:
+setCourse:
+remoteObjectProxy
+scanHexInt:
+timeIntervalSinceReferenceDate
 arrayWithCapacity:
+interestedPartyIso3166CountryCodes
+setTimeStyle:
+sortUsingDescriptors:
 hasEastLng
-setDateStyle:
-removeObjectForKey:
+initWithName:
+interfaceWithProtocol:
+scannerWithString:
+remoteObjectProxyWithErrorHandler:
 dictionary
 arrayWithObject:
-setDay:
 code
 errorWithDomain:code:userInfo:
-postalAddressWithDictionaryRepresentation:
-removeObjectsInRange:
+setDateFormat:
+sortedArrayUsingDescriptors:
+removeObject:
 arrayWithObjects:
-timezone
 firstObject
 hasNorthLat
-dictionaryWithDictionary:
+westLng
 compare:
+source
 data
-southLat
+dictionaryWithDictionary:
+setDateStyle:
+removeObjectForKey:
+arrayWithObjects:count:
+dictionaryWithObject:forKey:
+writeToURL:options:error:
+setDay:
+exportedInterface
+hasSouthLat
+postalAddressWithDictionaryRepresentation:
+completeRequestReturningItems:completionHandler:
+removeObjectsInRange:
+dataWithBytes:length:
+year
+dictionaryWithObjects:forKeys:count:
+components:fromDate:
 removeObserver:
 newTimer
-arrayWithObjects:count:
-hasSouthLat
-dictionaryWithObject:forKey:
-exportedInterface
-loiIdentifier
-dataWithBytes:length:
-completeRequestReturningItems:completionHandler:
-setMapRegion:
-dictionaryWithObjects:forKeys:count:
-northLat
-components:fromDate:
 dataWithCapacity:
 assertInside
 hasWestLng
-didReceiveLocationPushPayload:completion:
 components:fromDate:toDate:options:
+didReceiveLocationPushPayload:completion:
+loiIdentifier
 floatValue
 dataWithContentsOfURL:
-setDeviceLocation:
 async:
-serviceName
-ISOCountryCode
+setMapRegion:
+northLat
 componentsJoinedByString:
-setMonth:
 fetchPossibleTerritoriesForLocation:responseQueue:responseBlock:
 dismissCalibrationAlert
-setValue:forKey:
+timezone
+setDeviceLocation:
+southLat
+serviceName
+dataWithData:
+fileExistsAtPath:
+setMonth:
+dataWithLength:
+fileURLWithPath:
 setNextFireDelay:
 isDisputed
-setVerticalAccuracy:
-fileExistsAtPath:
-dataWithData:
+dataWithPropertyList:format:options:error:
+disputedTerritoryName
+fileURLWithPath:isDirectory:
+geoAddress
 setEastLng:
 main
 setNextFireDelay:interval:
-dataWithLength:
-mainBundle
-setWestLng:
-fileURLWithPath:
-setNorthLat:
-disputedTerritoryName
-setWithArray:
-dataWithPropertyList:format:options:error:
-fileURLWithPath:isDirectory:
-geoAddress
 horizontalUncertainty
 addDeviceDisplayLanguage:
-isEqualToData:
+containsObject:
+mainBundle
+dateFromComponents:
+setNorthLat:
+setValue:forKey:
+containsString:
+geoFenceMapRegion
+addObject:
 numberWithBool:
+dateWithTimeIntervalSinceReferenceDate:
+findMyAccessoryFirmwareUpdateManager:didFailWithError:forDevice:
+isEqualToData:
+initWithCurrentRunLoopAndIdentifier:
+setVerticalAccuracy:
+UTF8String
 setExportedInterface:
+makeObjectsPerformSelector:
+geoMapItemHandle
+processInfo
+numberWithDouble:
+containsValueForKey:
+initWithCurrentRunLoopAndIdentifier:bePermissive:
+findMyAccessoryFirmwareUpdateManager:didFetchWhetherLocalFirmwareAssetIsInUseForProductGroup:andProductNumber:withResult:
+setWestLng:
+processName
+initWithSet:copyItems:
+contentsOfDirectoryAtPath:error:
+setExportedObject:
+addObserver:selector:name:object:
+numberWithInt:
+isEqualToNumber:
+findMyAccessoryFirmwareUpdateManager:firmwareUpdateRequestForDevice:completedWithError:
+locationManager:didSmoothLocations:ofType:
+distantFuture
+UUIDString
 init
 dealloc
 locationManager:didUpdateLocations:
@@ -9074,6 +9207,8 @@ courtesyPromptNeeded
 setCourtesyPromptNeeded:
 isAuthorizedForWidgetUpdates
 setIsAuthorizedForWidgetUpdates:
+trackRunInfoEnabled
+setTrackRunInfoEnabled:
 updateState:
 dumpState:withSize:hints:
 identifier
@@ -9347,6 +9482,7 @@ isAuthorizedForPreciseLocation
 accuracyAuthorization
 requestWhenInUseAuthorization
 requestWhenInUseAuthorizationWithPrompt
+requestWhenInUseAuthorizationWithPurposeKey:
 requestAlwaysAuthorization
 _requestTemporaryFullAccuracyWithUsageDescription:
 _requestTemporaryFullAccuracyWithUsageDescription:completion:
@@ -9390,6 +9526,8 @@ _groundAltitudeEnabled
 TB,N,G_isGroundAltitudeEnabled,S_setGroundAltitudeEnabled:
 _isFusionInfoEnabled
 _setFusionInfoEnabled:
+isTrackRunInfoEnabled
+TB,N,GisTrackRunInfoEnabled,SsetTrackRunInfoEnabled:
 startMonitoringVisits
 stopMonitoringVisits
 _startLeechingVisits
@@ -9510,6 +9648,28 @@ fetchFirmwareVersionFromDevice:
 _delegateQueue
 T@"<CLFindMyAccessoryRangingManagerDelegate>",W,N,V_delegate
 _initWithRTLocation:
+initWithLapInfo:laneNumber:laneCount:trackId:estimatedLaneNumber:estimatedLaneConfidence:trackProximity:
+lapInfo
+laneNumber
+laneCount
+trackId
+estimatedLaneNumber
+estimatedLaneConfidence
+trackProximity
+_estimatedLaneConfidence
+_trackProximity
+_laneNumber
+_laneCount
+_trackId
+_estimatedLaneNumber
+_lapInfo
+T{?=iddddd{?=dd}dd},R,N,V_lapInfo
+Tq,R,N,V_laneNumber
+Tq,R,N,V_laneCount
+T@"NSNumber",R,N,V_trackId
+Tq,R,N,V_estimatedLaneNumber
+Ti,R,N,V_estimatedLaneConfidence
+Ti,R,N,V_trackProximity
 findMyAccessoryManager:didConnectDevice:error:
 findMyAccessoryManager:didConnectDevice:
 findMyAccessoryManager:didDisconnectDevice:
@@ -9635,6 +9795,9 @@ performAggressiveScanForTrackingAvoidance
 performHELEScanForTrackingAvoidance
 performAggressiveScanForDurianService
 fetchStatusOfUTEnablementRequirements
+fetchAISForTAUnknownBeacon:macAddress:deviceType:
+stageTADetection:deviceType:
+forceSurfaceStagedDetections:deviceType:
 initRangingOnDevice:macAddress:
 deinitRangingOnDevice:
 configureRangingOnDevice:macAddress:countryCode:uwbChannel:acqPreamble:trackingPreamble:interval:
@@ -10059,6 +10222,7 @@ setStatusBarIconEnabledForEntityClass:enabled:replyBlock:
 getStatusBarIconEnabledForEntityClass:replyBlock:
 getStatusBarIconState:
 setMapMatchingRouteHint:routingType:stepType:replyBlock:
+setTrackRunHint:replyBlock:
 getAccessoryTypeBitSetWithReplyBlock:
 getAccessoryPASCDTransmissionStateWithReplyBlock:
 getOdometryBatchedLocationsWithReplyBlock:
@@ -10116,6 +10280,7 @@ deleteInterestZoneWithId:registeredForBundleId:orBundlePath:error:
 getLocationForBundleID:orBundlePath:dynamicAccuracyReductionEnabled:allowsAlteredAccessoryLocations:location:
 getGroundAltitudeForBundleID:orBundlePath:location:groundAltitude:
 setMapMatchingRouteHint:count:routingType:stepType:
+setTrackRunHint:
 getAccessoryTypeBitSet
 getAccessoryPASCDTransmissionState
 getOdometryBatchedLocations
@@ -10466,13 +10631,14 @@ initWithClientLocation:coarseMetaData:
 initWithClientLocation:clientLocationPrivate:
 initWithClientLocation:clientLocationPrivate:coarseMetaData:
 initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:coarseMetaData:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawAltitude:rawVerticalAccuracy:rawCourseAccuracy:positionContextStateType:probabilityPositionContextStateIndoor:probabilityPositionContextStateOutdoor:gnssOdometerInfo:coarseMetaData:
 fMatchInfo
 fGroundAltitude
 fTrustedTimestamp
 fCoarseMetaData
 fFusionInfo
+fTrackRunInfo
 fRawHorizontalAccuracy
 fRawAltitude
 fRawVerticalAccuracy
@@ -10520,7 +10686,7 @@ snapToResolution:
 propagateLocationToTime:
 iso6709Notation
 setHorizontalAccuracy:
-initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:rawHorizontalAccuracy:rawCourseAccuracy:coarseMetaData:
+initWithClientLocation:matchInfo:trustedTimestamp:groundAltitude:fusionInfo:trackRunInfo:rawHorizontalAccuracy:rawCourseAccuracy:coarseMetaData:
 T{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB},R,N
 T@"NSString",R,N
 T@"NSData",R,N
@@ -10539,6 +10705,8 @@ _fusionInfo
 T@"_CLLocationFusionInfo",R,N
 gnssOdometerInfo
 T@"CLLocationGnssOdometerInfo",R,N
+trackRunInfo
+T@"CLLocationTrackRunInfo",R,N
 valueWithCLLocationCoordinate2D:
 printUsabilityCriteria:
 vuncCheckRequiredForUsability
@@ -10943,7 +11111,7 @@ v24@0:8q16
 v24@0:8@?16
 B40@0:8^v16Q24^{os_state_hints_s=I*II}32
 ^v16@0:8
-{_CLLocationManagerStateTrackerState="distanceFilter"d"desiredAccuracy"d"updatingLocation"B"requestingLocation"B"requestingRanging"B"updatingRanging"B"updatingHeading"B"headingFilter"d"allowsLocationPrompts"B"allowsAlteredAccessoryLocations"B"dynamicAccuracyReductionEnabled"B"previousAuthorizationStatusValid"B"previousAuthorizationStatus"i"limitsPrecision"B"activityType"q"pausesLocationUpdatesAutomatically"i"paused"B"allowsBackgroundLocationUpdates"B"showsBackgroundLocationIndicator"B"allowsMapCorrection"B"batchingLocation"B"updatingVehicleSpeed"B"updatingVehicleHeading"B"matchInfoEnabled"B"groundAltitudeEnabled"B"fusionInfoEnabled"B"courtesyPromptNeeded"B"isAuthorizedForWidgetUpdates"B}
+{_CLLocationManagerStateTrackerState="distanceFilter"d"desiredAccuracy"d"updatingLocation"B"requestingLocation"B"requestingRanging"B"updatingRanging"B"updatingHeading"B"headingFilter"d"allowsLocationPrompts"B"allowsAlteredAccessoryLocations"B"dynamicAccuracyReductionEnabled"B"previousAuthorizationStatusValid"B"previousAuthorizationStatus"i"limitsPrecision"B"activityType"q"pausesLocationUpdatesAutomatically"i"paused"B"allowsBackgroundLocationUpdates"B"showsBackgroundLocationIndicator"B"allowsMapCorrection"B"batchingLocation"B"updatingVehicleSpeed"B"updatingVehicleHeading"B"matchInfoEnabled"B"groundAltitudeEnabled"B"fusionInfoEnabled"B"courtesyPromptNeeded"B"isAuthorizedForWidgetUpdates"B"trackRunInfoEnabled"B}
 @64@0:8@16@24@32@40@48@56
 ^{__CLClient=}
 @"<CLLocationManagerDelegate>"
@@ -11021,6 +11189,9 @@ v20@0:8S16
 v32@0:8{shared_ptr<CLConnectionMessage>=^{CLConnectionMessage}^{__shared_weak_count}}16
 @"<CLFindMyAccessoryRangingManagerDelegate>"
 {unique_ptr<CLConnectionClient, std::default_delete<CLConnectionClient>>="__ptr_"{__compressed_pair<CLConnectionClient *, std::default_delete<CLConnectionClient>>="__value_"^{CLConnectionClient}}}
+@136@0:8{?=iddddd{?=dd}dd}16q96q104@112q120i128i132
+{?=iddddd{?=dd}dd}16@0:8
+{?="lapCount"i"currentLapStartTime"d"currentLapDurationInSeconds"d"currentLapDistanceInMeters"d"previousLapDurationInSeconds"d"previousLapDistanceInMeters"d"previousLapPositionAtCompletionInDegrees"{?="latitude"d"longitude"d}"currentTrackRunSessionDurationInSeconds"d"currentTrackRunSessionDistanceInMeters"d}
 @24@0:8Q16
 @48@0:8@16{basic_string<char, std::char_traits<char>, std::allocator<char>>={__compressed_pair<std::basic_string<char>::__rep, std::allocator<char>>={__rep=(?={__long=*QQ}{__short=[23c]{?=C}}{__raw=[3Q]})}}}24
 v32@0:8r*16@24
@@ -11031,6 +11202,7 @@ v28@0:8C16@20
 v28@0:8I16@20
 v28@0:8@16I24
 v32@0:8I16I20@24
+v40@0:8@16@24@32
 v52@0:8@16@24C32C36C40C44S48
 v28@0:8@16S24
 @"<CLFindMyAccessoryManagerDelegate>"
@@ -11038,7 +11210,7 @@ v28@0:8@16S24
 B40@0:8@16@24^@32
 B24@0:8B16i20
 {unique_ptr<CLRegulatoryConfigInternal, std::default_delete<CLRegulatoryConfigInternal>>="__ptr_"{__compressed_pair<CLRegulatoryConfigInternal *, std::default_delete<CLRegulatoryConfigInternal>>="__value_"^{CLRegulatoryConfigInternal}}}
-{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}16@0:8
+{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}16@0:8
 d24@0:8@16
 d24@0:8d16
 @104@0:8{?=ddddddddddi}16
@@ -11109,7 +11281,6 @@ v36@0:8@16B24@?28
 v40@0:8@16d24@?32
 v44@0:8@16d24B32@?36
 v52@0:8@16@24d32B40@?44
-v40@0:8@16@24@32
 @"CLGeocoderInternal"
 @24@0:8r^{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16
 v200@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@?192
@@ -11163,6 +11334,7 @@ v24@0:8@?<v@?@"NSError"@"NSData">16
 v32@0:8I16B20@?<v@?@"NSError">24
 v28@0:8I16@?<v@?@"NSError"B>20
 v40@0:8@"NSData"16i24i28@?<v@?@"NSError">32
+v32@0:8@"NSData"16@?<v@?@"NSError">24
 v84@0:8B16@"NSString"20@"NSString"28{?=[8I]}36B68B72@?<v@?@"NSError">76
 v28@0:8i16@?<v@?@"NSError">20
 v44@0:8i16@"NSString"20@"NSString"28@?<v@?@"NSError">36
@@ -11195,6 +11367,7 @@ B48@0:8@16@24@32^@40
 C48@0:8r^{__CFString=}16r^{__CFString=}24C32C36^{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}40
 C48@0:8r^{__CFString=}16r^{__CFString=}24@32^{?=dddi}40
 v36@0:8^{?=Qdddd}16i24i28i32
+v24@0:8^{?=dii}16
 C24@0:8B16I20
 C28@0:8^B16I24
 C76@0:8C16r^{__CFString=}20r^{__CFString=}28{?=[8I]}36C68C72
@@ -11244,14 +11417,15 @@ v48@0:8@16@24@32@40
 @36@0:8@16I24S28S32
 @192@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16
 @200@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192
-@592@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192
-@600@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192@592
+@720@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192
+@728@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16{?=dddddfffBi{?=dd}diiB{?=ddBBidqddd}{?={?=iddddd{?=dd}dd}iQiiiidB}{?=dd}if{?=dd}ddiBddddddddBB{?=dd}diddddiddi}192@720
 @216@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208
-@284@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232d240d248i256d260d268@276
-@292@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232d240d248i256d260d268@276@284
+@292@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240d248d256i264d268d276@284
+@300@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240d248d256i264d268d276@284@292
 @"CLLocationMatchInfo"
 @"_CLLocationGroundAltitude"
 @"_CLLocationFusionInfo"
+@"CLLocationTrackRunInfo"
 @"CLLocationGnssOdometerInfo"
 @24@0:8q16
 @24@0:8B16B20
@@ -11262,7 +11436,7 @@ v48@0:8@16@24@32@40
 @104@0:8{CLLocationCoordinate2D=dd}16d32d40d48d56d64d72d80@88@96
 {?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@0:8
 @24@0:8d16
-@248@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216d224d232@240
+@256@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200@208@216@224d232d240@248
 @208@0:8{?=ii{?=dd}ddddddddddidi{?=dd}diIiiidB}16@192d200
 @28@0:8q16B24
 @"CLEmergencyLocationUsabilityCriteria"
@@ -11290,7 +11464,7 @@ v32@0:8Q16C24S28
 @"NSMutableData"
 @60@0:8d16d24d32d40d48i56
 Q40@0:8Q16Q24Q32
-{CLRacingRoute="fDistanceCalculator"{CLDistanceCalc="fM"d"fN"d"fRefLatRads"d"fRefLatDegs"d"fCosRefLat"d}"fSignalEnvironmentType"i"fWorkoutActivity"i"fRoutePoints"@"NSMutableArray""fRouteBoundingBox"{RouteBoundingBox="fMinLatitude_deg"d"fMaxLatitude_deg"d"fMinLongitude_deg"d"fMaxLongitude_deg"d"fRows"i"fColumns"i}"fRouteMatrixIndexVec"{vector<std::vector<std::pair<int, int>>, std::allocator<std::vector<std::pair<int, int>>>>="__begin_"^v"__end_"^v"__end_cap_"{__compressed_pair<std::vector<std::pair<int, int>> *, std::allocator<std::vector<std::pair<int, int>>>>="__value_"^v}}"fRaceStartPointOnCurrentRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRaceStartPointOnReferenceRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastOnRouteDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastProjectedDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRoutePointsArrayInitialized"B"fRecoveryMode"B"fRaceStartPointDetected"B"fRaceEndPointDetected"B"fUserIsOffRoute"B"fProjectedOnNearestPoint"B"fRaceSessionExpired"B"fRollingBufferReachedEndOfReferenceRoute"B"fRouteConfigurationSuccessful"B"fRacingRouteAnalyticsSent"B"fPrematureRaceEndDetected"B"fReferenceRouteTotalLengthDetermined"B"fLocationPointIsOutsideOfAcceptedRange"B"fLocationPointNotMatched"B"fRoutePointsBufferSize"i"fNumberOfRoutePointsToAdd"i"fOffRouteGraceDuration_s"i"fMatchedPointCounter"i"fReferenceRouteDataPointCounter"i"fCurrentRouteDataPointCounter"i"fOffRouteDataPointCounter"i"fInutileDataPointCounter"i"fRollingBufferUpdateCounter"i"fLastMatchedPointIndex"i"fLastMatchedPointIndexOnReferenceRoute"i"fRollingBufferStartIndexOnReferenceRoute"i"fMatrixCellIndexForLastMatchedPoint"i"fReferenceRouteTotalLength_m"d"fTimestampOfLastMatchedPointOnReferenceRoute_s"d"fRegisteredTimeAtThresholdDistance_s"d"fEndOfRaceTimeThreshold_s"d"fNearestNeighborMaximumAcceptedDistance_m"d}
+{CLRacingRoute="fDistanceCalculator"{CLDistanceCalc="fM"d"fN"d"fRefLatRads"d"fRefLatDegs"d"fCosRefLat"d}"fSignalEnvironmentType"i"fWorkoutActivity"i"fRoutePoints"@"NSMutableArray""fRouteBoundingBox"{RouteBoundingBox="fMinLatitude_deg"d"fMaxLatitude_deg"d"fMinLongitude_deg"d"fMaxLongitude_deg"d"fRows"i"fColumns"i}"fRouteMatrixIndexVec"{vector<std::vector<std::pair<int, int>>, std::allocator<std::vector<std::pair<int, int>>>>="__begin_"^v"__end_"^v"__end_cap_"{__compressed_pair<std::vector<std::pair<int, int>> *, std::allocator<std::vector<std::pair<int, int>>>>="__value_"^v}}"fRaceStartPointOnCurrentRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRaceStartPointOnReferenceRoute"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastOnRouteDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fLastProjectedDataPoint"{RacingRouteState="fLatitude_deg"d"fLongitude_deg"d"fAltitude_m"d"fOdometer_m"d"fTimestamp_s"d"fTimeSinceStartOfRace_s"d"fOffRouteTraveledTime_s"d"fDistanceSinceStartOfRace_m"d"fOffRouteTraveledDistance_m"d"fAveragePace_s_per_m"d"fDistanceAlongReferenceRoute_m"d}"fRoutePointsArrayInitialized"B"fRecoveryMode"B"fRaceStartPointDetected"B"fRaceEndPointDetected"B"fUserIsOffRoute"B"fProjectedOnNearestPoint"B"fRaceSessionExpired"B"fRollingBufferReachedEndOfReferenceRoute"B"fRouteConfigurationSuccessful"B"fRacingRouteAnalyticsSent"B"fPrematureRaceEndDetected"B"fReferenceRouteTotalLengthDetermined"B"fLocationPointIsOutsideOfAcceptedRange"B"fLocationPointNotMatched"B"fRoutePointsBufferSize"i"fNumberOfRoutePointsToAdd"i"fOffRouteGraceDuration_s"i"fMatchedPointCounter"i"fReferenceRouteDataPointCounter"i"fCurrentRouteDataPointCounter"i"fOffRouteDataPointCounter"i"fInutileDataPointCounter"i"fRollingBufferUpdateCounter"i"fLastMatchedPointIndex"i"fLastMatchedPointIndexOnReferenceRoute"i"fRollingBufferStartIndexOnReferenceRoute"i"fMatrixCellIndexForLastMatchedPoint"i"fRaceStartLineProximityIndex"i"fReferenceRouteTotalLength_m"d"fTimestampOfLastMatchedPointOnReferenceRoute_s"d"fRegisteredTimeAtThresholdDistance_s"d"fEndOfRaceTimeThreshold_s"d"fNearestNeighborMaximumAcceptedDistance_m"d}
 @56@0:8@16@24@32@40B48B52
 @"_CLRangingPeer"
 @52@0:8@16@24@32@40B48

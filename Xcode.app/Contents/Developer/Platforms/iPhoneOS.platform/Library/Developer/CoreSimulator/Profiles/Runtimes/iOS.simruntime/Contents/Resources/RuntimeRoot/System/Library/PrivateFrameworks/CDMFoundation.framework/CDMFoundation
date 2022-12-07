@@ -167,6 +167,9 @@ SELF emitting RequestLink message linking NLX and Curare
 +[CDMSELFLogUtil cdmSingleServiceSetupAttemptFailed:retryNumber:reason:metadata:logMessage:]
 +[CDMSELFLogUtil cdmSpanMatcherStarted:matcherName:metadata:logMessage:]
 +[CDMSELFLogUtil cdmSpanMatcherEnded:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingStarted:processingType:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingEnded:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingFailed:reason:errorCode:metadata:logMessage:]
 +[CDMSELFLogUtil stringNodeNameToEnum:]
 +[CDMSELFLogUtil stringServiceTypeToEnum:]
 CDMMentionResolverResponseCommand
@@ -328,12 +331,11 @@ SiriMiniContextUpdate
 SiriMiniNoAgent
 SiriMiniLighthouseAPI
 SiriMiniFeatureStoreEnabled
-SiriLinkFlow
-autoshortcuts
 SiriMiniFeatureStoreEnabledForExternalBuilds
 SiriMiniMentionResolverRewriter
 SiriMiniMarrsContextualSpanMatcher
 SiriMiniLinkSpans
+SiriMiniShortcutsNLv4Followup
 CDMMentionResolverRequestCommand
 embedding_tensor
 matching_spans
@@ -387,8 +389,8 @@ UnknownServiceException
 v16@?0@"NSError"8
 Duplicate node name: %@
 -[CDMServiceGraph addNodeWithName:bindService:aneEnabled:block:]
--[CDMServiceGraph removeLRMCharacter:]
 nluRequest is empty
+-[CDMServiceGraph validateRequest:]
 utterance is nil
 utterance is empty
 -[CDMServiceGraph populateRequesterEnumForNluRequest:]
@@ -549,6 +551,8 @@ Federation ranking order:
 %d: %@ probability: %f (%f before calibration)
 +[CDMPostProcessUtils logParsesRanking:addDebugInfo:]
 +[CDMPostProcessUtils annotateDUDAWithMRRRewrittenUtterance:matchingSpans:userDialogAct:]
++[CDMPostProcessUtils forceDelegateUnlabeledAppLaunch:]
+B24@?0@"SIRINLUEXTERNALUserParse"8@"NSDictionary"16
 PARSER_IDENTIFIER_UNSET
 PARSER_IDENTIFIER_OVERRIDES
 PARSER_IDENTIFIER_SNLC
@@ -658,6 +662,9 @@ SELF all services setup failed message emitted
 -[CDMServiceCenter areAssetsAvailable:]
 -[CDMServiceCenter registerWithAssetsDelegate:]
 -[CDMServiceCenter handleOverridesAssetUpdateEvent:]
+SELF CDM XPC Processing started log emitted
+SELF CDM XPC Processing ended log emitted
+SELF CDM XPC Processing failed log emitted
 -[CDMServiceCenter setupAssetsForServices:withError:]
 Error occurs while initializing CDMAssetsManager with locale: %@, asset dir path: %@.
 Not all assets are available for enabled CDM DAG services: %@. Can't perform CDM setup.
@@ -1569,6 +1576,9 @@ SELFLogSpanMatching
 %s [WARN]: Tried to emit a CDM Single Service Setup Attempt failed event, but there was an issue with emission. Log was not emitted!!
 %s [WARN]: Tried to emit a CDM Span Matcher started event, but there was an issue with emission. Log was not emitted!
 %s [WARN]: Tried to emit a CDM Span Matcher ended event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing started event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing ended event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing failed event, but there was an issue with emission. Log was not emitted!
 %s [WARN]: Nil given to stringNodeNameToEnum method!
 %s [WARN]: Tried to fetch CDMServiceNodeNames stringToEnumDict, but received nil!
 %s [WARN]: Tried to fetch CDMServiceName with string key, but received nil!
@@ -1673,7 +1683,7 @@ CATI
 %s [ERR]: %@
 %s %@ - endNode
 %s Mermaid graph%@
-%s Original text is <%@> with u16 size <%zu>. Text after filtering u200e LRM character is <%@> with u16 size <%zu>.
+%s Original text is '<%@>' with u16 size <%zu>. Text after filtering bidi characters is' <%@>' with u16 size <%zu>.
 %s Inferring cdmRequester enum based on connectionId=%@ as requester enum=%d; use enum directly once SRD / other callers of CDM start populating RequestID.requester
 %s Set node with empty callback as the service is not isEnabled nodeName=%@, service=%@
 %s [WARN]: Set node with empty callback as the service's state is CDMServiceStateSetupFailed nodeName=%@, service=%@
@@ -1692,6 +1702,7 @@ ServiceGraphNodeExecution
 %s Embedding configs: %@ doesn't equal to embedding configs: %@.
 %s Embedding configs: %@ equals to embedding configs: %@.
 %s FeatureFlag SiriNL/SiriMiniFeatureStoreEnabled disabled, skip inserting into FeatureStore
+%s Current user is not a FeatureStore-supported user, skip inserting into FeatureStore
 %s FeatureFlag SiriNL/SiriMiniFeatureStoreEnabledForExternalBuilds disabled, skip inserting into FeatureStore
 %s CDMFeatureStoreUtils insertRequestToFeatureStoreAsJson
 %s FeatureStore is 1) not enabled on this platform yet or 2) FF is off. So skipping %@
@@ -1791,6 +1802,8 @@ ServiceGraphNodeExecution
 %s [ERR]: no SNLC response available in post process node
 %s [insights-cdm-%@]:%@
 %s annotate DUDA With mr re-written utterance - %@
+%s [WARN]: [insights-cdm-%@]:Top NLv4 parse is AppLaunch without identifiers, removing all NLv4 parses.
+%s Top NLv4 parse is not AppLaunch or has identifiers. No modifications.
 %s Path %@ exists. Return %@.
 %s No folder exists in %@ under %@. Return nil.
 %s [ERR]: Error while loading file: %@. Error: %@.
@@ -1812,19 +1825,22 @@ DAGServiceSetup
 %s [insights-cdm-%@]:===== Current Turn Context =====
 %s [insights-cdm-%@]:======== NL Context  ===========
 %s [insights-cdm-%@]:========== Active Tasks ========
+%s [insights-cdm-%@]:No active tasks
 %s [insights-cdm-%@]:Current Turn Active Task %d: %@
 %s [insights-cdm-%@]:========== Executed Tasks =======
+%s [insights-cdm-%@]:No executed tasks
 %s [insights-cdm-%@]:Current Turn Executed Task %d: %@
 %s [insights-cdm-%@]:========== Salient Entities ====
+%s [insights-cdm-%@]:No salient entities
 %s [insights-cdm-%@]:Current Turn Salient Entity %d: %@
 %s [insights-cdm-%@]:========== SDAs ================
-%s [insights-cdm-%@]:Current Turn SDA %d: %@
+%s [insights-cdm-%@]:No SDAs
+%s [insights-cdm-%@]:Found SDAs. Cannot currently log them here. Please check out CDM Requests & Responses tab for now.
 %s [insights-cdm-%@]:======== Legacy Context ========
 %s [insights-cdm-%@]:%@
 %s [insights-cdm-%@]:Previous turn input count: %zu
 %s [insights-cdm-%@]:Previous Turn %d Timestamp: %llu
 %s [insights-cdm-%@]:Previous Turn %d Utterance: %@
-%s [insights-cdm-%@]:Previous Turn %d Context: %@
 %s Composer get [%@]
 %s Switching to this active graph=%@
 %s [WARN]: Silly. Didn't get a valid input name for graph=%@; Leaving CDM as-is.
@@ -2295,7 +2311,6 @@ Add Overrides
 %s [insights-cdm-%@]:Shortcut follow up request, routing to server
 %s [insights-cdm-%@]:Matching a top level shortcut, sending it to server
 %s [insights-cdm-%@]:Found exact match Voice Command:%@, to utterance:%@ 
-%s Ignoring AutoShortcut parse since AutoShortcuts feature flag is disabled: %@
 %s Ignoring AutoShortcut parse since the phrase was found in the deny list: %@
 %s [insights-cdm-%@]:CDMShortcut VoiceCommandsUserParses: %@, AutoShortcutParses: %@
 %s [insights-cdm-%@]:No exact match Voice Command Found
@@ -3161,6 +3176,9 @@ createCDMSingleServiceSetupAttemptEndedLog:metadata:
 createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
 createCDMSpanMatcherStartedLog:matcherName:metadata:
 createCDMSpanMatcherEndedLog:metadata:
+createCdmXpcEventProcessingStartedLog:processingType:metadata:
+createCdmXpcEventProcessingEndedLog:metadata:
+createCdmXpcEventProcessingFailedLog:reason:errorCode:metadata:
 getNameStringToEnumDict
 intValue
 emitRequestLink:metadata:
@@ -3182,6 +3200,9 @@ cdmSingleServiceSetupAttemptEnded:metadata:logMessage:
 cdmSingleServiceSetupAttemptFailed:retryNumber:reason:metadata:logMessage:
 cdmSpanMatcherStarted:matcherName:metadata:logMessage:
 cdmSpanMatcherEnded:metadata:logMessage:
+cdmXpcProcessingStarted:processingType:metadata:logMessage:
+cdmXpcProcessingEnded:metadata:logMessage:
+cdmXpcProcessingFailed:reason:errorCode:metadata:logMessage:
 stringNodeNameToEnum:
 stringServiceTypeToEnum:
 addMentions:
@@ -3681,11 +3702,11 @@ isPLUMEnabled
 isAgentToPersonMappingEnabled
 isLighthouseAPIEnabled
 isFeatureStoreEnabled
-isAutoShortcutsEnabled
 isFeatureStoreEnabledForExternalBuilds
 isMentionResolverRewriterEnabled
 isContextualSpanMatcherEnabled
 isLinkSpansEnabled
+isShortcutsNLv4FollowupEnabled
 removeObjectForKey:
 _mrRequest
 T@"SIRINLUINTERNALMENTION_RESOLVERMentionResolverRequest",R,N,V_mrRequest
@@ -3762,8 +3783,6 @@ shouldSkipNode:service:
 initWithName:forHandler:withError:usingFunction:dataDispatcher:
 setError:
 recordGraphFailureEvent:withError:
-stringByReplacingOccurrencesOfString:withString:
-removeLRMCharacter:
 connectionId
 requester
 getCdmRequesterWithConnectionId:
@@ -3822,6 +3841,7 @@ isEqualToNumber:
 _embeddingDimension
 T@"NSNumber",R,N,V_embeddingDimension
 setWithObjects:
+isSupportedUser
 isInternalInstall
 allowedFSMessagesOnExternalBuilds
 platformSupportedAndEnabled
@@ -4039,6 +4059,7 @@ debugInfoEnabled:
 setDebugText:
 annotateNLUResponse:nluRequest:matchingSpans:tokenChain:
 convertAgentToPerson:
+forceDelegateUnlabeledAppLaunch:
 getPostProcessUserParses:
 getPostProcessUserParses:parsesNLv4:parsesCATI:parsesUaaP:parsesPSC:parsesAutoShortcuts:parsesAppendOverrides:addDebugInfo:
 hasGroupIndex
@@ -4127,6 +4148,21 @@ setRewrite:
 hasDelegated
 addMatchingSpans:
 annotateDUDAWithMRRRewrittenUtterance:matchingSpans:userDialogAct:
+hasUsoVerbElementId
+hasUsoElementId
+usoVerbElementId
+nodesCount
+edgesCount
+isEqualToSet:
+userDialogActsCount
+isAppLaunchVerbEntity:
+isAppLaunchGraph:
+hasSourceComponent
+hasParser
+hasParserId
+isAppLaunchParseWithoutIdentifiers:
+predicateWithBlock:
+filterUsingPredicate:
 runFeatureStore:nluResponse:snlcRequest:snlcResponse:pscRequest:pscResponse:spanProtoResponse:tokenProtoResponse:mdRequest:mdResponse:mrRequest:mrResponse:nLv4Request:nLv4Response:
 getPostProcessUserParses:parsesNLv4:parsesCATI:addDebugInfo:
 getPostProcessUserParses:parsesNLv4:parsesCATI:parsesUaaP:addDebugInfo:
@@ -4164,7 +4200,9 @@ _currentConfig
 printableRequest:
 startTimestamp
 activeTasks
+printableTask:
 executedTasks
+printableEntityCandidate:
 setByAddingObjectsFromArray:
 _handleSetActiveGraph:withCallback:
 _handleListGraphs:withCallback:
@@ -4462,7 +4500,6 @@ buildMatchingSpanProtoWithLabel:inputStringForDebug:startTokenIndex:endTokenInde
 utteranceStartsWithVoiceTriggerSpan:
 semantic
 setSemanticValue:
-nodesCount
 buildUtteranceAlignments:endCharIndex:nodeIndex:
 addAlignments:
 setStringPayload:
@@ -4866,6 +4903,7 @@ _cdm_JSONDictionary
 _cdm_hasKey:withValue:
 _cdm_filterWithBlock:
 _cdm_mapWithBlock:
+stringByReplacingOccurrencesOfString:withString:
 initWithSuiteName:
 integerForKey:
 readUserDefaultsValueForKeyUint64:defaultValue:
@@ -5402,6 +5440,9 @@ SELF emitting RequestLink message linking NLX and Curare
 +[CDMSELFLogUtil cdmSingleServiceSetupAttemptFailed:retryNumber:reason:metadata:logMessage:]
 +[CDMSELFLogUtil cdmSpanMatcherStarted:matcherName:metadata:logMessage:]
 +[CDMSELFLogUtil cdmSpanMatcherEnded:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingStarted:processingType:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingEnded:metadata:logMessage:]
++[CDMSELFLogUtil cdmXpcProcessingFailed:reason:errorCode:metadata:logMessage:]
 +[CDMSELFLogUtil stringNodeNameToEnum:]
 +[CDMSELFLogUtil stringServiceTypeToEnum:]
 CDMMentionResolverResponseCommand
@@ -5563,12 +5604,11 @@ SiriMiniContextUpdate
 SiriMiniNoAgent
 SiriMiniLighthouseAPI
 SiriMiniFeatureStoreEnabled
-SiriLinkFlow
-autoshortcuts
 SiriMiniFeatureStoreEnabledForExternalBuilds
 SiriMiniMentionResolverRewriter
 SiriMiniMarrsContextualSpanMatcher
 SiriMiniLinkSpans
+SiriMiniShortcutsNLv4Followup
 CDMMentionResolverRequestCommand
 embedding_tensor
 matching_spans
@@ -5622,8 +5662,8 @@ UnknownServiceException
 v16@?0@"NSError"8
 Duplicate node name: %@
 -[CDMServiceGraph addNodeWithName:bindService:aneEnabled:block:]
--[CDMServiceGraph removeLRMCharacter:]
 nluRequest is empty
+-[CDMServiceGraph validateRequest:]
 utterance is nil
 utterance is empty
 -[CDMServiceGraph populateRequesterEnumForNluRequest:]
@@ -5784,6 +5824,8 @@ Federation ranking order:
 %d: %@ probability: %f (%f before calibration)
 +[CDMPostProcessUtils logParsesRanking:addDebugInfo:]
 +[CDMPostProcessUtils annotateDUDAWithMRRRewrittenUtterance:matchingSpans:userDialogAct:]
++[CDMPostProcessUtils forceDelegateUnlabeledAppLaunch:]
+B24@?0@"SIRINLUEXTERNALUserParse"8@"NSDictionary"16
 PARSER_IDENTIFIER_UNSET
 PARSER_IDENTIFIER_OVERRIDES
 PARSER_IDENTIFIER_SNLC
@@ -5893,6 +5935,9 @@ SELF all services setup failed message emitted
 -[CDMServiceCenter areAssetsAvailable:]
 -[CDMServiceCenter registerWithAssetsDelegate:]
 -[CDMServiceCenter handleOverridesAssetUpdateEvent:]
+SELF CDM XPC Processing started log emitted
+SELF CDM XPC Processing ended log emitted
+SELF CDM XPC Processing failed log emitted
 -[CDMServiceCenter setupAssetsForServices:withError:]
 Error occurs while initializing CDMAssetsManager with locale: %@, asset dir path: %@.
 Not all assets are available for enabled CDM DAG services: %@. Can't perform CDM setup.
@@ -6808,6 +6853,9 @@ SpanMatcher
 %s [WARN]: Tried to emit a CDM Single Service Setup Attempt failed event, but there was an issue with emission. Log was not emitted!!
 %s [WARN]: Tried to emit a CDM Span Matcher started event, but there was an issue with emission. Log was not emitted!
 %s [WARN]: Tried to emit a CDM Span Matcher ended event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing started event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing ended event, but there was an issue with emission. Log was not emitted!
+%s [WARN]: Tried to emit a CDM XPC Processing failed event, but there was an issue with emission. Log was not emitted!
 %s [WARN]: Nil given to stringNodeNameToEnum method!
 %s [WARN]: Tried to fetch CDMServiceNodeNames stringToEnumDict, but received nil!
 %s [WARN]: Tried to fetch CDMServiceName with string key, but received nil!
@@ -6911,7 +6959,7 @@ buildMultiTurnFeatures (%@)
 %s [WARN]: Node %@ not found for checking skip
 %s %@ - endNode
 %s Mermaid graph%@
-%s Original text is <%@> with u16 size <%zu>. Text after filtering u200e LRM character is <%@> with u16 size <%zu>.
+%s Original text is '<%@>' with u16 size <%zu>. Text after filtering bidi characters is' <%@>' with u16 size <%zu>.
 %s Inferring cdmRequester enum based on connectionId=%@ as requester enum=%d; use enum directly once SRD / other callers of CDM start populating RequestID.requester
 %s Set node with empty callback as the service is not isEnabled nodeName=%@, service=%@
 %s [WARN]: Set node with empty callback as the service's state is CDMServiceStateSetupFailed nodeName=%@, service=%@
@@ -6930,6 +6978,7 @@ ServiceGraphNodeExecution
 %s Embedding configs: %@ doesn't equal to embedding configs: %@.
 %s Embedding configs: %@ equals to embedding configs: %@.
 %s FeatureFlag SiriNL/SiriMiniFeatureStoreEnabled disabled, skip inserting into FeatureStore
+%s Current user is not a FeatureStore-supported user, skip inserting into FeatureStore
 %s FeatureFlag SiriNL/SiriMiniFeatureStoreEnabledForExternalBuilds disabled, skip inserting into FeatureStore
 %s CDMFeatureStoreUtils insertRequestToFeatureStoreAsJson
 %s FeatureStore is 1) not enabled on this platform yet or 2) FF is off. So skipping %@
@@ -7029,6 +7078,8 @@ ServiceGraphNodeExecution
 %s [ERR]: no SNLC response available in post process node
 %s [insights-cdm-%@]:%@
 %s annotate DUDA With mr re-written utterance - %@
+%s [WARN]: [insights-cdm-%@]:Top NLv4 parse is AppLaunch without identifiers, removing all NLv4 parses.
+%s Top NLv4 parse is not AppLaunch or has identifiers. No modifications.
 %s Path %@ exists. Return %@.
 %s No folder exists in %@ under %@. Return nil.
 %s [ERR]: Error while loading file: %@. Error: %@.
@@ -7050,19 +7101,22 @@ DAGServiceSetup
 %s [insights-cdm-%@]:===== Current Turn Context =====
 %s [insights-cdm-%@]:======== NL Context  ===========
 %s [insights-cdm-%@]:========== Active Tasks ========
+%s [insights-cdm-%@]:No active tasks
 %s [insights-cdm-%@]:Current Turn Active Task %d: %@
 %s [insights-cdm-%@]:========== Executed Tasks =======
+%s [insights-cdm-%@]:No executed tasks
 %s [insights-cdm-%@]:Current Turn Executed Task %d: %@
 %s [insights-cdm-%@]:========== Salient Entities ====
+%s [insights-cdm-%@]:No salient entities
 %s [insights-cdm-%@]:Current Turn Salient Entity %d: %@
 %s [insights-cdm-%@]:========== SDAs ================
-%s [insights-cdm-%@]:Current Turn SDA %d: %@
+%s [insights-cdm-%@]:No SDAs
+%s [insights-cdm-%@]:Found SDAs. Cannot currently log them here. Please check out CDM Requests & Responses tab for now.
 %s [insights-cdm-%@]:======== Legacy Context ========
 %s [insights-cdm-%@]:%@
 %s [insights-cdm-%@]:Previous turn input count: %zu
 %s [insights-cdm-%@]:Previous Turn %d Timestamp: %llu
 %s [insights-cdm-%@]:Previous Turn %d Utterance: %@
-%s [insights-cdm-%@]:Previous Turn %d Context: %@
 %s Composer get [%@]
 %s Switching to this active graph=%@
 %s [WARN]: Silly. Didn't get a valid input name for graph=%@; Leaving CDM as-is.
@@ -7531,7 +7585,6 @@ Add Overrides
 %s [insights-cdm-%@]:Shortcut follow up request, routing to server
 %s [insights-cdm-%@]:Matching a top level shortcut, sending it to server
 %s [insights-cdm-%@]:Found exact match Voice Command:%@, to utterance:%@ 
-%s Ignoring AutoShortcut parse since AutoShortcuts feature flag is disabled: %@
 %s Ignoring AutoShortcut parse since the phrase was found in the deny list: %@
 %s [insights-cdm-%@]:CDMShortcut VoiceCommandsUserParses: %@, AutoShortcutParses: %@
 %s [insights-cdm-%@]:No exact match Voice Command Found
@@ -7951,593 +8004,610 @@ CDMPlatformUtils
 CDMUserDefaultsUtils
 CATILogisticsRegressionModel
 CDMClient
-createCDMClientSetupEndedLog:
-createCDMAllServicesSetupFailedLog:
-setNamespaceA:
-initWithArray:copyItems:
-tapToEdit
-systemTimeZone
-writeToFile:atomically:
-legacyNlContext
-hasOffered
-numToken
-setRewrite:
-setValue:forKey:
-cancelled
-setDetectedMentions:
-initWithArray:
-initWithLoadedModelConfiguration:parserModel:calibrationModel:
-createCDMAllServicesSetupEndedLog:
-asrTokensCount
-getCppGraph
-hasNormalisedUtterance
-componentsSeparatedByString:
-rewriteHypotheses
-lastPathComponent
-setDelegated:
-createServiceContextStartedLog:serviceName:metadata:
-setValue:
-setResultCandidateId:
-componentsSeparatedByCharactersInSet:
-rewrite
-setResponseStatus:
-setMaxNumParses:
-setMentionResolverResponse:
-isExecuting
-hasNlId
-initLoadFromDataDetectorsDirectoryPath:forLocale:
-addOperations:waitUntilFinished:
-matchedSpans
-setUtterance:
-createServiceContextFailedLog:failureCode:metadata:
-asrTokens
-systemDialogActs
-initFromSourceVocabPath:bertModelPath:bertConfigPath:reformulatorPath:
-hasNlContext
-componentsJoinedByString:
-addObserver:forKeyPath:options:context:
-setDateFormat:
-lastObject
-UUIDString
-getContextualSpansWithRequest:
-numLayer
-priorInfo
-createServiceContextEndedLog:metadata:
-reformedTurnInputBundles
-comparableProbability
-countByEnumeratingWithState:objects:count:
-hasMentionResolverSpanData
-setMaxConcurrentOperationCount:
-directoryValue
-UUID
-callStackSymbols
-parserModel
-printableSpanMatchResponse:
-isEqualToString:
-setRequester:
-unsignedIntegerValue
-setMaxCandidates:
-emitMessage:timestamp:
-hasLegacyNlContext
-asrOutputs
-addObjectsFromArray:
-setMatchingSpans:
-isEqualToNumber:
-asrId
-matchSpansOfUtterance:
-setUserStatedTask:
-setCurrentTurn:
-setRequestId:
-UTF8String
-emitMessage:
-copyTo:
-jointScore
-hasLabel
-setMatchScore:
-setRepetitionType:
-dictionaryWithValuesForKeys:
-bytes
-sourceComponent
-setUserDialogActs:
-initWithLabel:tokenIndicesIndex:
-URLWithString:relativeToURL:
-unsignedIntValue
-matchSpansForUtterance:
-addObject:
-printableResponse:
-setContextualSpans:
-hasJointScore
-clientWithIdentifier:
-dictionaryWithObjectsAndKeys:
-URLByAppendingPathComponent:isDirectory:
-getBytes:length:
-resultCandidateId
-sortedArrayUsingSelector:
-setLowInt:
-printableRequest:
-unlock
-isEqualToDictionary:
-URLByAppendingPathComponent:
-setRepetitionResults:
-setConnectionId:
-isEqualToArray:
-sortedArrayUsingComparator:
-isWhitespace
-dictionaryWithObjects:forKeys:count:
-fileURLWithPath:isDirectory:
-hasInterpretationGroup
-initWithJsonStr:interactionId:dataVersion:
-bundleWithPath:
-setType:
-type
-setRepetitionResult:
-bundleURL
-sortUsingSelector:
-setRemoveSpaceAfter:
-fileURLWithPath:
-responseForRequest:error:
-matchScore
-setConfidence:
-dictionaryWithObject:forKey:
-setLegacyNlContext:
-initWithInt:
-setTurnIndex:
-hasInput
-normalisedUtterance
-bundlePath
-setTurnInput:
-hasInformed
-setComparableProbability:
-previousTurns
-copy
-dictionaryWithDictionary:
-SupportedLocales
-fileExistsAtPath:isDirectory:
-clearCache
-setLegacyContext:
-arrayWithObjects:count:
-reason
-setCode:
-sortUsingComparator:
-dictionaryWithCapacity:
-convertUsoGraph:
-bundleIdentifier
-turnContext
-createNLXRequestLinkWithTarget:andTargetId:metadata:
-insert:error:
-setReformedTurnInputBundles:
-convertUUID:
-informed
-setTurnContext:
-resolveMentionsInUtterance:status:
-previousTurnInputs
-nodesCount
-whitespaceCharacterSet
-resourcePath
-setTransitionHandler:
-hasIdA
-arrayWithObjects:
-inferenceResponseForRequest:error:
-createNLXCurareContext:metadata:
-substringToIndex:
-setQualityOfService:
-whitespaceAndNewlineCharacterSet
-inputs
-dictionaryForKey:
-hasGroupIndex
-previousDomainName
-arrayWithContentsOfFile:
-arrayWithObject:
-nodes
-addMentions:
-isUIApplicationElement
-createNLXClientEventMetadataWithNlId:andWithResultCandidateId:andWithRequester:
-inferenceResponseForRequest:
-setLabel:
-embeddings
-JSONObjectWithData:options:error:
-weakObjectsHashTable
-input
-EmbeddedLocales
-hasGaveOptions
-setTokens:
-substringFromIndex:
-addMatchingSpans:
-setCleanValues:
-createMultiHypoTokenizationEndedLog:tokenizationResponses:tokenizationInputType:metadata:
-setQrHypotheses:
-wantedToRepeat
-setIsWhitespace:
-arrayWithCapacity:
-hasEventMetadata
-dictionary
-identifiersCount
-addMatcherNames:
-setCleanValue:
-setTokenizerResponse:
-wantedToProceed
-makeSearcherForUserId:
-setPriorScore:
-requester
-setProbability:
-arrayWithArray:
-setIsSignificant:
-setTokenisedUtterance:
-initWithValues:withNumTokens:withNumLayers:withEmbeddingDim:withEmbedderId:
-dictationPrompt
-factorLevelsWithNamespaceName:
-setClassificationProbability:
-subarrayWithRange:
-wantedToPause
-convertResponse:
-lowercaseStringWithLocale:
-array
-factor
-mainEvent
-setInternalSpanData:
-identifiers
-originalUtterance
-setPriorOrdinality:
-setClassificationLabel:
-getAssetPathForLocale:withError:
-detectMentionsInUtteranceRequest:status:
-initWithValue:cleanValue:beginIndex:endIndex:isSignificant:isWhitespace:normalizedValues:
-setInterpretationGroup:
-addIdentifiers:
-tokensCount
+entities
 stringWithUTF8String:
-setTokenIndex:
-createMatchingSpanEndedLog:spanMatchResponse:metadata:
-convertNLv4ParserRequestToCpp:
-setCdmRequestId:
-elements
-originalInteractions
-waitUntilAllOperationsAreFinished
-getAssetPathForLocale:
-isCancelled
-convertFromUsoGraph:
-setTimeZone:
-hasDelegated
-nluRequestId
-addEntriesFromDictionary:
+setInternalSpanData:
+createServiceContextFailedLog:failureCode:metadata:
 setTokenChain:
-lowercaseString
-setPreviousTurns:
+addValues:
+informed
+mainEvent
 stringWithString:
-classifierWithPathURL:error:
-setByAddingObjectsFromSet:
-dependencies
-hasConfidenceScore
-isSuspended
-predictionFromProtobufQuery:error:
-replaceObjectAtIndex:withObject:
-ordinality
-hypothesesCount
-setPhoneSequence:
-convertFromUUID:
-setByAddingObjectsFromArray:
+confidenceScore
+originalUtterance
+setTimeZone:
+addUpdateHandlerForNamespaceName:usingBlock:
+createServiceContextEndedLog:metadata:
+lowercaseStringWithLocale:
+inferenceResponseForRequest:error:
+emitMessage:timestamp:
 stringWithFormat:
-delegated
-applicationProxyForIdentifier:
-classificationProbability
-setInputs:
-hasCleanValue
-stringWithContentsOfFile:encoding:error:
-setText:
-nlId
-edges
-renderedTexts
-hypotheses
-predictWithInput:status:
-setInput:
-tokenizedUtterance
 valuesCount
-classificationLabel
+originalInteractions
+componentsSeparatedByString:
+setInputs:
 readFrom:
-siriResponses
-orderedSetWithArray:
-setTap2edit:
-addContextualSpans:
-setBegin:
-isAtEnd
-setTask:
-nlContext
-extractRequestLinkData:
-setParses:
-stringWithCharacters:length:
-choices
+addTokens:
+setText:
+inferenceResponseForRequest:
+stringWithContentsOfFile:encoding:error:
+lowercaseString
+emitMessage:
 valuesAtIndex:
-initWithUsoGraph:withError:
-setHypotheses:
-newlineCharacterSet
-predictNamedEntitiesForRequest:
-hasCancelled
-appendString:
+getBytes:length:
+componentsSeparatedByCharactersInSet:
+setInput:
+setTask:
+stringWithCharacters:length:
+ordinality
 setIdA:
-hasCalibrationModel
-setBackingAppBundleId:
-namespaceName
-initWithDictionary:
-setParserId:
-removeSpaceAfter
-convertFromNluResponse:
+componentsJoinedByString:
+setTap2edit:
+identifiersCount
 stringWithCString:encoding:
-operations
-initWithObjectsAndKeys:
-ontologyLabel
-predicateWithFormat:
-doubleValue
-setHighInt:
-addAlignments:
-hasWantedToRepeat
-setParser:
-stringValue
-ontologyGraph
-initWithObjects:
-namespaceA
-appendFormat:
-tokenisedUtterance
-initWithData:encoding:
-setSystemDialogActGroup:
-postItnText
-removeObserver:forKeyPath:
-hasWantedToProceed
-score
+setHypotheses:
+comparableProbability
+orderedSetWithArray:
 valueWithNonretainedObject:
-executedTasks
-onDemandDownloadForLocale:withProgress:withCompletion:
-stringPayload
-appendData:
-doesNotRecognizeSelector:
-hasAcknowledged
-hasWantedToPause
-build
-activeTasks
-appendBytes:length:
-scannerWithString:
+isCancelled
+stringValue
+identifiers
+setHighInt:
 valueForKey:
-setSuspended:
-removeObjectsInRange:
-invalidate
-eventMetadata
-mutableCopy
-hasAccepted
+addOperations:waitUntilFinished:
+operations
+setSystemDialogActGroup:
+addObserver:forKeyPath:options:context:
+score
+stringPayload
+ontologyLabel
+isAtEnd
 rangeOfString:options:
-removeObjectsInArray:
-initWithUnsignedInt:
-stringFromDate:
-dataWithContentsOfURL:
-setStringValue:
-scanInt:
-objectForKeyedSubscript:
-tokenChainBuilderForString:locale:
-dataWithJSONObject:options:error:
+setSuspended:
+createNLXRequestLinkWithTarget:andTargetId:metadata:
+scannerWithString:
+hypothesesCount
+ontologyGraph
+clientWithIdentifier:
 setGroupIndex:
-monitorWithConfiguration:
-createContextUpdateEndedLog:contextUpdateResponse:metadata:
-setOriginalUtterances:
-errorWithDomain:code:userInfo:
-blockingOnDemandDownloadForLocale:withTimeout:withProgress:
-lock
-boolValue
-hasValue
-setStringPayload:
-intersectSet:
-contextualSpans
-objectForKey:
-setAsrUtteranceTokens:
-initWithCoreModel:domainModelBundles:
-hasUsoGraph
+addObjectsFromArray:
+setStringValue:
+createNLXCurareContext:metadata:
+stringFromDate:
+scanInt:
+hypotheses
+embeddings
+onDemandDownloadForLocale:withProgress:withCompletion:
 range
-stringByStandardizingPath
+setStringPayload:
+addObject:
+createNLXClientEventMetadataWithNlId:andWithResultCandidateId:andWithRequester:
 stringByTrimmingCharactersInSet:
-setOriginalUtterance:
-initWithTokens:originalUtterance:normalizedUtterance:
-modelWithLoadedModelConfiguration:error:
-removeObjectForKey:
-setFactorsProvisionalForNamespace:error:
+clearCache
+objectForKeyedSubscript:
 setStartTokenIndex:
-setOriginalInteractions:
-dataWithContentsOfFile:options:error:
-setStartTimestamp:
-objectAtIndexedSubscript:
-localeWithLocaleIdentifier:
-acknowledged
-enumeratorWithOptions:
-createCDMSpanMatcherStartedLog:matcherName:metadata:
-interpretationGroup
-beginIndex
-hasUserStatedTask
-dataWithContentsOfFile:
-initWithTokenizedUtterance:embeddings:matchedSpans:
-internalSpanData
-setExternalParserId:
-sharedStream
-removeObjectAtIndex:
-objectAtIndex:
-accepted
-toNSUUID
 raise:format:
-setAsrOutputs:
-createCDMSpanMatcherEndedLog:metadata:
+createMultiHypoTokenizationEndedLog:tokenizationResponses:tokenizationInputType:metadata:
+stringByStandardizingPath
+lock
+getAssetPathForLocale:withError:
+setFactorsProvisionalForNamespace:error:
+initWithObjectsAndKeys:
+objectForKey:
+setStartTimestamp:
 stringByReplacingOccurrencesOfString:withString:
-setAsrId:
-hasTurnContext
-setObject:forKeyedSubscript:
-hasTokenChain
-generatePlumSpansForRequest:
-removeObject:
-dataWithBytes:length:
-setStartIndex:
+hasWantedToRepeat
+getAssetPathForLocale:
+setExternalParserId:
+initWithObjects:
+objectAtIndexedSubscript:
 setStartMilliSeconds:
+localeWithLocaleIdentifier:
 stringByDeletingLastPathComponent
-createCDMSingleServiceSetupAttemptStartedLog:serviceType:retryNumber:metadata:
-setObject:atIndexedSubscript:
-setObject:forKey:
-initWithModelConfiguration:
-numberWithUnsignedLong:
-removeLastObject
-loadWithSandboxId:error:
-numberWithUnsignedLongLong:
-setSpans:
-dataUsingEncoding:
-toIndex
-createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
-allValues
-hasToIndex
-enumerateSubstringsInRange:options:usingBlock:
-setEntityCandidates:
-contentsOfDirectoryAtPath:error:
-stringByAppendingString:
-initWithToken:tokenId:charIndicesRange:graphemeClusters:
-setAsrHypothesisIndex:
-setNumToken:
-integerForKey:
-getEmbeddings:
-toCppUsoGraph:withError:
-setAsrConfidence:
+hasWantedToProceed
+usoVerbElementId
+objectAtIndex:
+setStartIndex:
 qrHypotheses
-createCDMSingleServiceSetupAttemptEndedLog:metadata:
-initWithCapacity:
-base64EncodedDataWithOptions:
-backingAppBundleId
-allObjects
+createMatchingSpanEndedLog:spanMatchResponse:metadata:
+elements
+hasWantedToPause
+stringByAppendingString:
+setSpans:
 salientEntities
 stringByAppendingPathComponent:
-isLocaleEmbedded:
+setEntityCandidates:
+numberWithUnsignedLongLong:
+invalidate
+addMentions:
+loadWithSandboxId:error:
+edgesCount
+stringByAppendingFormat:
+hasValue
+numberWithUnsignedLong:
+intersectSet:
+addMatchingSpans:
+setSourceComponent:
+hasUsoVerbElementId
+edges
+setEndTokenIndex:
+numberWithUnsignedInteger:
+prompted
+setSiriVocabularySpanData:
+addMatcherNames:
+interpretationGroup
+hasUsoGraph
+strictPrompt
+setEndMilliSeconds:
+classifierWithPathURL:error:
+numberWithUnsignedInt:
+promoteFactorsForNamespace:error:
+internalSpanData
+hasUsoElementId
+startTokenIndex
+setEndIndex:
+classificationProbability
+numberWithInteger:
+addIdentifiers:
+setSiriResponses:
+doubleValue
+startTimestamp
+hasUserStatedTask
+initWithModelConfiguration:
+setEnd:
+numberWithInt:
+classificationLabel
+setSemanticValue:
+addEntriesFromDictionary:
+startMilliSeconds
+hasTurnContext
+choices
+userStatedTask
+setEmbeddings:
+numberWithFloat:
+setScore:
+hasTokenChain
+doesNotRecognizeSelector:
+startIndex
+rewriteType
+numberWithDouble:
+setEmbeddingTensor:
+userInfo
+integerForKey:
+setSalientEntities:
+hasToIndex
+numberWithBool:
+setEmbeddingResponse:
+processCDMNluRequestErrorCallback:error:
+setRewrittenUtterance:
+addContextualSpans:
+intValue
+createContextUpdateEndedLog:contextUpdateResponse:metadata:
+rewriteHypothesesCount
+spans
+setEmbeddingDim:
+processCDMNluRequestCallback:
+setRewriteType:
+rewriteHypothesesAtIndex:
+levelForFactor:withNamespaceName:
+hasSuffix:
+generatePlumSpansForRequest:
+setEmbedderId:
+userDialogActsCount
+setRewrite:
+createCdmXpcEventProcessingStartedLog:processingType:metadata:
+hasStringPayload
+length
+rewriteHypotheses
+setDetectedMentions:
+initWithLocaleIdentifier:
+addAlignments:
+setResultCandidateId:
+createCdmXpcEventProcessingFailedLog:reason:errorCode:metadata:
+hasSourceComponent
+rewrite
+legacyNlContext
+setDelegated:
+numToken
+setResponseStatus:
+createCdmXpcEventProcessingEndedLog:metadata:
+hasResultCandidateId
+initWithLocale:modelDir:vocabTagsFile:transParamsFile:charIndicesFile:configFile:padCharacter:unkCharacter:
+gaveOptions
+priorInfo
+activeTasks
+createCDMSpanMatcherStartedLog:matcherName:metadata:
+build
+lastPathComponent
+hasRejected
+setDateFormat:
+printableTask:
+setRequester:
+createCDMSpanMatcherEndedLog:metadata:
+boolValue
+hasPrompted
+lastObject
+unsignedIntegerValue
+fromIndex
+initWithLocale:filesPath:predictorType:status:
+numLayer
+setCurrentTurn:
+printableSpanMatchResponse:
+setRequestId:
+createCDMSingleServiceSetupAttemptStartedLog:serviceType:retryNumber:metadata:
+blockingOnDemandDownloadForLocale:withTimeout:withProgress:
+hasPreviousDomainName
+sourceComponent
+unsignedIntValue
+setRepetitionType:
+printableResponse:
+acknowledged
+createCDMSingleServiceSetupAttemptFailedLog:retryNumber:reason:metadata:
+beginIndex
+resultCandidateId
+sortedArrayUsingSelector:
+setContextualSpans:
+unlock
+printableRequest:
+setRepetitionResults:
+accepted
+createCDMSingleServiceSetupAttemptEndedLog:metadata:
+hasPath
+sortedArrayUsingComparator:
+jointScore
+initWithLoadedModelConfiguration:parserModel:calibrationModel:
+setConnectionId:
+floatValue
+type
+setRepetitionResult:
+createCDMRequestStartedLog:metadata:
+hasParserId
+sortUsingSelector:
+responseForRequest:error:
+setConfidence:
+firstObject
+setRemoveSpaceAfter:
+printableEntityCandidate:
+createCDMRequestFailedLog:metadata:
+hasParser
+isWhitespace
+sortUsingComparator:
+setComparableProbability:
+turnContext
+setReformedTurnInputBundles:
+createCDMRequestFailedLog:errorDomainString:errorCode:metadata:
+previousTurns
+base64EncodedDataWithOptions:
+hasOriginalUtterance
+resourcePath
+setCode:
+normalisedUtterance
+setQualityOfService:
+createCDMRequestEndedLog:metadata:
+previousTurnInputs
+backingAppBundleId
+resolveMentionsInUtterance:status:
+hasOffered
+filteredArrayUsingPredicate:
+hasNormalisedUtterance
+nodesCount
+setCleanValues:
+previousDomainName
+createCDMClientSetupStartedLog:
+setQrHypotheses:
+hasNlId
+initWithLabel:tokenIndicesIndex:
+setCleanValue:
+nodes
+createCDMClientSetupFailedLog:reason:
+setProbability:
+isUIApplicationElement
+requester
+hasNlContext
+setClassificationProbability:
+filterUsingPredicate:
+initWithJsonStr:interactionId:dataVersion:
+setPriorScore:
+createCDMClientSetupEndedLog:
+assetsUnavailable
+hasMentionResolverSpanData
+setClassificationLabel:
+initWithInt:
+createCDMAllServicesSetupStartedLog:
+setPriorOrdinality:
+hasLegacyNlContext
+tokensCount
+setCdmRequestId:
+setPreviousTurns:
+createCDMAllServicesSetupFailedLog:
+insert:error:
+hasLabel
+replaceObjectAtIndex:withObject:
+setByAddingObjectsFromSet:
+createCDMAllServicesSetupEndedLog:
+inputs
+assetsAvailableForLocale:
+hasJointScore
+setByAddingObjectsFromArray:
+nluRequestId
+setPhoneSequence:
+predictionFromProtobufQuery:error:
+input
+renderedTexts
+directoryValue
+siriResponses
+isSuspended
+hasInterpretationGroup
+category
+tokenizedUtterance
+setBegin:
+setParses:
+predictWithInput:status:
+isSupportedUser
+dictionaryWithValuesForKeys:
+hasInput
+cancelled
+nlId
+setBackingAppBundleId:
+setParserId:
+countByEnumeratingWithState:objects:count:
+dictionaryWithObjectsAndKeys:
+hasInformed
+fileURLWithPath:isDirectory:
+nlContext
+initWithValues:withNumTokens:withNumLayers:withEmbeddingDim:withEmbedderId:
+predictNamedEntitiesForRequest:
+setParser:
+removeSpaceAfter
+asrTokensCount
+dictionaryWithObjects:forKeys:count:
+hasIdA
+fileURLWithPath:
+newlineCharacterSet
+tokenisedUtterance
+initWithValue:cleanValue:beginIndex:endIndex:isSignificant:isWhitespace:normalizedValues:
+predicateWithFormat:
+copyTo:
+asrTokens
+hasGroupIndex
+dictionaryWithObject:forKey:
+removeObserver:forKeyPath:
+namespaceName
+fileExistsAtPath:isDirectory:
+predicateWithBlock:
+UUIDString
+hasGaveOptions
+dictionaryWithDictionary:
+namespaceA
+callStackSymbols
+UUID
+removeObjectsInRange:
+dictionaryWithCapacity:
+hasEventMetadata
+asrOutputs
+postItnText
+setOriginalUtterances:
+UTF8String
+removeObjectsInArray:
+asrId
+tokenChainBuilderForString:locale:
+mutableCopy
+URLWithString:relativeToURL:
+copy
+setOriginalUtterance:
+dictionaryForKey:
+removeObjectForKey:
+setAsrUtteranceTokens:
+bytes
+initWithDictionary:
+initWithUsoGraph:withError:
+URLByAppendingPathComponent:isDirectory:
+setOriginalInteractions:
+convertUsoGraph:
+sharedStream
+dictionary
+removeObjectAtIndex:
+monitorWithConfiguration:
+factorLevelsWithNamespaceName:
+toNSUUID
+bundleWithPath:
+setAsrOutputs:
+URLByAppendingPathComponent:
+convertUUID:
+setObject:forKeyedSubscript:
+hasDelegated
+removeObject:
+dictationPrompt
+bundleURL
+factor
+modelWithLoadedModelConfiguration:error:
+setAsrId:
+initWithData:encoding:
+setObject:forKey:
+hasConfidenceScore
+removeLastObject
+detectMentionsInUtteranceRequest:status:
+arrayWithObjects:count:
+bundlePath
+toIndex
+setObject:atIndexedSubscript:
+SupportedLocales
+hasCleanValue
+arrayWithObjects:
+bundleIdentifier
+setAsrHypothesisIndex:
+toCppUsoGraph:withError:
+setNumToken:
+initWithUnsignedInt:
+removeAllObjects
+hasCancelled
+dependencies
+arrayWithObject:
+setAsrConfidence:
 timeIntervalSinceNow
 setNumLayer:
-currentTurnInput
-numberWithUnsignedInteger:
-enumerateObjectsUsingBlock:
-hasSuffix:
-createCDMRequestStartedLog:metadata:
-mentions
-enumerateKeysAndObjectsUsingBlock:
-removeAllObjects
-stringByAppendingFormat:
-isLocaleDownloadSupported:
-containsObject:
-mentionResolverSpanData
-gaveOptions
-setSourceComponent:
-allKeys
-setSiriVocabularySpanData:
-numberWithUnsignedInt:
+convertResponse:
+JSONObjectWithData:options:error:
+arrayWithContentsOfFile:
+hasCalibrationModel
+delegated
+rejected
+initWithCoreModel:domainModelBundles:
 timeIntervalSince1970
 setAlgorithm:
-intValue
-createCDMRequestFailedLog:metadata:
-hasStringPayload
-initWithBytes:length:encoding:
-setEndTokenIndex:
+extractRequestLinkData:
+EmbeddedLocales
+convertNLv4ParserRequestToCpp:
 setNormalizedValues:
-initWithSuiteName:
-alignmentsCount
-rejected
-numberWithInteger:
-setNormalizedStringPayloads:
-currentTurn
-prompted
-createCDMRequestFailedLog:errorDomainString:errorCode:metadata:
+arrayWithCapacity:
 tier1Events
-fromIndex
-hasResultCandidateId
-setEndMilliSeconds:
-strictPrompt
-phoneSequence
-numberWithInt:
-alignments
-entityLabel
+mentions
+convertFromUsoGraph:
+initWithTokens:originalUtterance:normalizedUtterance:
+setNormalizedStringPayloads:
+arrayWithArray:
+mentionResolverSpanData
+initWithTokenizedUtterance:embeddings:matchedSpans:
 setNormalisedUtterance:
-createCDMRequestEndedLog:metadata:
-setEndIndex:
-initWithBytes:length:
-promoteFactorsForNamespace:error:
-hasRejected
-startTokenIndex
-initWithLocaleIdentifier:
-numberWithFloat:
-initWithBase64EncodedData:options:
-assetsUnavailable
-groupIndex
-setSiriResponses:
-numberWithDouble:
-startTimestamp
-setSemanticValue:
-initWithString:
-connectionId
+convertFromUUID:
+hasAcknowledged
+array
 setNonWhitespaceTokenIndex:
-hasPrompted
+isLocaleEmbedded:
+hasAccepted
 setWithObjects:
-numberWithBool:
-setEnd:
-hasPreviousDomainName
+executedTasks
+phoneSequence
 setWithCapacity:
-floatValue
-matchesInString:options:range:
-entities
-pathForResource:ofType:inDirectory:
-createCDMClientSetupStartedLog:
-startMilliSeconds
-addValues:
-configurationFromDirectoryUrl:error:
-initWithLocale:modelDir:vocabTagsFile:transParamsFile:charIndicesFile:configFile:padCharacter:unkCharacter:
-setScore:
-setNluRequestId:
-setSalientEntities:
-setEmbeddings:
-firstObject
-addUpdateHandlerForNamespaceName:usingBlock:
-createCDMClientSetupFailedLog:reason:
+isLocaleDownloadSupported:
 targetUUID
-startIndex
-configurationForDefaultMainDisplayMonitor
-initWithAssets:forLocale:status:
-rewriteType
-pathForResource:ofType:
-setEmbeddingTensor:
-assetsAvailableForLocale:
-matcherNamesCount
-getWithStreamId:
-setValues:count:
-setNluInternalTokens:
-target
-userStatedTask
-setWithArray:
-levelForFactor:withNamespaceName:
-setEmbedderId:
-hasPath
-initWithLocale:filesPath:predictorType:status:
-targetName
-rewriteHypothesesCount
-endTokenIndex
-setRewrittenUtterance:
-userInfo
-path
-pathExtension
-isFinished
-matcherNamesAtIndex:
-category
-endMilliSeconds
-addTokens:
-setEmbeddingResponse:
-setNlContext:
-createTokenizationEndedLog:tokenizationResponse:tokenizationInputType:metadata:
-processCDMNluRequestErrorCallback:error:
-spans
-createCDMAllServicesSetupStartedLog:
+eventMetadata
+initWithCapacity:
+initWithToken:tokenId:charIndicesRange:graphemeClusters:
+setNluRequestId:
+convertFromNluResponse:
 writeToFile:atomically:encoding:error:
-setEmbeddingDim:
-confidenceScore
+setWithArray:
+errorWithDomain:code:userInfo:
+targetName
+setNluInternalTokens:
+pathForResource:ofType:inDirectory:
+writeToFile:atomically:
+applicationProxyForIdentifier:
+setValues:count:
+dataWithJSONObject:options:error:
+target
+matchesInString:options:range:
+setNlContext:
+pathForResource:ofType:
+dataWithContentsOfURL:
+appendString:
+initWithBytes:length:encoding:
+matcherNamesCount
+tapToEdit
+initWithSuiteName:
+pathExtension
+setNamespaceA:
+dataWithContentsOfFile:options:error:
+setValue:forKey:
+systemTimeZone
+enumeratorWithOptions:
+matcherNamesAtIndex:
+initWithBytes:length:
+path
+dataWithContentsOfFile:
+setValue:
 matcherNames
-filteredArrayUsingPredicate:
-hasOriginalUtterance
-rewriteHypothesesAtIndex:
-length
-setRewriteType:
+initWithBase64EncodedData:options:
+getEmbeddings:
+initWithString:
+setMentionResolverResponse:
+appendFormat:
+isFinished
+dataWithBytes:length:
+setUtterance:
+reformedTurnInputBundles
+systemDialogActs
+contextualSpans
+setMaxNumParses:
+appendData:
+dataUsingEncoding:
+enumerateSubstringsInRange:options:usingBlock:
+initWithAssets:forLocale:status:
+setMaxConcurrentOperationCount:
+appendBytes:length:
+matchedSpans
+enumerateObjectsUsingBlock:
+setMaxCandidates:
+setUserStatedTask:
+currentTurnInput
+enumerateKeysAndObjectsUsingBlock:
+setMatchingSpans:
+isExecuting
+setUserDialogActs:
+groupIndex
+initWithArray:copyItems:
+setMatchScore:
+parserModel
+contentsOfDirectoryAtPath:error:
+currentTurn
+entityLabel
+initWithArray:
+setLowInt:
+setType:
+isEqualToString:
+matchSpansOfUtterance:
+whitespaceCharacterSet
+containsObject:
+isEqualToSet:
+reason
+getWithStreamId:
+setTurnInput:
+matchSpansForUtterance:
+initLoadFromDataDetectorsDirectoryPath:forLocale:
+makeSearcherForUserId:
+setLegacyNlContext:
+whitespaceAndNewlineCharacterSet
+setTurnIndex:
+allValues
+isEqualToNumber:
+initFromSourceVocabPath:bertModelPath:bertConfigPath:reformulatorPath:
+setLegacyContext:
+weakObjectsHashTable
+setTurnContext:
+allObjects
+matchScore
+endTokenIndex
+wantedToRepeat
+setTransitionHandler:
+isEqualToDictionary:
+allKeys
+substringToIndex:
+endMilliSeconds
+setLabel:
+wantedToProceed
+connectionId
+isEqualToArray:
+setTokens:
+alignmentsCount
+createTokenizationEndedLog:tokenizationResponse:tokenizationInputType:metadata:
+substringFromIndex:
 endIndex
-processCDMNluRequestCallback:
+getCppGraph
+wantedToPause
+setIsWhitespace:
+setTokenizerResponse:
+alignments
+configurationFromDirectoryUrl:error:
+waitUntilAllOperationsAreFinished
+setIsSignificant:
+setTokenisedUtterance:
+subarrayWithRange:
+configurationForDefaultMainDisplayMonitor
+getContextualSpansWithRequest:
+setInterpretationGroup:
+setTokenIndex:
+createServiceContextStartedLog:serviceName:metadata:
 init
 initWithVoiceCommandUserParses:autoShortcutParses:
 commandName
@@ -8753,6 +8823,9 @@ cdmSingleServiceSetupAttemptEnded:metadata:logMessage:
 cdmSingleServiceSetupAttemptFailed:retryNumber:reason:metadata:logMessage:
 cdmSpanMatcherStarted:matcherName:metadata:logMessage:
 cdmSpanMatcherEnded:metadata:logMessage:
+cdmXpcProcessingStarted:processingType:metadata:logMessage:
+cdmXpcProcessingEnded:metadata:logMessage:
+cdmXpcProcessingFailed:reason:errorCode:metadata:logMessage:
 stringNodeNameToEnum:
 stringServiceTypeToEnum:
 initWithMentions:
@@ -9144,11 +9217,11 @@ isContextUpdateEnabled
 isAgentToPersonMappingEnabled
 isLighthouseAPIEnabled
 isFeatureStoreEnabled
-isAutoShortcutsEnabled
 isFeatureStoreEnabledForExternalBuilds
 isMentionResolverRewriterEnabled
 isContextualSpanMatcherEnabled
 isLinkSpansEnabled
+isShortcutsNLv4FollowupEnabled
 initWithMRRequest:
 mrRequest
 _mrRequest
@@ -9212,7 +9285,6 @@ getHandlerId
 getDataDispatcher
 failedWithErrorCode:errorDomain:message:
 failedWithError:
-removeLRMCharacter:
 validateRequest:
 populateRequesterEnumForNluRequest:
 skipNode:basedOnNode:withCondition:
@@ -9462,6 +9534,10 @@ filterAndConvertInternalMatchingSpans:
 isExternalMatchingSpan:fromMatcher:
 annotateDUDAWithMRRRewrittenUtterance:matchingSpans:userDialogAct:
 annotateDelegatedUDAParses:matchingSpans:mrRewrittenUtterance:
+isAppLaunchVerbEntity:
+isAppLaunchGraph:
+isAppLaunchParseWithoutIdentifiers:
+forceDelegateUnlabeledAppLaunch:
 initWithActiveGraphName:
 getNameStringToEnumDict
 getNLUGraphNodeNames

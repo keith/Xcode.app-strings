@@ -76,6 +76,8 @@ AudioSessionMgr
 -[ANAudioSessionManager activateAudioSessionWithError:]
 -[ANAudioSessionManager deactivateAudioSessionAfterDelay:]
 -[ANAudioSessionManager _deactivateAudioSession]
+CallIsActive changed to %d
+CallEndTimer
 endpoint
 com.apple.announce
 ReachabilityMgr
@@ -184,7 +186,8 @@ AudioPlayer
 v16@?0@"<ANTrackPlayerDelegate>"8
 -[ANTrackPlayer add:announcementID:]
 -[ANTrackPlayer _add:announcementID:trackType:]
--[ANTrackPlayer _playWithCompletionHandler:]
+-[ANTrackPlayer _playWithCompletionHandler:]_block_invoke
+-[ANTrackPlayer _handleReadyToPlayWithCompletionHandler:]
 B16@?0@"ANTrackPlayerInfo"8
 -[ANTrackPlayer stopWithCompletionHandler:]
 -[ANTrackPlayer nextWithCompletionHandler:]_block_invoke
@@ -376,7 +379,7 @@ SystemNotificationObserver start observing System Notifications.
 SystemNotificationObserver language did change.
 SystemNotificationObserver %@ notification received with user info %@.
 XPC Event Stream Name: %s
-Unsupported XPC Event Stream Name
+Unsupported XPC Event Stream Name: %s
 Sending Reply %@
 WARNING: Using cached settings for accessory. Value may be stale. %@, %@
 Settings need refresh for accessory %@, %@
@@ -391,14 +394,26 @@ Received Request to play tone. Endpoint ID = %@
 Failed to find URL for tone: %lu
 %s: Released
 %s: Canceled Pending Audio Session Deactivation
+Canceled call end timer, deactivation.
+Call compeletion handler with error, deactivation.
 %s: Canceled pending audio session deactivation
 %s: Failed to set AVAudioSession active: %@
 %s: Activated Audio Session %@
+There is an active call, wait for call to end then call completion handler: %@
 %s: Request to deactivate audio session when deactivation already in progress. Ignoring.
 Will deactivate audio session immediately
 Will deactivate audio session in (%@) seconds
 Failed to deactivate Audio Session. Error = %@
 %s: Deactivated Audio Session %@
+Set wait for call end completion 
+ old handler: %@ 
+ new handler: %@
+Call end timer set to nil [%@]
+Existing call end completion handler, replacing with new handler.
+ old handler: %@ 
+ new handler: %@
+Call End Timer Created [%@]
+Call End Timer Fired [%@]
 Initializing Reachability Status
 Initial Reachability [Home = %@]: %@
 Initial Reachability [Home = %@, Room = %@]: %@
@@ -621,6 +636,7 @@ Removed Device ID from Destination: %@, %@
 Checking (%lu) nearby HomePods for Relay Viability
 Relaying Announcement through Nearby Accessory (%@)
 Relaying Announcement through HomePod (Name = %@, ID = %@)
+Activate Rapport link failed with error: %@
 Checking (%lu) remote HomePods for Relay Viability
 Checking if HomePod can Relay: %@, HomeKitID: %@, Controllable: %d, Announce Supported: %d
 Checking Residents for Relay
@@ -633,6 +649,9 @@ Failed to process audio. Requesting remote normalization. Error = %@
 Relaying message via resident.
 Recognized User. Not sending to personal devices for user. %@, %@
 Failed Send Basic Validation with Error: %@
+Activate Rapport link started.
+Activate Rapport link failed with error: %@.
+Activate Rapport link finished.
 ### Forcing Link Active
 ### No scan needed.
 ### Will activate link
@@ -1441,24 +1460,52 @@ pathForResource:ofType:
 fileURLWithPath:
 _player
 T@"ANTonePlayer",&,N,V_player
+_registerForAudioSessionNotifications
 timer
 _cancelTimer
 _deactivateAudioSession
+_deregisterForAudioSessionNotifications
+callEndTimer
+cancel
+waitForCallEndCompletion
+an_errorWithCode:
 audioSession
 setActive:error:
 queue
+endpointUUID
+callIsActive
+setWaitForCallEndCompletion:
+activateAudioSessionWithError:
 setTimer:
 _handleTimerExpired
 setActive:withOptions:error:
+sharedAVSystemController
+setAttribute:forKey:error:
+defaultCenter
+handleCallActiveDidChangeNotification:
+addObserver:selector:name:object:
+removeObserver:name:object:
+userInfo
+hasCurrentCalls
+startCallEndTimer
+timerWithLabel:identifier:
+startWithValue:queue:handler:
 initWithAudioSession:queue:endpointID:
-activateAudioSessionWithError:
+activateAudioSessionWithCompletion:
 deactivateAudioSessionAfterDelay:
+setCallEndTimer:
 _audioSession
 _queue
 _timer
+_endpointUUID
+_waitForCallEndCompletion
+_callEndTimer
 T@"AVAudioSession",R,N,V_audioSession
 T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"NSObject<OS_dispatch_source>",&,N,V_timer
+T@"NSUUID",R,N,V_endpointUUID
+T@?,C,N,V_waitForCallEndCompletion
+T@"ANTimer",&,N,V_callEndTimer
 isEndpoint
 analyticsPayload
 T@"NSDictionary",R
@@ -1537,7 +1584,6 @@ uniqueIdentifiersForDevicesExcludingAppleAccessories
 _deregisterForNotificationsWithAudioSession:
 setHandler:
 proxyAudioSessionID
-endpointUUID
 audioSessionWithProxyAudioSessionID:endpointID:error:
 setAudioSession:
 opaqueSessionID
@@ -1546,7 +1592,6 @@ setProxyAudioSessionID:
 _playFileURL:
 _playSystemSoundWithFileURL:
 pause
-sharedAVSystemController
 an_isCarPlayConnected
 _callHandler:
 playerWithURL:
@@ -1556,25 +1601,19 @@ currentItem
 setVolumeWithOptions:
 play
 usingProxyAudioSession
-defaultCenter
 audioSessionInterruptionHandler:
-addObserver:selector:name:object:
 _handleFailure
 _handlePlayerItemPlayedToEnd:
 _handlePlayerItemFailedToPlayToEnd:
 playerRateChangedHandler:
-removeObserver:name:object:
 object
-userInfo
 valueForKey:
 rate
 handler
 _usingProxyAudioSession
 _proxyAudioSessionID
-_endpointUUID
 _handler
 TI,N,V_proxyAudioSessionID
-T@"NSUUID",R,N,V_endpointUUID
 T@"AVPlayer",&,N,V_player
 T@"AVAudioSession",&,N,V_audioSession
 TB,N,V_usingProxyAudioSession
@@ -1949,6 +1988,7 @@ accessoryDidUpdatePreferredMediaUser:
 accessory:didUpdateSupportsWalletKey:
 accessoryDidUpdatePendingConfigurationIdentifier:
 accessory:didUpdateWifiNetworkInfo:
+accessoryDidUpdateSupportsRMVonAppleTV:
 accessorySettingsCache
 _homesLoaded
 _accessorySettingsCache
@@ -2128,7 +2168,6 @@ T@"<ANAnalyticsDailyMessagingProtocol>",&,N,V_messagingConnection
 T@"<ANAnalyticsDailyDelegate>",W,N,Vdelegate
 hmu_accessories
 an_zonesWithAnnounceAccessoriesFromZones:
-timerWithLabel:identifier:
 _configureAudioSession
 _addObserverForPlayer:
 _removeObserverForPlayer:
@@ -2149,12 +2188,11 @@ mainQueue
 setPlaybackState:
 _playWithCompletionHandler:
 readyToPlay
+_handleReadyToPlayWithCompletionHandler:
 status
 setPlaybackPending:
 playerTimer
 _stopAndUpdatePlaybackState:
-startWithValue:queue:handler:
-cancel
 interruptionTimer
 stopInternalSync
 nextInternalSync
@@ -2582,6 +2620,7 @@ v44@0:8Q16I24@"NSUUID"28@?<v@?@"NSError">36
 B24@0:8^@16
 @"AVAudioSession"
 @"NSObject<OS_dispatch_source>"
+@"ANTimer"
 @"NSDictionary"16@0:8
 v24@0:8@"HMHome"16
 v32@0:8@"HMHome"16@"HMAccessory"24
@@ -2742,7 +2781,6 @@ v48@0:8@16@24@32^v40
 @"AVQueuePlayer"
 @"NSURL"
 @"ANAudioSessionManager"
-@"ANTimer"
 v24@0:8@?<v@?@?<v@?q>>16
 @"NSBackgroundActivityScheduler"
 @48@0:8@16@24@32^@40
@@ -2885,6 +2923,8 @@ AudioSessionMgr
 -[ANAudioSessionManager activateAudioSessionWithError:]
 -[ANAudioSessionManager deactivateAudioSessionAfterDelay:]
 -[ANAudioSessionManager _deactivateAudioSession]
+CallIsActive changed to %d
+CallEndTimer
 endpoint
 com.apple.announce
 ReachabilityMgr
@@ -2993,7 +3033,8 @@ AudioPlayer
 v16@?0@"<ANTrackPlayerDelegate>"8
 -[ANTrackPlayer add:announcementID:]
 -[ANTrackPlayer _add:announcementID:trackType:]
--[ANTrackPlayer _playWithCompletionHandler:]
+-[ANTrackPlayer _playWithCompletionHandler:]_block_invoke
+-[ANTrackPlayer _handleReadyToPlayWithCompletionHandler:]
 B16@?0@"ANTrackPlayerInfo"8
 -[ANTrackPlayer stopWithCompletionHandler:]
 -[ANTrackPlayer nextWithCompletionHandler:]_block_invoke
@@ -3185,7 +3226,7 @@ SystemNotificationObserver start observing System Notifications.
 SystemNotificationObserver language did change.
 SystemNotificationObserver %@ notification received with user info %@.
 XPC Event Stream Name: %s
-Unsupported XPC Event Stream Name
+Unsupported XPC Event Stream Name: %s
 Sending Reply %@
 WARNING: Using cached settings for accessory. Value may be stale. %@, %@
 Settings need refresh for accessory %@, %@
@@ -3200,14 +3241,26 @@ Received Request to play tone. Endpoint ID = %@
 Failed to find URL for tone: %lu
 %s: Released
 %s: Canceled Pending Audio Session Deactivation
+Canceled call end timer, deactivation.
+Call compeletion handler with error, deactivation.
 %s: Canceled pending audio session deactivation
 %s: Failed to set AVAudioSession active: %@
 %s: Activated Audio Session %@
+There is an active call, wait for call to end then call completion handler: %@
 %s: Request to deactivate audio session when deactivation already in progress. Ignoring.
 Will deactivate audio session immediately
 Will deactivate audio session in (%@) seconds
 Failed to deactivate Audio Session. Error = %@
 %s: Deactivated Audio Session %@
+Set wait for call end completion 
+ old handler: %@ 
+ new handler: %@
+Call end timer set to nil [%@]
+Existing call end completion handler, replacing with new handler.
+ old handler: %@ 
+ new handler: %@
+Call End Timer Created [%@]
+Call End Timer Fired [%@]
 Initializing Reachability Status
 Initial Reachability [Home = %@]: %@
 Initial Reachability [Home = %@, Room = %@]: %@
@@ -3430,6 +3483,7 @@ Removed Device ID from Destination: %@, %@
 Checking (%lu) nearby HomePods for Relay Viability
 Relaying Announcement through Nearby Accessory (%@)
 Relaying Announcement through HomePod (Name = %@, ID = %@)
+Activate Rapport link failed with error: %@
 Checking (%lu) remote HomePods for Relay Viability
 Checking if HomePod can Relay: %@, HomeKitID: %@, Controllable: %d, Announce Supported: %d
 Checking Residents for Relay
@@ -3442,6 +3496,9 @@ Failed to process audio. Requesting remote normalization. Error = %@
 Relaying message via resident.
 Recognized User. Not sending to personal devices for user. %@, %@
 Failed Send Basic Validation with Error: %@
+Activate Rapport link started.
+Activate Rapport link failed with error: %@.
+Activate Rapport link finished.
 ### Forcing Link Active
 ### No scan needed.
 ### Will activate link
@@ -3679,442 +3736,445 @@ ANCompanionConnection
 ANCoreAnalytics
 ANAnalyticsSystemProtocol
 Accessory
-softwareVersion
-setHomeLocationStatus:
-anyObject
-hmu_userWithSenderCorrelationIdentifier:
-deviceNotificationMode
-sharedUtil
-rootGroup
-getCString:maxLength:encoding:
+listeners
+setAttribute:forKey:error:
 deviceForFromID:
-prerollAtRate:completionHandler:
-setSender:
-hmu_uniqueIdentifiersFromZones:
-setHomeKitUserID:
-currentConnection
 interfaceWithProtocol:
-setRoomUUIDs:
 hmu_uniqueIdentifiersFromUsers:
-setHomeKitID:
 na_map:
-announcer
-clientIdentifier
 prefixedURI
-sharedInstance
+currentConnection
+zoneUUIDs
 integerValue
-flags
 roomUUIDs
-hmu_uniqueIdentifiersFromRooms:
-remoteObjectProxy
-deviceClass
+setRemoteObjectInterface:
+timerWithLabel:identifier:
 na_firstObjectPassingTest:
-idsDeviceIdentifier
+hmu_uniqueIdentifiersFromRooms:
 intValue
+anyObject
+idsDeviceIdentifier
+remoteObjectProxy
 lastPathComponent
 setAnnouncementIdentifier:
-creationTimestamp
+clientIdentifier
 roomObjects
-setRemoteObjectInterface:
+zoneObjects
+action
+flags
+deviceClass
+hmu_roomsWithUniqueIdentifiers:
+insertItem:afterItem:
+na_filter:
+roomNames
+sharedAVSystemController
+lastObject
+zoneNames
+registerRequestID:options:handler:
+setAnnouncement:
+creationTimestamp
+timeIntervalSinceNow
+accessoryWithUniqueIdentifier:
+pendingNotificationRequests
 firstObject
+identifiers
 device
 createTemporaryURLWithFileExtension:directory:
-na_filter:
-hmu_roomsWithUniqueIdentifiers:
 clearIdentifiers
-lastObject
-setAnnouncement:
-an_errorWithCode:component:description:
-insertItem:afterItem:
-registerRequestID:options:handler:
-roomNames
-pendingNotificationRequests
-destinationWithHomeName:zoneNames:roomNames:
-identifiers
-createTemporaryFileWithData:extension:directory:
+setFlags:
+announcer
 mutableCopy
-UUIDString
 setAdaptive:
+setRate:time:atHostTime:
 registerEventID:options:handler:
 hmu_roomsInZones:appendingRooms:
-an_errorWithCode:component:
-timerWithLabel:identifier:
-fileURLWithPath:
-UUID
-destinationWithHomeIdentifier:
-identifier
-setFlags:
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-an_dateFormatterForFilename
-sharedAVSystemController
-hmu_roomWithUniqueIdentifier:
-setRate:time:atHostTime:
-absoluteString
+writeToURL:options:error:
 setFilePath:
+createTemporaryFileWithData:extension:directory:
+destinationWithHomeName:zoneNames:roomNames:
+timeIntervalSinceDate:
+identifier
+hmu_roomWithUniqueIdentifier:
+setRapportID:
+fileURLWithPath:
 initWithUUIDString:
-zoneUUIDs
-filePath
-an_configureWithError:
-checkMessageSize:priority:
-URLWithString:
-destinationURIs
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+destinationWithHomeIdentifier:
+setExportedObject:
+timeIntervalSince1970
 hmu_roomWithName:
 setActive:withOptions:error:
-setRapportID:
-zoneObjects
-timeIntervalSinceNow
-URLForDirectory:inDomain:appropriateForURL:create:error:
-setExportedObject:
-modelIdentifier
+an_errorWithCode:component:description:
+valueWithCMTime:
+timeControlStatus
+filePath
 hmu_isRemoteAccessAllowedForUser:
-createAccessorySettingsDataSource
+checkMessageSize:priority:
+setExportedInterface:
+destinationURIs
+modelIdentifier
+settings
+setQualityOfService:
 setActive:error:
 keyPath
-zoneNames
-fileExistsAtPath:
+an_errorWithCode:component:
 initWithSuiteName:
-categoryIdentifier
-URLByDeletingPathExtension
-setExportedInterface:
-initWithService:
-model
-timeIntervalSinceDate:
+valueForKey:
+setZoneUUIDs:
+setExpirationDate:
 keyEnumerator
+initWithService:
+threadIdentifier
+model
+createAccessorySettingsDataSource
+valueForEntitlement:
 playerWithURL:
 hmu_isRemoteAccessAllowedForCurrentUser
-setQualityOfService:
-allValues
-countByEnumeratingWithState:objects:count:
+an_errorWithCode:
 setAction:
-writeToURL:options:error:
-destinationDevice
-pause
-caseInsensitiveCompare:
-resume
-fileData
-hmu_isPartOfHome:
-capabilities
-setExpirationDate:
-timeIntervalSince1970
-items
-settings
-valueWithCMTime:
-setAccessoryImageName:
-timeControlStatus
-pathForResource:ofType:
-fetchCachedAccessorySettingsWithHomeIdentifier:accessoryIdentifier:keyPaths:completionHandler:
-resultWithAnnouncementID:destination:
-setZoneUUIDs:
-destination
-cancel
-hmu_isHomePod
-allObjects
-deregisterEventID:
-path
-valueForKey:
-fetchAccessorySettingsWithHomeIdentifier:accessoryIdentifier:keyPaths:completionHandler:
-valueForEntitlement:
-receiptTimestamp
-playerItemWithURL:
-residentDevices
-threadIdentifier
-setPreregistered:
-allKeys
-initWithOptions:cachePolicy:
-setWithObjects:
-hmu_isEndpoint
+fileExistsAtPath:
 target
-setDispatchQueue:
-IDSDestinationForIDSService:
-reasonForWaitingToPlay
-setWithObject:
-playerItemWithAsset:
+pause
+resume
+categoryIdentifier
+hmu_isPartOfHome:
+items
 value
-deliveredNotifications
-hmu_isCurrentUserOwner
-services
-isRelayType
-messageWithoutDataFromMessage:
-bundleForClass:
-expirationDate
-initWithMessage:
+an_dateFormatterForFilename
+destinationDevice
+setWithObjects:
+setAccessoryImageName:
+countByEnumeratingWithState:objects:count:
+pathForResource:ofType:
+caseInsensitiveCompare:
+resultWithAnnouncementID:destination:
+fileData
+setWithObject:
+capabilities
+setPreregistered:
+an_configureWithError:
+setDispatchQueue:
+hmu_isHomePod
+absoluteString
+path
+fetchCachedAccessorySettingsWithHomeIdentifier:accessoryIdentifier:keyPaths:completionHandler:
+receiptTimestamp
+residentDevices
+destination
 setWithCapacity:
-hmu_isCurrentUserAdministrator
-owner
+playerItemWithURL:
+deregisterEventID:
+hmu_isEndpoint
+initWithOptions:cachePolicy:
+cancel
+reasonForWaitingToPlay
+fetchAccessorySettingsWithHomeIdentifier:accessoryIdentifier:keyPaths:completionHandler:
+playerItemWithAsset:
 setDiscretionary:
+hmu_isCurrentUserOwner
+UUIDString
+setWithArray:
+messageWithoutDataFromMessage:
+services
+allValues
+isRelayType
+initWithMessage:
+hmu_isCurrentUserAdministrator
+stringWithUTF8String:
+owner
+UUID
+deliveredNotifications
 homeUUID
+messageFromData:data:
 serviceTypes
 isRelayRequest
-messageFromData:data:
 initWithMachServiceName:
+setDeviceLostHandler:
+expirationDate
 hmu_isAdministrator:
-setWithArray:
+URLWithString:
+stringWithString:
+setVolumeWithOptions:
+allObjects
 isPrimaryService
 serviceType
-setDeviceLostHandler:
 requestWithIdentifier:content:trigger:
-initWithItems:
+URLForDirectory:inDomain:appropriateForURL:create:error:
+stringWithFormat:
+setDeviceIDs:
 messageForCompanion
-advanceToNextItem
 playedAnnouncements
-setVolumeWithOptions:
+initWithItems:
+allKeys
+messageDataFromMessage:
 serviceName
 isPhone
 hmu_idsDestination
-messageDataFromMessage:
+setDeviceFoundHandler:
+userInfo
+bundleForClass:
 requestWithContent:destination:
 homeObject
-stringWithUTF8String:
-setDeviceIDs:
-URLByAppendingPathComponent:isDirectory:
-hmu_homesFromHomes:withZoneNames:
+stringFromDate:
 initWithIdentifier:
+URLByDeletingPathExtension
+setDeviceChangedHandler:
+hmu_homesFromHomes:withZoneNames:
 operation
-setDeviceFoundHandler:
 request
+userIDSURI
+URLByAppendingPathExtension:
 isPad
-stringWithString:
+stringForAnnounceReachabilityLevel:
 message
 hmu_homesFromHomes:withRoomNames:
-setDeviceChangedHandler:
-replyToSender
-homeName
-stringWithFormat:
-hmu_homesFromHomes:withHomeLocationStatus:
-URLByAppendingPathExtension:
-addObserver:selector:name:object:
-initWithHomeMangerConfiguration:
+stringByAppendingString:
 setUserUUIDs:
-error
-maximumLengthOfBytesUsingEncoding:
-userInfo
-replaceContentForRequestWithIdentifier:replacementContent:completionHandler:
-setPlaybackDeadline:
 setDestinationDevice:
-addObserver:forKeyPath:options:context:
-stringFromDate:
-defaultSound
-hmu_homePodsIncludingCurrentAccessoryDictionary
+replyToSender
+setPlaybackDeadline:
+URLByAppendingPathComponent:isDirectory:
+updateWithContentsOfAnnouncement:
+homeName
+hmu_homesFromHomes:withHomeLocationStatus:
+maximumLengthOfBytesUsingEncoding:
 setUserInfo:
-contextFromDictionary:
+IDSDestinationForIDSService:
+initWithHomeMangerConfiguration:
+replaceContentForRequestWithIdentifier:replacementContent:completionHandler:
+advanceToNextItem
+URLByAppendingPathComponent:
+hmu_homePodsIncludingCurrentAccessoryDictionary
+setUserID:
 senderWithID:type:
-boolValue
-mapTableWithKeyOptions:valueOptions:
+error
 objectForKeyedSubscript:
-userIDSURI
+mapTableWithKeyOptions:valueOptions:
+setObject:forKeyedSubscript:
 initWithHomeID:
 isInternalBuild
-announcementIdentifiers
-stringForAnnounceReachabilityLevel:
+defaultSound
 homeLocationStatus
-setUserID:
 hmu_homePodsDictionary
-enumerateObjectsUsingBlock:
-addObjectsFromArray:
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-objectForKey:
-stringByAppendingString:
-setObject:forKeyedSubscript:
-boolForDefault:
-removePendingNotificationRequestsWithIdentifiers:
-defaultCenter
-contentWithAudioFileURL:
-updateWithContentsOfAnnouncement:
-announcementIdentifier
-homeKitUserIdentifiers
 setType:
-addObject:
-hmu_destinationForService:
-enumerateKeysAndObjectsUsingBlock:
-objectForDefault:
+contextFromDictionary:
+removePendingNotificationRequestsWithIdentifiers:
+objectForKey:
 setObject:forKey:
-isHomeAppInstalled
 setDefaultActionURL:
-homeKitUserIdentifier
-addNotificationRequest:withCompletionHandler:
-contentByUpdatingWithProvider:error:
-hmu_compactMap:
-sender
+homeKitUserIdentifiers
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+enumerateObjectsUsingBlock:
+hmu_destinationForService:
 setObject:forDefault:
+objectForDefault:
+homeKitUserIdentifier
+addObserver:selector:name:object:
+setNumber:forDefault:
+defaultCenter
+hmu_compactMap:
+enumerateKeysAndObjectsUsingBlock:
+sender
+contentWithAudioFileURL:
+isHomeAppInstalled
+setDataItems:
 objectAtIndexedSubscript:
+boolValue
+announcementIdentifiers
 sendResourceAtURL:metadata:toDestinations:priority:options:identifier:error:
 rate
-addEntriesFromDictionary:
-hmu_allUsersIncludingCurrentUser
-content
-setNumber:forDefault:
-objectAtIndex:
-setDataItems:
-removeObserver:name:object:
-endpointIdentifier
-sendRequestID:request:options:responseHandler:
-machTimeToSeconds:
-hmu_allRoomsIncludingRoomForEntireHome
-homeKitIdentifier
-removeObserver:forKeyPath:context:
-containsString:
+statusFlags
+addObserver:forKeyPath:options:context:
+unsignedLongLongValue
 setTitle:
-isEqualToString:
+contentByUpdatingWithProvider:error:
+hmu_allUsersIncludingCurrentUser
+objectAtIndex:
+removeObserver:name:object:
 setData:
-object
+boolForDefault:
 setName:
+status
+machTimeToSeconds:
+sendRequestID:request:options:responseHandler:
+announcementIdentifier
+homeKitIdentifier
+hmu_allRoomsIncludingRoomForEntireHome
+removeObserver:forKeyPath:context:
+addObjectsFromArray:
+content
+isEqualToString:
+setMachStartTime:
+object
+setCreationTimestamp:
+unsignedIntegerValue
+endpointIdentifier
 machStartTime
 removeObserver:forKeyPath:
-containsObject:
-setMachStartTime:
-setCreationTimestamp:
-numberWithUnsignedLongLong:
-hmu_accessoriesInZones:
-dateWithTimeIntervalSinceNow:
-audioFileURL
-statusFlags
-initWithData:type:
-removeObjectsInArray:
-unsignedLongLongValue
+containsString:
+addObject:
 setLocationAuthorization:
 setControlFlags:
-duration
-numberWithUnsignedLong:
-status
-lock
-dateWithTimeInterval:sinceDate:
-initWithData:error:
+numberWithUnsignedLongLong:
+unprefixedURI
+hmu_accessoriesInZones:
+startWithValue:queue:handler:
+initWithData:type:
 setLocation:
+addNotificationRequest:withCompletionHandler:
+removeObjectsInArray:
 setThreadIdentifier:
+containsObject:
+lock
+unplayedAnnouncements
+numberWithUnsignedLong:
+initWithData:error:
+dateWithTimeIntervalSinceNow:
+addEntriesFromDictionary:
+unlock
 hmu_accessoriesInRooms:
-dateByAddingTimeInterval:
+duration
 removeObjectForKey:
-doubleValue
-unsignedIntegerValue
+setListeners:
 numberWithUnsignedInteger:
+setStatusFlags:
+initWithContentsOfURL:
+setCompletionHandler:
+dateWithTimeInterval:sinceDate:
 isEnabledForPersonalDevices
 hmu_accessoriesFromAccessories:excludingStereoCompanionForAccessory:
-initWithContentsOfURL:
 removeObjectAtIndex:
+dateByAddingTimeInterval:
 purgeTemporarySubDirectory:
 numberWithUnsignedInt:
-unprefixedURI
-setListeners:
-startWithValue:queue:handler:
-setStatusFlags:
+doubleValue
 homeAccessControlForUser:
-setCompletionHandler:
-date
+audioFileURL
 hmu_accessoriesExcludingCurrentAccessoryFromAccessories:
 isEmpty
-audioDuration
-dataWithPropertyList:format:options:error:
-sendEventID:event:destinationID:options:completion:
-unplayedAnnouncements
-numberWithInteger:
-removeObject:
-hmu_accessories
-unlock
-location
-announcement
-URLByAppendingPathComponent:
-dataWithContentsOfURL:options:error:
-numberWithInt:
-sendData:toDestinations:priority:options:identifier:error:
 setCmStartTime:
-announceUserSettings
+numberWithInteger:
+uniqueIdentifier
+removeObject:
+sendEventID:event:destinationID:options:completion:
+location
+date
+hmu_accessories
+dataWithPropertyList:format:options:error:
+numberWithInt:
+uniqueIDOverride
+sendData:toDestinations:priority:options:identifier:error:
 numberWithFloat:
-isControllable
-playbackDeadline
-dataUsingEncoding:
-removeItemAtURL:error:
-initWithBundleIdentifier:
-isAudioAccessory
 setClientIdentifier:
 setSource:
+isControllable
+playbackDeadline
+removeItemAtURL:error:
+speakText:
+initWithBundleIdentifier:
+uniqueID
+isAudioAccessory
+dataWithContentsOfURL:options:error:
+setClientID:
 removeItem:
 hasPlayed
-asset
-propertyListWithData:options:format:error:
-dictionaryWithObjects:forKeys:count:
-numberWithDouble:
-uniqueIdentifier
-setClientID:
 setSound:
-speakText:
-dictionaryWithDictionary:
-numberWithBool:
-uniqueIDOverride
-arrayWithObjects:count:
-dataItems
-productTypeOverride
+propertyListWithData:options:format:error:
+audioDuration
+numberWithDouble:
+dataUsingEncoding:
 setClasses:forSelector:argumentIndex:ofReply:
-componentsSeparatedByString:
-arrayWithObject:
-data
-dictionaryRepresentation
-setIsAccessory:
-removeDeliveredNotificationsWithIdentifiers:
-uniqueID
-numberForDefault:
+announcement
 sourceFromString:
-productType
-setClass:forSelector:argumentIndex:ofReply:
-initWithArray:
-seekToTime:completionHandler:
-setShouldSuppressScreenLightUp:
-arrayWithCapacity:
 source
-dictionaryForKey:
-hmu_zonesWithUniqueIdentifiers:
-setInvalidationHandler:
-setCheckInHandler:
-activateWithCompletion:
-compare:
-processIdentifier
-secondsToMachTime:
-setShouldSuppressDefaultAction:
-removeAllObjects
-arrayWithArray:
 type
-nsuuid
+announceUserSettings
+dictionaryWithObjects:forKeys:count:
+numberWithBool:
+setIsAccessory:
+productTypeOverride
+setClass:forSelector:argumentIndex:ofReply:
+hasCurrentCalls
+setShouldSuppressScreenLightUp:
+setInvalidationHandler:
+dictionaryWithDictionary:
 sortedArrayUsingComparator:
-groups
-hmu_zoneWithUniqueIdentifier:
-setCategoryIdentifier:
-array
-setShouldPreventNotificationDismissalAfterDefaultAction:
-removeAllItems
-process:to:withOptions:error:
-setInterruptionLevel:
 transcriptionText
-indexOfObject:
-hmu_zoneWithName:
-setBody:
-isAnnounceAccessAllowed
+removeDeliveredNotificationsWithIdentifiers:
+numberForDefault:
+setCheckInHandler:
+dataItems
+productType
 transcription
-play
-setShouldBackgroundDefaultAction:
-initFileURLWithPath:
-setAutomaticallyWaitsToMinimizeStalling:
-setInterruptionHandler:
-currentUser
-hmu_users
-an_isLocalDevice
-listeners
-setIdsID:
-appendFormat:
+seekToTime:completionHandler:
+componentsSeparatedByString:
+setShouldSuppressDefaultAction:
+asset
+data
+initWithArray:
+hmu_zonesWithUniqueIdentifiers:
+dictionaryRepresentation
+softwareVersion
+processIdentifier
+setCategoryIdentifier:
+secondsToMachTime:
+removeAllObjects
+setShouldPreventNotificationDismissalAfterDefaultAction:
+dictionaryForKey:
+setInterruptionLevel:
+nsuuid
 transaction:setActiveForTimeInterval:
-setServiceType:
-currentTime
-an_isCarPlayConnected
-getEffectiveNotificationNameFromNotificationName:endpointID:
-indexOfObjectPassingTest:
-action
-code
+arrayWithObjects:count:
+compare:
+hmu_zoneWithUniqueIdentifier:
+setBody:
+removeAllItems
+setShouldBackgroundDefaultAction:
+process:to:withOptions:error:
+arrayWithObject:
 transaction:setActive:
-currentItem
+setInterruptionHandler:
+groups
+setAutomaticallyWaitsToMinimizeStalling:
+transaction:forEndpointUUID:
+hmu_zoneWithName:
+isAnnounceAccessAllowed
+initFileURLWithPath:
+play
+arrayWithCapacity:
+setIdsID:
+hmu_users
+setServiceType:
+an_isCarPlayConnected
+sharedUtil
+arrayWithArray:
+currentUser
+activateWithCompletion:
+array
+indexOfObjectPassingTest:
+setHomeLocationStatus:
+currentTime
 length
 hmu_userWithUniqueIdentifier:
-transaction:forEndpointUUID:
+getEffectiveNotificationNameFromNotificationName:endpointID:
+code
+setSender:
+hmu_userWithSenderCorrelationIdentifier:
+setHomeKitUserID:
+indexOfObject:
+prerollAtRate:completionHandler:
+rootGroup
+currentItem
+an_isLocalDevice
+sharedInstance
 cmStartTime
-accessoryWithUniqueIdentifier:
 getDeliveredNotificationsWithCompletionHandler:
+setRoomUUIDs:
+deviceNotificationMode
+setHomeKitID:
+hmu_uniqueIdentifiersFromZones:
+getCString:maxLength:encoding:
+appendFormat:
 an_roomsWithAnnounceAccessoriesFromRooms:
 init
 isEqual:
@@ -4376,22 +4436,39 @@ player
 setPlayer:
 _player
 T@"ANTonePlayer",&,N,V_player
+handleCallActiveDidChangeNotification:
 initWithAudioSession:queue:endpointID:
 activateAudioSessionWithError:
+activateAudioSessionWithCompletion:
 deactivateAudioSessionAfterDelay:
 _deactivateAudioSession
 _handleTimerExpired
 _cancelTimer
+_registerForAudioSessionNotifications
+_deregisterForAudioSessionNotifications
+callIsActive
+setWaitForCallEndCompletion:
+startCallEndTimer
 audioSession
 queue
 timer
 setTimer:
+endpointUUID
+waitForCallEndCompletion
+callEndTimer
+setCallEndTimer:
 _audioSession
 _queue
 _timer
+_endpointUUID
+_waitForCallEndCompletion
+_callEndTimer
 T@"AVAudioSession",R,N,V_audioSession
 T@"NSObject<OS_dispatch_queue>",R,N,V_queue
 T@"NSObject<OS_dispatch_source>",&,N,V_timer
+T@"NSUUID",R,N,V_endpointUUID
+T@?,C,N,V_waitForCallEndCompletion
+T@"ANTimer",&,N,V_callEndTimer
 analyticsPayload
 T@"NSDictionary",R
 isEndpoint
@@ -4474,7 +4551,6 @@ _deregisterForNotificationsWithAudioSession:
 _callHandler:
 proxyAudioSessionID
 setProxyAudioSessionID:
-endpointUUID
 setAudioSession:
 usingProxyAudioSession
 setUsingProxyAudioSession:
@@ -4482,10 +4558,8 @@ handler
 setHandler:
 _usingProxyAudioSession
 _proxyAudioSessionID
-_endpointUUID
 _handler
 TI,N,V_proxyAudioSessionID
-T@"NSUUID",R,N,V_endpointUUID
 T@"AVPlayer",&,N,V_player
 T@"AVAudioSession",&,N,V_audioSession
 TB,N,V_usingProxyAudioSession
@@ -4767,6 +4841,7 @@ accessoryDidUpdatePreferredMediaUser:
 accessory:didUpdateSupportsWalletKey:
 accessoryDidUpdatePendingConfigurationIdentifier:
 accessory:didUpdateWifiNetworkInfo:
+accessoryDidUpdateSupportsRMVonAppleTV:
 initWithCaching:
 initWithCaching:homeOptions:
 loadHomes:
@@ -4957,6 +5032,7 @@ _insertAudioBetween
 prepareToPlay
 playWithCompletionHandler:
 _playWithCompletionHandler:
+_handleReadyToPlayWithCompletionHandler:
 activelyPlayingAnnouncementID
 stopWithCompletionHandler:
 _stopAndUpdatePlaybackState:
@@ -5391,6 +5467,7 @@ v44@0:8Q16I24@"NSUUID"28@?<v@?@"NSError">36
 B24@0:8^@16
 @"AVAudioSession"
 @"NSObject<OS_dispatch_source>"
+@"ANTimer"
 @"NSDictionary"16@0:8
 v24@0:8@"HMHome"16
 v32@0:8@"HMHome"16@"HMAccessory"24
@@ -5551,7 +5628,6 @@ v48@0:8@16@24@32^v40
 @"AVQueuePlayer"
 @"NSURL"
 @"ANAudioSessionManager"
-@"ANTimer"
 v24@0:8@?<v@?@?<v@?q>>16
 @"NSBackgroundActivityScheduler"
 @48@0:8@16@24@32^@40

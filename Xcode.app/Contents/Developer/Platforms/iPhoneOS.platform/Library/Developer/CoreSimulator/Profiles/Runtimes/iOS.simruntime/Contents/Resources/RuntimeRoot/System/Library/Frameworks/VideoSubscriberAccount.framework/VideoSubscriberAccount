@@ -1,4 +1,5 @@
-@(#)PROGRAM:VideoSubscriberAccount  PROJECT:VideoSubscriberAccount-453.10.10
+@(#)PROGRAM:VideoSubscriberAccount  PROJECT:VideoSubscriberAccount-453.20.8
+33333S|@
 VideoSubscriberAccount
 VSUserAccount
 AccountType
@@ -406,6 +407,7 @@ Unexpectedly, body was %@, instead of NSString.
 Unable to serialize opaque authentication token.
 Unexpectedly, object was %@, instead of VSOpaqueAuthenticationToken.
 Unexpectedly, value was %@, instead of VSFailable.
+-[VSUserAccountService userAccountRegistry:willPerformMigrationIfRequiredWithBlock:]
 VSFailableKindKey
 VSFailableObjectKey
 VSFailableErrorKey
@@ -422,6 +424,8 @@ setTopBoxUserToken
 setTopBoxIdentityProviderID
 setTopBoxUseDeviceProfile
 setTopBoxSupportsOptOut
+The [subscriptionTransformer transformedValue:migrationSubscription] parameter must not be nil.
+v20@?0B8@"NSArray"12
 The entitlement to update the user account was not valid.
 The [subscriptionTransformer transformedValue:subscription] parameter must not be nil.
 -[VSUserAccountRegistry fetchActiveSubscriptionsWithOptions:completionHandler:]
@@ -1309,13 +1313,22 @@ Body for opaque authentication token is nil.
 Property list for opqaue authentication token is not a dictionary.
 Error deserializing opaque authentication token: %@
 Unable to serialize opaque authentication token: %@
-Marking migration as complete and returning.
-Performing one time migration for subscriptions to user accounts...
-Fetched subscriptions for migration: %@
-Migrated subscription %@ with error: %@
-Timed out waiting for migration completion.
+Entering %s
 Error fetching subscriptions for migration: %@
-Error loading user account persistent store: %@
+Finished initial load, resetting timer.
+Error performing initial load: %@
+Finished loading persistent stores with error %@
+Migration already performed, skipping.
+Migration not performed, will fetch subscriptions for migration...
+performing migration user account insertion...
+saving migrated persistent account: %@
+Error saving context after migration insertion: %@
+Error saving after user account migration insertion: %@
+Marking migration as completed.
+Will invoke migration delegate method.
+Migration delegate block invoked with completion status %d subscriptions %@
+Timed out waiting for migration block invocation.
+Attempted to fetch migration data from nil delegate.
 user account update permitted: %@
 user account indicates an account provider identifier.
 Associating user account with keychain hash %@
@@ -1325,7 +1338,6 @@ Error fetching accounts for user account validation: %@
 Error deleting user account: %@
 Forcefully updating user accounts
 Client not entitled for force refresh accounts.
-Entering %s
 Error transforming user account to subscription: %@
 Error updating user account to mark as deleted: %@
 %lu update requests will be enqueued.
@@ -1343,7 +1355,7 @@ Error fetching persistent user account to delete: %@
 Error saving context after deletion: %@
 Did not find persistent user account to delete
 Using predicate for fetch request: %@
-Retrieved %lu persistent user accounts.
+Retrieved %lu persistent user accounts: %@
 Error fetching persistent user accounts: %@
 Could not get account for expiration: %@
 Error updating request %@: %@
@@ -1764,6 +1776,7 @@ VSAuthenticationToken
 VSOpaqueAuthenticationToken
 VSFailableValueTransformer
 VSUserAccountService
+VSUserAccountRegistryDelegate
 VSDeveloperServiceConnection
 VSFailable
 VSDeveloperSettings
@@ -3264,14 +3277,10 @@ objectValueTransformer
 setObjectValueTransformer:
 _objectValueTransformer
 T@"NSValueTransformer",&,N,V_objectValueTransformer
-performedSubcriptionToUserAccountMigration
-notePerformedSubcriptionToUserAccountMigration
-registry
-leave
-insertLegacySubscription:completion:
-waitWithMilliseconds:
-performMigrationWithCompletion:
+initWithDelegate:
+userAccountRegistry:willPerformMigrationIfRequiredWithBlock:
 _securityTaskForCurrentConnection
+registry
 setRegistry:
 _registry
 T@"VSUserAccountRegistry",&,N,V_registry
@@ -3329,6 +3338,18 @@ viewServiceInterface
 viewServiceHostInterface
 initWithVoucherLockbox:
 resetTimer
+_loadStoresAndMigrateIfRequiredWithCompletion:
+loadingStoresLock
+storesLoaded
+container
+setStoresLoaded:
+performedSubcriptionToUserAccountMigration
+_populatePersistentUserAccount:withUserAccount:
+setModified:
+leave
+notePerformedSubcriptionToUserAccountMigration
+_subscriptionsForMigrationWithCompletion:
+waitWithMilliseconds:
 _predicateForQueryRequestWithOptions:
 _queryUserAccountsWithOptions:predicate:completion:
 _isValidForUpdateQueryForCurrentTask:
@@ -3360,9 +3381,6 @@ lastUpdateTime
 dateByAddingTimeInterval:
 underlyingQueue
 setTimer:
-container
-_populatePersistentUserAccount:withUserAccount:
-setModified:
 setCreated:
 deleteObject:
 _queryPersistentUserAccountsWithOptions:predicate:context:completion:
@@ -3395,10 +3413,14 @@ updateManager:updateRequestDidFinish:
 updateManagerDidFinish:
 deleteUserAccount:completion:
 forceUpdateUserAccountsWithCompletion:
+insertLegacySubscription:completion:
 setContainer:
 updateManager
 setPrivacyFacade:
+setLoadingStoresLock:
 _currentUpdateSessionIsForced
+_storesLoaded
+_loadingStoresLock
 _container
 _updateManager
 _privacyFacade
@@ -3410,6 +3432,9 @@ T@"VSUserAccountUpdateManager",&,N,V_updateManager
 T@"VSPrivacyFacade",&,N,V_privacyFacade
 T@"NSDate",&,N,V_lastUpdateTime
 T@"NSObject<OS_dispatch_source>",&,N,V_timer
+TB,N,V_storesLoaded
+T{os_unfair_lock_s=I},N,V_loadingStoresLock
+T@"<VSUserAccountRegistryDelegate>",W,N,V_delegate
 setSecItemClass:
 setItemClassName:
 setAttributeType:
@@ -4973,6 +4998,7 @@ v84@0:8{?=[8I]}16i48@"NSString"52B60@"NSString"64B72@?<v@?Q@"VSOptional">76
 @"NSData"16@0:8
 @"NSData"
 @"NSValueTransformer"
+v32@0:8@"VSUserAccountRegistry"16@?<v@?B@"NSArray">24
 @"VSUserAccountRegistry"
 v32@0:8@?16@?24
 v32@0:8@"VSViewServiceRequest"16@"NSUUID"24
@@ -4989,6 +5015,10 @@ v24@0:8@?<v@?>16
 v40@0:8q16@24@?32
 v48@0:8q16@24@32@?40
 q24@0:8Q16
+{os_unfair_lock_s=I}16@0:8
+v20@0:8{os_unfair_lock_s=I}16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"<VSUserAccountRegistryDelegate>"
 @"VSUserAccountPersistentContainer"
 @"VSUserAccountUpdateManager"
 @"VSPrivacyFacade"
@@ -5119,7 +5149,8 @@ v40@0:8^{__CFDictionary=}16@24@32
 B32@0:8@16^@24
 @"VSAccountProviderResponse"
 2ASV
-@(#)PROGRAM:VideoSubscriberAccount  PROJECT:VideoSubscriberAccount-453.10.10
+@(#)PROGRAM:VideoSubscriberAccount  PROJECT:VideoSubscriberAccount-453.20.8
+33333S|@
  (08
 %-03<?BEHKNQ^f
 VideoSubscriberAccount
@@ -5531,6 +5562,7 @@ Unexpectedly, body was %@, instead of NSString.
 Unable to serialize opaque authentication token.
 Unexpectedly, object was %@, instead of VSOpaqueAuthenticationToken.
 Unexpectedly, value was %@, instead of VSFailable.
+-[VSUserAccountService userAccountRegistry:willPerformMigrationIfRequiredWithBlock:]
 VSFailableKindKey
 VSFailableObjectKey
 VSFailableErrorKey
@@ -5547,6 +5579,8 @@ setTopBoxUserToken
 setTopBoxIdentityProviderID
 setTopBoxUseDeviceProfile
 setTopBoxSupportsOptOut
+The [subscriptionTransformer transformedValue:migrationSubscription] parameter must not be nil.
+v20@?0B8@"NSArray"12
 The entitlement to update the user account was not valid.
 The [subscriptionTransformer transformedValue:subscription] parameter must not be nil.
 -[VSUserAccountRegistry fetchActiveSubscriptionsWithOptions:completionHandler:]
@@ -6438,13 +6472,21 @@ Body for opaque authentication token is nil.
 Property list for opqaue authentication token is not a dictionary.
 Error deserializing opaque authentication token: %@
 Unable to serialize opaque authentication token: %@
-Marking migration as complete and returning.
-Performing one time migration for subscriptions to user accounts...
-Fetched subscriptions for migration: %@
-Migrated subscription %@ with error: %@
-Timed out waiting for migration completion.
 Error fetching subscriptions for migration: %@
-Error loading user account persistent store: %@
+Finished initial load, resetting timer.
+Error performing initial load: %@
+Finished loading persistent stores with error %@
+Migration already performed, skipping.
+Migration not performed, will fetch subscriptions for migration...
+performing migration user account insertion...
+saving migrated persistent account: %@
+Error saving context after migration insertion: %@
+Error saving after user account migration insertion: %@
+Marking migration as completed.
+Will invoke migration delegate method.
+Migration delegate block invoked with completion status %d subscriptions %@
+Timed out waiting for migration block invocation.
+Attempted to fetch migration data from nil delegate.
 user account update permitted: %@
 user account indicates an account provider identifier.
 Associating user account with keychain hash %@
@@ -6471,7 +6513,7 @@ Error fetching persistent user account to delete: %@
 Error saving context after deletion: %@
 Did not find persistent user account to delete
 Using predicate for fetch request: %@
-Retrieved %lu persistent user accounts.
+Retrieved %lu persistent user accounts: %@
 Error fetching persistent user accounts: %@
 Could not get account for expiration: %@
 Error updating request %@: %@
@@ -6892,6 +6934,7 @@ VSAuthenticationToken
 VSOpaqueAuthenticationToken
 VSFailableValueTransformer
 VSUserAccountService
+VSUserAccountRegistryDelegate
 VSDeveloperServiceConnection
 VSFailable
 VSDeveloperSettings
@@ -7014,453 +7057,453 @@ VSAnalyticsServiceConnection
 VSAccountMetadata
 VSPersistentUserAccount
 CoreDataProperties
+processName
+removeLastObject
 removeManagedReference:withOwner:
-initWithDictionary:
-initWithEntity:insertIntoManagedObjectContext:
+bagForProfile:profileVersion:
+setValue:forKeyPath:
+initWithURL:allowPlaceholder:error:
+orPredicateWithSubpredicates:
+mutableCopy
 decodeIntegerForKey:
-setValueTransformerName:
+valueTransformerForName:
 removeObject:
-base
+initWithDictionary:
 setHost:
 decodeIntForKey:
+base
+setValueTransformerName:
+system
+initWithUUIDString:
 credentialForTrust:
-standardUserDefaults
-threadDictionary
-valueWithBool:inContext:
+loadAndReturnError:
 removeObjectAtIndex:
 base64EncodedStringWithOptions:
-parentContext
-loadAndReturnError:
-isMainThread
-decodeObjectOfClass:forKey:
+initWithEntity:insertIntoManagedObjectContext:
 fetchRequestWithEntityName:
-valueWithError:
-propertyListWithData:options:format:error:
+decodeObjectOfClass:forKey:
+isMainThread
 loadPersistentStoresWithCompletionHandler:
 currentCalendar
-initWithExplanation:target:attributes:
+standardUserDefaults
+parentContext
 decodeObjectOfClasses:forKey:
+removeObjectForKey:
 distantFuture
 setAuthenticationSchemes:
-setTimeoutIntervalForRequest:
-removeObjectForKey:
-parseCachedResponse:error:
+propertyListWithData:options:format:error:
 setAuthenticationTTL:
 currentConnection
-timeIntervalSince1970
+initWithExplanation:target:attributes:
+threadDictionary
 setDecodingFailurePolicy:
 fileExistsAtPath:
 allowsKeyedCoding
 removeObjectsAtIndexes:
 distantPast
-valueWithNewErrorFromMessage:inContext:
-path
-protectionSpace
 isNull
-timeIntervalSinceDate:
-valueWithObject:inContext:
+setTimeoutIntervalForRequest:
 evaluateScript:
-localizations
-startDate
-fileExistsAtPath:isDirectory:
-initWithFormat:arguments:
-andPredicateWithSubpredicates:
+parseCachedResponse:error:
+valueWithBool:inContext:
+protectionSpace
+valueWithError:
+path
 setObject:forKey:
-setReturnsObjectsAsFaults:
-initWithIdentityProviderID:
-variable
+andPredicateWithSubpredicates:
+localizations
+fileExistsAtPath:isDirectory:
+startDate
 removeObserver:
-localizedCompare:
+timeIntervalSince1970
+setReturnsObjectsAsFaults:
 doesNotRecognizeSelector:
-removeObjectsInRange:
 isOptional
-defaultManager
-timeIntervalSinceNow
+removeObjectsInRange:
 click
-timeIntervalSinceReferenceDate
+defaultManager
+timeIntervalSinceDate:
 setObject:forKeyedSubscript:
-setWithArray:
 anyObject
+initWithIdentityProviderID:
+initWithFormat:arguments:
 defaultSessionConfiguration
 setScheme:
 removeObserver:forKeyPath:context:
 evaluateWithObject:
+valueWithObject:inContext:
 domain
-initWithKey:ascending:
-setWithObject:
-eventHandlers
-localizedDescription
-removeObserver:name:object:
+valueWithNewErrorFromMessage:inContext:
+localizedCompare:
+_csff:
+setWithArray:
 acquireWithError:
+eventHandlers
 setBillingCycleEndDate:
-initWithLeftExpression:rightExpression:modifier:type:options:
-setWithObjects:
-doubleForKey:
+removeObserver:name:object:
+timeIntervalSinceNow
+variable
+localizedDescription
+timeIntervalSinceReferenceDate
+initWithKey:ascending:
 fileURLWithPath:
+doubleForKey:
+setWithObject:
+isReady
 indexAtPosition:
+removePersistentStore:error:
 doubleValue
 setIncludesPendingChanges:
-isReady
-_csff:
+initWithLeftExpression:rightExpression:modifier:type:options:
+setWithObjects:
+eventRecorder
+blockOperationWithBlock:
+defaultWorkspace
+fileURLWithPathComponents:
+indexOfObject:
 localizedName
+serverTrust
 initWithMachServiceName:options:
 set_appleIDContext:
-removePersistentStore:error:
-eventRecorder
-defaultWorkspace
-blockOperationWithBlock:
-localizedStringForKey:value:table:
-serverTrust
-statusCode
-indexOfObject:
-fileURLWithPathComponents:
-persistentStoreDescriptionWithURL:
-earlierDate:
-initWithManagedObjectModel:
-setIndexes:
 filterUsingPredicate:
+localizedStringForKey:value:table:
+earlierDate:
+statusCode
 setOptional:
-toBool
-queryItemWithName:value:
+setIndexes:
 filteredArrayUsingPredicate:
 exception
-isString
-addCacheNodes:
-replacePersistentStoreAtURL:destinationOptions:withPersistentStoreFromURL:sourceOptions:storeType:error:
+persistentStoreDescriptionWithURL:
 currentProcess
+isString
+setBool:forKey:
+replacePersistentStoreAtURL:destinationOptions:withPersistentStoreFromURL:sourceOptions:storeType:error:
+addCacheNodes:
 addDependency:
 indexPathByAddingIndex:
-setBool:forKey:
-toDictionary
-queryItems
+initWithManagedObjectModel:
+queryItemWithName:value:
 effectiveBoolValueForSetting:
 filteredSetUsingPredicate:
-toString
-boolForKey:
-persistentStores
-exit
 setInteger:forKey:
-requestByEncodingRequest:parameters:
-virtualMachine
+queryItems
+toBool
+boolForKey:
+exit
 indexesOfObjectsPassingTest:
+requestByEncodingRequest:parameters:
 setParentContext:
 insertObjects:atIndexes:
 comparisonPredicateModifier
-initWithName:elements:
 addEntriesFromDictionary:
+persistentStores
 isTemporaryID
-setPath:
-setTransient:
-initWithName:managedObjectModel:
 setInterruptionHandler:
+setPath:
+toDictionary
 inferredMappingModelForSourceModel:destinationModel:error:
-updatedObjects
-setDeviceIdentifier:
-pointerAtIndex:
+toString
+setTransient:
 effectiveValueForSetting:
-raise:format:
-storeItemIdentifier
 setInvalidationHandler:
-mainQueue
-sessionWithConfiguration:
-isUndefined
-initForReadingFromData:error:
-setDeviceType:
-setType:
-sessionWithConfiguration:delegate:delegateQueue:
-addErrorBlock:
-setPersistentStoreDescriptions:
-mainThread
-insertedObjects
+initWithName:managedObjectModel:
+initWithName:elements:
 _saveCookies
+sessionWithConfiguration:
+setDeviceIdentifier:
+isUndefined
+setDeviceType:
+mainQueue
+storeItemIdentifier
+initForReadingFromData:error:
+sessionWithConfiguration:delegate:delegateQueue:
+pointerAtIndex:
+addErrorBlock:
+raise:format:
+setPersistentStoreDescriptions:
+insertedObjects
+virtualMachine
+updatedObjects
+deleteObject:
+addFinishBlock:
+encodeBool:forKey:
+appType
+initRequiringSecureCoding:
+setType:
+components:fromDate:
+mainThread
+appendAttributedString:
+firstObject
 null
 makeObjectsPerformSelector:
-addFinishBlock:
-postNotificationName:object:
-deleteObject:
-encodeBool:forKey:
-initRequiringSecureCoding:
-stringByAppendingPathComponent:
-appType
-makeObjectsPerformSelector:withObject:
-components:fromDate:
-recordEvent
-appendAttributedString:
-numberWithBool:
-firstObject
-stringByAppendingString:
 componentsJoinedByString:
-postNotificationName:object:userInfo:
 bundleForClass:
+postNotificationName:object:
 setDouble:forKey:
-setURL:
-initWithAMSBag:
 bundleID
+initWithAMSBag:
 appendBytes:length:
-sharedHTTPCookieStorage
-currentThread
-stringByReplacingOccurrencesOfString:withString:
-trueExpression
+makeObjectsPerformSelector:withObject:
+numberWithBool:
+recordEvent
 flexible
-numberWithDouble:
+currentThread
 addManagedReference:withOwner:
+postNotificationName:object:userInfo:
 intValue
-integerForKey:
 encodeInteger:forKey:
+integerForKey:
 encodeInt:forKey:
-managedObjectModel
+stringByAppendingPathComponent:
+setURL:
 expressionForAggregate:
-managedValueWithValue:
+sharedHTTPCookieStorage
+stringByAppendingString:
+numberWithDouble:
+managedObjectModel
+encodeObject:forKey:
 initWithObjectID:
-tvProviderUserToken
-numberWithInteger:
-stringByTrimmingCharactersInSet:
 integerValue
 addObject:
-encodeObject:forKey:
-waitUntilAllOperationsAreFinished
-expressionForConstantValue:
 componentsSeparatedByCharactersInSet:
+managedValueWithValue:
 setCalendar:
-interfaceWithProtocol:
-requestWithURL:
-numberWithUnsignedInteger:
-setPreferredAppBundleOrAdamID:
+expressionForConstantValue:
 componentsSeparatedByString:
+numberWithInteger:
+requestWithURL:
+trueExpression
+stringByReplacingOccurrencesOfString:withString:
 flushUnreportedEvents
-underlyingErrors
 compoundPredicateType
-initWithOptions:
-expressionForEvaluatedObject
 addObjectsFromArray:
+setPreferredAppBundleOrAdamID:
+interfaceWithProtocol:
+expressionForEvaluatedObject
+tvProviderUserToken
 intersectsSet:
-waitUntilFinished
+stringByTrimmingCharactersInSet:
+numberWithUnsignedInteger:
 setShouldAddStoreAsynchronously:
-bundleProxyForIdentifier:
 bundleWithIdentifier:
-encodedData
-addObserver:forKeyPath:options:context:
+bundleProxyForIdentifier:
 archivedDataWithRootObject:requiringSecureCoding:error:
+encodedData
 expressionForKeyPath:
 setCancellationHandler:
-setPreferredDeviceFamily:
+addObserver:forKeyPath:options:context:
+initWithOptions:
 invalidate
-arguments
-numberWithUnsignedLongLong:
-numberWithUnsignedLong:
 bundleWithPath:
-predicateOperatorType
 addObserver:selector:name:object:
 setEntities:
-JSONObjectWithData:options:error:
+waitUntilAllOperationsAreFinished
+setPreferredDeviceFamily:
 keyEnumerator
-initWithProperty:collationType:
+arguments
+underlyingErrors
 expressionForVariable:
 initWithAccountTypes:delegate:
 arrayByAddingObjectsFromArray:
-stringForKey:
-sharedSession
-underlyingQueue
 setAccountIdentifier:
+numberWithUnsignedLong:
+numberWithUnsignedLongLong:
 endDate
-addObserverForName:object:queue:usingBlock:
-stringValue
-arrayWithObjects:count:
-setUniquenessConstraints:
-expressionType
+predicateOperatorType
+initWithProperty:collationType:
 function
-metadata
+addObserverForName:object:queue:usingBlock:
+arrayWithObjects:count:
+expressionType
 dataTaskPromiseWithRequest:
-objectAtIndex:
-stringWithFormat:
-predicateWithBlock:
+sharedSession
+waitUntilFinished
 bytes
 setShouldInferMappingModelAutomatically:
 conflictingObjects
-predicateWithFormat:
-bundleWithURL:
-addOperation:
 invokeMethod:withArguments:
+stringForKey:
+addOperation:
+bundleWithURL:
+setUniquenessConstraints:
 initWithArray:
+metadata
+underlyingQueue
 dataTaskWithRequest:completionHandler:
-setClasses:forSelector:argumentIndex:ofReply:
-weakToStrongObjectsMapTable
-expressionValueWithObject:context:
+objectAtIndex:
 setShouldMigrateStoreAutomatically:
-objectForInfoDictionaryKey:
-addOperationWithBlock:
+setClasses:forSelector:argumentIndex:ofReply:
+predicateWithBlock:
+stringValue
+predicateWithFormat:
 setException:
-registerStoreClass:forStoreType:
-URLByAppendingPathComponent:
-userInfo
+addOperationWithBlock:
+expressionValueWithObject:context:
+stringWithFormat:
 absoluteString
-subpredicates
-objectForKey:
-stringWithUTF8String:
-predicateWithLeftExpression:rightExpression:modifier:type:options:
-predicateWithSubstitutionVariables:
-whitespaceCharacterSet
 setExceptionHandler:
 initWithBase64EncodedString:options:
+registerStoreClass:forStoreType:
 dataUsingEncoding:
+objectForInfoDictionaryKey:
+predicateWithLeftExpression:rightExpression:modifier:type:options:
 dataTaskWithURL:completionHandler:
 isCancelled
-whitespaceAndNewlineCharacterSet
-objectForKeyedSubscript:
-unionSet:
-predicateWithValue:
+objectForKey:
 getUUIDBytes:
+predicateWithSubstitutionVariables:
 cacheNodes
 addPersistentStoreWithType:configuration:URL:options:error:
 addPointer:
 setConfiguration:
-metricsDataWithEventType:eventData:
-resume
-falseExpression
-dataWithBytes:length:
-constantValue
-registerUndoWithTarget:handler:
-addSuccessBlock:
+weakToStrongObjectsMapTable
 _setDebuggerRunLoop:
-setProtocolHandler:
-vs_defaultSessionConfigurationForSourceAppWithAuditToken:
+stringWithUTF8String:
+objectForKeyedSubscript:
+subpredicates
+resume
+predicateWithValue:
+constantValue
+addSuccessBlock:
+falseExpression
 enqueueViewServiceRequest:withIdentifier:
-initWithServiceName:
-metricsDataWithPageId:pageType:pageContext:eventData:
+setProtocolHandler:
+userInfo
+unionSet:
+metricsDataWithEventType:eventData:
+dataWithBytes:length:
 reverseObjectEnumerator
+whitespaceCharacterSet
 dataWithContentsOfURL:
+whitespaceAndNewlineCharacterSet
 objectID
-registerWithCompletion:
 initWithBundleIdentifier:allowPlaceholder:error:
-objectIDForEntity:referenceObject:
-writeToFile:options:error:
-attributeWithDomain:name:
+initWithServiceName:
+_setNonAppInitiated:
+metricsDataWithPageId:pageType:pageContext:eventData:
+registerUndoWithTarget:handler:
 containsObject:
-preferredLocalizationsFromArray:forPreferences:
+attributeWithDomain:name:
+registerWithCompletion:
 initWithBytes:length:
+dataWithJSONObject:options:error:
+URLByAppendingPathComponent:
 dataWithContentsOfURL:options:error:
 deviceOrganizationVendorID
-dataWithJSONObject:options:error:
-_setNonAppInitiated:
-writeToURL:options:error:
 allHeaderFields
+vs_defaultSessionConfigurationForSourceAppWithAuditToken:
+objectIDForEntity:referenceObject:
 allKeys
-initWithSourceModel:destinationModel:
-xmlString:
+preferredLocalizationsFromArray:forPreferences:
 initWithBytesNoCopy:length:encoding:freeWhenDone:
-prepareWithInvocationTarget:
-initWithStartDate:endDate:
 dataWithPropertyList:format:options:error:
 setCreated:
 setFetchFromStoreOnly:
 isEqualToString:
-migrateStoreFromURL:type:options:withMappingModel:toDestinationURL:destinationType:destinationOptions:error:
-objectsAtIndexes:
 entitiesByName
+URLByAppendingPathComponent:isDirectory:
 allObjects
 initWithClientIdentifier:bag:
-setUserInfo:
+initWithSourceModel:destinationModel:
+initWithStartDate:endDate:
 setQueryItems:
 lastObject
-validateValue:forKey:error:
+prepareWithInvocationTarget:
 rightExpression
 callWithArguments:
-URLByAppendingPathComponent:isDirectory:
-initWithStoreItemIdentifier:error:
+writeToFile:options:error:
 databaseObject
+objectsAtIndexes:
 allValues
-entity
+migrateStoreFromURL:type:options:withMappingModel:toDestinationURL:destinationType:destinationOptions:error:
 setManagedObjectClassName:
-date
+entity
 dictionary
-setMarkedAsDeleted:
-cookies
-initWithSuiteName:
+JSONObjectWithData:options:error:
+date
+URLWithString:
+URLByDeletingLastPathComponent
+setUserInfo:
+initWithStoreItemIdentifier:error:
 setMaxConcurrentOperationCount:
 copy
-sortDescriptorWithKey:ascending:selector:
 leftExpression
+setMarkedAsDeleted:
 allocWithZone:
+xmlString:
 setRemoteObjectInterface:
 remoteObjectProxyWithErrorHandler:
-minusSet:
-unsignedIntegerValue
+cookies
+URLsForDirectory:inDomains:
 dateByAddingTimeInterval:
+writeToURL:options:error:
 cancelAllOperations
-openURL:configuration:completionHandler:
-initWithTarget:selector:object:
-initWithConcurrencyType:
-initWithConfiguration:
 dictionaryWithObjects:forKeys:count:
-enumerateBundlesOfType:block:
+initWithSuiteName:
+initWithConfiguration:
+sortDescriptorWithKey:ascending:selector:
+initWithConcurrencyType:
 setMergePolicy:
-URLByDeletingLastPathComponent
-initWithTokenService:
-URLWithString:
-sortUsingComparator:
-dateByAddingUnit:value:toDate:options:
+UTF8String
+validateValue:forKey:error:
+enumerateBundlesOfType:block:
+minusSet:
 dictionaryWithValuesForKeys:
+dateByAddingUnit:value:toDate:options:
 authenticationMethod
+initWithTarget:selector:object:
+openURL:configuration:completionHandler:
 canonicalLanguageIdentifierFromString:
+hasValidAuthentication
 enumerateKeysAndObjectsUsingBlock:
 count
-hasValidAuthentication
-setValidationPredicates:withValidationWarnings:
-valueForEntitlement:
 initWithContentsOfURL:options:error:
-initWithTokenService:bag:
-valueForKey:
+initWithTokenService:
+UUID
+unsignedIntegerValue
+sortUsingComparator:
 removeAllObjects
-URLsForDirectory:inDomains:
-dateWithTimeIntervalSince1970:
 enumerateObjectsUsingBlock:
-setRequestCachePolicy:
-UTF8String
-sortedArrayUsingSelector:
-initWithTopic:delegatePackage:
+dateWithTimeIntervalSince1970:
+setValidationPredicates:withValidationWarnings:
+initWithTokenService:bag:
+UUIDString
 authenticationTTL
-sortUsingDescriptors:
 caseInsensitiveCompare:
-setAppDescriptions:
-valueForKeyPath:
+setRequestCachePolicy:
 decidedNonChannelApps
+setAppDescriptions:
 host
 createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 setMetadata:
-moveItemAtPath:toPath:error:
 enumerateSubstringsInRange:options:usingBlock:
-initWithType:subpredicates:
-UUID
-processInfo
+sortedArrayUsingSelector:
+initWithTopic:delegatePackage:
 setHTTPBody:
-mutableArrayValueForKey:
+sortUsingDescriptors:
 setHTTPMethod:
-setValue:forKey:
-scheme
 initWithData:encoding:
-iTunesMetadata
-UUIDString
-valueTransformerForName:
-setValue:forHTTPHeaderField:
-removeItemAtPath:error:
+scheme
+moveItemAtPath:toPath:error:
 environment
-processName
-initWithURL:
+initWithType:subpredicates:
+valueForKey:
+processInfo
+removeItemAtPath:error:
+setValue:forHTTPHeaderField:
+iTunesMetadata
+valueForEntitlement:
+mutableArrayValueForKey:
 createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-letterCharacterSet
 setModified:
+letterCharacterSet
+setValue:forKey:
 decodeBoolForKey:
-initWithURL:allowPlaceholder:error:
-setValue:forKeyPath:
-backgroundTaskExpired:
-removeLastObject
-orPredicateWithSubpredicates:
+initWithURL:
 decodeArrayOfObjectsOfClass:forKey:
+valueForKeyPath:
+backgroundTaskExpired:
 errorWithDomain:code:userInfo:
-system
-bagForProfile:profileVersion:
-mutableCopy
-initWithUUIDString:
 countByEnumeratingWithState:objects:count:
 _subscriptionSourceKindPredicateTemplateValues
 _subscriptionSourcePredicateTemplateValues
@@ -8469,7 +8512,7 @@ objectValueTransformer
 setObjectValueTransformer:
 _objectValueTransformer
 T@"NSValueTransformer",&,N,V_objectValueTransformer
-performMigrationWithCompletion:
+userAccountRegistry:willPerformMigrationIfRequiredWithBlock:
 _securityTaskForCurrentConnection
 registry
 setRegistry:
@@ -8536,6 +8579,9 @@ updateUserAccount:completion:
 queryUserAccountsWithOptions:completion:
 deleteUserAccount:completion:
 forceUpdateUserAccountsWithCompletion:
+initWithDelegate:
+_loadStoresAndMigrateIfRequiredWithCompletion:
+_subscriptionsForMigrationWithCompletion:
 insertLegacySubscription:completion:
 _update
 resetTimer
@@ -8561,7 +8607,13 @@ lastUpdateTime
 setLastUpdateTime:
 timer
 setTimer:
+storesLoaded
+setStoresLoaded:
+loadingStoresLock
+setLoadingStoresLock:
 _currentUpdateSessionIsForced
+_storesLoaded
+_loadingStoresLock
 _container
 _updateManager
 _privacyFacade
@@ -8573,6 +8625,9 @@ T@"VSUserAccountUpdateManager",&,N,V_updateManager
 T@"VSPrivacyFacade",&,N,V_privacyFacade
 T@"NSDate",&,N,V_lastUpdateTime
 T@"NSObject<OS_dispatch_source>",&,N,V_timer
+TB,N,V_storesLoaded
+T{os_unfair_lock_s=I},N,V_loadingStoresLock
+T@"<VSUserAccountRegistryDelegate>",W,N,V_delegate
 _notifyWhileSettingPrimitiveValue:forKey:
 _faultWhileAccessingPrimitiveValueForKey:
 accessGroup
@@ -10101,6 +10156,7 @@ v84@0:8{?=[8I]}16i48@"NSString"52B60@"NSString"64B72@?<v@?Q@"VSOptional">76
 @"NSData"16@0:8
 @"NSData"
 @"NSValueTransformer"
+v32@0:8@"VSUserAccountRegistry"16@?<v@?B@"NSArray">24
 @"VSUserAccountRegistry"
 v32@0:8@?16@?24
 v32@0:8@"VSViewServiceRequest"16@"NSUUID"24
@@ -10117,6 +10173,10 @@ v24@0:8@?<v@?>16
 v40@0:8q16@24@?32
 v48@0:8q16@24@32@?40
 q24@0:8Q16
+{os_unfair_lock_s=I}16@0:8
+v20@0:8{os_unfair_lock_s=I}16
+{os_unfair_lock_s="_os_unfair_lock_opaque"I}
+@"<VSUserAccountRegistryDelegate>"
 @"VSUserAccountPersistentContainer"
 @"VSUserAccountUpdateManager"
 @"VSPrivacyFacade"

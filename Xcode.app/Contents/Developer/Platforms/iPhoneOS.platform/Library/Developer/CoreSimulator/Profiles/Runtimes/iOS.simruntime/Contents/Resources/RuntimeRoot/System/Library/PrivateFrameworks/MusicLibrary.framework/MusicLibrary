@@ -185,12 +185,10 @@ Service
 Migration
 Validation
 CacheManagement
-Library
 SortMap
 Import
 MultiUser
 Indexing
-dsid
 altDSID
 v32@?0@"ACAccount"8Q16^B24
 uint32_t ML3DAAPCodeForImportPropertyKey(MLImportPropertyKey)
@@ -202,21 +200,18 @@ FOREIGN KEY (%@) REFERENCES %@ (%@)
 NSString *NSPersistentStringFromMLMediaType(MLMediaType)
 MLTypes.m
 This SPI may only be used with single types
-MLMediaTypeVideoPodcast
-MLMediaTypeTVShow
-MLMediaTypeMusicVideo
-MLMediaTypeMovie
+MLMediaTypeVideoITunesU
 MLMediaTypeHomeVideo
-MLMediaTypeMusicQuiz
-MLMediaTypePodcast
-MLMediaTypeITunesUAudio
-MLMediaTypeAny
+MLMediaTypeAudioBook
+MLMediaTypeSong
+MLMediaTypeVoiceMemo
 MLMediaTypeUndefined
 AnyVideo
 VideoPodcast
 VideoITunesU
-Movie
 AnyAudio
+Song
+VoiceMemo
 ITunesUAudio
 MLMediaType%@
 MLMediaType [%@]
@@ -268,13 +263,13 @@ Late Night Mode
 <%@: %p, name = '%@'>
 PRIMARY KEY
  ASC
- DESC
  AUTOINCREMENT
 NOT NULL
 UNIQUE
 ML3DatabaseColumn.m
 Unsupported default value type %@
 DEFAULT %@
+%@ %@ %@
 NULL
 INTEGER
 REAL
@@ -283,14 +278,14 @@ BLOB
 seasonNumber
 episodeId
 episodeSortId
+videoQuality
 networkName
 discNumber
-excludeFromShuffle
 geniusId
 audioFormat
 hasVideo
-playbackInfo
 lyricsChecksum
+hlsPlaylistURL
 void ML3StatementBindingVisitor::operator()(const int64_t &)
 ML3ImportDatabaseUtilities.mm
 Cannot bind int64_t: no sqlite3_stmt*
@@ -340,21 +335,19 @@ geniusSeedTrackIDs
 Cannot parse more than once.
 {?=qiIq}
 v80@?0{?=qiIq}8^{CGImage=}32{?=qiIq}40q64@"NSError"72
+title
+sort_title
 disc_count
+track_count
+location
 integrity
-content_rating
-content_rating_level
-is_user_disabled
-genius_id
+is_audible_audio_book
+media_kind
 description_long
-collection_description
 pending_genius_checksum
 category_id
 location_kind_id
-display_version
-classical_work
 classical_movement
-classical_movement_count
 classical_movement_number
 is_preorder
  IF NOT EXISTS
@@ -406,7 +399,7 @@ connection:             %@
 last used time:         %f
 entity_revision.revision
 entity_revision.deleted
-keep_local
+keep_local_constraints
 MAX(entity_revision.revision)
 ML3Entity.m
 INSERT OR REPLACE INTO 
@@ -425,6 +418,7 @@ SELECT 1 FROM
  WHERE ROWID = ? LIMIT 1;
 SELECT 
 .ROWID FROM 
+ WHERE 
 .ROWID IN (?
 ORDER BY 
 SELECT %@ FROM %@ %@%@%@
@@ -438,7 +432,6 @@ Insufficient path components [requires three]: %@
 Invalid entity type: %ld
 Invalid entity persistentID: %lld
 No %@ entity exists with persistentID: %lld
-%lld
 JOIN entity_revision ON (
 .ROWID = entity_revision.entity_pid)
 DELETE FROM %@ WHERE %@
@@ -451,13 +444,12 @@ DESC
 v44@?0q8q16i24q28^B36
 album_artist_pid
 sort_album_artist
-grouping_key
-keep_local_status
 classical_experience_available
 INSERT OR REPLACE INTO %@ (%@)
 virtual void ML3DatabaseImportDataSource::getRow(ML3VirtualTableRow *, uint32_t)
 ML3DatabaseImportDataSource.mm
 unhandled data type %u
+.ROWID
 , %@
 , CASE WHEN LENGTH(IFNULL(item_extra.location, '')) = 0
  AND LENGTH(IFNULL(item_extra.location, '')) = 0
@@ -495,7 +487,6 @@ ALTER TABLE item_extra ADD COLUMN integrity BLOB
 PRAGMA user_version = 1005492;
 CREATE TABLE genius_config (id INTEGER PRIMARY KEY, version INTEGER UNIQUE, default_num_results INTEGER DEFAULT 0, min_num_results INTEGER DEFAULT 0, data BLOB)
 CREATE TABLE genius_metadata (genius_id INTEGER PRIMARY KEY, revision_level INTEGER, version INTEGER, checksum INTEGER, data BLOB)
-CREATE TABLE genius_similarities (genius_id INTEGER PRIMARY KEY, data BLOB)
 PRAGMA user_version = 1006189;
 CREATE TABLE container_items (container_pid INTEGER PRIMARY KEY, item_pid_data BLOB)
 DROP TABLE item_to_container
@@ -602,6 +593,8 @@ CREATE TABLE purgeable_list_new (item_pid INTEGER PRIMARY KEY, is_alarm INTEGER 
 INSERT INTO purgeable_list_new (item_pid, is_alarm, date_last_used) SELECT item_pid, is_purgeable, date_last_used FROM purgeable_list
 PRAGMA user_version = 1124264;
 CREATE TABLE item_search (item_pid INTEGER PRIMARY KEY, search_title INTEGER NOT NULL DEFAULT 0, search_album INTEGER NOT NULL DEFAULT 0, search_artist INTEGER NOT NULL DEFAULT 0, search_composer INTEGER NOT NULL DEFAULT 0, search_album_artist INTEGER NOT NULL DEFAULT 0)
+INSERT OR REPLACE INTO item_search (item_pid, search_title) SELECT item_extra.item_pid, sort_map.name_order from sort_map JOIN item_extra ON item_extra.title = sort_map.name
+UPDATE item_search SET search_album = IFNULL((SELECT sort_map.name_order FROM sort_map JOIN album ON album.album = sort_map.name JOIN item ON item.album_pid = album.album_pid WHERE item.item_pid = item_search.item_pid), 0)
 UPDATE item_search SET search_artist = IFNULL((SELECT sort_map.name_order FROM sort_map JOIN item_artist ON item_artist.item_artist = sort_map.name JOIN item ON item.item_artist_pid = item_artist.item_artist_pid WHERE item.item_pid = item_search.item_pid), 0)
 UPDATE item_search SET search_composer = IFNULL((SELECT sort_map.name_order FROM sort_map JOIN composer ON composer.composer = sort_map.name JOIN item ON item.composer_pid = composer.composer_pid WHERE item.item_pid = item_search.item_pid), 0)
 PRAGMA user_version = 1132637;
@@ -638,9 +631,9 @@ CREATE TABLE item_playback (item_pid INTEGER PRIMARY KEY, audio_format INTEGER N
 INSERT INTO item_playback (item_pid, audio_format, bit_rate, codec_type, codec_subtype, data_kind, data_url, duration, eq_preset, format, gapless_heuristic_info, gapless_encoding_delay, gapless_encoding_drain, gapless_last_frame_resynch, has_video, relative_volume, sample_rate, start_time_ms, stop_time_ms, volume_normalization_energy) SELECT item_pid, audio_format, bit_rate, codec_type, codec_subtype, data_kind, data_url, duration, eq_preset, format, gapless_heuristic_info, gapless_encoding_delay, gapless_encoding_drain, gapless_last_frame_resynch, has_video, relative_volume, sample_rate, start_time_ms, stop_time_ms, volume_normalization_energy FROM item_extra
 CREATE TABLE item_video (item_pid INTEGER PRIMARY KEY, video_quality INTEGER NOT NULL DEFAULT 0, is_rental INTEGER NOT NULL DEFAULT 0, has_chapter_data INTEGER NOT NULL DEFAULT 0, season_number INTEGER NOT NULL DEFAULT 0, episode_id TEXT NOT NULL DEFAULT '', network_name TEXT NOT NULL DEFAULT '', extended_content_rating TEXT NOT NULL DEFAULT '', movie_info TEXT NOT NULL DEFAULT '', has_alternate_audio INTEGER NOT NULL DEFAULT 0, has_subtitles INTEGER NOT NULL DEFAULT 0, audio_language INTEGER NOT NULL DEFAULT 0, audio_track_index INTEGER NOT NULL DEFAULT 0, audio_track_id INTEGER NOT NULL DEFAULT 0, subtitle_language INTEGER NOT NULL DEFAULT 0, subtitle_track_index INTEGER NOT NULL DEFAULT 0, rental_duration INTEGER NOT NULL DEFAULT 0, rental_playback_duration INTEGER NOT NULL DEFAULT 0, rental_playback_date_started INTEGER NOT NULL DEFAULT 0, rental_date_started INTEGER  NOT NULL DEFAULT 0, is_demo INTEGER NOT NULL DEFAULT 0)
 INSERT INTO item_video (item_pid, video_quality, is_rental, has_chapter_data, season_number, episode_id, network_name, extended_content_rating, movie_info, has_alternate_audio, has_subtitles, audio_language, audio_track_index, audio_track_id, subtitle_language, subtitle_track_index, rental_duration, rental_playback_duration, rental_playback_date_started, rental_date_started, is_demo) SELECT item_pid, is_hd, is_rental, has_chapter_data, season_number, episode_id, network_name, extended_content_rating, movie_info, has_alternate_audio, has_subtitles, audio_language, audio_track_index, audio_track_id, subtitle_language, subtitle_track_index, rental_duration, rental_playback_duration, rental_playback_date_started, rental_date_started, is_demo FROM item_extra
+date_accessed
 purgeable_list
 date_last_used
-chosen_by_auto_fill
 item_pid INTEGER PRIMARY KEY, user_rating INTEGER DEFAULT 0, is_downloading INTEGER NOT NULL DEFAULT 0, download_identifier TEXT, play_count_user INTEGER DEFAULT 0, play_count_recent INTEGER DEFAULT 0, has_been_played INTEGER DEFAULT 0, date_played INTEGER DEFAULT 0, date_skipped INTEGER DEFAULT 0, date_accessed INTEGER DEFAULT 0, is_alarm INTEGER NOT NULL DEFAULT 0, skip_count_user INTEGER DEFAULT 0, skip_count_recent INTEGER DEFAULT 0, remember_bookmark INTEGER NOT NULL DEFAULT 0, bookmark_time_ms REAL, store_bookmark_timestamp REAL DEFAULT NULL, store_bookmark_entity_revision INTEGER DEFAULT NULL, hidden INTEGER DEFAULT 0, chosen_by_auto_fill INTEGER NOT NULL DEFAULT 0
 item_pid INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '', sort_title TEXT, artwork_cache_id INTEGER NOT NULL DEFAULT 0, disc_count INTEGER DEFAULT 0, track_count INTEGER DEFAULT 0, total_time_ms REAL NOT NULL DEFAULT 0, year INTEGER DEFAULT 0, location TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, integrity BLOB, is_temporary_cloud_download INTEGER NOT NULL DEFAULT 0, is_streaming_quality INTEGER NOT NULL DEFAULT 0, is_compilation INTEGER NOT NULL DEFAULT 0, is_audible_audio_book INTEGER NOT NULL DEFAULT 0, date_created INTEGER NOT NULL DEFAULT 0, date_modified INTEGER NOT NULL DEFAULT 0, media_kind INTEGER NOT NULL DEFAULT 0, content_rating INTEGER NOT NULL DEFAULT 0, content_rating_level INTEGER NOT NULL DEFAULT 0, is_user_disabled INTEGER NOT NULL DEFAULT 0, bpm INTEGER DEFAULT 0, genius_id INTEGER NOT NULL DEFAULT 0, comment TEXT, grouping TEXT, description TEXT, description_long TEXT, collection_description TEXT, copyright TEXT, pending_genius_checksum INTEGER NOT NULL DEFAULT 0
 PRAGMA user_version = 1140119;
@@ -660,17 +653,15 @@ UPDATE item SET base_location_id = 100 WHERE item_pid IN (SELECT item_pid from i
 INSERT INTO base_location VALUES (100, 'LoFiCloudAssets')
 Media/CloudAssets
 .plist
-needs_restore
 item_pid INTEGER PRIMARY KEY, user_rating INTEGER DEFAULT 0, needs_restore INTEGER NOT NULL DEFAULT 0, download_identifier TEXT, play_count_user INTEGER DEFAULT 0, play_count_recent INTEGER DEFAULT 0, has_been_played INTEGER DEFAULT 0, date_played INTEGER DEFAULT 0, date_skipped INTEGER DEFAULT 0, date_accessed INTEGER DEFAULT 0, is_alarm INTEGER NOT NULL DEFAULT 0, skip_count_user INTEGER DEFAULT 0, skip_count_recent INTEGER DEFAULT 0, remember_bookmark INTEGER NOT NULL DEFAULT 0, bookmark_time_ms REAL, store_bookmark_timestamp REAL DEFAULT NULL, store_bookmark_entity_revision INTEGER DEFAULT NULL, hidden INTEGER DEFAULT 0, chosen_by_auto_fill INTEGER NOT NULL DEFAULT 0
+match_redownload_params
 (CASE store_saga_id WHEN 0 THEN '' ELSE redownload_action_params END)
-purchase_history_redownload_params
 (CASE WHEN (store_saga_id = 0 AND purchase_history_id != 0) THEN redownload_action_params ELSE '' END)
-home_sharing_id
+item_store
 item_pid INTEGER PRIMARY KEY, store_item_id INTEGER NOT NULL DEFAULT 0, store_artist_id INTEGER NOT NULL DEFAULT 0, store_composer_id INTEGER NOT NULL DEFAULT 0, store_genre_id INTEGER NOT NULL DEFAULT 0, store_playlist_id INTEGER NOT NULL DEFAULT 0, storefront_id INTEGER NOT NULL DEFAULT 0, purchase_history_id INTEGER NOT NULL DEFAULT 0, purchase_history_token INTEGER NOT NULL DEFAULT 0, purchase_history_redownload_params TEXT, store_saga_id INTEGER NOT NULL DEFAULT 0, match_redownload_params TEXT, sync_id INTEGER NOT NULL DEFAULT 0, home_sharing_id INTEGER NOT NULL DEFAULT 0, is_ota_purchased INTEGER NOT NULL DEFAULT 0, store_kind INTEGER NOT NULL DEFAULT 0, account_id INTEGER NOT NULL DEFAULT 0, key_versions INTEGER NOT NULL DEFAULT 0, key_platform_id INTEGER NOT NULL DEFAULT 0, key_id INTEGER NOT NULL DEFAULT 0, key_id_2 INTEGER NOT NULL DEFAULT 0, date_purchased INTEGER NOT NULL DEFAULT 0, date_released INTEGER NOT NULL DEFAULT 0, external_guid TEXT, feed_url TEXT, artwork_url TEXT, store_xid TEXT, store_flavor TEXT, store_matched_status INTEGER NOT NULL DEFAULT 0, store_redownloaded_status INTEGER NOT NULL DEFAULT 0, store_link_id INTEGER NOT NULL DEFAULT 0
 item_pid INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '', sort_title TEXT, artwork_cache_id INTEGER NOT NULL DEFAULT 0, disc_count INTEGER DEFAULT 0, track_count INTEGER DEFAULT 0, total_time_ms REAL NOT NULL DEFAULT 0, year INTEGER DEFAULT 0, location TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, integrity BLOB, is_compilation INTEGER NOT NULL DEFAULT 0, is_audible_audio_book INTEGER NOT NULL DEFAULT 0, date_created INTEGER NOT NULL DEFAULT 0, date_modified INTEGER NOT NULL DEFAULT 0, media_kind INTEGER NOT NULL DEFAULT 0, content_rating INTEGER NOT NULL DEFAULT 0, content_rating_level INTEGER NOT NULL DEFAULT 0, is_user_disabled INTEGER NOT NULL DEFAULT 0, bpm INTEGER DEFAULT 0, genius_id INTEGER NOT NULL DEFAULT 0, comment TEXT, grouping TEXT, description TEXT, description_long TEXT, collection_description TEXT, copyright TEXT, pending_genius_checksum INTEGER NOT NULL DEFAULT 0, category_id INTEGER DEFAULT 0, location_kind_id INTEGER NOT NULL DEFAULT 0
 remote_location_id
 (CASE WHEN store_saga_id != 0 THEN 200 ELSE (CASE WHEN purchase_history_id != 0 THEN 100 ELSE 0 END) END)
-base_location_id
 (IFNULL(base_location_id, 0))
 item_pid INTEGER PRIMARY KEY, media_type INTEGER NOT NULL DEFAULT 0, title_order INTEGER NOT NULL DEFAULT 0, title_order_section INTEGER NOT NULL DEFAULT 0, item_artist_pid INTEGER NOT NULL DEFAULT 0, item_artist_order INTEGER NOT NULL DEFAULT 0, item_artist_order_section INTEGER NOT NULL DEFAULT 0, series_name_order INTEGER NOT NULL DEFAULT 0, series_name_order_section INTEGER NOT NULL DEFAULT 0, album_pid INTEGER NOT NULL DEFAULT 0, album_order INTEGER NOT NULL DEFAULT 0, album_order_section INTEGER NOT NULL DEFAULT 0, album_artist_pid INTEGER NOT NULL DEFAULT 0, album_artist_order INTEGER NOT NULL DEFAULT 0, album_artist_order_section INTEGER NOT NULL DEFAULT 0, composer_pid INTEGER NOT NULL DEFAULT 0, composer_order INTEGER NOT NULL DEFAULT 0, composer_order_section INTEGER NOT NULL DEFAULT 0, genre_id INTEGER NOT NULL DEFAULT 0, genre_order INTEGER NOT NULL DEFAULT 0, genre_order_section INTEGER NOT NULL DEFAULT 0, disc_number INTEGER DEFAULT 0, track_number INTEGER DEFAULT 0, episode_sort_id INTEGER DEFAULT 0, base_location_id INTEGER NOT NULL DEFAULT 0, remote_location_id INTEGER NOT NULL DEFAULT 0, exclude_from_shuffle INTEGER NOT NULL DEFAULT 0, is_video INTEGER NOT NULL DEFAULT 0, is_podcast INTEGER NOT NULL DEFAULT 0, is_itunes_u INTEGER NOT NULL DEFAULT 0
 PRAGMA user_version = 1140130;
@@ -939,6 +930,7 @@ PRAGMA user_version = 1260000;
 ALTER TABLE item_store ADD COLUMN playback_endpoint_type INTEGER NOT NULL DEFAULT 0
 ALTER TABLE item_store ADD COLUMN is_mastered_for_itunes INTEGER NOT NULL DEFAULT 0
 PRAGMA user_version = 1280000;
+pending_checksum
 PRAGMA user_version = 1280010;
 CREATE TABLE artwork_token (artwork_token TEXT NOT NULL DEFAULT '', artwork_source_type INTEGER NOT NULL DEFAULT 0, artwork_type INTEGER NOT NULL DEFAULT 0, entity_pid INTEGER NOT NULL DEFAULT 0, entity_type INTEGER NOT NULL DEFAULT 0, UNIQUE (artwork_token, artwork_source_type, artwork_type, entity_pid, entity_type))
 CREATE TABLE best_artwork_token (entity_pid INTEGER NOT NULL DEFAULT 0, entity_type INTEGER NOT NULL DEFAULT 0, artwork_type INTEGER NOT NULL DEFAULT 0, available_artwork_token TEXT NOT NULL DEFAULT '', fetchable_artwork_token TEXT NOT NULL DEFAULT '', fetchable_artwork_source_type INTEGER NOT NULL DEFAULT 0, UNIQUE (entity_pid, entity_type, artwork_type))
@@ -971,10 +963,8 @@ DROP TABLE container_artwork
 DROP TABLE item_artwork
 DROP TABLE item_screenshot
 PRAGMA user_version = 1280020;
-is_playlist_only
 PRAGMA user_version = 1280030;
 matched_store_item_id
-subscription_store_item_id
 playlist_author_id TEXT NOT NULL DEFAULT ''
 radio_station_id TEXT NOT NULL DEFAULT ''
 advertisement_unique_id INTEGER NOT NULL DEFAULT 0
@@ -1030,6 +1020,7 @@ ALTER TABLE item ADD COLUMN in_my_library INTEGER NOT NULL DEFAULT 0
 ALTER TABLE item ADD COLUMN is_compilation INTEGER NOT NULL DEFAULT 0
 ALTER TABLE item ADD COLUMN date_added INTEGER NOT NULL DEFAULT 0
 UPDATE item SET in_my_library = (remote_location_id != 250), is_compilation = (SELECT is_compilation FROM item_extra WHERE item.item_pid = item_extra.item_pid), date_added = (SELECT date_created FROM item_extra WHERE item.item_pid = item_extra.item_pid)
+is_compilation
 PRAGMA user_version = 1280160;
 PRAGMA user_version = 1280170;
 ALTER TABLE item_artist ADD COLUMN app_data BLOB
@@ -1125,8 +1116,6 @@ ALTER TABLE item_extra ADD COLUMN classical_movement_number INTEGER NOT NULL DEF
 PRAGMA user_version = 1410000;
 CREATE TABLE container_item (container_item_pid INTEGER PRIMARY KEY, container_pid INTEGER NOT NULL DEFAULT 0, item_pid INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0)
 SELECT container_pid FROM container WHERE smart_criteria IS NULL OR smart_is_genius
-SELECT item_pid_data FROM container_items WHERE container_pid = ?
-INSERT INTO container_item (container_item_pid, container_pid, item_pid, position) VALUES (?, ?, ?, ?)
 DROP TABLE IF EXISTS container_items
 PRAGMA user_version = 1410010;
 ALTER TABLE item_video ADD COLUMN has_hls INTEGER NOT NULL DEFAULT 0
@@ -1138,9 +1127,7 @@ PRAGMA user_version = 1410040;
 CREATE TABLE play_event (play_event_pid INTEGER PRIMARY KEY, date_played INTEGER NOT NULL DEFAULT 0, album_pid INTEGER NOT NULL DEFAULT 0, container_pid INTEGER NOT NULL DEFAULT 0)
 INSERT INTO play_event (date_played, container_pid) SELECT date_played, container_pid FROM container WHERE is_hidden = 0 AND date_played > 0 ORDER BY date_played DESC
 PRAGMA user_version = 1410050;
-ji56BO1mUeT7Qg9RO7Er9w
 INSERT OR REPLACE INTO _MLDatabaseProperties (value, key) VALUES (1, 'MLArtworkShouldConvertToASTC')
-jpeg
 UPDATE artwork SET relative_path = SUBSTR(relative_path, 0, 41)
 PRAGMA user_version = 1410060;
 ALTER TABLE item_store ADD COLUMN cloud_album_id TEXT NOT NULL DEFAULT ''
@@ -1205,8 +1192,6 @@ CREATE TABLE album_new (album_pid INTEGER PRIMARY KEY, album TEXT NOT NULL DEFAU
 INSERT INTO album_new (album_pid, album, sort_album, album_artist_pid, representative_item_pid, grouping_key, cloud_status, user_rating, liked_state, all_compilations, feed_url, season_number, album_year, keep_local, keep_local_status, app_data, contains_classical_work) SELECT album_pid, album, sort_album, album_artist_pid, representative_item_pid, grouping_key, cloud_status, user_rating, liked_state, all_compilations, feed_url, IFNULL(season_number, 0), album_year, keep_local, keep_local_status, app_data, contains_classical_work FROM album
 CREATE TABLE item_extra_new (item_pid INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '', sort_title TEXT, disc_count INTEGER NOT NULL DEFAULT 0, track_count INTEGER NOT NULL DEFAULT 0, total_time_ms REAL NOT NULL DEFAULT 0, year INTEGER NOT NULL DEFAULT 0, location TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0, integrity BLOB, is_audible_audio_book INTEGER NOT NULL DEFAULT 0, date_modified INTEGER NOT NULL DEFAULT 0, media_kind INTEGER NOT NULL DEFAULT 0, content_rating INTEGER NOT NULL DEFAULT 0, content_rating_level INTEGER NOT NULL DEFAULT 0, is_user_disabled INTEGER NOT NULL DEFAULT 0, bpm INTEGER NOT NULL DEFAULT 0, genius_id INTEGER NOT NULL DEFAULT 0, comment TEXT, grouping TEXT, description TEXT, description_long TEXT, collection_description TEXT, copyright TEXT, pending_genius_checksum INTEGER NOT NULL DEFAULT 0, category_id INTEGER NOT NULL DEFAULT 0, location_kind_id INTEGER NOT NULL DEFAULT 0, version TEXT NOT NULL DEFAULT '', display_version TEXT NOT NULL DEFAULT '', classical_work TEXT NOT NULL DEFAULT '', classical_movement TEXT NOT NULL DEFAULT '', classical_movement_count INTEGER NOT NULL DEFAULT 0, classical_movement_number INTEGER NOT NULL DEFAULT 0)
 INSERT INTO item_extra_new (item_pid, title, sort_title, disc_count, track_count, total_time_ms, year, location, file_size, integrity, is_audible_audio_book, date_modified, media_kind, content_rating, content_rating_level, is_user_disabled, bpm, genius_id, comment, grouping, description, description_long, collection_description, copyright, pending_genius_checksum, category_id, location_kind_id, version, display_version, classical_work, classical_movement, classical_movement_count, classical_movement_number) SELECT item_pid, title, sort_title, IFNULL(disc_count, 0), IFNULL(track_count, 0), total_time_ms, IFNULL(year, 0), location, file_size, integrity, is_audible_audio_book, date_modified, media_kind, content_rating, content_rating_level, is_user_disabled, IFNULL(bpm, 0), genius_id, comment, grouping, description, description_long, collection_description, copyright, pending_genius_checksum, IFNULL(category_id, 0), location_kind_id, version, display_version, classical_work, classical_movement, classical_movement_count, classical_movement_number FROM item_extra
-CREATE TABLE entity_changes (class INTEGER NOT NULL, entity_pid INTEGER NOT NULL, source_pid INTEGER NOT NULL, change_type INTEGER NOT NULL, changes TEXT NOT NULL DEFAULT '', UNIQUE (class, entity_pid, source_pid, change_type))
-CREATE TABLE source (source_pid INTEGER PRIMARY KEY, source_name TEXT, last_sync_date INTEGER NOT NULL DEFAULT 0, last_sync_revision INTEGER NOT NULL DEFAULT 0)
 CREATE TABLE library_property (property_pid INTEGER PRIMARY KEY, source_id INTEGER, key TEXT, value TEXT, UNIQUE (source_id, key))
 PRAGMA user_version = 1410140;
 ALTER TABLE album ADD COLUMN date_played_local NOT NULL DEFAULT 0
@@ -1236,11 +1221,12 @@ CREATE TABLE IF NOT EXISTS item_upp (item_pid INTEGER PRIMARY KEY, bookkeeper_id
 PRAGMA user_version = 1450010;
 SELECT key, propertyValuesBlob, timestamp FROM ubiquitous_bookmarks
 timestamp
+item_stats.play_count_user
 item_stats.has_been_played
-item_stats.bookmark_time_ms
 INSERT OR REPLACE INTO cloud_kvs (key, play_count_user, has_been_played, bookmark_time_ms, bookmark_sync_timestamp) VALUES (?, ?, ?, ?, ?)
 v32@?0@"NSString"8@"NSDictionary"16^B24
 SELECT key, value FROM ubiquitous_database_properties
+INSERT OR REPLACE INTO _MLDatabaseProperties (key, value) VALUES (?, ?)
 UPDATE cloud_kvs SET bookmark_sync_revision = IFNULL((SELECT metadata_entity_revision FROM item_upp WHERE cloud_kvs.key = item_upp.bookkeeper_identifier), 0)
 CREATE TABLE item_kvs (item_pid INTEGER PRIMARY KEY, key TEXT NOT NULL DEFAULT '')
 INSERT INTO item_kvs (item_pid, key) SELECT item_pid, bookkeeper_identifier FROM item_upp
@@ -1261,6 +1247,7 @@ SELECT container_pid, position FROM container_item LEFT OUTER JOIN item USING (i
 PRAGMA user_version = 1450070;
 SELECT container_item.container_pid, position FROM container JOIN container_item USING (container_pid) JOIN item USING (item_pid) WHERE distinguished_kind IN (19, 20) AND in_my_library = 0
 PRAGMA user_version = 1450080;
+GdXjx1ixZYvN9Gg8iSf68A
 INSERT OR REPLACE INTO _MLDatabaseProperties (value, key) VALUES (1, 'MLMigrationHasDisabledAstcOnErie')
 PRAGMA user_version = 1450090;
 ALTER TABLE container ADD COLUMN cloud_author_handle TEXT NOT NULL DEFAULT ''
@@ -1303,12 +1290,10 @@ ALTER TABLE item_video ADD COLUMN hls_audio_capability INTEGER NOT NULL DEFAULT 
 PRAGMA user_version = 1610010;
 CREATE TABLE person (person_pid INTEGER PRIMARY KEY, cloud_id TEXT NOT NULL UNIQUE, handle TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', image_url TEXT NOT NULL DEFAULT '', image_token TEXT NOT NULL DEFAULT '')
 CREATE TABLE container_item_person (container_item_person_pid INTEGER PRIMARY KEY, container_item_pid INTEGER NOT NULL DEFAULT 0, person_pid INTEGER NOT NULL DEFAULT 0, UNIQUE (container_item_pid, person_pid))
-CREATE INDEX IF NOT EXISTS PersonPID ON person (person_pid ASC)
-CREATE INDEX IF NOT EXISTS PersonCloudID ON person (cloud_id ASC)
 CREATE INDEX IF NOT EXISTS ContainerItemPerson ON container_item_person (container_item_pid ASC)
 ALTER TABLE container ADD COLUMN should_display_index INTEGER NOT NULL DEFAULT 0
 PRAGMA user_version = 1610020;
--shm
+-wal
 PRAGMA user_version = 1610030;
 ALTER TABLE item ADD COLUMN date_downloaded INTEGER NOT NULL DEFAULT 0
 ALTER TABLE container ADD COLUMN date_downloaded INTEGER NOT NULL DEFAULT 0
@@ -1374,7 +1359,6 @@ ALTER TABLE item_video ADD COLUMN hls_key_server_protocol TEXT NOT NULL DEFAULT 
 UPDATE item_video SET hls_key_server_protocol = 'simplified' WHERE item_video.hls_key_server_url != '' AND item_video.hls_asset_traits != 0
 PRAGMA user_version = 1950000;
 CREATE TABLE booklet (booklet_pid INTEGER PRIMARY KEY, item_pid INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', store_item_id INTEGER NOT NULL DEFAULT 0, redownload_params TEXT NOT NULL DEFAULT '', file_size INTEGER NOT NULL DEFAULT 0)
-CREATE INDEX IF NOT EXISTS BookletItemPersistentID ON booklet (item_pid ASC)
 PRAGMA user_version = 1950010;
 CREATE TABLE item_new (item_pid INTEGER PRIMARY KEY, media_type INTEGER NOT NULL DEFAULT 0, title_order INTEGER NOT NULL DEFAULT 0, title_order_section INTEGER NOT NULL DEFAULT 0, item_artist_pid INTEGER NOT NULL DEFAULT 0, item_artist_order INTEGER NOT NULL DEFAULT 0, item_artist_order_section INTEGER NOT NULL DEFAULT 0, series_name_order INTEGER NOT NULL DEFAULT 0, series_name_order_section INTEGER NOT NULL DEFAULT 0, album_pid INTEGER NOT NULL DEFAULT 0, album_order INTEGER NOT NULL DEFAULT 0, album_order_section INTEGER NOT NULL DEFAULT 0, album_artist_pid INTEGER NOT NULL DEFAULT 0, album_artist_order INTEGER NOT NULL DEFAULT 0, album_artist_order_section INTEGER NOT NULL DEFAULT 0, composer_pid INTEGER NOT NULL DEFAULT 0, composer_order INTEGER NOT NULL DEFAULT 0, composer_order_section INTEGER NOT NULL DEFAULT 0, genre_id INTEGER NOT NULL DEFAULT 0, genre_order INTEGER NOT NULL DEFAULT 0, genre_order_section INTEGER NOT NULL DEFAULT 0, disc_number INTEGER NOT NULL DEFAULT 0, track_number INTEGER NOT NULL DEFAULT 0, episode_sort_id INTEGER NOT NULL DEFAULT 0, base_location_id INTEGER NOT NULL DEFAULT 0, remote_location_id INTEGER NOT NULL DEFAULT 0, exclude_from_shuffle INTEGER NOT NULL DEFAULT 0, keep_local INTEGER NOT NULL DEFAULT 0, keep_local_status INTEGER NOT NULL DEFAULT 0, keep_local_constraints INTEGER NOT NULL DEFAULT 0, in_my_library INTEGER NOT NULL DEFAULT 0, is_compilation INTEGER NOT NULL DEFAULT 0, date_added INTEGER NOT NULL DEFAULT 0, show_composer INTEGER NOT NULL DEFAULT 0, is_music_show INTEGER NOT NULL DEFAULT 0, date_downloaded INTEGER NOT NULL DEFAULT 0, download_source_container_pid INTEGER NOT NULL DEFAULT 0)
 INSERT INTO item_new (item_pid, media_type, title_order, title_order_section, item_artist_pid, item_artist_order, item_artist_order_section, series_name_order, series_name_order_section, album_pid, album_order, album_order_section, album_artist_pid, album_artist_order, album_artist_order_section, composer_pid, composer_order, composer_order_section, genre_id, genre_order, genre_order_section, disc_number, track_number, episode_sort_id, base_location_id, remote_location_id, exclude_from_shuffle, keep_local, keep_local_status, in_my_library, is_compilation, date_added, show_composer, is_music_show, date_downloaded, download_source_container_pid) SELECT item_pid, media_type, title_order, title_order_section, item_artist_pid, item_artist_order, item_artist_order_section, series_name_order, series_name_order_section, album_pid, album_order, album_order_section, album_artist_pid, album_artist_order, album_artist_order_section, composer_pid, composer_order, composer_order_section, genre_id, genre_order, genre_order_section, disc_number, track_number, episode_sort_id, base_location_id, remote_location_id, exclude_from_shuffle, keep_local, keep_local_status, in_my_library, is_compilation, date_added, show_composer, is_music_show, date_downloaded, download_source_container_pid FROM item
@@ -1414,6 +1398,8 @@ CREATE TABLE composer_new (composer_pid INTEGER PRIMARY KEY, composer TEXT NOT N
 INSERT INTO composer_new (composer_pid, composer, sort_composer, grouping_key, cloud_status, representative_item_pid, keep_local, keep_local_status, keep_local_constraints, sync_id) SELECT composer_pid, composer, sort_composer, grouping_key, cloud_status, representative_item_pid, keep_local, keep_local_status, keep_local_constraints, sync_id FROM composer
 PRAGMA user_version = 2000010;
 PRAGMA user_version = 2000020;
+ALTER TABLE item_store ADD COLUMN extended_lyrics_attribute INTEGER NOT NULL DEFAULT 0
+PRAGMA user_version = 2030000;
 UPDATE item_extra SET integrity = (SELECT ML3TrackIntegrityCompute(item.item_pid, item.media_type, item_extra.location, item_extra.file_size) FROM item JOIN item_extra AS item_extra2 USING (item_pid) WHERE item_extra.item_pid = item.item_pid)
 ML3MusicLibraryBackgroundTasksShouldStopSuppressingChangesNotification
 ML3MusicLibraryBackgroundTasksShouldSuppressChangesNotification
@@ -1464,50 +1450,56 @@ PLAYBACK_HISTORY_PLAYLIST_NAME
 Photos Memories
 LocalizedSectionIndices
 SectionIndices
-UNKNOWN_SECTION_HEADER
+NUMERIC_SECTION_HEADER
 MPExplicitContentAllowedBoolean
 PRAGMA user_version
 ANALYZE;
-artwork
 artwork_token
-chapter
+best_artwork_token
+base_location
 cloud_kvs
 container_item_media_type
-item_playback
-item_search
-item_stats
+container_item
+entity_revision
+item_extra
+item_kvs
 sort_map
-_MLDatabaseProperties
 LocalizedSectionHeaders
 B32@?0@8Q16^B24
 SectionHeaders
-Headers
 DBTimestampMasOSDate
 SELECT item_store.sync_id, item_video.audio_track_id, item_stats.bookmark_time_ms, entity_revision.deleted, item_stats.play_count_recent, item_stats.date_played, item_stats.has_been_played, item_stats.skip_count_recent, item_stats.date_skipped, item_stats.user_rating, item_stats.liked_state, item_store.item_pid, store_saga_id, album.liked_state, item.in_my_library FROM item JOIN item_stats USING(item_pid) LEFT OUTER JOIN entity_revision ON (item.item_pid = entity_pid) JOIN item_video USING (item_pid) JOIN item_store using (item_pid) LEFT OUTER JOIN album USING (album_pid) WHERE revision > ? AND class = 0 ORDER BY entity_revision.revision DESC;
 persistentID
+deleted
+playMacOSDate
+playedState
+skipMacOSDate
+bookmarkTimeInMS
 audioTrackID
+likedState
+albumLikedState
 isPlaylistOnly
 tracks
 SELECT primary_container_pid FROM db_info
 playlistPersistentID
 playlistDeleted
-%llu
-Encountered error validating format. pathFormat=%@ error=%@
 deleteWithoutSyncing
 dateLastModified
 originalDateLastModified
 parentPersistentID
+external_vendor_identifier
 external_vendor_display_name
+external_tag
 is_external_vendor_playlist
 trackPersistentIDs
 seedTrackPersistentID
+distinguishedKind
 artworkCacheId
 artworkFilePath
 -[ML3MusicLibrary savePlaylistsSinceRevision:withGrappaID:]_block_invoke
 SYNC_MARKER
 SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name = '%@';
 SELECT rowid FROM sort_map WHERE name='' AND name_order != 0
-SELECT value FROM _MLDatabaseProperties WHERE key = '%@'
 MLSortMapTables
 plist
 Unable to load MLSortMapTables.plist at %@
@@ -1552,8 +1544,10 @@ DELETE FROM item_store WHERE item_pid NOT IN (SELECT item_pid FROM item)
 DELETE FROM item_stats WHERE item_pid NOT IN (SELECT item_pid FROM item)
 Ringtones.plist
 Ringtones
+Purchases
 Attempting to de-orphan shared resources in a MU library! %@
 iTunes_Control/Music
+LoFiCloudAssets
 SELECT value FROM _MLDatabaseProperties WHERE key = ?
 INSERT OR REPLACE INTO _MLDatabaseProperties (value, key) VALUES (?, ?);
 DELETE FROM _MLDatabaseProperties WHERE key = ?
@@ -1585,21 +1579,17 @@ SELECT available_artwork_token FROM best_artwork_token WHERE entity_pid = ? AND 
 INSERT OR REPLACE INTO best_artwork_token (entity_pid, entity_type, artwork_type, available_artwork_token, fetchable_artwork_token, fetchable_artwork_source_type) VALUES (?, ?, ?, ?, ?, ?)
 DELETE FROM best_artwork_token WHERE entity_pid = ? AND entity_type = ? AND artwork_type = ?
 multiverseID
-mediaItem
 item_extra.genius_id
 genius_metadata.checksum
 item_extra.pending_genius_checksum
 item_extra.content_rating_level
 item_extra.title
-title_order
-title_order_section
 item_extra.sort_title
 item_artist.item_artist
-item_artist_order
-item_artist_order_section
 item_artist.sort_item_artist
 item_artist.keep_local
 item_artist.store_id
+album_pid
 album.album
 album_order
 album_order = 0
@@ -1610,39 +1600,39 @@ album.album_year
 album.keep_local
 sort_map.name_order
 album_artist_order = 0
+album_artist.album_artist
+album_artist_order
 album_artist_order_section
 album_artist.sort_album_artist
 album_artist.keep_local
 album_artist.store_id
 album_artist.cloud_universal_library_id
+composer_pid
 composer.composer
-composer_order
 composer_order_section
 composer.keep_local
 composer.sort_composer
-genre_id
 genre.keep_local
 genre.genre
 genre_order
 genre_order_section
 item_search.search_title
-item_search.search_album
+item_search.search_artist
 item_search.search_composer
 item_search.search_album_artist
-disc_number
 item_extra.disc_count
+track_number
 item_extra.track_count
 download_source_container_pid
 best_artwork_token.available_artwork_token IS NOT NULL
 IFNULL(best_artwork_token.available_artwork_token, '') != ''
 best_artwork_token.available_artwork_token AS available_item_artwork_token
+best_artwork_token.fetchable_artwork_token AS fetchable_item_artwork_token
 best_artwork_token.fetchable_artwork_source_type AS fetchable_item_artwork_source_type
 best_artwork_token.available_artwork_token AS available_item_screenshot_token
 best_artwork_token.fetchable_artwork_token AS fetchable_item_screenshot_token
 best_artwork_token.fetchable_artwork_source_type AS fetchable_item_screenshot_source_type
 item_artist.series_name
-series_name_order
-series_name_order_section
 item_artist.sort_series_name
 item_video.season_number
 item_video.episode_id
@@ -1659,7 +1649,6 @@ item_extra.grouping
 IFNULL(item_artist.series_name, item_artist.item_artist)
 IFNULL(ML3SeasonDisplayName(item_video.season_number), album.album)
 in_my_library
-is_compilation
 (item.exclude_from_shuffle = 0)
 media_type
 ((item.media_type & 260)!=0)
@@ -1686,6 +1675,7 @@ item_playback.gapless_encoding_drain
 item_playback.gapless_last_frame_resynch
 item_playback.volume_normalization_energy
 item_extra.date_modified
+date_added
 date_downloaded
 item_extra.bpm
 item_store.store_item_id
@@ -1719,7 +1709,6 @@ item_store.vpp_is_licensed
 item_store.vpp_org_id
 item_store.vpp_org_name
 item_store.sync_redownload_params
-needs_reporting
 item_store.subscription_store_item_id
 item_store.playback_endpoint_type
 item_store.is_mastered_for_itunes
@@ -1737,6 +1726,7 @@ item_store.cloud_universal_library_id
 item_store.asset_store_item_id
 item_store.reporting_store_item_id
 item_store.extended_playback_attribute
+item_store.extended_lyrics_attribute
 store_link.url
 item_video.audio_language
 item_video.audio_track_index
@@ -1744,6 +1734,7 @@ item_video.audio_track_id
 item_video.audio_track_locale
 item_video.subtitle_language
 item_video.subtitle_track_index
+episode_sort_id
 item_video.has_alternate_audio
 item_video.has_subtitles
 item_extra.content_rating
@@ -1758,7 +1749,6 @@ item_video.episode_sub_sort_order
 item_video.movie_info
 item_extra.media_kind
 item_extra.is_user_disabled
-item_stats.play_count_user
 item_stats.play_count_recent
 item_stats.date_played
 item_stats.skip_count_user
@@ -1768,6 +1758,7 @@ item_stats.user_rating
 item_stats.user_rating_is_derived
 album.user_rating
 album.user_rating_is_derived
+item_stats.bookmark_time_ms
 item_stats.remember_bookmark
 item_stats.hidden
 item_stats.liked_state
@@ -1863,116 +1854,104 @@ item_extra.classical_movement_count
 item_extra.classical_movement_number
 (CASE WHEN item_extra.classical_work != '' THEN item_extra.classical_work ELSE (CASE WHEN item.show_composer = 1 THEN item_extra.grouping ELSE '' END) END)
 item_extra.is_preorder
-property
 SELECT genre.genre_id FROM genre WHERE genre.genre
 subselect
 LEFT OUTER JOIN album USING (album_pid)
+album
+liked_state
 LEFT OUTER JOIN sort_map ON album.album = sort_map.name
-name_order
 LEFT OUTER JOIN album_artist USING (album_artist_pid)
+album_artist
+cloud_universal_library_id
 JOIN base_location USING (base_location_id)
 JOIN item_extra USING (item_pid)
 LEFT OUTER JOIN category USING (category_id)
+category
 LEFT OUTER JOIN composer USING (composer_pid)
+sort_composer
 LEFT OUTER JOIN genre USING (genre_id)
 LEFT OUTER JOIN item_artist USING (item_artist_pid)
-sort_item_artist
-title
-sort_title
-track_count
-description
-comment
-location
-total_time_ms
-is_audible_audio_book
-media_kind
+series_name
+sort_series_name
+grouping
+date_modified
+content_rating
+is_user_disabled
+version
+display_version
+classical_work
+classical_movement_count
 JOIN item_store USING (item_pid)
 store_playlist_id
-store_composer_id
-store_genre_id
 account_id
+downloader_account_id
 family_account_id
-date_released
-date_purchased
-key_versions
-match_redownload_params
-cloud_status
+is_protected
+storefront_id
+store_kind
+purchase_history_redownload_params
+artwork_url
+store_xid
+store_flavor
 store_saga_id
 store_redownloaded_status
-store_matched_status
-is_ota_purchased
-key_id_2
+feed_url
+purchase_history_token
+purchase_history_id
+sync_id
+home_sharing_id
+store_link_id
 vpp_is_licensed
 vpp_org_id
 vpp_org_name
 sync_redownload_params
+subscription_store_item_id
 playback_endpoint_type
-is_mastered_for_itunes
-advertisement_unique_id
-advertisement_type
 is_artist_uploaded_content
 cloud_asset_available
-is_subscription
-sync_in_my_library
+item_store.item_pid
 cloud_in_my_library
 cloud_album_id
 cloud_playback_endpoint_type
-asset_store_item_id
-reporting_store_item_id
-extended_playback_attribute
 LEFT OUTER JOIN store_link USING (store_link_id)
+store_link
 JOIN item_playback USING (item_pid)
-eq_preset
 stop_time_ms
-bit_rate
+sample_rate
 audio_format
 gapless_heuristic_info
-gapless_encoding_delay
-gapless_last_frame_resynch
-volume_normalization_energy
+gapless_encoding_drain
 relative_volume
 codec_type
 codec_subtype
-format
-data_kind
-data_url
+has_video
 progression_direction
 JOIN item_video USING (item_pid)
-item_video
+season_number
 network_name
-audio_track_index
-audio_track_id
 audio_track_locale
-extended_content_rating
-movie_info
-is_rental
-is_demo
-rental_duration
-rental_playback_duration
-rental_date_started
-has_hls
-has_chapter_data
-hls_offline_playback_keys
-is_premium
-hls_color_capability
-video_quality
-audio_capability
-hls_asset_traits
-hls_key_cert_url
+subtitle_track_index
+has_alternate_audio
+has_subtitles
+rental_playback_date_started
+show_sort_type
+episode_type_display_name
+episode_sub_sort_order
+color_capability
+hls_video_quality
+hls_playlist_url
+hls_audio_capability
+hls_key_server_url
+hls_key_server_protocol
 LEFT OUTER JOIN genius_metadata ON (genius_metadata.genius_id = item_extra.genius_id)
 JOIN item_stats USING (item_pid)
 bookmark_time_ms
-date_played
-date_skipped
 download_identifier
-has_been_played
-liked_state_changed
 liked_state_changed_date
 play_count_recent
-play_count_user
-skip_count_recent
 skip_count_user
 remember_bookmark
+is_alarm
 JOIN item_search USING (item_pid)
 search_title
 search_album
@@ -1980,33 +1959,22 @@ search_artist
 search_composer
 search_album_artist
 LEFT OUTER JOIN item_kvs USING (item_pid)
-item_kvs
 LEFT OUTER JOIN cloud_kvs USING (key)
 LEFT OUTER JOIN best_artwork_token ON entity_pid = item_pid AND entity_type = 0 AND artwork_type = 1
-best_artwork_token
 available_artwork_token
 fetchable_artwork_token
 fetchable_artwork_source_type
 LEFT OUTER JOIN best_artwork_token ON entity_pid = item_pid AND entity_type = 0 AND artwork_type = 2
 JOIN container_item USING (item_pid)
-position
 LEFT OUTER JOIN chapter USING (item_pid)
+chapter_data
 LEFT OUTER JOIN lyrics USING (item_pid)
-checksum
-pending_checksum
-time_synced_lyrics_available
+store_lyrics_available
 JOIN album_artist USING (album_artist_pid)
 JOIN composer USING (composer_pid)
-deleted
-playCount
-playMacOSDate
-playedState
-skipCount
-skipMacOSDate
-bookmarkTimeInMS
-albumLikedState
 automated action
 user action
+ROWID
 SELECT 1 FROM item WHERE ROWID = ?
 v32@?0@"NSString"8@"NSString"16r^@24
 UPDATE item_extra SET integrity = ? WHERE item_pid = ?
@@ -2023,43 +1991,46 @@ UPDATE item_store SET sync_id = 0, downloader_account_id = 0, family_account_id 
 UPDATE item_video SET hls_asset_traits = 0 WHERE item_video.item_pid
 UPDATE item_video SET hls_offline_playback_keys = NULL WHERE item_video.item_pid
 SELECT item_extra.location, base_location.path, item.item_pid, item.base_location_id, item_store.store_saga_id, item_store.purchase_history_id, item_store.is_subscription FROM item JOIN item_extra USING (item_pid) JOIN item_store USING(item_pid) LEFT OUTER JOIN base_location USING (base_location_id) WHERE item.item_pid
-%@ %@
+%02x
+series
 externalGuid
 feedUrl
 ML3PurchaseHistoryImportOperation.mm
 Attempted to start purchase history import operation without DAAP payload.
 com.apple.ML3TerminationCoordinator
 com.apple.MusicLibrary.execute-coordinated-termination
-distinguished_kind
-is_editable
-parent_pid
+date_created
+is_owner
 contained_media_type
-is_hidden
-is_ignorable_itunes_playlist
-smart_is_folder
-smart_is_dynamic
-smart_limit_order
-smart_reverse_limit_order
-play_order
+description
+play_count_user
+smart_is_genius
+smart_enabled_only
+smart_limit_kind
 is_reversed
+album_field_order
+repeat_mode
+shuffle_items
 has_been_shuffled
-filepath
-container_type
+is_saveable
+is_src_remote
+is_ignored_syncing
 is_container_type_active_target
+orig_date_modified
 store_cloud_id
-has_cloud_play_order
-cloud_global_id
-cloud_share_url
-cloud_is_public
-cloud_is_visible
-cloud_min_refresh_interval
-cloud_user_count
-external_vendor_identifier
+cloud_is_subscribed
+cloud_is_curator_playlist
+cloud_author_store_id
+cloud_author_display_name
+cloud_author_store_url
+cloud_last_update_time
+cloud_global_play_count
+cloud_global_like_count
 external_vendor_container_tag
+cloud_is_sharing_disabled
 cloud_version_hash
-cloud_author_handle
+date_played_local
 should_display_index
-category_type_mask
 grouping_sort_key
  [<null> : 
 <ML3ProtoSyncTrackImportItem 
@@ -2085,8 +2056,7 @@ virtual bool ML3ProtoSyncContainerImportItem::hasValue(MLImportPropertyKey) cons
 NSString *ML3ProtoSyncContainerImportItem::_getProtoStringValue(MLImportPropertyKey) const
 _getProtoStringValue called with unknown property key %x
 TOTAL
-musicLibrary
-orderingTerms
+entityClass
 usingSections
 nonDirectAggregateQuery
 propertyToCount
@@ -2094,7 +2064,6 @@ options
 ignoreSystemFilterPredicates
 ignoreRestrictionsPredicates
 %@(_predicate = %@, _orderingTerms = %@, _using sections = %d)
-.ROWID
 COUNT(DISTINCT %@)
 COUNT()
 MIN(%@, %lu)
@@ -2103,23 +2072,21 @@ v44@?0q8C16r^@20Q28^B36
 %@(%@)
 v32@?0@"ML3OrderingTerm"8Q16^B24
  FROM 
- WHERE 
 .ROWID = ?
 DISTINCT 
  AND (
  OR 
+ AND 
  GROUP BY 
  ORDER BY 
- LIMIT %lu
 MIN(COUNT(DISTINCT %@), %lu)
 MIN(COUNT(%@), %lu)
 COUNT(%@)
 COUNT(1)
-series_name
-sort_series_name
+sort_item_artist
 SELECT ROWID FROM item_artist WHERE (grouping_key = ?)
-keep_local_status_reason
-sync_id
+representative_item_pid
+keep_local
 <ML3ImportItem 
     
  bytes : 
@@ -2144,6 +2111,8 @@ progressionDirection
 durationInSamples
 %@-%.f
 v28@?0i8d12^B20
+genius_metadata
+genius_similarities
 INSERT OR REPLACE INTO genius_metadata (genius_id, checksum, data) VALUES (?, ?, ?);
 UPDATE item_extra SET pending_genius_checksum = ? WHERE genius_id = ?;
 INSERT OR REPLACE INTO genius_similarities (genius_id, data) VALUES (?, ?);
@@ -2160,7 +2129,7 @@ result != 0
 iPhoneSortKey
 iPhoneSortSection
 iPhoneGroupingKey
-NUMERIC_SECTION_HEADER
+UNKNOWN_SECTION_HEADER
 could not build grouping key
 %s:%d: %s
 /Library/Caches/com.apple.xbs/Sources/MusicLibrary_Sim/MusicLibrary/Sorting/iPhoneSortKey/iPhoneSortKey.c
@@ -2168,14 +2137,13 @@ BuildLanguage
 !CFSafeTypeMismatch(languageDictionary, CFDictionaryGetTypeID)
 FirstCharacterAfterLanguage
 !CFSafeTypeMismatch(firstCharacterAfterLanguage, CFStringGetTypeID)
+Headers
 !CFSafeGetArrayIsEmpty(headers)
 firstCharacterSortKey != NULL
 endCharacterSortKey != NULL
-album_artist.album_artist
-feed_url
+sort_album
 album_item_store.store_playlist_id
-contains_classical_work
-date_played_local
+app_data
 album_item_store.cloud_album_id
 LEFT OUTER JOIN item_store AS album_item_store ON (album.representative_item_pid == album_item_store.ROWID)
 SELECT ROWID FROM album WHERE feed_url = ?
@@ -2191,8 +2159,6 @@ Could not build database tables using connection %@.
 Failed to migrate database from version %d to %d. %@
 VACUUM
 PRAGMA user_version = %d;
-ANALYZE
-item_store.item_pid
 NSString *ML3TrackRulesIdentityPropertyForSource(ML3TrackSource)
 ML3TrackRules.m
 ML3TrackRulesIdentityPropertyForSource called with invalid source=%d
@@ -2228,18 +2194,14 @@ item_fetchable_artwork_token
 container_fetchable_artwork_source_type
 container_fetchable_artwork_token
 container_item_source_ids
-user_rating
-all_compilations
-season_number
-album_year
-app_data
-store_id
-handle
-image_url
-image_token
+cloud_status
+contains_classical_work
+user_rating_is_derived
+cloud_id
+redownload_params
+file_size
 MLSortMapUnicodeVersion
 (.nameSection=%d, .nameOrder = %15lld, .name = %@)
-SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name = 'sort_map';
 SELECT ROWID FROM sort_map LIMIT 1;
 DROP TABLE IF EXISTS sort_map_new
 INSERT INTO sort_map_new (name, sort_key) SELECT name, iPhoneSortKey(name) FROM sort_map;
@@ -2273,7 +2235,6 @@ UPDATE sort_map_new SET name_order = (SELECT sort_map_new_in_order.ROWID << 32 F
 INSERT OR REPLACE INTO sort_map_new (name, name_order, name_section, sort_key) VALUES ('', 0, %u, '')
 DROP TABLE sort_map_new_in_order;
 SELECT sort_map.name FROM sort_map JOIN sort_map_new ON sort_map.name = sort_map_new.name WHERE (sort_map_new.name_order != sort_map.name_order) OR (sort_map_new.name_section != sort_map.name_section) LIMIT 1;
-item
 IFNULL((SELECT sort_map_new.name_order FROM sort_map_new WHERE sort_map_new.name = (CASE %@ WHEN '' THEN NULL ELSE %@ END)), 0)
 UPDATE %@ SET %@ = %@;
 v40@?0@"NSString"8@"NSString"16@"NSString"24@"NSString"32
@@ -2298,9 +2259,7 @@ UPDATE album_artist SET grouping_key = iPhoneGroupingKey(album_artist)
 UPDATE album SET grouping_key = iPhoneGroupingKey(album)
 UPDATE composer SET grouping_key = iPhoneGroupingKey(composer)
 UPDATE genre SET grouping_key = iPhoneGroupingKey(genre)
-INSERT OR REPLACE INTO _MLDatabaseProperties (key, value) VALUES (?, ?)
-INSERT OR REPLACE INTO item_search (item_pid, search_title) SELECT item_extra.item_pid, sort_map.name_order from sort_map JOIN item_extra ON item_extra.title = sort_map.name
-UPDATE item_search SET search_album = IFNULL((SELECT sort_map.name_order FROM sort_map JOIN album ON album.album = sort_map.name JOIN item ON item.album_pid = album.album_pid WHERE item.item_pid = item_search.item_pid), 0)
+SELECT value FROM _MLDatabaseProperties WHERE key = '%@'
 UPDATE item_search SET search_album_artist = IFNULL((SELECT sort_map.name_order FROM sort_map JOIN album_artist ON album_artist.album_artist = sort_map.name JOIN item ON item.album_artist_pid = album_artist.album_artist_pid WHERE item.item_pid = item_search.item_pid), 0)
 SELECT name_order, name_section FROM sort_map WHERE name = ? LIMIT 1;
 ML3SortMap.m
@@ -2342,17 +2301,20 @@ Did not find object at index %ld with %ld inserted objects
 v32@?0@8@"ML3MusicLibrary_SortMapEntry"16^B24
 SELECT name, name_order, name_section FROM sort_map LIMIT 1 OFFSET ?
 SELECT name, name_order, name_section FROM sort_map WHERE name = ?
-EnableASTCEncoding
+com.apple.mobileipod
 MLArtworkShouldConvertToASTC
 truthValue
 %@(NOT %@)
+predicate
 (NOT 
+property
 ML3Predicate.m
 invalid value (nil) for property %@.
 values
  [%@]
 %@(%@ IN (%@)%@
  IN (
+value
 comparison
 caseInsensitive
 treatNullAsString
@@ -2369,7 +2331,6 @@ IFNULL(
 Unexpected value in predicate: %@
 %@(%@ IN %@)
 shouldContain
-persistentIDs
 .ROWID%@ IN (
  NOT
 mask
@@ -2385,7 +2346,6 @@ predicates
 ML3CompoundPredicate is an abstract class; use ML3AllCompoundPredicate or ML3AnyCompoundPredicate
 B24@?0@"NSNumber"8^B16
 v32@?0@"NSString"8@"ML3ContainmentPredicate"16^B24
- AND 
 condition
 then
 else
@@ -2396,9 +2356,7 @@ else
  ELSE 1
  END)
 %@, _range = %@, _sectionIndex = %lu
-item_artist_pid
-album_pid
-representative_item_pid
+grouping_key
 must be overridden
 SELECT %@ FROM %@ WHERE %@ = 0 OR %@
 SELECT DISTINCT item.%@ FROM item JOIN %@ USING (%@) LEFT OUTER JOIN best_artwork_token ON (item.ROWID = best_artwork_token.entity_pid AND best_artwork_token.entity_type = %ld) WHERE %@.%@ = item.ROWID AND (((item.media_type & 1024) = 1024) OR best_artwork_token.available_artwork_token IS NULL)
@@ -2413,7 +2371,6 @@ UPDATE %@ SET %@ = IFNULL( (SELECT item_pid FROM item LEFT OUTER JOIN best_artwo
  WHERE ROWID
 aggregateEntityClass
 foreignPersistentIDProperty
-sort_composer
 ML3DatabaseConnectionAdditions.m
 columnDefinition
 tableName
@@ -2426,42 +2383,42 @@ SELECT sql FROM sqlite_master WHERE type='table' AND name=?
 ^CREATE( TEMPORARY)* TABLE "*(\w+)"*( IF NOT EXISTS)* \(([\w\s'",]+)\)
 (\w+)( \w+)*( \w+)*
 %@_new
+CREATE TABLE %@ (%@)
 INSERT INTO %@ (%@) SELECT %@ FROM %@
-DROP TABLE %@
 ALTER TABLE %@ RENAME TO %@
 %@ LEFT OUTER JOIN container_item ON %@.ROWID = container_item.container_item_pid
 genre_item_store.store_genre_id
 LEFT OUTER JOIN item_store AS genre_item_store ON (genre.representative_item_pid == genre_item_store.ROWID)
 SELECT ROWID FROM genre WHERE (grouping_key = ?)
-ROWID
 <%@: pid=%lld>: %@
-is_owner
-workout_template_id
-smart_evaluation_order
-smart_is_filtered
-smart_is_genius
-smart_enabled_only
-smart_limit_kind
-album_field_order
+container_pid
+has_cloud_play_order
+name_order
+is_editable
+parent_pid
+smart_is_folder
+smart_is_dynamic
+smart_is_limited
+smart_limit_order
+smart_limit_value
+smart_reverse_limit_order
+smart_criteria
 container_seed.item_pid
 seed_order
-is_saveable
-is_src_remote
-is_ignored_syncing
-orig_date_modified
-keep_local_constraints
-cloud_author_store_id
-cloud_author_display_name
-cloud_author_store_url
-cloud_last_update_time
-cloud_global_play_count
-cloud_global_like_count
-cloud_is_subscribed
-cloud_is_curator_playlist
-cloud_is_sharing_disabled
+container_type
+filepath
+keep_local_status_reason
+cloud_global_id
+cloud_share_url
+cloud_is_public
+cloud_is_visible
+cloud_min_refresh_interval
+cloud_user_count
+cloud_author_handle
 best_artwork_token.available_artwork_token AS available_container_artwork_token
-best_artwork_token.fetchable_artwork_token AS fetchable_item_artwork_token
+category_type_mask
 (container.distinguished_kind = 0 AND container.is_hidden = 0 AND container.smart_criteria IS NULL AND container.smart_is_genius = 0 AND (container.cloud_is_subscribed = 0 OR container.is_editable = 1))
+is_ignorable_itunes_playlist
 ((IFNULL(container.smart_is_genius, 0) << 2) | ((container.smart_criteria IS NOT NULL) << 1) | IFNULL(container.is_saveable, 0))
 (IFNULL(container.workout_template_id, 0) != 0)
 (container.distinguished_kind = 17)
@@ -2482,13 +2439,16 @@ best_artwork_token.fetchable_artwork_token AS fetchable_item_artwork_token
 LEFT OUTER JOIN container_seed USING (container_pid)
 LEFT OUTER JOIN container_item ON container.container_pid = container_item.container_pid AND position = 0
 LEFT OUTER JOIN best_artwork_token ON entity_pid = container_pid AND entity_type = 1 AND artwork_type = 5
+container
 ML3Container.m
 persistentID must be specified since it is part of the filename format.
+Encountered error validating format. pathFormat=%@ error=%@
 v24@?0@"NSString"8@"NSString"16
 Klassiek
 Classique
 Klassik
 Classica
+MLLocalizable
 UPDATE container SET name = ? WHERE container_pid = ?
 v32@?0@"NSNumber"8@"NSString"16^B24
 createdBuiltInSmartPlaylists
@@ -2510,6 +2470,7 @@ SELECT ROWID FROM container WHERE smart_is_dynamic = 0 AND is_hidden = 0
 v32@?0@"ML3Container"8Q16^B24
 setTracksWithPersistentIDs:notify: called on unsupported container
 appendTracksWithPersistentIDs:notify: called on unsupported container
+INSERT INTO container_item (container_item_pid, container_pid, item_pid, position) VALUES (?, ?, ?, ?)
 UPDATE item set keep_local=0 WHERE (item_pid=? AND keep_local<?);
 moveTrackFromIndex:toIndex: called on unsupported container
 UPDATE container_item SET position = (CASE WHEN position = ? THEN ? ELSE CASE WHEN position BETWEEN ? AND ? THEN position + ? END END) WHERE container_pid = ? AND position BETWEEN ? AND ?
@@ -2528,6 +2489,8 @@ SELECT IFNULL(MAX(position), -1) FROM container_item WHERE container_pid = ?
 Only one of reloadContainedMediaTypes, and removedMediaTypes/addedMediaTypes can be used
 [NSIndexSet enumerateRangesUsingBlock:] is not enumerating ranges in order!
 DELETE FROM container_item_person WHERE container_item_pid in (SELECT container_item_pid from container_item where container_pid = ? AND position BETWEEN ? AND ?)
+DELETE FROM container_item WHERE container_pid = ? AND position BETWEEN ? AND ?
+UPDATE container_item SET position = (position - ?) WHERE container_pid = ? AND position >= ?
 DELETE FROM container_seed WHERE container_pid = ?;
 INSERT INTO container_seed (container_pid, item_pid) VALUES (?, ?);
 DELETE FROM container_item_person WHERE container_item_pid in (SELECT container_item_pid from container_item where container_pid=?)
@@ -2547,14 +2510,15 @@ Classical Music
 My Top Rated
 Top 25 Most Played
 Recently Played
-entityClass
+musicLibrary
 containerPersistentID
-predicate
 orderingTerm
+orderingTerms
 SELECT 1 FROM (%@)
 SELECT 1 FROM (%@ LIMIT 1)
 ML3ContainerQuery.m
 Attempting to get value for unsupported aggregate function %@
+ LIMIT %lu
 revisionBeforeImport
 revisionAfterImport
 com.apple.amp.MediaLibrary.ML3ProtoSyncImportOperation.accessQueue
@@ -2563,9 +2527,7 @@ UPDATE item_stats SET play_count_recent=0,skip_count_recent=0,liked_state_change
 UPDATE item_stats SET play_count_user = play_count_user + ?, play_count_recent = play_count_recent + ?, skip_count_user = skip_count_user + ?, skip_count_recent = skip_count_recent + ? WHERE item_pid = ?
 UPDATE item_stats SET bookmark_time_ms = ? WHERE item_pid = ? AND date_played < ?
 UPDATE item_stats SET date_played = ?, has_been_played = ? WHERE item_pid = ? AND date_played < ?
-container_item_person_pid
-container_item_pid
-container_item_person
+person_pid
 com.apple.MusicLibrary.MLMediaLibraryResourceServiceClient.serial.queue
 com.apple.MusicLibrary.MLMediaLibraryResourceServiceClient.callout.queue
 com.apple.MusicLibrary.MLMediaLibraryResourceServiceClient.path.change.queue
@@ -2573,21 +2535,23 @@ wstring_convert: from_bytes error
 wstring_convert: to_bytes error
 failed to truncate database files
 DELETE FROM entity_revision WHERE entity_pid=0
-SpringBoard
-com.apple.datamigrator
 Unmigratable Media Library
 The media library service has detected that this device has been downgraded from a newer operating system version. The service does not support migration back to previous versions.
 Please either erase-install the desired version of the operating system, or select the option to let the service rebuild your media library database. This WILL erase your media library on this device.
 [This dialog is shown for internal users only.]
 Rebuild Library
-Ignore
-date_accessed
-is_alarm
-hidden
+item_stats
+needs_restore
+has_been_played
+date_played
+date_skipped
+skip_count_recent
+chosen_by_auto_fill
+liked_state_changed
+persistentId
 composer_item_store.store_composer_id
 LEFT OUTER JOIN item_store AS composer_item_store ON (composer.representative_item_pid == composer_item_store.ROWID)
 SELECT ROWID FROM composer WHERE (grouping_key = ?)
-cloud_universal_library_id
 SELECT ROWID FROM album_artist WHERE (grouping_key = ?)
 SELECT container_item_pid, item_pid, position FROM container_item WHERE container_pid = ? ORDER BY position
 unordered_map::at: key not found
@@ -2601,55 +2565,52 @@ podcast_info
 rental_info
 store_info
 video_info
-lyrics
-operation
-insert_track
+store_item_id
 , store_id=
-cloud_id
-episode_sort_id
-exclude_from_shuffle
-date_created
+total_time_ms
 show_composer
 is_music_show
 sort_name
-year
-date_modified
+genius_id
+collection_description
 genius_checksum
-work
 movement_name
 movement_count
 movement_number
-gapless_encoding_drain
-has_video
-sample_rate
-start_time_ms
-liked_state
-user_rating_is_derived
+bit_rate
+data_url
+format
+gapless_last_frame_resynch
+volume_normalization_energy
 composer_id
 playlist_id
-storefront_id
-store_kind
 download_account_id
 family_id
-external_guid
+key_platform_id
+key_id
+date_purchased
 flavor
 matched_status
 redownloaded_status
+is_playlist_only
 quality
 is_hd
-audio_language
-subtitle_language
-rental_playback_date_started
-episode_type
-artist
-album
+episode_id
+movie_info
+audio_track_index
+audio_track_id
+rental_duration
+rental_playback_duration
+rental_date_started
+is_demo
+checksum
 sort_artist
-sort_album
 artist_id
 album_liked_state
 artwork_cache_id
 album_rating
 album_rating_is_derived
+content_rating_level
 explicit
 is_podcast
 is_song
@@ -2661,27 +2622,28 @@ is_home_video
 is_voice_memo
 is_itunes_u
 chapter_info
+disc_number
 kind
-container
 container_ui
 item_to_container
 insert_playlist
 <null>
 <MLDITunesSyncPlaylistImportItem 
-smart_is_limited
-smart_limit_value
-smart_criteria
-repeat_mode
-shuffle_items
-external_tag
+distinguished_kind
+workout_template_id
+is_hidden
+smart_evaluation_order
+smart_is_filtered
+play_order
 source_device_guid
 UniqueDeviceID
 genius_seed_tracks
 com.apple.medialibraryd.importOperationQueue
 Operation was cancelled by the media library service.
-Song
+Movie
+Podcast
+AudioBook
 PDFBooklet
-MusicVideo
 InteractiveBooklet
 CoachedAudio
 VPass
@@ -2869,20 +2831,18 @@ pic = %@
 NSString *MLDescriptionFromChapterData(ITChapterDataRef)
 system
 label
+rank
+content
 ratingProvider
 localizedRating
 ratingLevel
 localizedReason
 debugInfo
 Season %d
-MLLocalizable
-store_link
-CloudAssets
-LoFiCloudAssets
-Podcasts
-base_location
+path
 v24@?0@8^B16
-chapter_data
+chapter
+item_pid
 GENIUS_PLAYLIST_NAME
 ON_THE_GO_PLAYLIST_NAME
 -[ML3MusicLibrary(ProcessingAdditions) updateOrderingLanguagesForCurrentLanguage]
@@ -2899,11 +2859,15 @@ com.apple.MusicLibrary.ML3ArtworkConfiguration
 {CGSize=dd}
 <%@ %p %@>
 B32@?0@"NSString"8@"NSDictionary"16^B24
-MLMediaTypeAudioBook
-MLMediaTypeSong
-MLMediaTypeVoiceMemo
+MLMediaTypeMusicQuiz
+MLMediaTypePodcast
+MLMediaTypeITunesUAudio
 MLMediaTypeDigitalBooklet
-MLMediaTypeVideoITunesU
+MLMediaTypeVideoPodcast
+MLMediaTypeTVShow
+MLMediaTypeMusicVideo
+MLMediaTypeMovie
+MLMediaTypeAny
 MLMediaTypeAnyAudio
 MLMediaTypeAnyVideo
 ML3ArtworkTypeItem
@@ -2916,13 +2880,13 @@ B16@?0@"ML3DatabaseStatement"8
 <%@ %p '%@'>
 <%@ %p = {
 MLMusicLibraryErrorDomain
-sortName
+%@ %@
+hidden
 smartPlaylistInfo
 sortType
 reversedSorting
 parentIdentifier
 geniusSeedTrackIdentifier
-distinguishedKind
 cloudGlobalId
 cloudIsSubscribed
 cloudIsCuratorPlaylist
@@ -2931,15 +2895,13 @@ externalVendorDisplayName
 externalVendorTag
 externalVendorPlaylist
 creationDateTime
-modificationDateTime
 lastPlayedDateTime
 cloudIsSharingDisabled
 cloudVersionHash
-artworkId
-likedState
 remoteSourceType
 owner
 editable
+playCount
 shared
 visible
 authorStoreId
@@ -2953,8 +2915,8 @@ subscriberPlayCount
 subscriberLikedCount
 subscriberURL
 playlistDescription
-cloudUniversalLibraryId
 secondaryArtworkSourceType
+secondaryArtworkId
 playlistCategoryTypeMask
 playlistGroupingSortKey
 childIdentifiers
@@ -2963,7 +2925,9 @@ Normal
 Smart
 Genius
 Folder
-None
+(unknown: %i)
+Artist
+Album
 Name
 ReleaseDate
 AddedDate
@@ -2974,21 +2938,17 @@ Shuffle
 TrackID
 PlaylistItemID
 BitRate
-Kind
 Date
 TrackNumber
 TotalSize
 TotalTime
 Year
 SampleRate
-Category
-Location
 StreamStatus
 Description
 Comment
 DateAdded
 EQPreset
-Composer
 NormVolume
 UserPlayCount
 PlayDate
@@ -3001,7 +2961,7 @@ FastAlbumArtistOrArtist
 FastAlbum
 FastGenre
 FastComposer
-Relevance
+Price
 PurchaseDate
 BeatsPerMinute
 Popularity
@@ -3011,6 +2971,7 @@ EpisodeID
 EpisodeSortID
 UserSkipCount
 SkipDate
+AlbumArtist
 AlbumByArtistYear
 AlbumByArtist
 AlbumRating
@@ -3022,7 +2983,6 @@ GenreName
 GeniusID
 PodcastCategory
 StorePersistentID
-Version
 UncompressedSize
 AppKind
 UserDisabled
@@ -3038,6 +2998,7 @@ ML3MigrationErrorDomain
 MLTestHookFailMigration
 No migration path exists to upgrade from (%d) to system version (%d)
 Failed to upgrade from version %d.
+SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name = 'sort_map';
 SELECT COUNT() FROM item
 SELECT COUNT() FROM item_extra
 SELECT ROWID FROM item WHERE item_pid IN (SELECT item.item_pid FROM item LEFT OUTER JOIN item_extra ON item.item_pid=item_extra.item_pid WHERE item_extra.item_pid ISNULL)
@@ -3049,7 +3010,6 @@ DELETE FROM item_search WHERE item_pid IN (SELECT item_search.item_pid FROM item
 DELETE FROM item_store WHERE item_pid IN (SELECT item_store.item_pid FROM item_store LEFT OUTER JOIN item ON item_store.item_pid=item.item_pid WHERE item.item_pid ISNULL)
 DELETE FROM item_playback WHERE item_pid IN (SELECT item_playback.item_pid FROM item_playback LEFT OUTER JOIN item ON item_playback.item_pid=item.item_pid WHERE item.item_pid ISNULL)
 DELETE FROM item_video WHERE Item_pid IN (SELECT item_video.item_pid FROM item_video LEFT OUTER JOIN item ON item_video.item_pid=item.item_pid WHERE item.item_pid ISNULL)
-REPLACE INTO entity_revision (entity_pid, deleted, class, revision_type) VALUES (?, ?, ?, ?)
 DELETE FROM entity_revision WHERE revision_type > ? AND class = ? AND entity_pid = ?
 SELECT item_pid FROM item JOIN item_store USING(item_pid) WHERE media_type = 8 AND title_order = 0 AND album_order = 0 AND album_artist_order = 0 AND subscription_store_item_id = 0 AND is_ota_purchased = 0 AND store_saga_id = 0 AND store_item_id = 0 AND sync_id = 0 AND purchase_history_id = 0 AND base_location_id = 0 AND remote_location_id = 0 AND disc_number = 0 AND track_number = 0 AND needs_reporting = 1
 UPDATE album SET representative_item_pid = (SELECT item_pid FROM item WHERE item.album_pid = album.album_pid LIMIT 1) WHERE representative_item_pid NOT IN (select item_pid from item)
@@ -3069,17 +3029,20 @@ SELECT COUNT() FROM lyrics
 INSERT INTO lyrics (item_pid) SELECT item.item_pid FROM item LEFT OUTER JOIN lyrics USING (item_pid) WHERE lyrics.item_pid ISNULL;
 SELECT value FROM _MLDatabaseProperties WHERE key = 'MLCloudDatabaseRevision'
 INSERT OR REPLACE INTO _MLDatabaseProperties (value, key) VALUES (?, ?)
-MLSagaNeedsFullUpdate
 SELECT value FROM _MLDatabaseProperties WHERE key = 'MLJaliscoDatabaseRevision'
+MLJaliscoNeedsUpdateForTokens
 DELETE FROM _MLDatabaseProperties WHERE key = 'MLSyncClientLastSyncedRevision'
 DELETE FROM _MLDatabaseProperties WHERE key = 'MLSyncClientSyncAnchor'
 DELETE FROM _MLDatabaseProperties WHERE key = 'MLSyncClientGenerationID'
 DELETE FROM _MLDatabaseProperties WHERE key = 'MLSyncClientHasPendingAssets'
+ANALYZE
  JOIN %@ USING(%@)
 _new
 DROP TABLE IF EXISTS %@
 INSERT INTO %@ (%@) SELECT %@ FROM %@%@
+DROP TABLE %@
 PRAGMA table_info(%@)
+name
 SELECT item.item_pid,base_location.path,item_extra.location FROM item JOIN item_extra USING(item_pid) JOIN base_location USING(base_location_id) JOIN item_store USING(item_pid) WHERE remote_location_id > 0 AND base_location_id > 0 OR LENGTH(item_extra.location) > 0
 UPDATE item SET base_location_id=0 WHERE item.item_pid
 %@ IN (%@)
@@ -3090,25 +3053,24 @@ Library/Caches/com.apple.mediaplayer/Artwork
 %x/%x%x%x%x%x%x%x%x_%d.%@
 %@%ld%ld
 %02x/
-%02x
 .jpeg
 iTunes_Control/iTunes/Artwork/Originals
 iTunes_Control/iTunes/Artwork/Caches
 SELECT entity_pid, entity_type, artwork_type FROM artwork_token GROUP BY entity_pid, entity_type, artwork_type
 SELECT container_pid FROM container JOIN container_items USING (container_pid) WHERE distinguished_kind = 0 AND smart_criteria IS NULL AND is_hidden = 0 AND LENGTH(item_pid_data) > 0 AND cloud_is_subscribed = 0 AND cloud_is_curator_playlist = 0
 SELECT item_pid FROM item WHERE in_my_library
+SELECT item_pid_data FROM container_items WHERE container_pid = ?
 REPLACE INTO container_items (container_pid, item_pid_data) VALUES (?, ?)
+REPLACE INTO entity_revision (entity_pid, deleted, class, revision_type) VALUES (?, ?, ?, ?)
 DELETE FROM entity_revision WHERE entity_pid = ? AND revision_type > ?
 void ML3MigrationRemoveInvalidContainerItems(NSString *__strong, ML3DatabaseConnection *__strong)_block_invoke_3
 ML3MigrationUtilities.m
-DELETE FROM container_item WHERE container_pid = ? AND position BETWEEN ? AND ?
-UPDATE container_item SET position = (position - ?) WHERE container_pid = ? AND position >= ?
 v32@?0{_NSRange=QQ}8^B24
 REPLACE INTO entity_revision (entity_pid, deleted, class, revision_type) VALUES (?, 0, 1, 0)
 DELETE FROM entity_revision WHERE entity_pid = ? AND class = 1 AND revision_type > 0
 v32@?0@"NSNumber"8@"NSIndexSet"16^B24
 iTunes_Control/iTunes/UbiquitousMetadata.sqlitedb
--wal
+-shm
 SELECT store_saga_id FROM item_store WHERE item_pid = ?
 SELECT purchase_history_id FROM item_store WHERE item_pid = ?
 startMS=%7lu
@@ -3118,7 +3080,6 @@ imageKey=%@
 url=%@
 urlTitle='%@'
 <%@: %p - [%@] %@>
-com.apple.medialibraryd
 medialibraryd
 cast
 copy-warning
@@ -3138,29 +3099,31 @@ enabledItemsOnly
 reverseLimitOrder
 smartCriteria
 genius
-content
-rank
 SELECT COUNT() FROM %@ LIMIT 1
 SELECT %@ FROM %@ LIMIT 1
  LIMIT %d
  WHERE %@
 SELECT %@ FROM %@%@%@
 SELECT %@ FROM %@%@ LIMIT 1
+genius_config
+min_num_results
+default_num_results
 genius_id = %llu
 data
-genius_similarities
 MLGeniusPlaylistController.m
 count
 %.16llX
+%llu
 ML3ClientImportSession.m
 addItems cannot be called without an active session
 v24@?0@"ML3ClientImportResult"8@"NSError"16
 updateItems cannot be called without an active session
 removeItems cannot be called without an active session
-trackNumber
-userRating
-hlsPlaylistURL
+artist
+excludeFromShuffle
+playbackInfo
 v32@?0@"MLTrackImportChapter"8Q16^B24
+start_time_ms
 url_title
 artwork_start_time_ms
 v32@?0@"NSDictionary"8Q16^B24
@@ -3174,7 +3137,6 @@ titles
 commonKey
 extraAttributes
 time
-value
 ML3TrackImporter.m
 populateLocationPropertiesWithPath passed file with invalid name '%@'
 update container set date_downloaded=? where container_pid in (select DISTINCT container_pid from (select container_pid from container_item join container using(container_pid) where keep_local > 0 AND item_pid=?))
@@ -3186,6 +3148,8 @@ MLITChapterTOC.m
 MLITChapterTOC is an abstract class.  You must allocate a concrete subclass.
 numTracks
 numDiscs
+artworkId
+userRating
 compilation
 cloudId
 _ML3AutofilledTracksArePurgeableKey
@@ -3204,15 +3168,13 @@ UPDATE item SET keep_local=%d WHERE item_pid IN (%@)
 MediaPlayer
 image_decoding
 DisableASTCEncoding
-com.apple.mobileipod
-GdXjx1ixZYvN9Gg8iSf68A
+EnableASTCEncoding
+ji56BO1mUeT7Qg9RO7Er9w
 chapter=%llu-%.0f
 %.0fx%.0f
-MSVHasher+Algorithms.h
-Cannot obtain digest from unknown hasher algorithm
-Cannot finalize unknown hasher algorithm
+Cannot append to unknown hasher algorithm
 <%@: %p, name='%@'>
-videoQuality
+rental
 hasChapterData
 extendedContentName
 movieInfo
@@ -3246,22 +3208,23 @@ CREATE TABLE db_info (db_pid INTEGER PRIMARY KEY, primary_container_pid INTEGER,
 CREATE TABLE entity_revision (revision INTEGER PRIMARY KEY, entity_pid INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, class INTEGER NOT NULL DEFAULT 0, revision_type INTEGER NOT NULL DEFAULT 0, UNIQUE (entity_pid, revision_type))
 CREATE TABLE genius_config (id INTEGER PRIMARY KEY, version INTEGER UNIQUE, default_num_results INTEGER NOT NULL DEFAULT 0, min_num_results INTEGER NOT NULL DEFAULT 0, data BLOB)
 CREATE TABLE genius_metadata (genius_id INTEGER PRIMARY KEY, revision_level INTEGER NOT NULL DEFAULT 0, version INTEGER NOT NULL DEFAULT 0, checksum INTEGER NOT NULL DEFAULT 0, data BLOB)
+CREATE TABLE genius_similarities (genius_id INTEGER PRIMARY KEY, data BLOB)
 CREATE TABLE artwork_token (artwork_token TEXT NOT NULL DEFAULT '', artwork_source_type INTEGER NOT NULL DEFAULT 0, artwork_type INTEGER NOT NULL DEFAULT 0, entity_pid INTEGER NOT NULL DEFAULT 0, entity_type INTEGER NOT NULL DEFAULT 0, UNIQUE (artwork_source_type, artwork_type, entity_pid, entity_type))
 CREATE TABLE artwork (artwork_token TEXT NOT NULL DEFAULT '', artwork_source_type INTEGER NOT NULL DEFAULT 0, relative_path TEXT NOT NULL DEFAULT '', artwork_type INTEGER NOT NULL DEFAULT 0, interest_data BLOB, UNIQUE (artwork_token, artwork_source_type))
+CREATE TABLE entity_changes (class INTEGER NOT NULL, entity_pid INTEGER NOT NULL, source_pid INTEGER NOT NULL, change_type INTEGER NOT NULL, changes TEXT NOT NULL DEFAULT '', UNIQUE (class, entity_pid, source_pid, change_type))
+CREATE TABLE source (source_pid INTEGER PRIMARY KEY, source_name TEXT, last_sync_date INTEGER NOT NULL DEFAULT 0, last_sync_revision INTEGER NOT NULL DEFAULT 0)
 PRAGMA legacy_file_format = 0;
-album_artist
-category
-item_extra
-item_store
-container_item
-entity_revision
-genius_config
-genius_metadata
+item
+item_playback
+item_video
+container_seed
+_MLDatabaseProperties
+db_info
+artwork
 entity_changes
 source
 library_property
-account
-person
+container_item_person
 CREATE INDEX IF NOT EXISTS ItemArtistGrouping ON item_artist (grouping_key ASC)
 CREATE INDEX IF NOT EXISTS AlbumArtistGrouping ON album_artist (grouping_key ASC)
 CREATE INDEX IF NOT EXISTS AlbumGrouping ON album (grouping_key ASC, album_artist_pid ASC, season_number ASC)
@@ -3284,7 +3247,10 @@ CREATE INDEX IF NOT EXISTS BestArtworkTokenEntityPIDEntityType ON best_artwork_t
 CREATE INDEX IF NOT EXISTS ContainerItemItemPid ON container_item (item_pid ASC)
 CREATE INDEX IF NOT EXISTS ContainerItemPosition ON container_item (container_pid ASC, position ASC)
 CREATE INDEX IF NOT EXISTS CloudKVSBookmarkSync ON cloud_kvs (bookmark_sync_timestamp ASC, bookmark_sync_revision ASC)
+CREATE INDEX IF NOT EXISTS PersonPID ON person (person_pid ASC)
+CREATE INDEX IF NOT EXISTS PersonCloudID ON person (cloud_id ASC)
 CREATE INDEX IF NOT EXISTS ContainerItemPersons ON container_item_person (container_item_pid ASC)
+CREATE INDEX IF NOT EXISTS BookletItemPersistentID ON booklet (item_pid ASC)
 CREATE INDEX IF NOT EXISTS ItemTitleInAlbum ON item (album_pid ASC, media_type ASC)
 CREATE INDEX IF NOT EXISTS ItemTitleInAlbumArtist ON item (album_artist_pid ASC, media_type ASC)
 CREATE INDEX IF NOT EXISTS ItemTitleInItemArtist ON item (item_artist_pid ASC, media_type ASC)
@@ -3320,6 +3286,7 @@ ML3MusicLibraryUPPServiceKey
 SBCPlaybackPositionDomain
 Class getSBCPlaybackPositionDomainClass(void)_block_invoke
 ML3MusicLibraryUbiquitousDatabase.m
+Unable to find class %s
 void *StoreBookkeeperClientLibrary(void)
 SBCPlaybackPositionService
 Class getSBCPlaybackPositionServiceClass(void)_block_invoke
@@ -3332,32 +3299,44 @@ v32@?0@"NSString"8Q16^B24
 no pidColumn for %@ / %@
 SELECT 1 FROM %@ WHERE %@ = ? LIMIT 1;
 UPDATE %@ SET %@ WHERE %@ = ?;
-genius_cuid
-primary_container_pid
-album_artist_order
-composer_pid
-track_number
-date_added
+audio_language
+title_order
+title_order_section
+item_artist_pid
+item_artist_order
+item_artist_order_section
+series_name_order
+series_name_order_section
+composer_order
+genre_id
+base_location_id
+exclude_from_shuffle
 {?=qq}
 errorDescription
 errorCode
+type
 lastPackage
 header
 syncOperation
-error
+None
 Header
 Error
 SyncOperation
-apple_id
+account
+dsid
+alt_dsid
 %@ LEFT OUTER JOIN container_item_person ON %@.ROWID = container_item_person.container_item_person_pid
 There is more than one child for this code, please use childElementsForCode. ElementCode=
 numberOfChildren=
 %@ LEFT OUTER JOIN booklet ON %@.ROWID = booklet.booklet_pid
+SpringBoard
+com.apple.datamigrator
 Duplicate Video Detected
 The media library service has detected that a duplicate video has been imported.
 Please file a radar now using the button below.
 [This dialog is shown for internal users only.]
 File Radar
+Ignore
 tap-to-radar
 BundleID
 com.apple.music
@@ -3379,17 +3358,25 @@ playlists
 INSERT OR REPLACE INTO album (%@) SELECT %@ FROM album WHERE album_pid=?
 UPDATE album SET album_artist_pid=?, representative_item_pid=? WHERE album_pid=?
 UPDATE item SET album_pid=? WHERE item_pid IN (%@)
-item_pid
-purchase_history_id
-purchase_history_token
-downloader_account_id
-is_protected
-key_platform_id
-key_id
-artwork_url
-store_xid
-store_flavor
-store_link_id
+store_composer_id
+store_genre_id
+is_ota_purchased
+key_versions
+key_id_2
+date_released
+external_guid
+store_matched_status
+needs_reporting
+is_mastered_for_itunes
+advertisement_unique_id
+advertisement_type
+is_subscription
+sync_in_my_library
+reporting_store_item_id
+asset_store_item_id
+extended_playback_attribute
+extended_lyrics_attribute
+item_search
 ML3RemovePlaylistsOperation requires a track source attribute
 DELETE FROM container
 UPDATE container set %@=0
@@ -3397,6 +3384,7 @@ DELETE FROM container WHERE container_pid
 UPDATE container set %@=0 WHERE container_pid
 totalPackages
 syncType
+Reset
 Delta
 playlist
 playlistId
@@ -3405,27 +3393,27 @@ versionHash
 lastModifiedDate
 en_US_POSIX
 yyyy-MM-dd'T'HH:mm:ssZZZZZ
-childrenIds
 ML3StoreItemPlaylistData.m
-booklet_pid
-store_item_id
-file_size
-booklet
+user_rating
+all_compilations
+album_year
 operationType
 multiverseId
-series
+mediaItem
 Update
 Delete
 %@ LEFT OUTER JOIN person ON %@.ROWID = person.person_pid
 %@ is invalid. Use %@.
+Media
 Books
+CloudAssets
 DCIM
 Downloads
 FactoryLogs
 MediaAnalysis
 PhotoData
 Photos
-Purchases
+Podcasts
 Radio
 Recordings
 iTunes_Control/iTunes/MediaLibrary.sqlitedb
@@ -3435,7 +3423,6 @@ mobile
 IPHONE_SHARED_RESOURCES_DIRECTORY
 CFFIXED_USER_HOME
 ML3ImportOperation.mm
-Invalid parameter not satisfying: %@
 import
 import.writer
 import.library
@@ -3447,27 +3434,24 @@ success:            %@
 error:              %@
 cancelled:          %@
 suspended:          %@
-redownload_params
+booklet_pid
 ML3DatabaseNaturalStatementSQLKey
 ML3DatabaseNaturalStatementParametersKey
 mediaObjectType
 mediaType
 accountId
-sagaId
 purchaseHistoryId
 libraryIdentifiers
-Artist
-Genre
+Composer
 Series
 MediaItem
 Playlist
-AlbumArtist
-(unknown: %i)
-Podcast
-VoiceMemo
-AudioBook
+TVShow
+MusicVideo
 DigitalBooklet
 ITunesUVideo
+HomeVideo
+MusicQuiz
 Index (%ld) out of bounds (%lu)
 com.apple.ML3QueryResultSet.coalescing
 com.apple.ML3QueryResultSet
@@ -3482,31 +3466,33 @@ v24@?0q8^B16
 v24@?0r^q8Q16
 B16@?0@"ML3DatabaseConnection"8
 MLTimeQueryOperations
-episode_id
-has_alternate_audio
-has_subtitles
-subtitle_track_index
-show_sort_type
-episode_type_display_name
-episode_sub_sort_order
-color_capability
-hls_video_quality
-hls_playlist_url
-hls_audio_capability
-hls_key_server_url
-hls_key_server_protocol
+video_quality
+is_rental
+has_chapter_data
+extended_content_rating
+has_hls
+episode_type
+hls_offline_playback_keys
+is_premium
+hls_color_capability
+audio_capability
+hls_asset_traits
+hls_key_cert_url
 isSourceExternal
 ML3LibraryNotificationManager.m
-library
 com.apple.MusicLibrary.%@
 B32@?0@"NSNotification"8Q16^B24
+store_id
+keep_local_status
 ML3MultiUserErrorDomain
 direction
 collation
 ascending
 descending
 %@(%@ %@)
+ML3SpotlightMatch
  COLLATE 
+ DESC
 track_items
 YYYY-MM-dd
 album-parent
@@ -3516,12 +3502,14 @@ v24@?0@"ICStorePlatformResponse"8@"NSError"16
 artistId
 collectionId
 collectionName
+trackNumber
 isCompilation
 isMasteredForItunes
 ml3td_radio_station_id
 ml3td_advertisement_unique_id
 ml3td_advertisement_type
 showComposer
+work
 shouldBookmarkPlayPosition
 episodeSeasonNumber
 wasAvailableForSubs
@@ -3532,7 +3520,6 @@ videoSubType
 screenshots
 releaseDate
 offers
-type
 subscription
 genreNames
 albumArtwork
@@ -3552,11 +3539,11 @@ tvextra
 tvinterview
 assets
 children
+childrenIds
 artistName
 ICStorePlatformRequest
 Class getICStorePlatformRequestClass(void)_block_invoke
 ML3StoreItemTrackData.m
-Unable to find class %s
 void *iTunesCloudLibrary(void)
 ICStoreRequestContext
 Class getICStoreRequestContextClass(void)_block_invoke
@@ -3739,6 +3726,8 @@ Unable to end transaction with ID %@.
 A connection with the transaction ID %@ could not be found.
 No operation exists for operation type: %lu
 The media library service cancelled all active database transactions.
+library
+com.apple.medialibraryd
 MediaLibraryWatchdogDisabled
 <Unknown>
 Media library database transaction was terminated due to inactivity.
@@ -3751,6 +3740,7 @@ MLCloudLibraryCUID
 MLCloudLibraryTroveID
 MLCloudDatabaseUserVersion
 MLCloudAccountAddToPlaylistBehavior
+MLSagaNeedsFullUpdate
 MLCloudLibraryPrefersToMerge
 MLStorefrontID
 MLCloudDatabaseRevision
@@ -3765,15 +3755,13 @@ SELECT name, name_order FROM sort_map
 SELECT name_order FROM sort_map WHERE ML3SearchStringMatch(?, name)
 ML3SpotlightMatch(
 ML3SpotlightMatch(%@, %@, %@, %@)
-ML3SpotlightMatch
 v16@?0^v8
-item_search.search_artist
+item_search.search_album
 item_search.search_series
 com.apple.ml.SpotlightNameCache
 com.apple.ml.SpotlightNameCacheAccess
 void ML3SpotlightMatchingNameCacheTimer(ML3SpotlightMatchingNameCache *)
 ML3SpotlightQuery.mm
-invalid parameter
 _MLChangeObserver <%p> - Observer for %@[%d]
 Processing shared database path change
 v24@?0@"_MLChangeObserver"8^B16
@@ -3883,13 +3871,15 @@ currentThread=%@ last connection error=%@
 MLMediaLibraryService.m
 Unable to retrieve XPC listener endpoint for MediaLibraryResourcesService [fatal error after %ld retries] - error=%@
 Could not retrieve XPC listener endpoint for ClientImportService - Try %ld of %ld
-store_lyrics_available
+lyrics
+time_synced_lyrics_available
 com.apple.medialibraryd.multi-user-deamon-resources-serial-queue
 com.apple.medialibraryd.multi-user-deamon-resources-callout-queue
 com.apple.medialibraryd.multi-user-deamon-resources-account-change-queue
 final and current dsid are identical: %@
 final (%@) and current (%@) dsid are different
-Cannot append to unknown hasher algorithm
+MSVHasher+Algorithms.h
+Cannot finalize unknown hasher algorithm
 Unable to open file '%@'
 No SQL statements found in %@
 Error executing '%@'
@@ -3927,12 +3917,12 @@ MLJaliscoLastSupportedMediaKinds
 MLJaliscoLastExcludedMediaKinds
 MLJaliscoHasCloudGeniusData
 GeniusUserEnabled
-MLJaliscoNeedsUpdateForTokens
 MLJaliscoDatabaseRevision
 MLJaliscoLastLibraryUpdate
 movpkg
 m4bpkg
 blob
+jpeg
 LastCorruptionRestoreAttempt
 NSSQLiteErrorDomain
 ML3VirtualTable.mm
@@ -3941,9 +3931,12 @@ virtual_%@
 %@_module_%u
 CREATE VIRTUAL TABLE TEMP.%@ USING %@
 col%lu
-CREATE TABLE %@ (%@)
 int _ML3VirtualTableOpen(sqlite3_vtab *, sqlite3_vtab_cursor **)
 Virtual table %@ did not provide a database table structure.
+handle
+image_url
+image_token
+person
 Operation cancelled.
 <%@ %p operationType = %@, attributes = %@>
 Missing attributes for operation type: %@
@@ -3959,22 +3952,21 @@ ML3ProcessDownloadedAssetsOperation
 MLDatabaseOperationTypeUpdateSiriIndex
 <Unknown Write Operation Type>
 ML3SystemErrorDomain
-com.apple.Music
-com.apple.videos
 com.apple.MobileStore
 com.apple.AppStore
 com.apple.tv
 Failed to chown file %s. Err %d.
 Failed to get uid for user 'mobile'. Err %d.
 Failed to get permissions info on file %s.
+Database Validation Bug
 wrong permisions
 filePath
 chownError
 statError
 errorMsg
+booklet
 v32@?0q8Q16^B24
 SELECT ROWID,%@ FROM container WHERE %@=?
-SELECT COUNT() FROM sort_map
 MLResetCollectionsOnNextImport
 UPDATE album SET representative_item_pid=0
 UPDATE album_artist SET representative_item_pid=0
@@ -4002,6 +3994,7 @@ SELECT store_item_id, title, media_type FROM item JOIN item_store USING(item_pid
 bool ML3ImportSession::_prepareTrackSortData(ML3ImportItemRef)
 ML3ImportSession.mm
 invalid track pid
+%lld
 INSERT OR REPLACE INTO artwork_token (artwork_token,artwork_source_type,artwork_type,entity_pid,entity_type)
 DELETE FROM artwork_token WHERE artwork_source_type = ? AND artwork_type = ? AND entity_pid = ? AND entity_type = ?
 SELECT booklet_pid FROM booklet WHERE item_pid = ?
@@ -4076,7 +4069,6 @@ unmappedIDS
 updatedItemPersistentIDs
 deletedContainerItemPersistentIDs
 containerItemsToUpdate
-name
 SELECT container_item_pid, position FROM container_item WHERE container_pid = ? ORDER BY position
 SELECT position, container_item_person_pid, cloud_id FROM container_item_person LEFT OUTER JOIN container_item USING (container_item_pid) JOIN person USING (person_pid) WHERE container_pid = ? ORDER BY position
 , albumArtistPersistentID=%lld, groupingKey=%@, feedURL=%@, seasonNumber=%ld, compilation=%@
@@ -4093,11 +4085,10 @@ ML3DatabaseStatement.m
 attempt to step database statement that has already been finalized
 v32@?0@"NSString"8@16^B24
 '%@'
-container_pid
+container_item_pid
 <%@ %p libraryOwnedTracks=%@ libraryOwnedPlaylists=%@ pendingMatch=%@ libraryPath="%@">
 ML3DatabaseImport.m
 %@: coder must support keyed coding
-libraryPath
 trackData
 playlistData
 fileHandle
@@ -4136,7 +4127,6 @@ DEFAULT VALUES
 (%@)
 Number of column names provided doesn't match the number of values provided.
 VALUES (%@)
-%@ %@ %@
 DEFERRED
 EXCLUSIVE
 IMMEDIATE
@@ -4163,6 +4153,7 @@ ML3SortStringWithPrefix
  homeSharingId=
 NSString *ML3MemorySQLiteDatabasePathWithName(NSString *__strong)
 ML3SqliteUtilities.m
+invalid parameter
 file:%@?mode=memory&cache=shared
 :memory:
 mode=memory
@@ -4171,6 +4162,7 @@ Could not open database copy. %s (%d)
 Could not perform copy: %s (%d)
 PRAGMA wal_checkpoint(RESTART);
 Warning: could not checkpoint copied SQLite file.
+libraryPath
 sourceType
 allowAccountMerging
 privacyContext
@@ -4179,6 +4171,7 @@ bookmark_sync_timestamp
 bookmark_sync_revision
 /var/mobile/Media/iTunes_Control/Sync/Media/
 modified_playlist_pids
+operation
 update_playlist
 delete_playlist
 UPDATE item_stats SET play_count_recent=0,skip_count_recent=0 WHERE item_pid IN (SELECT item_pid FROM item_store WHERE sync_id!=0 AND store_saga_id=0)
@@ -4187,21 +4180,18 @@ MLSyncClientSyncAnchor
 v12@?0B8
 Sync_
 operations
+insert_track
 update_track
 delete_track
 update_db_info
-db_info
+subtitle_language
+genius_cuid
+primary_container_pid
 apple_ids
 v32@?0@"NSString"8@"NSString"16^B24
-default_num_results
-min_num_results
-version
 INSERT OR REPLACE INTO genius_config (id, data, default_num_results, min_num_results, version) VALUES (0,?,?,?,?)
-iTunes
-Reset
 q24@?0@8@16
 v32@?0@8@16^B24
-container_seed
 <ML3SubscriptionImportItem 
  sagaId=
 , storeId=
@@ -4210,10 +4200,11 @@ container_seed
  global_id=
  cloud_id=
 , name=
-FindRowForRunningSum_UInt64
-CFTimeRelativeToStartOfToday
 CFTimeRelativeToEndOfToday
 success
+persistentIDs
+FindRowForRunningSum_UInt64
+CFTimeRelativeToStartOfToday
 yMdHms
 ML3VirtualTableRow::ML3VirtualTableRow(ML3DatabaseTable *__strong)
 ML3VirtualTableRow.mm
@@ -4235,6 +4226,7 @@ SELECT COUNT() FROM album_artist
 SELECT COUNT(DISTINCT(album_artist_pid)) FROM item
 SELECT COUNT() FROM item_artist
 SELECT COUNT(DISTINCT(item_artist_pid)) FROM item
+SELECT COUNT() FROM sort_map
 SELECT COUNT() FROM sort_map WHERE name_order IN (SELECT title_order FROM item) OR name_order IN (SELECT item_artist_order FROM item) OR name_order IN (SELECT series_name_order FROM item) OR name_order IN (SELECT album_order FROM item) OR name_order IN (SELECT album_artist_order FROM item) OR name_order IN (SELECT genre_order FROM item) OR name_order IN (SELECT composer_order FROM item) OR name_order IN (SELECT name_order FROM container) OR name_order IN (SELECT search_title FROM item_search) OR name_order IN (SELECT search_album FROM item_search) OR name_order IN (SELECT search_artist FROM item_search) OR name_order in (SELECT search_composer FROM item_search) OR name_order IN (SELECT search_album_artist FROM item_search)
 ML3AccountCacheErrorDomain
 com.apple.medialibrary.ML3AccountCacheDatabase.operationQueue.accessQueue
@@ -4249,11 +4241,14 @@ com.apple.medialibrary.change-proxy-serial-queue
 com.apple.medialibrary.change-proxy-callout-queue
 com.apple.MusicLibrary.ML3DatabaseValidationClient
 ML3DatabaseValidationClient.m
+Invalid parameter not satisfying: %@
 connection.databasePath != nil
 com.apple.MusicLibrary.ValidationQueue.%s
 -init is invalid. use -initWithDatabasePath: instead.
 com.apple.MusicLibrary._ML3ValidationQueueIdentifierKey
-person_pid
+container_item_person_pid
+com.apple.Music
+com.apple.videos
 MLDSpotlightIndexOperationErrorDomain
 revision
 libraryID
@@ -4274,7 +4269,6 @@ producers.name
 v40@?0q8r^@16Q24^B32
 Failed to create CSSearchable playlist items from the library.
 ML3UpdateSpotlightIndexOperation requires a bundleID attribute
-Music
 Videos
 Unkown bundle index
 ML3RemoveTracksOperation requires a track source attribute
@@ -4319,6 +4313,9 @@ deallocating pool %@ has %lld active connections
 ML3DatabaseConnectionSubPool=%p
 availableConnections=%@
 busyConnections=%@
+data_kind
+eq_preset
+gapless_encoding_delay
 ML3LanguageResourcesSectionsInfoKey
 ML3LanguageResourcesSortingDetailsKey
 ML3LanguageResourcesCanonicalLanguageIdentifierKey
@@ -4340,7 +4337,6 @@ PRAGMA journal_mode=DELETE
 update journaling mode to DELETE failed
 PRAGMA cache_size=500
 set cache size error
-Database Validation Bug
 database open error
 corrupted
 openError
@@ -4350,7 +4346,6 @@ openFlags
 isReadOnly
 sqliteResult
 walResult
-path
 context
 sqlErrorString
 SELECT name FROM sqlite_master WHERE type='table' AND name='%@'
@@ -4380,12 +4375,12 @@ Executed in %.1f
 Attempt to write a readonly database with statement %@
 Could not create directory for database file at %@ (error = %@)
 Could not create database file at %@, error = %@
-true
+false
 MediaLibrary.sqlitedb
 Failed to close connection for database. %s (errno = %d)
 denied
 sqlite_
-alt_dsid
+apple_id
 Distant connection could not open XPC connection to media library service daemon.
 You cannot register functions on a distant database connection.
 You cannot register modules on a distant database connection.
@@ -4398,7 +4393,7 @@ The media library service failed to return a valid transaction ID.
 No smart playlist criteria
 %*c%@ %@ %@ %@
 kbps
-false
+true
 on this computer
 on iCloud
 MM/dd/yyyy HH:mm
@@ -4411,13 +4406,15 @@ MM/dd/yyyy HH:mm
 (unsupported: %d)
 Invalid
 Play Status
-Album
 Bit Rate
 Sample Rate
+Genre
+Kind
 Date Modified
 Track Number
 Size
 Total Time
+Location
 Date Added
 EQ Preset
 Obsolete Display Artist
@@ -4427,13 +4424,13 @@ User Play Count
 Play Date
 Disc Number
 Track Rating
-Price
 Object ID
 Persistent ID
 Checked
 Playlist Item ID
 Compilation
 Purchase Date
+Relevance
 Release Date
 Beat Per Minute
 Parent Container ID
@@ -4452,6 +4449,7 @@ Start Time
 Stop Time
 Track Count
 Store Front ID
+Category
 Keywords
 Cloud Match State
 Has Lyrics
@@ -4515,6 +4513,7 @@ Uncompressed Size
 Game GUID
 App Identifier
 Obsolete Track Kind
+Version
 Copyright
 User Disabled
 Album Artwork
@@ -4554,8 +4553,10 @@ purchased
 uploaded
 ineligible
 local only
+error
 duplicate
 music
+movie
 podcast
 audiobook
 PDF booklet
@@ -4569,7 +4570,6 @@ future video 3
 software package
 forced music playlist
 ringtone
-rental
 digital booklet
 software application
 software game
@@ -4582,8 +4582,9 @@ alert tone
 -[%@ init] is unsupported. Use -[%@ initWithTransactionID:] instead.
 %@, sql = "%@", parameters = %@
 v24@?0@"NSData"8@"NSError"16
-storeId
-persistentId
+position
+sortName
+cloudUniversalLibraryId
 ML3SubscriptionImportOperation.mm
 Attempted to start subscription import operation without DAAP payload data.
 com.apple.MusicLibrary.ML3StatementAccumulator
@@ -4591,7 +4592,7 @@ com.apple.MusicLibrary.ML3StatementAccumulator
 ML3StatementAccumulator.m
 Attempted to flush database statements without a specified database path.
 v20@?0B8@"NSError"12
-Media
+Music
 F%02lld
 _ML3BaseMusicLibraryResourcesManager.m
 Invalid resource
@@ -4602,10 +4603,12 @@ iTunes/OnTheGoPlaylist_%llu.plist
 iTunes/GeniusPlaylist.plist
 iTunes/GeniusPlaylist_%llu.plist
 iTunes/Playlist_%llu.plist
+iTunes
 Originals
 Caches
 MLSections
 SortingDetails
+Library
 MusicLibrary
 FailedArtworkConversion.plist
 Backups
@@ -4613,6 +4616,7 @@ Logs
 MediaServices
 void _MSVHasherAppendBytes(MSVHasher * _Nonnull, const void * _Nonnull, size_t)
 NSString * _Nonnull _MSVHashGetDigest(MSVHash)
+Cannot obtain digest from unknown hasher algorithm
 0123456789abcdef
 MSVHash _MSVHasherFinalize(MSVHasher * _Nonnull)
 com.apple.medialibraryd.multi-users-resources-serial-queue
@@ -4621,6 +4625,7 @@ Failed Getting Path
 Unable to retrieve media library folder
 sortTitle
 releaseDateTime
+modificationDateTime
 fileSize
 duration
 contentRating
@@ -4628,7 +4633,9 @@ explicitContent
 shortDescription
 longDescription
 copyright
+year
 contentRatingLevel
+comment
 fileKind
 familyAccountId
 drmVersionsCode
@@ -4641,13 +4648,13 @@ extrasUrl
 purchaseDateTime
 cloudStatus
 playCountDelta
+skipCount
 skipCountDelta
 lastSkippedDateTime
 rememberBookmark
 bookmarkTimeMilliseconds
 storePlaylistId
 hasLocalAsset
-grouping
 needsReporting
 likedStateChanged
 isInUsersLibrary
@@ -4658,23 +4665,20 @@ cloudPlaybackEndpointType
 playbackEndpointType
 cloudMatchedStatus
 inUsersCloudLibrary
-secondaryArtworkId
 flattenedChapterData
 isPreorder
 likedStateChangeDate
+storeId
 storefrontId
 purchaseHistoryToken
 purchaseHistoryRedownloadParams
+sagaId
 sagaRedownloadParams
 storeXID
 subscriptionStoreItemId
 reportingStoreItemId
 assetStoreItemId
-movie
 tvShow
-TVShow
-HomeVideo
-MusicQuiz
 <ML3StoreContainerImportItem 
  name="
 ", globalID="
@@ -4802,6 +4806,7 @@ Failed to add classical_experience_available column to album table
 Failed to add classical_experience_available column to album_artist table
 Failed to add classical_experience_available column to item_artist table
 Failed to add extended_playback_attribute column to item_store
+Failed to add extended_lyrics_attribute column to item_store
 %{public}@ - Creating connection pool with path: %{public}@
 %{public}@ - Creating database path : %{public}@
 Automatic Downloads are %{BOOL}u. enabledKinds=%{public}@
@@ -5060,12 +5065,13 @@ failed to start store import transaction. error=%{public}@
 setting sync library id to %{public}@
 %{public}@ starting import with fileHandle %{public}@, fd=%d
 %{public}@ Not suspending read source _importFinished %d, _isReadSourceCancelled %d
-%{public}@ resuming read source bytesRead %ld parsingLen %d
 timed out waiting for import data
-failed to read object length from import data stream
-failed to read varint length
+%{public}@ resuming read source bytesRead %ld parsingLen %d
+%{public}@ timed out waiting for import data
+%{public}@ failed to read object length from import data stream
+%{public}@ failed to read varint length
 %{public}@ resuming read source bytesRead %ld pasrsingLen %d
-failed to read object from import data stream
+%{public}@ failed to read object from import data stream
 failed to parse sync package data
 %{public}@ resuming read source
 %{public}@ cancelling read source
@@ -12605,6 +12611,8 @@ CREATE TABLE composer_new (composer_pid INTEGER PRIMARY KEY, composer TEXT NOT N
 INSERT INTO composer_new (composer_pid, composer, sort_composer, grouping_key, cloud_status, representative_item_pid, keep_local, keep_local_status, keep_local_constraints, sync_id) SELECT composer_pid, composer, sort_composer, grouping_key, cloud_status, representative_item_pid, keep_local, keep_local_status, keep_local_constraints, sync_id FROM composer
 PRAGMA user_version = 2000010;
 PRAGMA user_version = 2000020;
+ALTER TABLE item_store ADD COLUMN extended_lyrics_attribute INTEGER NOT NULL DEFAULT 0
+PRAGMA user_version = 2030000;
 UPDATE item_extra SET integrity = (SELECT ML3TrackIntegrityCompute(item.item_pid, item.media_type, item_extra.location, item_extra.file_size) FROM item JOIN item_extra AS item_extra2 USING (item_pid) WHERE item_extra.item_pid = item.item_pid)
 ML3MusicLibraryBackgroundTasksShouldStopSuppressingChangesNotification
 ML3MusicLibraryBackgroundTasksShouldSuppressChangesNotification
@@ -12961,6 +12969,7 @@ item_store.cloud_universal_library_id
 item_store.asset_store_item_id
 item_store.reporting_store_item_id
 item_store.extended_playback_attribute
+item_store.extended_lyrics_attribute
 store_link.url
 item_video.audio_language
 item_video.audio_track_index
@@ -13157,6 +13166,7 @@ cloud_playback_endpoint_type
 asset_store_item_id
 reporting_store_item_id
 extended_playback_attribute
+extended_lyrics_attribute
 LEFT OUTER JOIN store_link USING (store_link_id)
 JOIN item_playback USING (item_pid)
 eq_preset
@@ -15910,6 +15920,7 @@ Failed to add classical_experience_available column to album table
 Failed to add classical_experience_available column to album_artist table
 Failed to add classical_experience_available column to item_artist table
 Failed to add extended_playback_attribute column to item_store
+Failed to add extended_lyrics_attribute column to item_store
 %{public}@ - Creating connection pool with path: %{public}@
 %{public}@ - Creating database path : %{public}@
 Automatic Downloads are %{BOOL}u. enabledKinds=%{public}@
@@ -16168,12 +16179,13 @@ failed to start store import transaction. error=%{public}@
 setting sync library id to %{public}@
 %{public}@ starting import with fileHandle %{public}@, fd=%d
 %{public}@ Not suspending read source _importFinished %d, _isReadSourceCancelled %d
-%{public}@ resuming read source bytesRead %ld parsingLen %d
-failed to read object length from import data stream
-failed to read varint length
-%{public}@ resuming read source bytesRead %ld pasrsingLen %d
 timed out waiting for import data
-failed to read object from import data stream
+%{public}@ resuming read source bytesRead %ld parsingLen %d
+%{public}@ failed to read object length from import data stream
+%{public}@ failed to read varint length
+%{public}@ resuming read source bytesRead %ld pasrsingLen %d
+%{public}@ timed out waiting for import data
+%{public}@ failed to read object from import data stream
 failed to parse sync package data
 %{public}@ resuming read source
 %{public}@ cancelling read source
@@ -17267,8 +17279,252 @@ MIPMediaItem
 ML3Artwork
 ML3DatabaseCachedRow
 ML3ProtoSyncExportSession
+artworkURLWithSize:cropStyle:format:preferP3ColorSpace:
+addDestinationWithFormat:size:url:
+orderedSetWithArray:
+assetImageGeneratorWithAsset:
+insertString:atIndex:
+weakObjectsHashTable
+decodeIntForKey:
+setLastUsedDate:
+addIndex:
+setQualityOfService:
+initWithItemContentType:
+string
+removeAllObjects
+initWithLength:
+orderedSetWithObject:
+decodeIntegerForKey:
+setValue:forKey:
+tvShowItemWithName:itemId:
+whitespaceAndNewlineCharacterSet
+movieItemWithName:itemId:
+setLength:
+stringByAppendingFormat:
+decodeObjectOfClass:forKey:
+setQueryItems:
+assetWithURL:
+whitespaceCharacterSet
+msv_firstWhere:
+unarchivedObjectOfClasses:fromData:error:
+finish:
+stringByAppendingPathComponent:
+decodeObjectOfClasses:forKey:
+unionOrderedSet:
+finishWithError:
+stringByAppendingPathExtension:
+containsObject:
+addJPEGDestinationWithSize:compressionQuality:url:
+firstIndex
+decodeTCCIdentityForKey:
+setRating:
+setDateFormat:
+stringByAppendingString:
+removeCharactersInString:
+defaultCenter
+unionSet:
+setDefaultButtonTitle:
+firstMatchInString:options:range:
+stringByDeletingLastPathComponent
+removeItemAtPath:error:
+writeAllData:error:
+firstObject
+writeData:
+defaultManager
+removeItemAtURL:error:
+stringByDeletingPathExtension
+writeData:error:
+setDestinationCompressionQuality:
+containsString:
+stringByPaddingToLength:withString:startingAtIndex:
+attributesOfItemAtPath:error:
+selector
+writeToFile:atomically:
+removeItemWithItemId:error:
+intValue
+musicVideoItemWithName:itemId:albumArtistId:songArtistId:albumId:genreId:
+sendRequest:completionHandler:
+stringByReplacingCharactersInRange:withString:
+setDirector:
+audioBookArtistItemWithName:itemId:
+addObjectsFromArray:
+writeToFile:options:error:
+hasPrefix:
+mutableBytes
+mutableCopy
+stringByReplacingOccurrencesOfString:withString:
+addObserver:selector:name:object:
+audioBookItemWithName:itemId:artistId:
+contentsOfDirectoryAtPath:error:
+interfaceWithProtocol:
+stringByStandardizingPath
+setRemoteObjectInterface:
+setDisplayName:
+contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
+addObserverForName:object:queue:usingBlock:
+intersectSet:
+stringByTrimmingCharactersInSet:
+serviceForSyncDomain:
+initWithListenerEndpoint:
+setWithArray:
+addOperation:
+hasProtectedContent
+enumerateIndexesUsingBlock:
+invalidate
+initWithLocaleIdentifier:
+presentWithCompletion:
+addOperationWithBlock:
+setWithCapacity:
+setLocal:
+enumerateKeysAndObjectsUsingBlock:
+removeObject:
+initWithLongLong:
+setLocale:
+setWithObject:
+invertedSet
+addOrUpdateItem:error:
+audioTraits
+setWithObjects:
+initWithMachServiceName:options:
+enumerateObjectsUsingBlock:
+stringFromDate:
+addTimer:forMode:
+initWithMaximumCapacity:
+priorVersion
+removeObjectsAtIndexes:
+copy
+isAbsolutePath
+isActive
+unsignedIntValue
+removeObjectsInArray:
+initWithMetadataDictionary:
+auditToken
+setAdamID:
+unsignedIntegerValue
+deleteAllSearchableItemsWithCompletionHandler:
+stringWithCapacity:
+removeObserver:
+processIdentifier
+isApplication
+setAlertHeader:
+albumArtistItemWithName:itemId:
+unsignedLongLongValue
+copyItemAtPath:toPath:error:
+stringWithContentsOfFile:encoding:error:
+processInfo
+setRequestContext:
+pathComponents
+setAlertMessage:
+isCancelled
+removeObserver:name:object:
+setMaxConcurrentOperationCount:
+initWithName:
+stringWithFormat:
+processName
+indexGreaterThanIndex:
+setAlternateButtonTitle:
+pathExtension
+stringWithString:
+indexOfObject:
+stringWithUTF8String:
+albumItemWithName:itemId:albumArtistId:
+setAlternateNames:
+indexOfObject:inSortedRange:options:usingComparator:
+pathForResource:ofType:
+stringWithValidatedFormat:validFormatSpecifiers:error:
+formerStoreAdamIDs
+sharedConnection
+indexOfObjectPassingTest:
+strongToStrongObjectsMapTable
+progressWithTotalUnitCount:
+deletePlaybackPositionEntity:
+countByEnumeratingWithState:objects:count:
+setMediaTypes:
+closeFile
+allItems
+subarrayWithRange:
+pathWithComponents:
+setScheme:
+indexSearchableItems:completionHandler:
+allKeys
+updateForeignDatabaseWithValuesFromPlaybackPositionEntity:
+availableChapterLocales
+indexSet
+deleteSearchableItemsWithIdentifiers:completionHandler:
+enumerateRangesUsingBlock:
+allKeysForObject:
+generateCGImagesAsynchronouslyForTimes:completionHandler:
+indexSetWithIndex:
+initWithName:object:userInfo:
+isEqualToArray:
+initWithName:pid:bundleID:subsystem:reason:flags:
+isEqualToData:
+setAttributes:ofItemAtPath:error:
+isEqualToNumber:
+initWithName:protectionClass:bundleIdentifier:
+initWithObjects:
+allObjects
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
+setExportedInterface:
+beginIndexBatch
+isEqualToString:
+setMusicalGenre:
+dictionary
+propertyListWithData:options:format:error:
+createDirectoryAtURL:withIntermediateDirectories:attributes:error:
+enumeratorAtPath:
+initWithObjects:count:
+setExportedObject:
+beginTransaction
+initWithObjectsAndKeys:
+createFileAtPath:contents:attributes:
+loadValuesAsynchronouslyForKeys:completionHandler:
+enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
+initWithOptions:
+substringFromIndex:
+replaceItemAtURL:withItemAtURL:backupItemName:options:resultingItemURL:error:
+localName
+genreItemWithName:itemId:
+setExtendedContentRating:
+substringWithRange:
+dictionaryWithCapacity:
+initWithOrderedSet:
+localeIdentifier
+setAudioTrackNumber:
+dictionaryWithContentsOfFile:
+shortValue
+replaceOccurrencesOfString:withString:options:range:
+getCString:maxLength:encoding:
+localeWithLocaleIdentifier:
+dictionaryWithContentsOfURL:
+localizedDescription
+initWithOutputStream:queue:
+initWithArtworkResponseDictionary:
+dictionaryWithDictionary:
+localizedStringForKey:value:table:
+punctuationCharacterSet
+allValues
+getCharacters:range:
+dictionaryWithObject:forKey:
+allocWithZone:
+dictionaryWithObjects:forKeys:count:
+isMainThread
+shouldValidateDatabaseForLibrary:
+code
+dictionaryWithObjectsAndKeys:
+performWithResponseHandler:
+blockOperationWithBlock:
+initWithBytes:objCType:
+errorWithDomain:code:userInfo:
+allowsKeyedCoding
+alphanumericCharacterSet
+sizeInfo
+boolForKey:
+initWithBytesNoCopy:length:
+currentHandler
 initWithBytesNoCopy:length:encoding:freeWhenDone:
 boolValue
+initWithBytesNoCopy:length:freeWhenDone:
 currentLocale
 ams_automaticDownloadKinds
 exceptionWithName:reason:userInfo:
@@ -17332,8 +17588,8 @@ donateWithOptions:version:validity:usingStream:
 URLAssetWithURL:options:
 threadDictionary
 numberWithDouble:
-dataUsingEncoding:
 handleFailureInFunction:file:lineNumber:description:
+dataUsingEncoding:
 donatorWithItemType:originAppId:error:
 isWritableFileAtPath:
 rangeAtIndex:
@@ -17341,8 +17597,8 @@ numberWithInt:
 setPath:
 URLByAppendingPathComponent:
 time
-handleFailureInMethod:object:file:lineNumber:description:
 rangeOfCharacterFromSet:
+handleFailureInMethod:object:file:lineNumber:description:
 itemId
 archivedDataWithRootObject:requiringSecureCoding:error:
 donatorWithItemType:originAppId:userId:error:
@@ -17380,25 +17636,25 @@ dataWithContentsOfFile:options:error:
 rangeOfString:options:
 sortedArrayUsingComparator:
 setPersonalizationStyle:
-URLWithString:
 numberWithUnsignedInteger:
+URLWithString:
 sortedArrayUsingSelector:
 initWithData:
 dataWithContentsOfURL:
 numberWithUnsignedLong:
 URLsForResourcesWithExtension:subdirectory:
 scanHexLongLong:
-arrayWithArray:
 dataWithPropertyList:format:options:error:
+arrayWithArray:
 extraAttributes
 componentsJoinedByString:
 initWithData:encoding:
-numberWithUnsignedLongLong:
-cancelAllCGImageGeneration
 UTF8String
-setHost:
+cancelAllCGImageGeneration
+numberWithUnsignedLongLong:
 arrayWithCapacity:
 scannerWithString:
+setHost:
 componentsSeparatedByString:
 value:withObjCType:
 initWithSearchString:options:
@@ -17501,256 +17757,12 @@ initWithFormat:arguments:
 waitUntilAllOperationsAreFinished
 moveItemAtURL:toURL:error:
 initWithIdentity:
-decodeInt32ForKey:
 waitUntilFinished
+decodeInt32ForKey:
 orderedSet
-tvEpisodeItemWithName:itemId:showId:
 decodeInt64ForKey:
-artworkURLWithSize:cropStyle:format:preferP3ColorSpace:
+tvEpisodeItemWithName:itemId:showId:
 remoteObjectProxyWithErrorHandler:
-addDestinationWithFormat:size:url:
-orderedSetWithArray:
-decodeIntForKey:
-assetImageGeneratorWithAsset:
-insertString:atIndex:
-weakObjectsHashTable
-addIndex:
-setLastUsedDate:
-setQualityOfService:
-initWithItemContentType:
-string
-removeAllObjects
-initWithLength:
-orderedSetWithObject:
-decodeIntegerForKey:
-setValue:forKey:
-tvShowItemWithName:itemId:
-whitespaceAndNewlineCharacterSet
-movieItemWithName:itemId:
-setLength:
-stringByAppendingFormat:
-decodeObjectOfClass:forKey:
-setQueryItems:
-assetWithURL:
-whitespaceCharacterSet
-msv_firstWhere:
-unarchivedObjectOfClasses:fromData:error:
-finish:
-stringByAppendingPathComponent:
-decodeObjectOfClasses:forKey:
-unionOrderedSet:
-finishWithError:
-stringByAppendingPathExtension:
-containsObject:
-addJPEGDestinationWithSize:compressionQuality:url:
-firstIndex
-decodeTCCIdentityForKey:
-setRating:
-setDateFormat:
-removeCharactersInString:
-stringByAppendingString:
-defaultCenter
-unionSet:
-setDefaultButtonTitle:
-firstMatchInString:options:range:
-stringByDeletingLastPathComponent
-removeItemAtPath:error:
-writeAllData:error:
-firstObject
-writeData:
-defaultManager
-removeItemAtURL:error:
-stringByDeletingPathExtension
-writeData:error:
-setDestinationCompressionQuality:
-containsString:
-stringByPaddingToLength:withString:startingAtIndex:
-attributesOfItemAtPath:error:
-selector
-writeToFile:atomically:
-removeItemWithItemId:error:
-intValue
-musicVideoItemWithName:itemId:albumArtistId:songArtistId:albumId:genreId:
-sendRequest:completionHandler:
-stringByReplacingCharactersInRange:withString:
-setDirector:
-audioBookArtistItemWithName:itemId:
-addObjectsFromArray:
-writeToFile:options:error:
-hasPrefix:
-mutableBytes
-mutableCopy
-stringByReplacingOccurrencesOfString:withString:
-addObserver:selector:name:object:
-audioBookItemWithName:itemId:artistId:
-contentsOfDirectoryAtPath:error:
-interfaceWithProtocol:
-stringByStandardizingPath
-setRemoteObjectInterface:
-setDisplayName:
-contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:
-addObserverForName:object:queue:usingBlock:
-intersectSet:
-stringByTrimmingCharactersInSet:
-serviceForSyncDomain:
-initWithListenerEndpoint:
-setWithArray:
-addOperation:
-hasProtectedContent
-enumerateIndexesUsingBlock:
-invalidate
-initWithLocaleIdentifier:
-presentWithCompletion:
-addOperationWithBlock:
-setWithCapacity:
-setLocal:
-enumerateKeysAndObjectsUsingBlock:
-removeObject:
-initWithLongLong:
-setLocale:
-setWithObject:
-invertedSet
-addOrUpdateItem:error:
-audioTraits
-setWithObjects:
-initWithMachServiceName:options:
-enumerateObjectsUsingBlock:
-stringFromDate:
-addTimer:forMode:
-initWithMaximumCapacity:
-priorVersion
-removeObjectsAtIndexes:
-copy
-isAbsolutePath
-isActive
-unsignedIntValue
-removeObjectsInArray:
-initWithMetadataDictionary:
-auditToken
-unsignedIntegerValue
-deleteAllSearchableItemsWithCompletionHandler:
-setAdamID:
-stringWithCapacity:
-removeObserver:
-processIdentifier
-isApplication
-setAlertHeader:
-albumArtistItemWithName:itemId:
-unsignedLongLongValue
-copyItemAtPath:toPath:error:
-stringWithContentsOfFile:encoding:error:
-processInfo
-setRequestContext:
-setAlertMessage:
-isCancelled
-pathComponents
-removeObserver:name:object:
-stringWithFormat:
-initWithName:
-setMaxConcurrentOperationCount:
-processName
-indexGreaterThanIndex:
-setAlternateButtonTitle:
-pathExtension
-stringWithString:
-indexOfObject:
-stringWithUTF8String:
-albumItemWithName:itemId:albumArtistId:
-setAlternateNames:
-indexOfObject:inSortedRange:options:usingComparator:
-pathForResource:ofType:
-stringWithValidatedFormat:validFormatSpecifiers:error:
-formerStoreAdamIDs
-sharedConnection
-indexOfObjectPassingTest:
-strongToStrongObjectsMapTable
-progressWithTotalUnitCount:
-deletePlaybackPositionEntity:
-countByEnumeratingWithState:objects:count:
-setMediaTypes:
-closeFile
-allItems
-subarrayWithRange:
-pathWithComponents:
-setScheme:
-indexSearchableItems:completionHandler:
-allKeys
-updateForeignDatabaseWithValuesFromPlaybackPositionEntity:
-availableChapterLocales
-indexSet
-deleteSearchableItemsWithIdentifiers:completionHandler:
-enumerateRangesUsingBlock:
-allKeysForObject:
-generateCGImagesAsynchronouslyForTimes:completionHandler:
-initWithName:object:userInfo:
-indexSetWithIndex:
-isEqualToArray:
-initWithName:pid:bundleID:subsystem:reason:flags:
-isEqualToData:
-setAttributes:ofItemAtPath:error:
-isEqualToNumber:
-initWithName:protectionClass:bundleIdentifier:
-initWithObjects:
-allObjects
-createDirectoryAtPath:withIntermediateDirectories:attributes:error:
-setExportedInterface:
-beginIndexBatch
-isEqualToString:
-setMusicalGenre:
-dictionary
-propertyListWithData:options:format:error:
-createDirectoryAtURL:withIntermediateDirectories:attributes:error:
-enumeratorAtPath:
-initWithObjects:count:
-setExportedObject:
-beginTransaction
-initWithObjectsAndKeys:
-createFileAtPath:contents:attributes:
-loadValuesAsynchronouslyForKeys:completionHandler:
-enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:
-substringFromIndex:
-initWithOptions:
-replaceItemAtURL:withItemAtURL:backupItemName:options:resultingItemURL:error:
-localName
-genreItemWithName:itemId:
-setExtendedContentRating:
-substringWithRange:
-dictionaryWithCapacity:
-initWithOrderedSet:
-localeIdentifier
-setAudioTrackNumber:
-dictionaryWithContentsOfFile:
-shortValue
-replaceOccurrencesOfString:withString:options:range:
-getCString:maxLength:encoding:
-localeWithLocaleIdentifier:
-dictionaryWithContentsOfURL:
-localizedDescription
-initWithOutputStream:queue:
-initWithArtworkResponseDictionary:
-dictionaryWithDictionary:
-punctuationCharacterSet
-localizedStringForKey:value:table:
-allValues
-getCharacters:range:
-dictionaryWithObject:forKey:
-allocWithZone:
-dictionaryWithObjects:forKeys:count:
-isMainThread
-shouldValidateDatabaseForLibrary:
-code
-dictionaryWithObjectsAndKeys:
-performWithResponseHandler:
-blockOperationWithBlock:
-initWithBytes:objCType:
-errorWithDomain:code:userInfo:
-allowsKeyedCoding
-alphanumericCharacterSet
-sizeInfo
-initWithBytesNoCopy:length:
-boolForKey:
-currentHandler
-initWithBytesNoCopy:length:freeWhenDone:
 init
 defaultStore
 isEqual:
