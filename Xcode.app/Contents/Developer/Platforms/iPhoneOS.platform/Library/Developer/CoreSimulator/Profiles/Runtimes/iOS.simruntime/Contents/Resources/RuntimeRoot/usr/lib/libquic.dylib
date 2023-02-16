@@ -76,11 +76,11 @@ quic_sent_packet_remove
 inner_state->larger_packet_count
 _quic_sent_packet_destroy
 quic_recovery_init
+quic_recovery_pto
+quic_recovery_prepare_rxmit
 quic_recovery_set_timer
 loss recovery
 quic_recovery_timer_fired
-quic_recovery_pto
-quic_recovery_prepare_rxmit
 quic_recovery_get_earliest_time
 quic_recovery_remove_stale_packets
 quic_sent_packet_insert
@@ -430,7 +430,6 @@ ACK_FREQUENCY: Requested Max Ack Delay is too large
 quic_frame_write_ACK_FREQUENCY
 quic_safe_append
 %s not enough space: %u < %hu
-%s invalid VLE length
 *remaining
 draft-01
 qlog_version
@@ -456,6 +455,7 @@ original_destination_connection_id
 retry_source_connection_id
 initial_source_connection_id
 max_idle_timeout
+ack_delay_exponent
 initial_max_stream_data_bidi_remote
 initial_max_stream_data_uni
 initial_max_streams_bidi
@@ -519,6 +519,7 @@ retire_prior_to
 connection_id
 retire_connection_id
 path_challenge
+0x%llx
 data
 path_response
 connection_close
@@ -553,8 +554,6 @@ PACKET_LOST
 STREAM_TYPE_SET
 local
 remote
-initial
-handshake
 0RTT
 1RTT
 retry
@@ -570,7 +569,6 @@ congestion_window_reduced
 reordering_threshold
 time_threshold
 pto_expired
-server
 false
 error parsing JSON: %@
 quiclog_packet_sent
@@ -612,7 +610,6 @@ original_dcid
 stateless_reset_token
 max_udp_payload_size
 initial_max_streams_uni
-ack_delay_exponent
 max_ack_delay
 disable_active_migration
 preferred_address
@@ -939,6 +936,7 @@ quic_send_streams_blocked_uni
 quic_fc_pre_connect
 quic_fc_setup_stream
 quic_fc_setup_streams
+quic_fc_stream_over_threshold
 quic_update_rcvhiwat
 send_stream_data
 stream->offset
@@ -973,6 +971,7 @@ quic_stream_add_new_flow
 quic_stream_add_new_flow_block_invoke
 quic_stream_closed_already
 inconsistent next inbound stream ID
+server
 client
 invalid stream ID
 exceeded maximum stream ID
@@ -1009,6 +1008,7 @@ quic_stream_zombie_final_size
 inorder_offset_delta
 conn->inorder_offset
 quic_stream_zombie_flush
+quic_stream_app_read
 quic_stream_process_inner
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_conn.c
 quic_conn_deallocate
@@ -1020,7 +1020,7 @@ quic_conn_set_metadata_handlers_block_invoke_2
 quic_conn_set_metadata_handlers_block_invoke
 v16@?0Q8
 quic_conn_set_metadata_handlers_block_invoke_3
-B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b15[4c]}16
+B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b14[4c]}16
 v12@?0S8
 quic_conn_set_metadata_handlers_block_invoke_5
 Q8@?0
@@ -1095,6 +1095,7 @@ quic_conn_discard_initial_keys
 quic_conn_confirm_handshake
 quic_conn_migrate_to_path
 quic_conn_send_packet
+quic_conn_max_message_size_block_invoke_3
 quic_conn_link_advisory
 flow controlled
 admissable
@@ -1155,7 +1156,7 @@ invalid frame type during the handshake
 quic_conn_process_reordering
 quic_conn_inbound_stopping_service_stream
 quic_conn_stream_dequeue
-quic_conn_stream_dequeue_block_invoke_2
+quic_conn_stream_dequeue_block_invoke_3
 quic_conn_stream_dequeue_block_invoke
 quic_conn_handle_start_inner
 enabled
@@ -1258,7 +1259,6 @@ INVALID_TOKEN
 APPLICATION_ERROR
 CRYPTO_BUFFER_EXCEEDED
 CRYPTO_ERROR
-0x%llx
 PADDING
 PING
 ACK_ECN
@@ -1318,6 +1318,8 @@ strict_calloc
 %s strict_calloc count * size would overflow
 %s strict_calloc(%zu, %zu) failed
 B24@?0Q8Q16
+initial
+handshake
 0-rtt
 phase0
 phase1
@@ -1409,12 +1411,6 @@ S%llu[%llu;%llu]%s
 %{public}s sent_packet is null or 0
 %{public}s UNDERFLOW: %{public}s, %llu, decrement %llu, result %llu
 %{public}s init loss recovery %p
-%{public}s loss_recovery->timer is null or 0
-%{public}s initialized loss recovery timer (id %u)
-%{public}s loss_recovery->timer_id is null or 0
-%{public}s reset loss recovery timer (id %u) to %llu
-%{public}s recovery timer fired, finding lost packets
-%{public}s recovery timer fired, pto
 %{public}s loss_recovery->conn is null or 0
 %{public}s probe timeout (PTO) fired, %llu ack-eliciting packets in flight
 %{public}s sending next frames with new data
@@ -1425,6 +1421,12 @@ S%llu[%llu;%llu]%s
 %{public}s builder is null or 0
 %{public}s not retransmitting %{public}s frame, moving to next
 %{public}s retransmitting frame %{public}s (length %hu)
+%{public}s loss_recovery->timer is null or 0
+%{public}s initialized loss recovery timer (id %u)
+%{public}s loss_recovery->timer_id is null or 0
+%{public}s reset loss recovery timer (id %u) to %llu
+%{public}s recovery timer fired, finding lost packets
+%{public}s recovery timer fired, pto
 %{public}s unable to handle type %d
 %{public}s removed non-ack eliciting packet <%{public}s %llu> (length %u bytes, sent %llu) from outstanding packets
 %{public}s pn != QUIC_INVALID_PN is null or 0
@@ -1885,7 +1887,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s create new reno %p
 %{public}s algorithm is null
 %{public}s destroy new reno %p
-%{public}s mss too large
 %{public}s sent_time is null or 0
 %{public}s largest_acked_sent_time is null or 0
 %{public}s total_lost_bytes_in_flight is null or 0
@@ -1953,11 +1954,13 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s invalid CID len %d
 %{public}s cil is null or 0
 %{public}s cannot write CID: %zu < %u
+%{public}s invalid CID
 %{public}s cid1 is null or 0
 %{public}s cid2 is null or 0
 %{public}s cid_array is null or 0
 %{public}s quic_cid_len(cid) != 0 is null or 0
-%{public}s reallocating CID array
+%{public}s CID array is full
+%{public}s reallocating CID array (old size %u)
 %{public}s SRT is all zeros, ignoring it
 %{public}s cid_entry is null or 0
 %{public}s pn_low < pn_high is null or 0
@@ -2109,9 +2112,9 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s creating stream for %llx
 %{public}s %{public}s [%{public}s-%{public}s] unable to create DATAGRAM flow since the peer did not provide max_datagram_frame_size in transport parameters
 %{public}s %{public}s [%{public}s-%{public}s] unable to create DATAGRAM flow due to invalidassociated stream ID %llu
-%{public}s [S%llu] not sending flow control credit: as either receive hiwat hasn't increased (old: %llu new: %llu) OR received data (%llu bytes) hasn't yet met the flow control resend threshold (%llu)
-%{public}s [S%llu] sending flow control credit for the connection only.
-%{public}s [S%llu] sending flow control credit for both the connection and the stream.
+%{public}s [S%llu] not sending flow control credit as receive window hasn't increased (old: %llu, new: %llu) 
+%{public}s [S%llu] sending flow control credit for the connection only
+%{public}s [S%llu] sending flow control credit for both the connection and the stream
 %{public}s processing S%llu, flow %llx
 %{public}s [S%llu] received bytes up to %llu
 %{public}s stream_id != STREAM_ID_INVALID is null or 0
@@ -2133,6 +2136,9 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] (zombie) received final size of %llu (previous received size %llu)
 %{public}s [S%llu] (zombie) adjusted inorder offset (conn %llu)
 %{public}s %{public}s [%{public}s-%{public}s] [S%llu] (zombie) final size invariants violated (final %llu)
+%{public}s [S%llu] application read %llu bytes
+%{public}s connection bytes read %llu > inorder offset %llu
+%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] not enough recv buffer space: %llu > %llu
 %{public}s %{public}s [%{public}s-%{public}s] final_size invariants violated
 %{public}s bytes received %llu > fin offset %llu
@@ -2211,6 +2217,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s handshake keys discarded
 %{public}s ifname is null or 0
 %{public}s %{public}s [%{public}s-%{public}s] migrated to path over %{public}s (%llx)
+%{public}s %{public}s [%{public}s-%{public}s] retransmitting INITIAL for updated MSS
 %{public}s link is now %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] unable to send frames
 %{public}s error is null or 0
@@ -2218,6 +2225,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s=%u
 %{public}s %{public}s [%{public}s-%{public}s] overriding remote transport parameters for 0-RTT
 %{public}s initial MSS overriden to %hu
+%{public}s lowering initial MSS to %hu due to interface MTU
 %{public}s LEDBAT is current congestion controller for testing
 %{public}s %{public}s [%{public}s-%{public}s] created QUIC connection (spin bit %{public}sabled)
 %{public}s mss is null or 0
@@ -2271,9 +2279,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] invalid frame type in 0-RTT: %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] invalid frame type during the handshake: %{public}s
 %{public}s reordering/loss detected (received: %llu, largest ack-eliciting: %llu), sending ACK
-%{public}s [S%llu] application read %llu bytes
-%{public}s connection bytes read %llu > inorder offset %llu
-%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] dequeued more data than available
 %{public}s [S%llu] delivering FIN
 %{public}s received start on shared flow
@@ -2411,71 +2416,71 @@ Connection attempts: %u, RETRY received: %s, PTOs: %u
 %{public}s description is null or 0
 %{public}s description_len > 0 is null or 0
 QUICLog
-init
-setValue:forKey:
-deallocEvent:
-dealloc
-createEvent:
-packetType:
-addObject:
-processParametersSet:
-processPacketSentAndPacketRecieved:
-processStreamStateUpdated:
-processMetricsUpdated:
-processCongestionStateUpdated:
-processPacketLost:
-processStreamTypeSet:
-dictToJsonString:
-dataUsingEncoding:
-addEventValues:event:
-ownerString:
-addOptionalSuperBoolToObject:key:value:
-addOptionalCharPointerToObject:key:value:
-addOptionalUint64ToObject:key:value:
-packetTypeString:
-addPacketHeader:header:
-addFrameList:frame_list:
-packetSentRecievedTriggerString:
-addMandatoryUint64ToObject:key:value:function_name:
-streamTypeString:
-numberWithInt:
-streamSideString:
-congestionStateString:
-congestionTriggerString:
-packetLostTriggerString:
-numberWithUnsignedLongLong:
 categoryString:
-eventTypeString:
-stringWithFormat:
-numberWithUnsignedShort:
-stringWithCString:encoding:
-dataWithJSONObject:options:error:
-initWithData:encoding:
 JSONObjectWithData:options:error:
 flowTypeString:
-disableTimestamps:
-parametersSet:resumption_allowed:early_data_enabled:tls_cipher:original_dcid:initial_scid:retry_scid:disable_active_migration:max_idle_timeout:max_udp_payload_size:ack_delay_exponent:max_ack_delay:active_cid_limit:initial_max_data:initial_msd_bidi_remote:initial_msd_bidi_local:initial_msd_uni:initial_ms_bidi:initial_ms_uni:preferred_address:
-packetSent:
-packetReceived:isCoalesced:
-packetLost:trigger:
-metricsUpdated:smoothed_rtt:latest_rtt:rtt_variance:pto_count:congestion_window:bytes_in_flight:ssthresh:packets_in_flight:in_recovery:
+addFrameList:frame_list:
+setEntryInTopLevelObject:value:
+addMandatorySuperBoolToObject:key:value:function_name:
+.cxx_destruct
+dealloc
+addEventValues:event:
+getBytes:range:
+addMandatoryCharPointerToObject:key:value:function_name:
 streamStateUpdated:stream_type:old_state:new_state:stream_side:
+addMandatoryUint64ToObject:key:value:function_name:
+addObject:
+addOptionalCharPointerToObject:key:value:
+addOptionalSuperBoolToObject:key:value:
+addOptionalUint64ToObject:key:value:
+addPacketHeader:header:
+congestionStateString:
+congestionTriggerString:
+createEvent:
+createFileAtPath:contents:attributes:
+dataUsingEncoding:
+dataWithJSONObject:options:error:
+deallocEvent:
+defaultManager
+dictToJsonString:
+disableTimestamps:
+disable_timestamps
+dumpData:
+eventTypeString:
+events_list
+init
+initWithData:encoding:
+jsonStringToDict:
+length
 logCongestionStateUpdated:new_state:trigger:
 logStreamTypeSet:owner:old_state:new_state:
-dumpData:
-addMandatoryCharPointerToObject:key:value:function_name:
-addMandatorySuperBoolToObject:key:value:function_name:
-jsonStringToDict:
-setEntryInTopLevelObject:value:
-.cxx_destruct
-events_list
+metricsUpdated:smoothed_rtt:latest_rtt:rtt_variance:pto_count:congestion_window:bytes_in_flight:ssthresh:packets_in_flight:in_recovery:
+numberWithInt:
+numberWithUnsignedLongLong:
+numberWithUnsignedShort:
+ownerString:
+packetLost:trigger:
+packetLostTriggerString:
+packetReceived:isCoalesced:
+packetSent:
+packetSentRecievedTriggerString:
+packetType:
+packetTypeString:
+parametersSet:resumption_allowed:early_data_enabled:tls_cipher:original_dcid:initial_scid:retry_scid:disable_active_migration:max_idle_timeout:max_udp_payload_size:ack_delay_exponent:max_ack_delay:active_cid_limit:initial_max_data:initial_msd_bidi_remote:initial_msd_bidi_local:initial_msd_uni:initial_ms_bidi:initial_ms_uni:preferred_address:
+processCongestionStateUpdated:
+processMetricsUpdated:
+processPacketLost:
+processPacketSentAndPacketRecieved:
+processParametersSet:
+processStreamStateUpdated:
+processStreamTypeSet:
+setValue:forKey:
+streamSideString:
+streamTypeString:
+stringWithCString:encoding:
+stringWithFormat:
 top_level_object
-disable_timestamps
-defaultManager
-createFileAtPath:contents:attributes:
 writeToFile:atomically:
-length
-getBytes:range:
 i24@0:8^{quic_packet=*****[21C][21C]CCCCCCSSS(?=SS)(?=*^I)iIQQQ^{quic_packet_pool}{?=^{quic_frame}^^{quic_frame}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b18[4C]}16
 @20@0:8i16
 @20@0:8C16
@@ -2588,11 +2593,11 @@ quic_sent_packet_remove
 inner_state->larger_packet_count
 _quic_sent_packet_destroy
 quic_recovery_init
+quic_recovery_pto
+quic_recovery_prepare_rxmit
 quic_recovery_set_timer
 loss recovery
 quic_recovery_timer_fired
-quic_recovery_pto
-quic_recovery_prepare_rxmit
 quic_recovery_get_earliest_time
 quic_recovery_remove_stale_packets
 quic_sent_packet_insert
@@ -2942,7 +2947,6 @@ ACK_FREQUENCY: Requested Max Ack Delay is too large
 quic_frame_write_ACK_FREQUENCY
 quic_safe_append
 %s not enough space: %u < %hu
-%s invalid VLE length
 *remaining
 draft-01
 qlog_version
@@ -3448,6 +3452,7 @@ quic_send_streams_blocked_uni
 quic_fc_pre_connect
 quic_fc_setup_stream
 quic_fc_setup_streams
+quic_fc_stream_over_threshold
 quic_update_rcvhiwat
 send_stream_data
 stream->offset
@@ -3519,6 +3524,7 @@ quic_stream_zombie_final_size
 inorder_offset_delta
 conn->inorder_offset
 quic_stream_zombie_flush
+quic_stream_app_read
 quic_stream_process_inner
 /Library/Caches/com.apple.xbs/Sources/NetworkTransports_ios_Sim/NetworkTransports/quic/src/quic_conn.c
 quic_conn_deallocate
@@ -3530,7 +3536,7 @@ quic_conn_set_metadata_handlers_block_invoke_2
 quic_conn_set_metadata_handlers_block_invoke
 v16@?0Q8
 quic_conn_set_metadata_handlers_block_invoke_3
-B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b15[4c]}16
+B24@?0Q8^{quic_stream=Q^{quic_conn}^{nw_protocol_metadata}QQQQQ{sbuf=QQ}{sbuf=QQ}QQQQQQQQQQQ{nw_frame_array_s=^{nw_frame}^^{nw_frame}{qm_trace=*i*i}}QQQQQSCC[4c]^{quic_reassq}^{quic_reassq}^{quic_reassq}^{quic_reassq}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}{?=^{quic_stream}^^{quic_stream}{qm_trace=*i*i}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b14[4c]}16
 v12@?0S8
 quic_conn_set_metadata_handlers_block_invoke_5
 Q8@?0
@@ -3605,6 +3611,7 @@ quic_conn_discard_initial_keys
 quic_conn_confirm_handshake
 quic_conn_migrate_to_path
 quic_conn_send_packet
+quic_conn_max_message_size_block_invoke_3
 quic_conn_link_advisory
 flow controlled
 admissable
@@ -3665,7 +3672,7 @@ invalid frame type during the handshake
 quic_conn_process_reordering
 quic_conn_inbound_stopping_service_stream
 quic_conn_stream_dequeue
-quic_conn_stream_dequeue_block_invoke_2
+quic_conn_stream_dequeue_block_invoke_3
 quic_conn_stream_dequeue_block_invoke
 quic_conn_handle_start_inner
 enabled
@@ -3921,12 +3928,6 @@ S%llu[%llu;%llu]%s
 %{public}s sent_packet is null or 0
 %{public}s UNDERFLOW: %{public}s, %llu, decrement %llu, result %llu
 %{public}s init loss recovery %p
-%{public}s loss_recovery->timer is null or 0
-%{public}s initialized loss recovery timer (id %u)
-%{public}s loss_recovery->timer_id is null or 0
-%{public}s reset loss recovery timer (id %u) to %llu
-%{public}s recovery timer fired, finding lost packets
-%{public}s recovery timer fired, pto
 %{public}s loss_recovery->conn is null or 0
 %{public}s probe timeout (PTO) fired, %llu ack-eliciting packets in flight
 %{public}s sending next frames with new data
@@ -3937,6 +3938,12 @@ S%llu[%llu;%llu]%s
 %{public}s builder is null or 0
 %{public}s not retransmitting %{public}s frame, moving to next
 %{public}s retransmitting frame %{public}s (length %hu)
+%{public}s loss_recovery->timer is null or 0
+%{public}s initialized loss recovery timer (id %u)
+%{public}s loss_recovery->timer_id is null or 0
+%{public}s reset loss recovery timer (id %u) to %llu
+%{public}s recovery timer fired, finding lost packets
+%{public}s recovery timer fired, pto
 %{public}s unable to handle type %d
 %{public}s removed non-ack eliciting packet <%{public}s %llu> (length %u bytes, sent %llu) from outstanding packets
 %{public}s pn != QUIC_INVALID_PN is null or 0
@@ -4397,7 +4404,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s create new reno %p
 %{public}s algorithm is null
 %{public}s destroy new reno %p
-%{public}s mss too large
 %{public}s sent_time is null or 0
 %{public}s largest_acked_sent_time is null or 0
 %{public}s total_lost_bytes_in_flight is null or 0
@@ -4465,11 +4471,13 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s invalid CID len %d
 %{public}s cil is null or 0
 %{public}s cannot write CID: %zu < %u
+%{public}s invalid CID
 %{public}s cid1 is null or 0
 %{public}s cid2 is null or 0
 %{public}s cid_array is null or 0
 %{public}s quic_cid_len(cid) != 0 is null or 0
-%{public}s reallocating CID array
+%{public}s CID array is full
+%{public}s reallocating CID array (old size %u)
 %{public}s SRT is all zeros, ignoring it
 %{public}s cid_entry is null or 0
 %{public}s pn_low < pn_high is null or 0
@@ -4621,9 +4629,9 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s creating stream for %llx
 %{public}s %{public}s [%{public}s-%{public}s] unable to create DATAGRAM flow since the peer did not provide max_datagram_frame_size in transport parameters
 %{public}s %{public}s [%{public}s-%{public}s] unable to create DATAGRAM flow due to invalidassociated stream ID %llu
-%{public}s [S%llu] not sending flow control credit: as either receive hiwat hasn't increased (old: %llu new: %llu) OR received data (%llu bytes) hasn't yet met the flow control resend threshold (%llu)
-%{public}s [S%llu] sending flow control credit for the connection only.
-%{public}s [S%llu] sending flow control credit for both the connection and the stream.
+%{public}s [S%llu] not sending flow control credit as receive window hasn't increased (old: %llu, new: %llu) 
+%{public}s [S%llu] sending flow control credit for the connection only
+%{public}s [S%llu] sending flow control credit for both the connection and the stream
 %{public}s processing S%llu, flow %llx
 %{public}s [S%llu] received bytes up to %llu
 %{public}s stream_id != STREAM_ID_INVALID is null or 0
@@ -4645,6 +4653,9 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s [S%llu] (zombie) received final size of %llu (previous received size %llu)
 %{public}s [S%llu] (zombie) adjusted inorder offset (conn %llu)
 %{public}s %{public}s [%{public}s-%{public}s] [S%llu] (zombie) final size invariants violated (final %llu)
+%{public}s [S%llu] application read %llu bytes
+%{public}s connection bytes read %llu > inorder offset %llu
+%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] not enough recv buffer space: %llu > %llu
 %{public}s %{public}s [%{public}s-%{public}s] final_size invariants violated
 %{public}s bytes received %llu > fin offset %llu
@@ -4723,6 +4734,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s handshake keys discarded
 %{public}s ifname is null or 0
 %{public}s %{public}s [%{public}s-%{public}s] migrated to path over %{public}s (%llx)
+%{public}s %{public}s [%{public}s-%{public}s] retransmitting INITIAL for updated MSS
 %{public}s link is now %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] unable to send frames
 %{public}s error is null or 0
@@ -4730,6 +4742,7 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s=%u
 %{public}s %{public}s [%{public}s-%{public}s] overriding remote transport parameters for 0-RTT
 %{public}s initial MSS overriden to %hu
+%{public}s lowering initial MSS to %hu due to interface MTU
 %{public}s LEDBAT is current congestion controller for testing
 %{public}s %{public}s [%{public}s-%{public}s] created QUIC connection (spin bit %{public}sabled)
 %{public}s mss is null or 0
@@ -4783,9 +4796,6 @@ notifying frame acked: %{public}s (length %hu)
 %{public}s %{public}s [%{public}s-%{public}s] invalid frame type in 0-RTT: %{public}s
 %{public}s %{public}s [%{public}s-%{public}s] invalid frame type during the handshake: %{public}s
 %{public}s reordering/loss detected (received: %llu, largest ack-eliciting: %llu), sending ACK
-%{public}s [S%llu] application read %llu bytes
-%{public}s connection bytes read %llu > inorder offset %llu
-%{public}s [S%llu] bytes read %llu > inorder offset %llu
 %{public}s %{public}s [%{public}s-%{public}s] dequeued more data than available
 %{public}s [S%llu] delivering FIN
 %{public}s received start on shared flow
@@ -4923,69 +4933,69 @@ Connection attempts: %u, RETRY received: %s, PTOs: %u
 %{public}s description is null or 0
 %{public}s description_len > 0 is null or 0
 QUICLog
-initWithData:encoding:
-numberWithInt:
-createFileAtPath:contents:attributes:
-stringWithCString:encoding:
-JSONObjectWithData:options:error:
-writeToFile:atomically:
-dataWithJSONObject:options:error:
-numberWithUnsignedShort:
-addObject:
-defaultManager
-setValue:forKey:
-dataUsingEncoding:
-stringWithFormat:
-numberWithUnsignedLongLong:
-init
-dealloc
-packetType:
 categoryString:
-eventTypeString:
-ownerString:
-packetTypeString:
-streamTypeString:
-streamSideString:
-congestionTriggerString:
-congestionStateString:
-packetLostTriggerString:
-packetSentRecievedTriggerString:
+JSONObjectWithData:options:error:
 flowTypeString:
-disableTimestamps:
-createEvent:
-deallocEvent:
-parametersSet:resumption_allowed:early_data_enabled:tls_cipher:original_dcid:initial_scid:retry_scid:disable_active_migration:max_idle_timeout:max_udp_payload_size:ack_delay_exponent:max_ack_delay:active_cid_limit:initial_max_data:initial_msd_bidi_remote:initial_msd_bidi_local:initial_msd_uni:initial_ms_bidi:initial_ms_uni:preferred_address:
-packetSent:
-packetReceived:isCoalesced:
-packetLost:trigger:
-metricsUpdated:smoothed_rtt:latest_rtt:rtt_variance:pto_count:congestion_window:bytes_in_flight:ssthresh:packets_in_flight:in_recovery:
+addFrameList:frame_list:
 streamStateUpdated:stream_type:old_state:new_state:stream_side:
+.cxx_destruct
+dealloc
+addEventValues:event:
+setEntryInTopLevelObject:value:
+addMandatoryCharPointerToObject:key:value:function_name:
+addMandatorySuperBoolToObject:key:value:function_name:
+addMandatoryUint64ToObject:key:value:function_name:
+addObject:
+addOptionalCharPointerToObject:key:value:
+addOptionalSuperBoolToObject:key:value:
+addOptionalUint64ToObject:key:value:
+addPacketHeader:header:
+congestionStateString:
+congestionTriggerString:
+createEvent:
+createFileAtPath:contents:attributes:
+dataUsingEncoding:
+dataWithJSONObject:options:error:
+deallocEvent:
+defaultManager
+dictToJsonString:
+disableTimestamps:
+disable_timestamps
+dumpData:
+eventTypeString:
+events_list
+init
+initWithData:encoding:
+jsonStringToDict:
 logCongestionStateUpdated:new_state:trigger:
 logStreamTypeSet:owner:old_state:new_state:
-dumpData:
-processParametersSet:
-processPacketSentAndPacketRecieved:
-processStreamStateUpdated:
-processMetricsUpdated:
+metricsUpdated:smoothed_rtt:latest_rtt:rtt_variance:pto_count:congestion_window:bytes_in_flight:ssthresh:packets_in_flight:in_recovery:
+numberWithInt:
+numberWithUnsignedLongLong:
+numberWithUnsignedShort:
+ownerString:
+packetLost:trigger:
+packetLostTriggerString:
+packetReceived:isCoalesced:
+packetSent:
+packetSentRecievedTriggerString:
+packetType:
+packetTypeString:
+parametersSet:resumption_allowed:early_data_enabled:tls_cipher:original_dcid:initial_scid:retry_scid:disable_active_migration:max_idle_timeout:max_udp_payload_size:ack_delay_exponent:max_ack_delay:active_cid_limit:initial_max_data:initial_msd_bidi_remote:initial_msd_bidi_local:initial_msd_uni:initial_ms_bidi:initial_ms_uni:preferred_address:
 processCongestionStateUpdated:
+processMetricsUpdated:
 processPacketLost:
+processPacketSentAndPacketRecieved:
+processParametersSet:
+processStreamStateUpdated:
 processStreamTypeSet:
-addEventValues:event:
-addPacketHeader:header:
-addFrameList:frame_list:
-addOptionalCharPointerToObject:key:value:
-addMandatoryCharPointerToObject:key:value:function_name:
-addOptionalSuperBoolToObject:key:value:
-addMandatorySuperBoolToObject:key:value:function_name:
-addOptionalUint64ToObject:key:value:
-addMandatoryUint64ToObject:key:value:function_name:
-dictToJsonString:
-jsonStringToDict:
-setEntryInTopLevelObject:value:
-.cxx_destruct
-events_list
+setValue:forKey:
+streamSideString:
+streamTypeString:
+stringWithCString:encoding:
+stringWithFormat:
 top_level_object
-disable_timestamps
+writeToFile:atomically:
 i24@0:8^{quic_packet=*****[21C][21C]CCCCCCSSS(?=SS)(?=*^I)iIQQQ^{quic_packet_pool}{?=^{quic_frame}^^{quic_frame}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}^^{quic_packet}{qm_trace=*i*i}}{?=^{quic_packet}}b1b1b1b1b1b1b1b1b1b1b1b1b1b1b18[4C]}16
 @20@0:8i16
 @20@0:8C16

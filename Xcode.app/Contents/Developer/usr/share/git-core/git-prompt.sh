@@ -68,6 +68,9 @@
 # "|SPARSE" will be included in the prompt.  This can be shortened to a
 # single '?' character by setting GIT_PS1_COMPRESSSPARSESTATE, or omitted
 # by setting GIT_PS1_OMITSPARSESTATE.
+# If you would like to see a notification on the prompt when there are
+# unresolved conflicts, set GIT_PS1_SHOWCONFLICTSTATE to "yes". The
+# prompt will include "|CONFLICT".
 # If you would like to see more information about the identity of
 # commits checked out as a detached HEAD, set GIT_PS1_DESCRIBE_STYLE
 # to one of these values:
@@ -414,6 +417,10 @@ b="$short_sha..."
 b="($b)"
 if [ -n "$step" ] && [ -n "$total" ]; then
 r="$r $step/$total"
+local conflict="" # state indicator for unresolved conflicts
+if [[ "${GIT_PS1_SHOWCONFLICTSTATE}" == "yes" ]] &&
+   [[ $(git ls-files --unmerged 2>/dev/null) ]]; then
+conflict="|CONFLICT"
 local w=""
 local i=""
 local s=""
@@ -459,7 +466,7 @@ if [ -n "${GIT_PS1_SHOWCOLORHINTS-}" ]; then
 if [ $pcmode = yes ] || [ -n "${ZSH_VERSION-}" ]; then
 __git_ps1_colorize_gitstring
 local f="$h$w$i$s$u$p"
-local gitstring="$c$b${f:+$z$f}${sparse}$r${upstream}"
+local gitstring="$c$b${f:+$z$f}${sparse}$r${upstream}${conflict}"
 if [ $pcmode = yes ]; then
 if [ "${__git_printf_supports_v-}" != yes ]; then
 gitstring=$(printf -- "$printf_format" "$gitstring")

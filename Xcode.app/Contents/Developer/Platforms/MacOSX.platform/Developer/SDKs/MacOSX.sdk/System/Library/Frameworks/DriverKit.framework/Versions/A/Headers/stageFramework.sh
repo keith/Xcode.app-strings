@@ -9,7 +9,7 @@ if [[ ${DRIVERKIT} == 1 ]]; then
 DRIVERKITRUNTIMEROOT=${DRIVERKITROOT}/Runtime
 SDKHEADERSROOT=${DRIVERKITRUNTIMEROOT}
 DRIVERKITSDKHEADERSROOT=${DRIVERKITROOT}
-CFLAGS_sdk_include="-isysroot ${SDKROOT} -isystem ${SDKROOT}/${SDKHEADERSROOT}/System/Library/Frameworks/System.framework/PrivateHeaders -iframework ${SDKROOT}/${SDKHEADERSROOT}/System/Library/Frameworks -isystem ${SDKROOT}/${SDKHEADERSROOT}/usr/local/include -isystem ${SDKROOT}/${SDKHEADERSROOT}/usr/include"
+CFLAGS_sdk_include="-isysroot ${SDKROOT} -isystem ${SDKROOT}/${DRIVERKITSDKHEADERSROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/${SDKHEADERSROOT}/System/Library/Frameworks/System.framework/PrivateHeaders -iframework ${SDKROOT}/${SDKHEADERSROOT}/System/Library/Frameworks -isystem ${SDKROOT}/${SDKHEADERSROOT}/usr/local/include -isystem ${SDKROOT}/${SDKHEADERSROOT}/usr/include"
 OTHER_IIG_FLAGS=${OTHER_IIG_FLAGS:-}
 OTHER_IIG_CFLAGS=${OTHER_IIG_CFLAGS:-${CFLAGS_sdk_include}}" -x c++ -std=gnu++1z -fno-exceptions -D__IIG=1 -DPLATFORM_DriverKit=1 ${DEPLOYMENT_TARGET_DEFINES}"
 FRAMEWORK=${PRODUCTS}/${FRAMEWORK_NAME}
