@@ -1,4 +1,4 @@
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.100.88.0.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.100.92.0.1
 33333<
 TB,N,V_eligible
 T@"NSArray",&,N,V_involved_processes
@@ -455,7 +455,7 @@ Minute
 Weekday
 com.apple.launchd.calendarinterval
 calendarinterval
-@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.100.88.0.1
+@(#)PROGRAM:com.apple.cts  PROJECT:libxpc-2462.100.92.0.1
 33333<
 newBaseTime is less than interval+gracePeriod ago, moving forward for %{public}@
 newBaseTime is greater than 2*interval from now, moving back for %{public}@

@@ -512,6 +512,9 @@ style
 groupIDs
 v32@?0@"NSString"8@"IMSandboxedFileURL"16^B24
 v16@?0@"NSDictionary"8
+currentGUID
+newGUID
+success
 chatRowID
 v16@?0@"IMDMessageRecord"8
 chatGUID
@@ -1469,6 +1472,7 @@ SELECT cm.message_id from chat_message_join cm where cm.chat_id = ? ORDER BY cm.
 SELECT ROWID from message m WHERE m.item_type == 0 AND m.ROWID in (SELECT message_id FROM chat_message_join where chat_id = ?) ORDER BY date DESC, ROWID DESC LIMIT 1
 SELECT message_id FROM chat_message_join WHERE chat_id = ? ORDER BY ROWID DESC LIMIT ?;
 void _IMDChatRecordBulkCopy(IMDChatRecordRef, int64_t *, int64_t *, CFStringRef *, CFDataRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, int64_t *, int64_t *, int64_t *, CFStringRef *, CFStringRef *, int64_t *, CFStringRef *, int64_t *, CFStringRef *, CFStringRef *, int64_t *, int64_t *, int64_t *, int64_t *)
+void _IMDChatRecordSetGUID(IMDChatRecordRef, CFStringRef)
 void IMDChatRecordSetIsArchived(IMDChatRecordRef, int64_t)
 void IMDChatRecordSetIsBlackholed(IMDChatRecordRef, int64_t)
 void IMDChatRecordSetIsRecovered(IMDChatRecordRef, int64_t)
@@ -1853,7 +1857,8 @@ Attempting to create participant change item with GUID: %@  %@  %@ => %@
 invite
 remove
 Attempting to create title item with GUID: %@   title: %@
-Attempting to create title item with GUID: %@
+Attempting to create transcript sharing item with GUID: %@
+Attempting to create location update item with GUID: %@
 Attempting to add group leave GUID: %@ %@ => %@
 start sharing
 stop sharing
@@ -2242,6 +2247,9 @@ No group IDs provided to %s
 -[IMDDatabase(Chats) fetchGroupPhotoPathsForChatsWithGroupIDs:completionHandler:]
 Found groupPhotoGUID %@ for chat with groupID %@
 Transfer invalid for groupPhotoGUID: %@ filename: %@ state: %d
+Updating chat GUID from %@ to %@ to resolve inconsistent properties
+Current GUID %@ or new GUID %@ has zero length
+Failed to find a chat with GUID %@
 Recently Deleted | Will begin moving messages to recoverable message table with deleteDate: %@ for %lu chatGUIDs
 INSERT OR REPLACE INTO chat_recoverable_message_join (chat_id, message_id, delete_date) SELECT cmj.chat_id, cmj.message_id, ? FROM chat_message_join AS cmj JOIN chat ON cmj.chat_id = chat.ROWID AND chat.guid = ? AND cmj.message_date < ?;
 DELETE FROM chat_message_join WHERE chat_id = ? AND message_id IN ( SELECT message_id FROM chat_recoverable_message_join WHERE chat_id = ?);
@@ -2655,6 +2663,7 @@ UPDATE chat SET state = 3 WHERE state = 4
 select name from sqlite_master where sql LIKE '%_legacy%';
 UPDATE chat_message_join SET message_date = (select m.date from message m where m.ROWID = message_id) where message_date = 0;
 SELECT ROWID, id FROM handle
+UPDATE chat SET state = 3 WHERE state = 4 AND (style = 43 OR is_filtered = 0)
 IMDMessageRecordCloudKitStatisticTotalMessageCountKey
 IMDMessageRecordCloudKitStatisticSyncedMessageCountKey
 IMDMessageRecordCloudKitStatisticTotalChatCountKey
@@ -3750,6 +3759,7 @@ ASSERTION FAILED: %s is unexpectedly NOT nil in "%s" at line %d [%@]
 _IMDChatRecordSetProperty [%d of %d]
 Attempted to get identifier for NULL chat record: %@
 NULL chat passed to %s
+%s can only be called from the server process
 Trying to associate message [%lld] with chat [%lld]
 SQLite returned %d from IMDChatRecordAddMessageIfNeeded
 Finished remove message [%@] from chat [%@], updating the spotlight index for this chat.
@@ -3880,6 +3890,7 @@ Recently Deleted:Parts: Success in column values returned: %@
 Recently Deleted:Parts: Error in column values returned: %@
 Recently Deleted | Parts: Finished loading attributed message body for message GUID: %@
 Recently Deleted | Parts: Loading message parts metadata for chat GUID: %@
+Recently Deleted | attributedBodyPart is nil for message guid %@
 Recently Deleted | Parts: Finished loading message parts metadata for chat GUID: %@
 Recently Deleted | Will begin counting recoverable messages per chat
 Recently Deleted | Finished counting recoverable messages per chat
@@ -4972,6 +4983,7 @@ handleIMDChatRecordLoadRecoverableMessages_IPCActionWithXPCConnection:requestMes
 handleIMDChatRecordMoveMessagesToRecoverableMessage_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDChatRecordPermanentlyDeleteRecoverableMessagesInChatsWithGUIDs_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDChatRecordRecoverMessages_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
+handleIMDChatRecordResolveInconsistentGUID_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDCoreSpotlightDeleteAttachment_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDKVIntegerForKey_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDMessageRecordClearUnsyncedRemovedRecoverableMessages_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
@@ -5330,6 +5342,7 @@ repostNotificationsFromFirstUnlockWithContext:
 requestWithIdentifier:content:trigger:
 requestWithIdentifier:content:trigger:destinations:
 resetCache
+resolveInconsistentGUIDForChatRecordWithGUID:newGUID:completionHandler:
 resourcePath
 respondsToSelector:
 retain
@@ -5856,6 +5869,7 @@ v32@0:8@"NSString"16@?<v@?@"NSArray">24
 @"NSArray"52@0:8@"NSArray"16@"NSString"24@"NSString"32@"NSString"40C48
 v44@0:8@"NSArray"16@"NSString"24C32@?<v@?@"NSArray">36
 v32@0:8@"NSArray"16@?<v@?@"NSDictionary">24
+v40@0:8@"NSString"16@"NSString"24@?<v@?B>32
 v24@0:8@"NSArray"16
 @"NSDictionary"16@0:8
 v24@0:8@"NSPredicate"16
@@ -5914,7 +5928,7 @@ v32@0:8@"NSData"16@?<v@?@"NSError">24
 '333333
 &0:D
 \+@$cjG
-"-8CN_pv
+)4?P[lw
 IMDPersistence
 SpotlightReindexer
 IMDPersistenceHelloWorldClass
@@ -6427,6 +6441,9 @@ style
 groupIDs
 v32@?0@"NSString"8@"IMSandboxedFileURL"16^B24
 v16@?0@"NSDictionary"8
+currentGUID
+newGUID
+success
 chatRowID
 v16@?0@"IMDMessageRecord"8
 chatGUID
@@ -7383,6 +7400,7 @@ SELECT cm.message_id from chat_message_join cm where cm.chat_id = ? ORDER BY cm.
 SELECT ROWID from message m WHERE m.item_type == 0 AND m.ROWID in (SELECT message_id FROM chat_message_join where chat_id = ?) ORDER BY date DESC, ROWID DESC LIMIT 1
 SELECT message_id FROM chat_message_join WHERE chat_id = ? ORDER BY ROWID DESC LIMIT ?;
 void _IMDChatRecordBulkCopy(IMDChatRecordRef, int64_t *, int64_t *, CFStringRef *, CFDataRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, CFStringRef *, int64_t *, int64_t *, int64_t *, CFStringRef *, CFStringRef *, int64_t *, CFStringRef *, int64_t *, CFStringRef *, CFStringRef *, int64_t *, int64_t *, int64_t *, int64_t *)
+void _IMDChatRecordSetGUID(IMDChatRecordRef, CFStringRef)
 void IMDChatRecordSetIsArchived(IMDChatRecordRef, int64_t)
 void IMDChatRecordSetIsBlackholed(IMDChatRecordRef, int64_t)
 void IMDChatRecordSetIsRecovered(IMDChatRecordRef, int64_t)
@@ -7767,7 +7785,8 @@ Attempting to create participant change item with GUID: %@  %@  %@ => %@
 invite
 remove
 Attempting to create title item with GUID: %@   title: %@
-Attempting to create title item with GUID: %@
+Attempting to create transcript sharing item with GUID: %@
+Attempting to create location update item with GUID: %@
 Attempting to add group leave GUID: %@ %@ => %@
 start sharing
 stop sharing
@@ -8156,6 +8175,9 @@ No group IDs provided to %s
 -[IMDDatabase(Chats) fetchGroupPhotoPathsForChatsWithGroupIDs:completionHandler:]
 Found groupPhotoGUID %@ for chat with groupID %@
 Transfer invalid for groupPhotoGUID: %@ filename: %@ state: %d
+Updating chat GUID from %@ to %@ to resolve inconsistent properties
+Current GUID %@ or new GUID %@ has zero length
+Failed to find a chat with GUID %@
 Recently Deleted | Will begin moving messages to recoverable message table with deleteDate: %@ for %lu chatGUIDs
 INSERT OR REPLACE INTO chat_recoverable_message_join (chat_id, message_id, delete_date) SELECT cmj.chat_id, cmj.message_id, ? FROM chat_message_join AS cmj JOIN chat ON cmj.chat_id = chat.ROWID AND chat.guid = ? AND cmj.message_date < ?;
 DELETE FROM chat_message_join WHERE chat_id = ? AND message_id IN ( SELECT message_id FROM chat_recoverable_message_join WHERE chat_id = ?);
@@ -8569,6 +8591,7 @@ UPDATE chat SET state = 3 WHERE state = 4
 select name from sqlite_master where sql LIKE '%_legacy%';
 UPDATE chat_message_join SET message_date = (select m.date from message m where m.ROWID = message_id) where message_date = 0;
 SELECT ROWID, id FROM handle
+UPDATE chat SET state = 3 WHERE state = 4 AND (style = 43 OR is_filtered = 0)
 IMDMessageRecordCloudKitStatisticTotalMessageCountKey
 IMDMessageRecordCloudKitStatisticSyncedMessageCountKey
 IMDMessageRecordCloudKitStatisticTotalChatCountKey
@@ -9665,6 +9688,7 @@ ASSERTION FAILED: %s is unexpectedly NOT nil in "%s" at line %d [%@]
 _IMDChatRecordSetProperty [%d of %d]
 Attempted to get identifier for NULL chat record: %@
 NULL chat passed to %s
+%s can only be called from the server process
 Trying to associate message [%lld] with chat [%lld]
 SQLite returned %d from IMDChatRecordAddMessageIfNeeded
 Finished remove message [%@] from chat [%@], updating the spotlight index for this chat.
@@ -9795,6 +9819,7 @@ Recently Deleted:Parts: Success in column values returned: %@
 Recently Deleted:Parts: Error in column values returned: %@
 Recently Deleted | Parts: Finished loading attributed message body for message GUID: %@
 Recently Deleted | Parts: Loading message parts metadata for chat GUID: %@
+Recently Deleted | attributedBodyPart is nil for message guid %@
 Recently Deleted | Parts: Finished loading message parts metadata for chat GUID: %@
 Recently Deleted | Will begin counting recoverable messages per chat
 Recently Deleted | Finished counting recoverable messages per chat
@@ -10884,6 +10909,7 @@ handleIMDChatRecordLoadRecoverableMessages_IPCActionWithXPCConnection:requestMes
 handleIMDChatRecordMoveMessagesToRecoverableMessage_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDChatRecordPermanentlyDeleteRecoverableMessagesInChatsWithGUIDs_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDChatRecordRecoverMessages_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
+handleIMDChatRecordResolveInconsistentGUID_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDCoreSpotlightDeleteAttachment_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDKVIntegerForKey_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
 handleIMDMessageRecordClearUnsyncedRemovedRecoverableMessages_IPCActionWithXPCConnection:requestMessage:responseMessage:completionHandler:
@@ -11242,6 +11268,7 @@ repostNotificationsFromFirstUnlockWithContext:
 requestWithIdentifier:content:trigger:
 requestWithIdentifier:content:trigger:destinations:
 resetCache
+resolveInconsistentGUIDForChatRecordWithGUID:newGUID:completionHandler:
 resourcePath
 respondsToSelector:
 retain
@@ -11767,6 +11794,7 @@ v32@0:8@"NSString"16@?<v@?@"NSArray">24
 @"NSArray"52@0:8@"NSArray"16@"NSString"24@"NSString"32@"NSString"40C48
 v44@0:8@"NSArray"16@"NSString"24C32@?<v@?@"NSArray">36
 v32@0:8@"NSArray"16@?<v@?@"NSDictionary">24
+v40@0:8@"NSString"16@"NSString"24@?<v@?B>32
 v24@0:8@"NSArray"16
 @"NSDictionary"16@0:8
 v24@0:8@"NSPredicate"16
