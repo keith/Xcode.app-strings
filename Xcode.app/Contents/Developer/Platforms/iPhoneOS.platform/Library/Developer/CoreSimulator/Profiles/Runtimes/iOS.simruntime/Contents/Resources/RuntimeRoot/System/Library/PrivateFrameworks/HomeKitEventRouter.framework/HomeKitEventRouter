@@ -12,6 +12,9 @@ settings
 updated
 :memory:
 HMELastEventStore
+pragma journal_mode;
+pragma integrity_check;
+pragma journal_mode=wal;
 PRAGMA cache_size = %@;
 CREATE TABLE IF NOT EXISTS eventstore (id integer primary key autoincrement, key string not null unique, value blob not null, m_source string not null, m_timestamp double not null, m_cachepolicy integer not null, m_combinetype not null, m_qos integer not null);
 CREATE INDEX IF NOT EXISTS eventstore_key_index on eventstore (key);
@@ -68,6 +71,12 @@ Added topic filter %@
 Removed topic filter %@
 Starting up last event store
 Unable to open in memory sqlite DB
+Unable to read journal_mode %@
+Integrity check failed %@
+Recreating database on integrity check failure.
+Restart after DB removal.
+Setting WAL failed %@
+Successfully set WAL Mode.
 Unable to set hme sqlite cache size to %@, %@
 Unable to open in memory sqlite DB %@
 Unable to create index %@
@@ -87,7 +96,10 @@ Error executing insert statement topic: %@, error: %@
 Saved event for topic: %@
 Unrecognized cache policy, will not cache. %@
 Processed save request for topic: %@, didChange: %@
+journal mode %@
+Have integrity errors %@
 Not processing events when not active
+Went inactive
 Forwarding received event for topic %@
 Processing received cached events %ld
 Processing received cached events %@
@@ -233,27 +245,29 @@ _rawCombineType
 T@"<HMEMessageDatagramServerDataSource>",W,V_dataSource
 _source
 T@"<HMEPersistentConnectionClientDelegate>",W
-connectionRetryIntervalProvider
+addTopicFilters
 T@"<HMEPersistentConnectionServerDelegate>",W,V_delegate
-copyTo:
+containsObject:
 T@"<HMESynchronousSubscriptionProviding>",R,V_subscriptionProvider
-initWithEvents:
+dealloc
 T@"<HMETimer>",&,N,V_dormantFetchTimer
-keepAliveConnection:completion:
+isProxy
 T@"<HMETimer>",&,V_connectionDebounceTimer
-pbEvent
+lowercaseString
 T@"<HMETimerIntervalProvider>",R,V_connectionRetryIntervalProvider
+pbEvent
 T@"<HMETopicRouterDelegate>",R,W,V_delegate
-resetEventStore
 T@"HMEEventMetadata",R,V_eventMetadata
-server:expandedTopicsForTopics:
+release
 T@"HMEPendingEventsCollection",R,N,V_pendingEventItems
-setCachePolicy:
+sendUpdatedEvents:toConnection:
 T@"HMEProtoEvent",&,N,V_event
-setQos:
 T@"HMETopicRouter",R,V_topicRouter
-suspend
+setIsConnected:
 T@"NSArray",R,C,N
+startup
+T@"NSData",R,C
+synchronousSubscriptionProvider
 .cxx_destruct
 _connectionMode
 T@"<HMEEventForwarder>",R,V_localEventForwarder
@@ -265,30 +279,31 @@ _rawCachePolicy
 T@"<HMEMessageDatagramClientDelegate>",W
 _rawQOS
 T@"<HMEMessageDatagramServerDelegate>",W,V_delegate
-addTopicFilters
+_useWal
 T@"<HMEPersistentConnectionServerDataSource>",W,V_dataSource
-containsObject:
+connectionRetryIntervalProvider
 T@"<HMERouterClientDelegate>",W,V_privateDelegate
-dealloc
+copyTo:
 T@"<HMETimer>",&,N,V_connectionRetryTimer
-isProxy
+initWithEvents:
 T@"<HMETimer>",&,N,V_keepAliveTimer
-numberWithBool:
+keepAliveConnection:completion:
 T@"<HMETimer>",&,V_connectionExpiryTimer
-privateDelegate
+numberWithBool:
 T@"<HMETimerProvider>",R,V_timerProvider
-release
+privateDelegate
 T@"HMEEvent",R,N,V_event
-sendUpdatedEvents:toConnection:
+readJournalMode
 T@"HMEPendingEventsCollection",R,N,V_pendingCachedEventItems
+resetEventStore
 T@"HMEPendingTopicsCombiner",R,V_pendingTopicsCombiner
-setIsConnected:
+server:expandedTopicsForTopics:
 T@"HMEProtoEventMetadata",&,N,V_eventMetadata
-startup
+setCachePolicy:
 T@"NSArray",R
-synchronousSubscriptionProvider
+setQos:
 T@"NSData",&,N,V_eventData
-T@"NSData",R,C
+suspend
 T@"NSData",R,C,N,V_eventData
 T@"NSDate",&,N,V_debounceStartTime
 T@"NSDate",&,N,V_expiry
@@ -302,6 +317,8 @@ T@"NSMutableSet",R,N,V_registeredTopics
 T@"NSObject<OS_dispatch_queue>",R,V_queue
 T@"NSString",&,N,V_source
 T@"NSString",&,N,V_topic
+T@"NSString",&,V_integrityCheckError
+T@"NSString",&,V_readJournalMode
 T@"NSString",R,C
 T@"NSString",R,C,N,V_topic
 T@"NSString",R,C,V_source
@@ -317,6 +334,7 @@ TB,N,V_hasPendingServerChangeRequest
 TB,N,V_isConnected
 TB,N,V_isWaitingForFetchConditionsWhenDormant
 TB,R,N
+TB,R,V_useWal
 TI,N,V_cachePolicy
 TI,N,V_combinePolicy
 TI,N,V_qos
@@ -357,6 +375,7 @@ _hasPendingRequest
 _hasPendingServerChangeRequest
 _identifier
 _initWithEventData:metadata:
+_integrityCheckError
 _intervalSinceReferenceDate
 _isConnected
 _isWaitingForFetchConditionsWhenDormant
@@ -370,6 +389,7 @@ _pendingTopicsCombiner
 _privateDelegate
 _qos
 _queue
+_readJournalMode
 _registeredTopics
 _registrations
 _removeTopicFilters
@@ -439,6 +459,7 @@ dateByAddingTimeInterval:
 dateWithTimeIntervalSinceNow:
 debounceStartTime
 debugDescription
+defaultManager
 delegate
 delegatingRouter:filteredTopics:forRouter:
 delegatingRouter:upstreamTopicsFor:
@@ -485,6 +506,7 @@ expandedTopicsForTopics:
 expiry
 fetchCachedEventsForTopics:completion:
 fileName
+finishedWritingToStore:
 forwardEvent:topic:completion:
 forwardingTopicsForAdditions:removals:current:indexProvider:
 forwardingTopicsForTopics:
@@ -518,6 +540,7 @@ initWithEvent:topic:
 initWithEventData:
 initWithEventData:metadata:
 initWithFileName:
+initWithFileName:useWal:
 initWithQueue:
 initWithQueue:dataSource:
 initWithQueue:dataSource:logger:
@@ -536,6 +559,7 @@ initWithSource:cachePolicy:combineType:timestamp:
 initWithSubclassedEventMetadata:
 initWithUUIDString:
 insertEventPreparedStatement
+integrityCheckError
 intersectSet:
 intervalSinceReferenceDate
 isActiveForSaving
@@ -589,6 +613,7 @@ registerSubRouter:
 registeredTopics
 registrations
 removeAllObjects
+removeItemAtPath:error:
 removeObject:
 removeObjectForKey:
 removeTopicFilters
@@ -647,12 +672,14 @@ setHasPendingRequest:
 setHasPendingServerChangeRequest:
 setHasQos:
 setHasTimestamp:
+setIntegrityCheckError:
 setIsWaitingForFetchConditionsWhenDormant:
 setKeepAliveTimer:
 setMutableEventItems:
 setObject:forKey:
 setObject:forKeyedSubscript:
 setPrivateDelegate:
+setReadJournalMode:
 setRemoveTopicFilters:
 setSource:
 setTimestamp:
@@ -690,7 +717,9 @@ unregisterSubRouter:
 updateConnectionMode:completion:
 updateDormantFetchCondition:completion:
 upstreamTopicsForTopic:
+useWal
 weakToStrongObjectsMapTable
+willWriteToStore
 writeTo:
 writer:saveEvent:topic:
 writer:saveEventIfAllowed:topic:
@@ -731,6 +760,7 @@ v24@0:8@"NSString"16
 @32@0:8@16d24
 v24@0:8d16
 @"NSDictionary"32@0:8@"NSArray"16d24
+@28@0:8@16B24
 ^{sqlite3=}
 ^{sqlite3_stmt=}
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
@@ -750,6 +780,7 @@ v40@0:8@"<HMEEventConsumer>"16@"NSArray"24@?<v@?@"NSError">32
 @48@0:8@16@24@32@40
 @40@0:8@16@24@32
 B32@0:8@16@24
+v24@0:8Q16
 @"<HMELastEventStoreReadHandle>"
 @"<HMELastEventStoreWriteHandle>"
 @"NSObject<OS_dispatch_queue>"
@@ -813,6 +844,9 @@ settings
 updated
 :memory:
 HMELastEventStore
+pragma journal_mode;
+pragma integrity_check;
+pragma journal_mode=wal;
 PRAGMA cache_size = %@;
 CREATE TABLE IF NOT EXISTS eventstore (id integer primary key autoincrement, key string not null unique, value blob not null, m_source string not null, m_timestamp double not null, m_cachepolicy integer not null, m_combinetype not null, m_qos integer not null);
 CREATE INDEX IF NOT EXISTS eventstore_key_index on eventstore (key);
@@ -869,6 +903,12 @@ Added topic filter %@
 Removed topic filter %@
 Starting up last event store
 Unable to open in memory sqlite DB
+Unable to read journal_mode %@
+Integrity check failed %@
+Recreating database on integrity check failure.
+Restart after DB removal.
+Setting WAL failed %@
+Successfully set WAL Mode.
 Unable to set hme sqlite cache size to %@, %@
 Unable to open in memory sqlite DB %@
 Unable to create index %@
@@ -888,7 +928,10 @@ Error executing insert statement topic: %@, error: %@
 Saved event for topic: %@
 Unrecognized cache policy, will not cache. %@
 Processed save request for topic: %@, didChange: %@
+journal mode %@
+Have integrity errors %@
 Not processing events when not active
+Went inactive
 Forwarding received event for topic %@
 Processing received cached events %ld
 Processing received cached events %@
@@ -1034,27 +1077,29 @@ _rawCombineType
 T@"<HMEMessageDatagramServerDataSource>",W,V_dataSource
 _source
 T@"<HMEPersistentConnectionClientDelegate>",W
-connectionRetryIntervalProvider
+addTopicFilters
 T@"<HMEPersistentConnectionServerDelegate>",W,V_delegate
-copyTo:
+containsObject:
 T@"<HMESynchronousSubscriptionProviding>",R,V_subscriptionProvider
-initWithEvents:
+dealloc
 T@"<HMETimer>",&,N,V_dormantFetchTimer
-keepAliveConnection:completion:
+isProxy
 T@"<HMETimer>",&,V_connectionDebounceTimer
-pbEvent
+lowercaseString
 T@"<HMETimerIntervalProvider>",R,V_connectionRetryIntervalProvider
+pbEvent
 T@"<HMETopicRouterDelegate>",R,W,V_delegate
-resetEventStore
 T@"HMEEventMetadata",R,V_eventMetadata
-server:expandedTopicsForTopics:
+release
 T@"HMEPendingEventsCollection",R,N,V_pendingEventItems
-setCachePolicy:
+sendUpdatedEvents:toConnection:
 T@"HMEProtoEvent",&,N,V_event
-setQos:
 T@"HMETopicRouter",R,V_topicRouter
-suspend
+setIsConnected:
 T@"NSArray",R,C,N
+startup
+T@"NSData",R,C
+synchronousSubscriptionProvider
 .cxx_destruct
 _connectionMode
 T@"<HMEEventForwarder>",R,V_localEventForwarder
@@ -1066,30 +1111,31 @@ _rawCachePolicy
 T@"<HMEMessageDatagramClientDelegate>",W
 _rawQOS
 T@"<HMEMessageDatagramServerDelegate>",W,V_delegate
-addTopicFilters
+_useWal
 T@"<HMEPersistentConnectionServerDataSource>",W,V_dataSource
-containsObject:
+connectionRetryIntervalProvider
 T@"<HMERouterClientDelegate>",W,V_privateDelegate
-dealloc
+copyTo:
 T@"<HMETimer>",&,N,V_connectionRetryTimer
-isProxy
+initWithEvents:
 T@"<HMETimer>",&,N,V_keepAliveTimer
-numberWithBool:
+keepAliveConnection:completion:
 T@"<HMETimer>",&,V_connectionExpiryTimer
-privateDelegate
+numberWithBool:
 T@"<HMETimerProvider>",R,V_timerProvider
-release
+privateDelegate
 T@"HMEEvent",R,N,V_event
-sendUpdatedEvents:toConnection:
+readJournalMode
 T@"HMEPendingEventsCollection",R,N,V_pendingCachedEventItems
+resetEventStore
 T@"HMEPendingTopicsCombiner",R,V_pendingTopicsCombiner
-setIsConnected:
+server:expandedTopicsForTopics:
 T@"HMEProtoEventMetadata",&,N,V_eventMetadata
-startup
+setCachePolicy:
 T@"NSArray",R
-synchronousSubscriptionProvider
+setQos:
 T@"NSData",&,N,V_eventData
-T@"NSData",R,C
+suspend
 T@"NSData",R,C,N,V_eventData
 T@"NSDate",&,N,V_debounceStartTime
 T@"NSDate",&,N,V_expiry
@@ -1103,6 +1149,8 @@ T@"NSMutableSet",R,N,V_registeredTopics
 T@"NSObject<OS_dispatch_queue>",R,V_queue
 T@"NSString",&,N,V_source
 T@"NSString",&,N,V_topic
+T@"NSString",&,V_integrityCheckError
+T@"NSString",&,V_readJournalMode
 T@"NSString",R,C
 T@"NSString",R,C,N,V_topic
 T@"NSString",R,C,V_source
@@ -1118,6 +1166,7 @@ TB,N,V_hasPendingServerChangeRequest
 TB,N,V_isConnected
 TB,N,V_isWaitingForFetchConditionsWhenDormant
 TB,R,N
+TB,R,V_useWal
 TI,N,V_cachePolicy
 TI,N,V_combinePolicy
 TI,N,V_qos
@@ -1158,6 +1207,7 @@ _hasPendingRequest
 _hasPendingServerChangeRequest
 _identifier
 _initWithEventData:metadata:
+_integrityCheckError
 _intervalSinceReferenceDate
 _isConnected
 _isWaitingForFetchConditionsWhenDormant
@@ -1171,6 +1221,7 @@ _pendingTopicsCombiner
 _privateDelegate
 _qos
 _queue
+_readJournalMode
 _registeredTopics
 _registrations
 _removeTopicFilters
@@ -1240,6 +1291,7 @@ dateByAddingTimeInterval:
 dateWithTimeIntervalSinceNow:
 debounceStartTime
 debugDescription
+defaultManager
 delegate
 delegatingRouter:filteredTopics:forRouter:
 delegatingRouter:upstreamTopicsFor:
@@ -1286,6 +1338,7 @@ expandedTopicsForTopics:
 expiry
 fetchCachedEventsForTopics:completion:
 fileName
+finishedWritingToStore:
 forwardEvent:topic:completion:
 forwardingTopicsForAdditions:removals:current:indexProvider:
 forwardingTopicsForTopics:
@@ -1319,6 +1372,7 @@ initWithEvent:topic:
 initWithEventData:
 initWithEventData:metadata:
 initWithFileName:
+initWithFileName:useWal:
 initWithQueue:
 initWithQueue:dataSource:
 initWithQueue:dataSource:logger:
@@ -1337,6 +1391,7 @@ initWithSource:cachePolicy:combineType:timestamp:
 initWithSubclassedEventMetadata:
 initWithUUIDString:
 insertEventPreparedStatement
+integrityCheckError
 intersectSet:
 intervalSinceReferenceDate
 isActiveForSaving
@@ -1390,6 +1445,7 @@ registerSubRouter:
 registeredTopics
 registrations
 removeAllObjects
+removeItemAtPath:error:
 removeObject:
 removeObjectForKey:
 removeTopicFilters
@@ -1447,12 +1503,14 @@ setHasPendingRequest:
 setHasPendingServerChangeRequest:
 setHasQos:
 setHasTimestamp:
+setIntegrityCheckError:
 setIsWaitingForFetchConditionsWhenDormant:
 setKeepAliveTimer:
 setMutableEventItems:
 setObject:forKey:
 setObject:forKeyedSubscript:
 setPrivateDelegate:
+setReadJournalMode:
 setRemoveTopicFilters:
 setSource:
 setTimestamp:
@@ -1490,7 +1548,9 @@ unregisterSubRouter:
 updateConnectionMode:completion:
 updateDormantFetchCondition:completion:
 upstreamTopicsForTopic:
+useWal
 weakToStrongObjectsMapTable
+willWriteToStore
 writeTo:
 writer:saveEvent:topic:
 writer:saveEventIfAllowed:topic:
@@ -1531,6 +1591,7 @@ v24@0:8@"NSString"16
 @32@0:8@16d24
 v24@0:8d16
 @"NSDictionary"32@0:8@"NSArray"16d24
+@28@0:8@16B24
 ^{sqlite3=}
 ^{sqlite3_stmt=}
 {os_unfair_lock_s="_os_unfair_lock_opaque"I}
@@ -1550,6 +1611,7 @@ v40@0:8@"<HMEEventConsumer>"16@"NSArray"24@?<v@?@"NSError">32
 @48@0:8@16@24@32@40
 @40@0:8@16@24@32
 B32@0:8@16@24
+v24@0:8Q16
 @"<HMELastEventStoreReadHandle>"
 @"<HMELastEventStoreWriteHandle>"
 @"NSObject<OS_dispatch_queue>"
