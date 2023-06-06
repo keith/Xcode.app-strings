@@ -1,5 +1,5 @@
-@(#)PROGRAM:leaks  PROJECT:SamplingTools-64559.77
-DYLD_INSERT_LIBRARIES=
+@(#)PROGRAM:leaks  PROJECT:SamplingTools-64561.64
+ADYLD_INSERT_LIBRARIES=
 MallocStackLogging=
 MbP?
 com.apple.instruments.dtservicehub
@@ -39,10 +39,8 @@ displayStrings.count == exactMatchableStrings.count
 %@ matching %@
 Q16@?0@"NSArray"8
 Found no matches for %s
-Q16@?0r*8
 remoteDevicePromptUserForChoice_block_invoke
 terminatingNewlinePtr
-@"NSString"16@?0Q8
 remoteDevicePromptUserForChoice_block_invoke_2
 input > 0
 remoteDevicePromptUserForChoice
@@ -84,6 +82,8 @@ MallocStackLogging=lite
 %s[%d]: [fatal] Couldn't get task port for pid %u immediately after launch
 %s[%d]: Unable to deallocate target task port: %d (%s)
 %s[%d]: [fatal] Couldn't get task port for pid %u after receiving STOP signal
+%s[%d]: [fatal] Expected to get a VMUTask of type task.
+v16@?0@"DVT_VMUTask"8
 SAMPLING_TOOLS_TARGET_PID
 %s[%d]: [fatal] error acquiring target task port from parent.
 %s[%d]: %s cannot find any existing process %s a name like '%s'%s.
@@ -92,8 +92,9 @@ with
 ; try running with `sudo`
 %s[%d]: cannot examine itself.
 %s[%d]: [fatal] Target task not available for analysis
-v12@?0i8
 %s[%d]: [fatal] %s kept pid %u suspended for too long - exiting to prevent watchdog timer from killing that process.
+%s[%d]: [fatal] %s analysis of pid %u reached time limit of %llu seconds, exiting.
+v16@?0i8B12
 SAMPLING_TOOLS_ALL_PROCESSES
 Target process is using %s so not generating corpse for better performance.
 Target process is an ancestor and permitting live process for ancestors so not generating a corpse to save resources by default.
@@ -102,7 +103,7 @@ i24@?0r^v8r^v16
 %s-%d-%s
 DT_RESPAWN_FOR_NONNATIVE
 %s/%s[%d]-allProcesses.XXXXXX
-%s[%d]: [fatal] Couldn't create output directory from template %s, exiting
+%s[%d]: [fatal] Couldn't create output directory from template %s, %s. Exiting
 %s[%d]: [fatal] Couldn't change directory to %s
 stderr.txt
 Couldn't create error file stderr.txt (%s)
@@ -144,7 +145,7 @@ generated corpse for pid %u
 Failed to generate corpse from the process: %d (%s)
 %s[%d]: [fatal] %s, exiting
 %s[%d]: %s - examining live process instead
-BOOL _respawnToolIfNecessaryWithExitStatus(pid_t, task_read_t, VMURespawnToolOptions, int *)
+BOOL _respawnToolIfNecessaryVMUTaskWithExitStatus(DVT_VMUTask * _Nullable __strong, VMURespawnToolOptions, int *)
 Only one of kVMURespawnForAllProcesses and kVMURespawnForAllNonNativeProcesses can be set
 DYLD_ROOT_PATH
 SIMULATOR_UDID
@@ -167,7 +168,7 @@ posix_spawnattr_setbinpref_np
 -atExit
 %s[%d]: [fatal] posix_spawn: %s could not be launched as a %d-bit process with architecture %s: %s (%d)
 %s[%d]: [fatal] waitpid: %s
-_respawnToolIfNecessaryWithExitStatus_block_invoke
+_respawnToolIfNecessaryVMUTaskWithExitStatus_block_invoke
 sharedCode.m
 WIFSIGNALED(child_status)
 Child `%s` process died with signal %d %s
@@ -310,6 +311,8 @@ use LZFSE compression
 device
 device name
 Use Remote Service Discovery to analyze processes on an embedded device
+timeLimit
+time in seconds to allow for leaks analysis; 0 means no time limit
 Cannot pass pid, process-name, or memgraph ('%@'), with '--atExit -- <command>'
 unknown argument: %@
 '--symbolicate' can only be combined with '--outputGraph' flag
@@ -332,7 +335,7 @@ No '--outputGraph' path specified. Flag '--fullStackHistory' can only be used wh
 /tmp
 %s[%d]: [fatal] target process no longer exists; abandoning...
 Cannot use '--device' and '--symbolicate' together
-void checkForLeaks(pid_t, task_read_t)
+void checkForLeaks(DVT_VMUTask *__strong)
 leaks.m
 Expected leaksGlobals.outputFile to be a valid FILE*
 leaks
@@ -535,6 +538,7 @@ TB,N,V_rateLimit
 stringByAppendingPathExtension:
 TB,N,V_referenceTreeShowRegionVirtualSize
 valueForEnvVar:
+TB,N,V_resymbolicateAll
 .cxx_destruct
 T@"NSError",&,N,V_argumentError
 T@"DVT_VMUDebugTimer",&,N,V_debugTimer
@@ -575,7 +579,7 @@ stringByAppendingPathComponent:
 TB,N,V_referenceTreeMode
 stringByResolvingSymlinksInPath
 TB,N,V_remoteDeviceMode
-TB,N,V_resymbolicateAll
+vmuTask
 TB,N,V_showBinaryContents
 TB,N,V_showLeakedVMregions
 TB,N,V_showListOfLeaks
@@ -595,6 +599,7 @@ TI,N,V_autoreleasePoolsExtraReleasesCount
 TI,N,V_objectContentLevel
 TQ,N,V_desiredAddress
 TQ,N,V_maxInterior
+TQ,N,V_timeLimitInSeconds
 T^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sbuf=*i}iq},N,V_outputFile
 Ti,N,V_nonIPSMemgraphCount
 Ti,N,V_returnCode
@@ -653,6 +658,7 @@ _showRawClassNames
 _showResymbolicationDetails
 _showStacks
 _targetIsAncestor
+_timeLimitInSeconds
 _traceMode
 _traceTree
 _useLZFSEcompression
@@ -707,8 +713,10 @@ copy
 corpseWasGenerated
 count
 countByEnumeratingWithState:objects:count:
+createDirectoryAtPath:withIntermediateDirectories:attributes:error:
 createFileAtPath:contents:attributes:
 createMapForMinusGraph:
+createSymbolicatorWithFlags:andNotification:
 currentHandler
 dataWithContentsOfFile:options:error:
 dataWithData:
@@ -756,6 +764,7 @@ forkCorpse
 fullIvarNameAtOffset:
 fullStacks
 getLeafFieldAtOffset:leafOffset:
+getPlatform:
 graph
 groupByType
 handleFailureInFunction:file:lineNumber:description:
@@ -764,6 +773,7 @@ hasSuffix:
 infoType
 init
 initWithConnectedSocket:disconnectAction:
+initWithCorePath:
 initWithFileDescriptor:closeOnDealloc:
 initWithPattern:forArgument:error:
 initWithPid:
@@ -771,11 +781,11 @@ initWithPlistRepresentation:
 initWithSymbolicator:sampler:options:
 initWithTask:
 initWithTask:getBinariesList:
-initWithTask:graph:scanner:stackLogReader:
-initWithTask:options:
 initWithTask:symbolicator:
 initWithTransport:
 initWithUUIDBytes:
+initWithVMUTask:graph:scanner:stackLogReader:
+initWithVMUTask:options:
 inputGraphData
 inputGraphPath
 insertString:atIndex:
@@ -785,10 +795,14 @@ invertEdges
 invertedGraph
 invertedNode
 ipsIncidentID
+isCore
 isEqualToString:
 isExecutableFileAtPath:
 isSemiCriticalProcess
+isSemiCriticalProcessWithNoTimeLimit
+isSimulator
 isSubmap
+isTranslated
 lastPathComponent
 leakedNodesGraph
 length
@@ -801,6 +815,7 @@ markReachableNodesFromRoots:inMap:
 markReachableNodesFromRoots:inMap:options:
 matchesNodeDetails:orNodeDescription:
 maxInterior
+memoryCache
 messageWithSelector:objectArguments:
 messageWithSelector:typesAndArguments:
 moveItemAtPath:toPath:error:
@@ -843,6 +858,7 @@ preGenerationGraphData
 preGenerationGraphPath
 printCallTreeToFile:
 printCallTreeToFile:cumulativeOutput:options:
+processDescription
 processDescriptionString
 processInfo
 processName
@@ -956,6 +972,7 @@ setShowStacks:
 setSuppressOutput:
 setSyntaxDescription:
 setTargetIsAncestor:
+setTimeLimitInSeconds:
 setTraceMode:
 setTraceTree:
 setUseLZFSEcompression:
@@ -1001,7 +1018,10 @@ symbolicatedBacktraceForNode:nodeDetails:isLiteZone:options:
 symbolicationMode
 targetIsAncestor
 task
+taskPort
+taskType
 threadNameForAddress:
+timeLimitInSeconds
 traceMode
 traceTree
 truncateFileAtOffset:
@@ -1035,10 +1055,12 @@ examining %@ [%u]
 [fatal] Unable to launch --atExit command '%s': %s
 [fatal] Couldn't get task port for pid %u immediately after launch
 [fatal] Couldn't get task port for pid %u after receiving STOP signal
+[fatal] Expected to get a VMUTask of type task.
 [fatal] error acquiring target task port from parent.
 [fatal] Target task not available for analysis
 [fatal] %s kept pid %u suspended for too long - exiting to prevent watchdog timer from killing that process.
-[fatal] Couldn't create output directory from template %s, exiting
+[fatal] %s analysis of pid %u reached time limit of %llu seconds, exiting.
+[fatal] Couldn't create output directory from template %s, %s. Exiting
 [fatal] Couldn't change directory to %s
 [fatal] Failed to get DYLD info for %s with error %s (%d). Assuming it's a minimal corpse which can't be analyzed, which we sometimes see for processes which use a lot of memory.
 [fatal] %s, exiting
@@ -1103,8 +1125,8 @@ v16@0:8
 @"DVT_VMUClassPatternMatcher"
 ^{__sFILE=*iiss{__sbuf=*i}i^v^?^?^?^?{__sbuf=*i}^{__sFILEX}i[3C][1C]{__sbuf=*i}iq}
 @"NSArray"
-I44@0:8I16@20@28@36
-@44@0:8I16@20@28@36
+I48@0:8@16@24@32@40
+@48@0:8@16@24@32@40
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1128,20 +1150,20 @@ I44@0:8I16@20@28@36
 <key>DTCompiler</key>
 <string>com.apple.compilers.llvm.clang.1_0</string>
 <key>DTPlatformBuild</key>
-<string>22E211</string>
+<string>23A242a</string>
 <key>DTPlatformName</key>
 <string>macosx</string>
 <key>DTPlatformVersion</key>
-<string>13.3</string>
+<string>14.0</string>
 <key>DTSDKBuild</key>
-<string>22E211</string>
+<string>23A242a</string>
 <key>DTSDKName</key>
-<string>macosx13.3.internal</string>
+<string>macosx14.0.internal</string>
 <key>DTXcode</key>
-<string>1431</string>
+<string>1500</string>
 <key>DTXcodeBuild</key>
-<string>14E300</string>
+<string>15A5160i</string>
 <key>LSMinimumSystemVersion</key>
-<string>12.0</string>
+<string>13.0</string>
 </dict>
 </plist>
