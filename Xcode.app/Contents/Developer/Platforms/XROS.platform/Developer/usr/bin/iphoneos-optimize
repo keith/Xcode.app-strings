@@ -1,0 +1,76 @@
+#!/usr/bin/perl
+use warnings;
+use strict;
+use File::Find;
+use File::Spec::Functions qw(rel2abs);
+use File::Basename;
+use Cwd;
+my $dir = dirname(rel2abs($0));
+my $SCRIPT_NAME   = "iphoneos-optimize";
+my $PNGCRUSH_NAME = "pngcrush";
+my $PNGCRUSH      = "$dir/$PNGCRUSH_NAME";
+my ( $skipPNGs, $stripPNGText, $optimizeStrings, $path ) = parseArgs(@ARGV);
+my $dstroot = Cwd::realpath( $path );
+print "$SCRIPT_NAME: Converting plists to binary in $dstroot\n";
+find( { wanted => \&optimizePlists }, $dstroot );
+exit(0) if $skipPNGs;
+printf "$SCRIPT_NAME: Optimizing PNGs in $dstroot%s\n", ($stripPNGText ? " and removing text chunks" : "");
+find( { wanted => \&optimizePNGs }, $dstroot );
+sub optimizePlists {
+    my $name = $File::Find::name;
+    my $isPlist = ( $name =~ /\.plist$/i );
+    my $isStrings = ( $name =~ /\.strings$/i || $name =~ /\.stringsdict$/i );
+    my $isCompressibleStrings = ( $optimizeStrings && $isStrings && -s $name > 2 );
+    
+    if ( -f $name && ( $isPlist || $isCompressibleStrings )) {
+        my @args = ( "plutil", "-convert", "binary1", $name );
+        if (system(@args) != 0) {
+            print STDERR "$SCRIPT_NAME: Unable to convert $name to a binary plist!\n";
+            return;
+        }
+        print "$SCRIPT_NAME: Converted to binary plist: $name\n";
+    }
+sub optimizePNGs {
+    my $name = $File::Find::name;
+    if ( -f $name && $name =~ /^(.*)\.png$/i) {
+        my $crushedname = "$1-pngcrush.png";
+        
+        my @args = ( $PNGCRUSH, "-q", "-iphone", "-f", "0" );
+        if ( $stripPNGText ) {
+             push ( @args, "-rem", "text" );
+        }
+        push ( @args, $name, $crushedname );
+        
+        if (system(@args) != 0) {
+            print STDERR "$SCRIPT_NAME: Unable to convert $name to an optimized png!\n";
+            return;
+        }
+        unlink $name or die "Unable to delete original file: $name";
+        rename($crushedname, $name) or die "Unable to rename $crushedname to $name";
+        print "$SCRIPT_NAME: Optimized PNG: $name\n";
+    }
+sub parseArgs {
+    my %argsHash;
+    @argsHash{@_} = ();
+    
+    my ( $skipPNGs, $stripPNGText, $optimizeStrings ) = ( 0, 0, 0 );
+    my @args = ( "-skip-PNGs", "-strip-PNG-text", "-optimize-strings" );
+    
+    foreach ( @args ) {
+        my $arg = $_;
+        if ( exists( $argsHash{$arg} )) {
+            delete( $argsHash{$arg} );
+            
+            for ( $arg ) {
+                /-skip-PNGs/        and do {$skipPNGs = 1;       last;};
+                /-strip-PNG-text/   and do {$stripPNGText = 1;   last;};
+                /-optimize-strings/ and do {$optimizeStrings= 1; last;};
+            }
+        }
+    }
+    if ( keys %argsHash != 1 ) {
+        print STDERR "usage: $SCRIPT_NAME [-skip-PNGs] [-strip-PNG-text] [-optimize-strings] path\n";
+        exit 1;
+    }
+    
+    return ( $skipPNGs, $stripPNGText, $optimizeStrings, (keys %argsHash)[0] );
