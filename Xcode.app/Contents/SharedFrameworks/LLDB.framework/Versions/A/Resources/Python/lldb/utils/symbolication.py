@@ -353,6 +353,8 @@ class Image:
             return "error: no section infos"
     def add_module(self, target, obj_dir=None):
         """Add the Image described in this object to "target" and load the sections if "load" is True."""
+        if not self.path and self.uuid == uuid.UUID(int=0):
+            return "error: invalid image"
         if target:
             # Try and find using UUID only first so that paths need not match
             # up
@@ -451,7 +453,7 @@ class Image:
             )
         return None
 class Symbolicator:
-    def __init__(self, debugger=None, target=None, images=list()):
+    def __init__(self, debugger=None, target=None, images=None):
         """A class the represents the information needed to symbolicate
         addresses in a program.
         Do not call this initializer directly, but rather use the factory
@@ -459,7 +461,8 @@ class Symbolicator:
         """
         self.debugger = debugger
         self.target = target
-        self.images = images  # a list of images to be used when symbolicating
+        # a list of images to be used when symbolicating
+        self.images = images if images else list()
         self.addr_mask = 0xFFFFFFFFFFFFFFFF
     @classmethod
     def InitWithSBTarget(cls, target):
